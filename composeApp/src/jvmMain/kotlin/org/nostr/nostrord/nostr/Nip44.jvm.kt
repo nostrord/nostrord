@@ -38,7 +38,6 @@ actual object Nip44 {
     actual fun decrypt(ciphertext: String, privateKeyHex: String, pubKeyHex: String): String {
         val data = Base64.getDecoder().decode(ciphertext)
         
-        println("   NIP-44 decrypt: data size = ${data.size}")
         
         if (data.size < 99) {
             throw IllegalArgumentException("Ciphertext too short: ${data.size} bytes")
@@ -53,18 +52,13 @@ actual object Nip44 {
         val ciphertextBytes = data.copyOfRange(33, data.size - 32)
         val mac = data.copyOfRange(data.size - 32, data.size)
         
-        println("   Nonce: ${nonce.toHexString().take(16)}...")
-        println("   Ciphertext size: ${ciphertextBytes.size}")
         
         val conversationKey = getConversationKey(privateKeyHex, pubKeyHex)
-        println("   Conversation key: ${conversationKey.toHexString().take(16)}...")
         
         val messageKeys = getMessageKeys(conversationKey, nonce)
         
         // Verify MAC: HMAC-SHA256(hmac_key, nonce || ciphertext)
         val expectedMac = hmacAad(messageKeys.hmacKey, ciphertextBytes, nonce)
-        println("   Expected MAC: ${expectedMac.toHexString().take(16)}...")
-        println("   Received MAC: ${mac.toHexString().take(16)}...")
         
         if (!mac.contentEquals(expectedMac)) {
             throw IllegalArgumentException("Invalid MAC")
@@ -88,12 +82,10 @@ actual object Nip44 {
                 // Extract x-coordinate (skip the 02/03 prefix byte)
                 val sharedX = sharedPoint.copyOfRange(1, 33)
                 
-                println("   Shared X (${prefix}): ${sharedX.toHexString().take(16)}...")
                 
                 // NIP-44: conversation_key = HKDF-Extract(salt="nip44-v2", ikm=shared_x)
                 return hkdfExtract("nip44-v2".toByteArray(), sharedX)
             } catch (e: Exception) {
-                println("   pubKeyTweakMul failed with prefix $prefix: ${e.message}")
                 continue
             }
         }

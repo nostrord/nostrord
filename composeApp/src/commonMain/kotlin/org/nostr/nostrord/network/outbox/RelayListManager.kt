@@ -91,7 +91,6 @@ class RelayListManager(
         cacheMutex.withLock {
             relayListCache[pubkey]?.let { cached ->
                 if (!cached.isExpired(epochMillis())) {
-                    println("📋 Relay list cache hit for ${pubkey.take(8)}")
                     return cached.relays
                 }
             }
@@ -109,7 +108,6 @@ class RelayListManager(
 
         if (!shouldFetch) {
             // Wait for existing fetch to complete
-            println("⏳ Waiting for pending relay list fetch for ${pubkey.take(8)}")
             kotlinx.coroutines.delay(500)
             return cacheMutex.withLock {
                 relayListCache[pubkey]?.relays ?: emptyList()
@@ -134,7 +132,6 @@ class RelayListManager(
      * Fetch relay list from bootstrap relays (parallel, returns first success)
      */
     private suspend fun fetchRelayListFromBootstrap(pubkey: String): List<Nip65Relay> {
-        println("🔍 Fetching relay list for ${pubkey.take(8)} from bootstrap relays (parallel)")
 
         // Fetch from all bootstrap relays in parallel
         val results = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
@@ -144,7 +141,6 @@ class RelayListManager(
                         try {
                             fetchFromRelay(relayUrl, pubkey)
                         } catch (e: Exception) {
-                            println("⚠️ Failed to fetch from $relayUrl: ${e.message}")
                             emptyList()
                         }
                     }
@@ -154,7 +150,6 @@ class RelayListManager(
                 for (d in deferred) {
                     val result = d.await()
                     if (result.isNotEmpty()) {
-                        println("✅ Found relay list for ${pubkey.take(8)}: ${result.size} relays")
                         return@coroutineScope result
                     }
                 }
@@ -163,7 +158,6 @@ class RelayListManager(
         } ?: emptyList()
 
         if (results.isEmpty()) {
-            println("ℹ️ No relay list found for ${pubkey.take(8)}, will use fallback")
         }
         return results
     }
@@ -272,7 +266,6 @@ class RelayListManager(
      */
     private suspend fun getRelayConnection(relayUrl: String): NostrGroupClient? {
         val provider = _connectionProvider ?: run {
-            println("⚠️ No connection provider set for RelayListManager")
             return null
         }
         return provider(relayUrl)
@@ -297,7 +290,6 @@ class RelayListManager(
         }
 
         relayListCache[pubkey] = cached
-        println("💾 Cached relay list for ${pubkey.take(8)}: ${relays.size} relays")
     }
 
     /**
@@ -309,10 +301,8 @@ class RelayListManager(
         val writeRelays = authorRelays.filter { it.write }.map { it.url }
 
         return if (writeRelays.isNotEmpty()) {
-            println("📤 Using ${writeRelays.size} WRITE relays for ${authorPubkey.take(8)}")
             writeRelays + bootstrapRelays // Add bootstrap as fallback
         } else {
-            println("ℹ️ No WRITE relays for ${authorPubkey.take(8)}, using bootstrap")
             bootstrapRelays
         }
     }
@@ -325,10 +315,8 @@ class RelayListManager(
         val writeRelays = _myRelayList.value.filter { it.write }.map { it.url }
 
         return if (writeRelays.isNotEmpty()) {
-            println("📤 Publishing to ${writeRelays.size} WRITE relays")
             writeRelays
         } else {
-            println("ℹ️ No WRITE relays configured, using bootstrap")
             bootstrapRelays
         }
     }
@@ -347,10 +335,8 @@ class RelayListManager(
         val readRelays = relays.filter { it.read }.map { it.url }
 
         return if (readRelays.isNotEmpty()) {
-            println("📥 Using ${readRelays.size} READ relays for ${pubkey.take(8)}")
             readRelays + bootstrapRelays
         } else {
-            println("ℹ️ No READ relays for ${pubkey.take(8)}, using bootstrap")
             bootstrapRelays
         }
     }

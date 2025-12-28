@@ -39,7 +39,6 @@ fun App() {
         withTimeoutOrNull(30000) {
             NostrRepository.initialize()
         } ?: run {
-            println("⚠️ Initialization timeout - forcing completion")
             // Force initialization to complete so the app is usable
             NostrRepository.forceInitialized()
         }

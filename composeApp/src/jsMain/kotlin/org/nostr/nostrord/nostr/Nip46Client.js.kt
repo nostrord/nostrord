@@ -35,11 +35,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         this.remoteSignerPubkey = remoteSignerPubkey
         this.connectionSecret = secret
         
-        println("🔐 NIP-46 Connect attempt:")
-        println("   Remote signer pubkey: $remoteSignerPubkey")
-        println("   Relays: $relays")
-        println("   Secret: ${secret?.take(8) ?: "none"}...")
-        println("   Client pubkey: ${clientKeyPair.publicKeyHex}")
         
         for (relayUrl in relays) {
             try {
@@ -48,9 +43,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                 client.connect { msg -> handleMessage(msg) }
                 client.waitForConnection()
                 relayClients.add(client)
-                println("✅ Connected to bunker relay: $cleanUrl")
             } catch (e: Exception) {
-                println("⚠️ Failed to connect to bunker relay $relayUrl: ${e.message}")
             }
         }
         
@@ -70,7 +63,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             throw Exception("Connect failed: unexpected response '$response'")
         }
 
-        println("✅ NIP-46 connect successful")
         return remoteSignerPubkey
     }
 
@@ -78,7 +70,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         val requestId = generateRequestId()
         val response = sendRequest(requestId, "get_public_key", emptyList())
         userPubkey = response
-        println("✅ Got user public key: ${response.take(16)}...")
         return response
     }
 
@@ -100,7 +91,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             putJsonArray("params") { params.forEach { add(it) } }
         }.toString()
 
-        println("📤 NIP-46 Request: $method")
 
         val encryptedContent = Nip44.encrypt(
             plaintext = requestJson,
@@ -194,11 +184,9 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                     
                     deferred.complete(result ?: "")
                 } catch (e: Exception) {
-                    println("⚠️ Could not decrypt: ${e.message}")
                 }
             }
         } catch (e: Exception) {
-            println("⚠️ Error handling message: ${e.message}")
         }
     }
 

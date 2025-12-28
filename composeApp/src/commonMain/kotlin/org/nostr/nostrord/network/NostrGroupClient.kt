@@ -71,7 +71,6 @@ class NostrGroupClient(
             try {
                 client.webSocket(relayUrl) {
                     session = this
-                    println("✅ Connected to $relayUrl")
                     
                     // Signal that connection is ready
                     connectionReady.trySend(Unit)
@@ -82,7 +81,6 @@ class NostrGroupClient(
                             val text = frame.readText()
                             
                             // Pretty print for debugging
-                            println(prettyPrintEvent(text))
                             
                             // Pass to handler
                             onMessage(text)
@@ -90,9 +88,7 @@ class NostrGroupClient(
                     }
                 }
             } catch (e: Exception) {
-                println("❌ Connection error: ${e.message}")
             } finally {
-                println("🔌 Disconnected from $relayUrl")
                 session = null
             }
         }
@@ -103,7 +99,6 @@ class NostrGroupClient(
             connectionReady.receive()
             true
         } ?: run {
-            println("⚠️ Connection timeout after ${timeoutMs}ms")
             false
         }
     }
@@ -111,19 +106,15 @@ class NostrGroupClient(
     suspend fun send(message: String) {
         try {
             val currentSession = session ?: run {
-                println("⚠️ Cannot send - WebSocket not connected")
                 return
             }
             currentSession.send(Frame.Text(message))
-            println("📤 Sent: $message")
         } catch (e: Exception) {
-            println("❌ Failed to send: ${e.message}")
         }
     }
 
     suspend fun sendAuth(privateKeyHex: String) {
         // TODO: Implement proper AUTH if needed by the relay
-        println("🔑 Auth with key: ${privateKeyHex.take(8)}...")
     }
 
     suspend fun requestGroups() {
@@ -136,7 +127,6 @@ class NostrGroupClient(
                 }
             )
         }
-        println("📤 Requesting groups: $req")
         sendJson(req)
     }
 
@@ -164,17 +154,14 @@ suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
     }.toString()
     
     send(subscription)
-    println("📥 Requesting messages for group: $groupId${if (channel != null && channel != "general") ", channel: $channel" else " (general/no channel tag)"}")
 }
 
     private suspend fun sendJson(jsonElement: JsonElement) {
         val currentSession = session ?: run {
-            println("⚠️ Cannot send - WebSocket not connected")
             return
         }
         val text = json.encodeToString(JsonElement.serializer(), jsonElement)
         currentSession.send(Frame.Text(text))
-        println("📨 Sent: $text")
     }
 
     fun parseGroupMetadata(message: String): GroupMetadata? {
@@ -198,7 +185,6 @@ suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
                 isOpen = tagMap.containsKey("open")
             )
         } catch (e: Exception) {
-            println("⚠️ Failed to parse group metadata: ${e.message}")
             null
         }
     }
@@ -224,7 +210,6 @@ suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
                 nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull
             ))
         } catch (e: Exception) {
-            println("⚠️ Failed to parse user metadata: ${e.message}")
             null
         }
     }
@@ -258,7 +243,6 @@ suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
                 tags = tags  // ADICIONAR ESTA LINHA
             )
         } catch (e: Exception) {
-            println("⚠️ Failed to parse message: ${e.message}")
             null
         }
     }
@@ -327,7 +311,6 @@ suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
             })
         }
         sendJson(req)
-        println("📥 Requesting metadata for ${pubkeys.size} pubkeys")
     }
 
     suspend fun requestEventById(eventId: String) {
@@ -339,7 +322,6 @@ suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
             })
         }
         sendJson(req)
-        println("📥 Requesting event: $eventId")
     }
 
     suspend fun disconnect() {

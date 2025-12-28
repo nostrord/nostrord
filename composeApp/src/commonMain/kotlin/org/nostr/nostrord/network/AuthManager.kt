@@ -65,16 +65,13 @@ object AuthManager {
         // Check if we have an existing client key (from previous session)
         val existingClientKey = SecureStorage.getBunkerClientPrivateKey()
         val newNip46Client = if (existingClientKey != null) {
-            println("🔑 Reusing existing client keypair for bunker connection")
             Nip46Client(existingClientKey)
         } else {
-            println("🔑 Generating new client keypair for bunker connection")
             Nip46Client(null)
         }
 
         // Set up auth URL callback
         newNip46Client.onAuthUrl = { url ->
-            println("🔐 Auth URL received: $url")
             _authUrl.value = url
         }
 
@@ -87,7 +84,6 @@ object AuthManager {
         } catch (e: Exception) {
             // "already connected" means the signer remembers us - success!
             if (e.message?.contains("already connected", ignoreCase = true) == true) {
-                println("✅ Signer reports already connected - reusing session")
             } else {
                 throw e
             }
@@ -109,7 +105,6 @@ object AuthManager {
         _isBunkerConnected.value = true
         _authUrl.value = null
 
-        println("✅ Bunker login successful, user: ${userPubkey.take(16)}...")
 
         return userPubkey
     }
@@ -128,7 +123,6 @@ object AuthManager {
         SecureStorage.clearBunkerUserPubkey()
         SecureStorage.clearBunkerClientPrivateKey()
 
-        println("✅ Private key login successful")
     }
 
     /**
@@ -155,15 +149,12 @@ object AuthManager {
 
     private suspend fun restoreBunkerSession(bunkerUrl: String, savedUserPubkey: String): Boolean {
         try {
-            println("🔄 Restoring bunker session for ${savedUserPubkey.take(16)}...")
             val bunkerInfo = parseBunkerUrl(bunkerUrl)
             val savedClientPrivateKey = SecureStorage.getBunkerClientPrivateKey()
 
             val newNip46Client = if (savedClientPrivateKey != null) {
-                println("   Using saved client keypair")
                 Nip46Client(savedClientPrivateKey)
             } else {
-                println("   No saved client key, generating new")
                 Nip46Client()
             }
 
@@ -182,7 +173,6 @@ object AuthManager {
                 )
             } catch (e: Exception) {
                 if (e.message?.contains("already connected", ignoreCase = true) == true) {
-                    println("✅ Signer reports already connected")
                 } else {
                     throw e
                 }
@@ -203,15 +193,12 @@ object AuthManager {
                     SecureStorage.saveBunkerUserPubkey(actualPubkey)
                 }
             } catch (e: Exception) {
-                println("⚠️ Could not verify pubkey, using saved")
             }
 
             _isLoggedIn.value = true
-            println("✅ Bunker session restored")
             return true
 
         } catch (e: Exception) {
-            println("❌ Failed to restore bunker session: ${e.message}")
             clearBunkerCredentials()
             return false
         }
@@ -222,10 +209,8 @@ object AuthManager {
             keyPair = KeyPair.fromPrivateKeyHex(privateKeyHex)
             isBunkerLogin = false
             _isLoggedIn.value = true
-            println("✅ Private key session restored")
             true
         } catch (e: Exception) {
-            println("❌ Failed to restore private key session: ${e.message}")
             SecureStorage.clearPrivateKey()
             false
         }
@@ -246,7 +231,6 @@ object AuthManager {
         val savedClientPrivateKey = SecureStorage.getBunkerClientPrivateKey()
 
         try {
-            println("🔄 Attempting to reconnect bunker...")
             val bunkerInfo = parseBunkerUrl(savedBunkerUrl)
 
             val newNip46Client = if (savedClientPrivateKey != null) {
@@ -267,7 +251,6 @@ object AuthManager {
                 )
             } catch (e: Exception) {
                 if (e.message?.contains("already connected", ignoreCase = true) == true) {
-                    println("✅ Signer reports already connected")
                 } else {
                     throw e
                 }
@@ -280,10 +263,8 @@ object AuthManager {
                 SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
             }
 
-            println("✅ Bunker reconnected successfully")
             return true
         } catch (e: Exception) {
-            println("❌ Bunker reconnection failed: ${e.message}")
             return false
         }
     }
@@ -335,7 +316,6 @@ object AuthManager {
     }
 
     private fun handlePermissionDenied() {
-        println("🔐 Permission denied - clearing session")
         nip46Client?.disconnect()
         nip46Client = null
         _isBunkerConnected.value = false
@@ -392,7 +372,6 @@ object AuthManager {
         _isBunkerConnected.value = false
         clearBunkerCredentials()
         SecureStorage.clearBunkerClientPrivateKey()
-        println("🗑️ Bunker connection completely forgotten")
     }
 
     private fun clearBunkerCredentials() {

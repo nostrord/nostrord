@@ -101,7 +101,6 @@ actual object Nip44 {
     actual fun decrypt(ciphertext: String, privateKeyHex: String, pubKeyHex: String): String {
         val data = jsFromBase64(ciphertext)
         
-        println("   NIP-44 decrypt: data size = ${data.length}")
         
         if (data.length < 99) {
             throw IllegalArgumentException("Ciphertext too short: ${data.length} bytes")
@@ -116,11 +115,8 @@ actual object Nip44 {
         val ciphertextBytes = jsSliceArray(data, 33, data.length - 32)
         val mac = jsSliceArray(data, data.length - 32, data.length)
         
-        println("   Nonce: ${nonce.toByteArray().toHexString().take(16)}...")
-        println("   Ciphertext size: ${ciphertextBytes.length}")
         
         val conversationKey = getConversationKey(privateKeyHex, pubKeyHex)
-        println("   Conversation key: ${conversationKey.toByteArray().toHexString().take(16)}...")
         
         val messageKeys = getMessageKeys(conversationKey, nonce)
         
@@ -128,8 +124,6 @@ actual object Nip44 {
         val nonceAndCiphertext = jsConcatArrays(nonce, ciphertextBytes)
         val expectedMac = jsHmacSha256(messageKeys.hmacKey, nonceAndCiphertext)
         
-        println("   Expected MAC: ${expectedMac.toByteArray().toHexString().take(16)}...")
-        println("   Received MAC: ${mac.toByteArray().toHexString().take(16)}...")
         
         if (!jsArraysEqual(mac, expectedMac)) {
             throw IllegalArgumentException("Invalid MAC")
@@ -153,14 +147,12 @@ actual object Nip44 {
                 // Extract x-coordinate (skip the prefix byte)
                 val sharedX = jsSliceArray(sharedPoint, 1, 33)
                 
-                println("   Shared X (${prefix}): ${sharedX.toByteArray().toHexString().take(16)}...")
                 
                 // NIP-44: conversation_key = HKDF-Extract(salt="nip44-v2", ikm=shared_x)
                 // USE jsStringToUint8Array instead of encodeToByteArray().toUint8Array()
                 val salt = jsStringToUint8Array("nip44-v2")
                 return jsHkdfExtract(salt, sharedX)
             } catch (e: Exception) {
-                println("   getSharedSecret failed with prefix $prefix: ${e.message}")
                 continue
             }
         }

@@ -30,7 +30,6 @@ actual object SecureStorage {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
-        println("🔐 Secure storage initialized")
     }
     
     private fun ensureInitialized() {
@@ -42,7 +41,6 @@ actual object SecureStorage {
     actual fun savePrivateKey(privateKeyHex: String) {
         ensureInitialized()
         prefs.edit().putString(PRIVATE_KEY_PREF, privateKeyHex).apply()
-        println("🔐 Private key saved securely")
     }
     
     actual fun getPrivateKey(): String? {
@@ -58,13 +56,11 @@ actual object SecureStorage {
     actual fun clearPrivateKey() {
         ensureInitialized()
         prefs.edit().remove(PRIVATE_KEY_PREF).apply()
-        println("🗑️ Private key cleared")
     }
     
     actual fun saveCurrentRelayUrl(relayUrl: String) {
         ensureInitialized()
         prefs.edit().putString(CURRENT_RELAY_URL, relayUrl).apply()
-        println("💾 Saved current relay URL: $relayUrl")
     }
     
     actual fun getCurrentRelayUrl(): String? {
@@ -75,7 +71,6 @@ actual object SecureStorage {
     actual fun clearCurrentRelayUrl() {
         ensureInitialized()
         prefs.edit().remove(CURRENT_RELAY_URL).apply()
-        println("🗑️ Cleared current relay URL")
     }
     
     actual fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>) {
@@ -83,7 +78,6 @@ actual object SecureStorage {
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = Json.encodeToString(groupIds.toList())
         prefs.edit().putString(key, json).apply()
-        println("💾 Saved ${groupIds.size} joined groups for ${pubkey.take(8)} on relay: $relayUrl")
     }
 
     actual fun getJoinedGroupsForRelay(pubkey: String, relayUrl: String): Set<String> {
@@ -93,7 +87,6 @@ actual object SecureStorage {
         return try {
             Json.decodeFromString<List<String>>(json).toSet()
         } catch (e: Exception) {
-            println("❌ Failed to parse joined groups for relay: ${e.message}")
             emptySet()
         }
     }
@@ -102,7 +95,6 @@ actual object SecureStorage {
         ensureInitialized()
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         prefs.edit().remove(key).apply()
-        println("🗑️ Cleared joined groups for ${pubkey.take(8)} on relay: $relayUrl")
     }
 
     actual fun clearAllJoinedGroupsForAccount(pubkey: String) {
@@ -114,9 +106,7 @@ actual object SecureStorage {
                 editor.remove(key)
             }
             editor.apply()
-            println("🗑️ Cleared all joined groups for account ${pubkey.take(8)}")
         } catch (e: Exception) {
-            println("⚠️ Failed to clear joined groups for account: ${e.message}")
         }
     }
     
@@ -124,7 +114,6 @@ actual object SecureStorage {
     actual fun saveBunkerUrl(bunkerUrl: String) {
         ensureInitialized()
         prefs.edit().putString(BUNKER_URL_PREF, bunkerUrl).apply()
-        println("🔐 Bunker URL saved securely")
     }
     
     actual fun getBunkerUrl(): String? {
@@ -140,14 +129,12 @@ actual object SecureStorage {
     actual fun clearBunkerUrl() {
         ensureInitialized()
         prefs.edit().remove(BUNKER_URL_PREF).apply()
-        println("🗑️ Bunker URL cleared")
     }
     
     // NIP-46 Bunker User Pubkey support
     actual fun saveBunkerUserPubkey(pubkey: String) {
         ensureInitialized()
         prefs.edit().putString(BUNKER_USER_PUBKEY_PREF, pubkey).apply()
-        println("🔐 Bunker user pubkey saved securely")
     }
     
     actual fun getBunkerUserPubkey(): String? {
@@ -158,14 +145,12 @@ actual object SecureStorage {
     actual fun clearBunkerUserPubkey() {
         ensureInitialized()
         prefs.edit().remove(BUNKER_USER_PUBKEY_PREF).apply()
-        println("🗑️ Bunker user pubkey cleared")
     }
     
     // NIP-46 Bunker Client Private Key (for session persistence)
     actual fun saveBunkerClientPrivateKey(privateKey: String) {
         ensureInitialized()
         prefs.edit().putString(BUNKER_CLIENT_PRIVATE_KEY_PREF, privateKey).apply()
-        println("🔐 Bunker client private key saved securely")
     }
     
     actual fun getBunkerClientPrivateKey(): String? {
@@ -176,12 +161,10 @@ actual object SecureStorage {
     actual fun clearBunkerClientPrivateKey() {
         ensureInitialized()
         prefs.edit().remove(BUNKER_CLIENT_PRIVATE_KEY_PREF).apply()
-        println("🗑️ Bunker client private key cleared")
     }
     
     actual fun clearAll() {
         ensureInitialized()
         prefs.edit().clear().apply()
-        println("🗑️ All secure storage cleared")
     }
 }

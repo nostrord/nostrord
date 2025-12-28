@@ -37,11 +37,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         this.remoteSignerPubkey = remoteSignerPubkey
         this.connectionSecret = secret
         
-        println("🔐 NIP-46 Connect attempt:")
-        println("   Remote signer pubkey: $remoteSignerPubkey")
-        println("   Relays: $relays")
-        println("   Secret: ${secret?.take(8) ?: "none"}...")
-        println("   Client pubkey: ${clientKeyPair.publicKeyHex}")
         
         // Connect to all bunker relays
         for (relayUrl in relays) {
@@ -53,9 +48,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                 }
                 client.waitForConnection()
                 relayClients.add(client)
-                println("✅ Connected to bunker relay: $cleanUrl")
             } catch (e: Exception) {
-                println("⚠️ Failed to connect to bunker relay $relayUrl: ${e.message}")
             }
         }
         
@@ -76,7 +69,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             throw Exception("Connect failed: unexpected response '$response'")
         }
 
-        println("✅ NIP-46 connect successful")
         return remoteSignerPubkey
     }
 
@@ -84,7 +76,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         val requestId = generateRequestId()
         val response = sendRequest(requestId, "get_public_key", emptyList())
         userPubkey = response
-        println("✅ Got user public key: ${response.take(16)}...")
         return response
     }
 
@@ -109,8 +100,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             }
         }.toString()
 
-        println("📤 NIP-46 Request: $method")
-        println("   Request JSON: $requestJson")
 
         // Use NIP-44 for encryption (as per NIP-46 spec)
         val encryptedContent = Nip44.encrypt(
@@ -119,7 +108,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             pubKeyHex = signerPubkey
         )
         
-        println("   Encrypted with: NIP-44")
 
         val event = Event(
             pubkey = clientKeyPair.publicKeyHex,
@@ -130,7 +118,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         )
         
         val signedEvent = event.sign(clientKeyPair)
-        println("   Event ID: ${signedEvent.id}")
 
         val responseDeferred = CompletableDeferred<String>()
         pendingRequests[requestId] = responseDeferred
@@ -150,7 +137,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             add(filter)
         }.toString()
         
-        println("📥 Subscribing...")
         relayClients.forEach { client ->
             try { client.send(subMessage) } catch (_: Exception) {}
         }
@@ -162,12 +148,10 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             add(signedEvent.toJsonObject())
         }.toString()
         
-        println("📤 Publishing event...")
         relayClients.forEach { client ->
             try { client.send(eventMessage) } catch (_: Exception) {}
         }
         
-        println("⏳ Waiting for signer to respond...")
 
         try {
             responseDeferred.await()
@@ -197,7 +181,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                 val eventPubkey = eventObj["pubkey"]?.jsonPrimitive?.content ?: return
                 val encryptedContent = eventObj["content"]?.jsonPrimitive?.content ?: return
                 
-                println("📨 Received kind:24133 from ${eventPubkey.take(16)}...")
                 
                 try {
                     val decrypted = decryptMessage(
@@ -206,7 +189,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                         pubKeyHex = eventPubkey
                     )
                     
-                    println("✅ Decrypted: $decrypted")
                     
                     val responseObj = json.parseToJsonElement(decrypted).jsonObject
                     val responseId = responseObj["id"]?.jsonPrimitive?.content ?: return
@@ -215,9 +197,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                     
                     // Handle auth_url challenge
                     if (result == "auth_url" && error != null) {
-                        println("🔐 Auth URL challenge received!")
-                        println("   URL: $error")
-                        println("   👉 Please open this URL to approve the connection")
                         
                         // Notify UI to open the auth URL
                         onAuthUrl?.invoke(error)
@@ -229,40 +208,32 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                     
                     if (remoteSignerPubkey == null) {
                         remoteSignerPubkey = eventPubkey
-                        println("✅ Remote signer identified: ${eventPubkey.take(16)}...")
                     }
                     
                     val deferred = pendingRequests[responseId] ?: run {
-                        println("⚠️ No pending request for ID: $responseId")
                         return
                     }
                     
                     if (!error.isNullOrBlank() && result != "auth_url") {
-                        println("❌ Error from signer: $error")
                         deferred.completeExceptionally(Exception(error))
                         return
                     }
                     
-                    println("✅ Result: $result")
                     deferred.complete(result ?: "")
                     
                 } catch (e: Exception) {
-                    println("⚠️ Could not decrypt: ${e.message}")
                     e.printStackTrace()
                 }
             }
         } catch (e: Exception) {
-            println("⚠️ Error handling message: ${e.message}")
         }
     }
     
     private fun decryptMessage(ciphertext: String, privateKeyHex: String, pubKeyHex: String): String {
         return if (ciphertext.contains("?iv=")) {
-            println("   Detected NIP-04 format")
             useNip44 = false
             Nip04.decrypt(ciphertext, privateKeyHex, pubKeyHex)
         } else {
-            println("   Detected NIP-44 format")
             useNip44 = true
             Nip44.decrypt(ciphertext, privateKeyHex, pubKeyHex)
         }

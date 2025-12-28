@@ -100,7 +100,6 @@ object NostrRepository {
         val savedRelayUrl = SecureStorage.getCurrentRelayUrl()
         if (savedRelayUrl != null) {
             _currentRelayUrl.value = savedRelayUrl
-            println("✅ Loaded saved relay URL: $savedRelayUrl")
         }
 
         // Try to restore auth session via AuthManager
@@ -109,7 +108,6 @@ object NostrRepository {
             val pubkey = AuthManager.getPublicKey()
             if (pubkey != null) {
                 _joinedGroups.value = SecureStorage.getJoinedGroupsForRelay(pubkey, _currentRelayUrl.value)
-                println("✅ Loaded ${_joinedGroups.value.size} joined groups for relay")
             }
             // Connect to relays
             initializeOutboxModel()
@@ -130,13 +128,11 @@ object NostrRepository {
         val userPubkey = AuthManager.loginWithBunker(bunkerUrl)
 
         // Connect to relays BEFORE setting logged in
-        println("🔐 Bunker Login: Connecting to relays...")
         initializeOutboxModel()
         connect()
 
         // Set logged in after connections established
         AuthManager.setLoggedIn(true)
-        println("🔐 Bunker Login: Complete")
 
         return userPubkey
     }
@@ -172,14 +168,12 @@ object NostrRepository {
         // Get user's WRITE relays (where they published kind:10009)
         val writeRelays = relayListManager.selectPublishRelays()
         if (writeRelays.isEmpty()) {
-            println("⚠️ No WRITE relays available for kind:10009")
             return
         }
 
         // Use the first available relay from the pool
         val relayUrl = writeRelays.first()
         val currentClient = getOrConnectRelay(relayUrl) ?: run {
-            println("⚠️ Cannot connect to WRITE relay for kind:10009")
             return
         }
 
@@ -203,9 +197,6 @@ object NostrRepository {
             }.toString()
 
             currentClient.send(message)
-            println("📥 Requesting kind:10009 from WRITE relay: $relayUrl")
-            println("   SubId: $subId")
-            println("   PubKey: ${pubKey.take(16)}...")
 
             var waitTime = 0
             while (!eoseReceived && waitTime < 3000) {
@@ -218,50 +209,39 @@ object NostrRepository {
                 add(subId)
             }.toString()
             currentClient.send(closeMsg)
-            println("🔒 Closed subscription: $subId")
 
             if (!kind10009Received) {
-                println("⚠️ No kind:10009 event found on WRITE relays")
                 val pubKey = getPublicKey() ?: ""
                 val localGroups = SecureStorage.getJoinedGroupsForRelay(pubKey, _currentRelayUrl.value)
                 if (localGroups.isNotEmpty()) {
-                    println("📤 Publishing local joined groups (${localGroups.size} groups) as kind:10009")
                     _joinedGroups.value = localGroups
                     allRelayGroups[_currentRelayUrl.value] = localGroups.toMutableSet()
                     publishJoinedGroupsList()
                 } else {
-                    println("ℹ️ No local joined groups to publish")
                 }
             } else {
-                println("✅ Successfully loaded kind:10009 with ${_joinedGroups.value.size} groups for current relay")
             }
         } catch (e: Exception) {
-            println("❌ Failed to load joined groups: ${e.message}")
         }
     }
 
     // NIP-65: Load user's relay list (kind:10002) using RelayListManager
     private suspend fun loadUserRelayList(pubKey: String) {
         try {
-            println("📥 Fetching NIP-65 relay list for ${pubKey.take(8)} via RelayListManager")
             val relays = relayListManager.getRelayList(pubKey)
 
             if (relays.isNotEmpty()) {
                 // Set as current user's relay list
                 relayListManager.setMyRelayList(pubKey, relays)
-                println("✅ Loaded ${relays.size} relays from NIP-65 for current user")
             } else {
-                println("ℹ️ No NIP-65 relay list found for ${pubKey.take(8)}, using bootstrap relays")
             }
         } catch (e: Exception) {
-            println("❌ Failed to load relay list: ${e.message}")
         }
     }
 
     // Publish kind:10009 to user's WRITE relays (Outbox model)
     private suspend fun publishJoinedGroupsList() {
         val pubKey = getPublicKey() ?: run {
-            println("⚠️ Cannot publish kind:10009 - not logged in")
             return
         }
 
@@ -276,9 +256,7 @@ object NostrRepository {
                 }
             }
 
-            println("🔄 Merging groups from ${allRelayGroups.size} relay(s):")
             allRelayGroups.forEach { (relay, groups) ->
-                println("   • $relay: ${groups.size} group(s)")
             }
 
             val event = Event(
@@ -300,10 +278,7 @@ object NostrRepository {
             val writeRelays = relayListManager.selectPublishRelays()
             sendToRelays(writeRelays, message)
             val totalGroups = tags.size
-            println("📤 Published kind:10009 with $totalGroups total group(s) to ${writeRelays.size} WRITE relays")
-            println("   Current relay (${_currentRelayUrl.value}): ${currentRelayGroups.size} group(s)")
         } catch (e: Exception) {
-            println("❌ Failed to publish joined groups: ${e.message}")
             e.printStackTrace()
         }
     }
@@ -314,11 +289,9 @@ object NostrRepository {
      */
     private suspend fun initializeOutboxModel() {
         val pubKey = getPublicKey() ?: run {
-            println("⚠️ Cannot initialize Outbox model - not logged in")
             return
         }
 
-        println("🔗 Initializing Outbox model for ${pubKey.take(8)}...")
 
         // Step 1: Connect to bootstrap relays immediately (don't wait for NIP-65)
         val bootstrapRelays = relayListManager.bootstrapRelays.take(3)
@@ -330,7 +303,6 @@ object NostrRepository {
                     val client = getOrConnectRelay(relayUrl)
                     client?.requestMetadata(listOf(pubKey))
                 } catch (e: Exception) {
-                    println("⚠️ Failed to connect to $relayUrl: ${e.message}")
                 }
             }
         }
@@ -354,7 +326,6 @@ object NostrRepository {
             }
         }
 
-        println("✅ Outbox model initialized (${relayPool.size} relays connected)")
     }
 
     /**
@@ -365,17 +336,14 @@ object NostrRepository {
         relayPool[relayUrl]?.let { return it }
 
         return try {
-            println("🔗 Connecting to relay: $relayUrl")
             val newClient = NostrGroupClient(relayUrl)
             newClient.connect { msg ->
                 handleRelayMessage(msg, newClient)
             }
             newClient.waitForConnection()
             relayPool[relayUrl] = newClient
-            println("✅ Connected to relay: $relayUrl")
             newClient
         } catch (e: Exception) {
-            println("❌ Failed to connect to $relayUrl: ${e.message}")
             null
         }
     }
@@ -390,7 +358,6 @@ object NostrRepository {
                     val client = getOrConnectRelay(relayUrl)
                     client?.send(message)
                 } catch (e: Exception) {
-                    println("⚠️ Failed to send to $relayUrl: ${e.message}")
                 }
             }
         }
@@ -403,11 +370,9 @@ object NostrRepository {
     private fun connectToKind10009Relays() {
         val relayUrls = allRelayGroups.keys.toList()
         if (relayUrls.isEmpty()) {
-            println("ℹ️ No relays found in kind:10009")
             return
         }
 
-        println("🔗 Connecting to ${relayUrls.size} relay(s) from kind:10009...")
 
         // Connect to each relay in parallel
         relayUrls.forEach { relayUrl ->
@@ -415,10 +380,8 @@ object NostrRepository {
                 try {
                     val client = getOrConnectRelay(relayUrl)
                     if (client != null) {
-                        println("✅ Connected to kind:10009 relay: $relayUrl")
                     }
                 } catch (e: Exception) {
-                    println("⚠️ Failed to connect to kind:10009 relay $relayUrl: ${e.message}")
                 }
             }
         }
@@ -441,7 +404,6 @@ object NostrRepository {
                 val subId = arr[1].jsonPrimitive.content
                 if (subId == kind10009SubId) {
                     eoseReceived = true
-                    println("✅ EOSE received for kind:10009 subscription")
                 }
                 return
             }
@@ -471,13 +433,11 @@ object NostrRepository {
                         tags = tags
                     )
                     _cachedEvents.value = _cachedEvents.value + (eventId to cachedEvent)
-                    println("✅ Cached event ${eventId.take(8)}... (kind $eventKind)")
                     return
                 }
 
                 if (kind == 10009) {
                     kind10009Received = true
-                    println("🎯 Received kind:10009 event")
                     val tags = event["tags"]?.jsonArray ?: return
                     
                     allRelayGroups.clear()
@@ -494,14 +454,11 @@ object NostrRepository {
                                 
                                 if (relayUrl == _currentRelayUrl.value) {
                                     currentRelayGroups.add(groupId)
-                                    println("  ✅ $groupId (${_currentRelayUrl.value})")
                                 } else {
-                                    println("  📝 $groupId ($relayUrl) - stored for merging")
                                 }
                             } else {
                                 currentRelayGroups.add(groupId)
                                 allRelayGroups.getOrPut(_currentRelayUrl.value) { mutableSetOf() }.add(groupId)
-                                println("  ✅ $groupId (no relay specified, using current)")
                             }
                         }
                     }
@@ -510,9 +467,6 @@ object NostrRepository {
                     getPublicKey()?.let { pubKey ->
                         SecureStorage.saveJoinedGroupsForRelay(pubKey, _currentRelayUrl.value, currentRelayGroups)
                     }
-                    println("💾 Saved ${currentRelayGroups.size} groups for current relay")
-                    println("📊 Total groups across all relays: ${allRelayGroups.values.sumOf { it.size }}")
-                    println("📊 Relays in kind:10009: ${allRelayGroups.keys.joinToString(", ")}")
 
                     // Connect to relays from kind:10009 (these are the user's actual group relays)
                     connectToKind10009Relays()
@@ -528,7 +482,6 @@ object NostrRepository {
                         kind10002Received = true
                     }
 
-                    println("🎯 Received NIP-65 relay list (kind:10002) for ${eventPubkey?.take(8) ?: "unknown"}")
                     val tags = event["tags"]?.jsonArray ?: return
 
                     val relays = mutableListOf<Nip65Relay>()
@@ -544,7 +497,6 @@ object NostrRepository {
                                 else -> Nip65Relay(relayUrl, read = true, write = true)
                             }
                             relays.add(relay)
-                            println("  📡 ${relayUrl} (read=${relay.read}, write=${relay.write})")
                         }
                     }
 
@@ -559,19 +511,16 @@ object NostrRepository {
                         }
                     }
 
-                    println("✅ Cached ${relays.size} relays from NIP-65 for ${eventPubkey?.take(8) ?: "unknown"}")
                     return
                 }
             }
         } catch (e: Exception) {
-            println("⚠️ Error parsing metadata message: ${e.message}")
         }
         
         val userMetadata = client.parseUserMetadata(msg)
         if (userMetadata != null) {
             val (pubkey, metadata) = userMetadata
             _userMetadata.value = _userMetadata.value + (pubkey to metadata)
-            println("✅ Loaded metadata for ${metadata.name ?: metadata.displayName ?: pubkey.take(8)}")
         }
     }
 
@@ -581,7 +530,6 @@ object NostrRepository {
     
     private suspend fun connect(relayUrl: String) {
         if (client != null || isConnecting) {
-            println("⚠️ Already connected or connecting")
             return
         }
         
@@ -593,13 +541,11 @@ object NostrRepository {
             client = newClient
             
             newClient.connect { msg ->
-                println("📩 Received: $msg")
                 handleMessage(msg, newClient)
             }
             
             newClient.waitForConnection()
             _connectionState.value = ConnectionState.Connected
-            println("✅ Repository connected to $relayUrl")
             
             // Only send AUTH if using local keypair (not bunker)
             if (!AuthManager.isUsingBunker()) {
@@ -611,7 +557,6 @@ object NostrRepository {
             
         } catch (e: Exception) {
             _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
-            println("❌ Connection failed: ${e.message}")
             client = null
         } finally {
             isConnecting = false
@@ -635,12 +580,10 @@ object NostrRepository {
         AuthManager.loginWithPrivateKey(privKey, pubKey)
 
         // Connect to relays
-        println("🔐 Login: Connecting to relays...")
         initializeOutboxModel()
         connect()
 
         AuthManager.setLoggedIn(true)
-        println("🔐 Login: Complete")
     }
 
     /**
@@ -664,7 +607,6 @@ object NostrRepository {
         // Clear local state
         _joinedGroups.value = emptySet()
         allRelayGroups.clear()
-        println("👋 Logged out")
     }
 
     /**
@@ -675,7 +617,6 @@ object NostrRepository {
     }
 
     suspend fun switchRelay(newRelayUrl: String) {
-        println("🔄 Switching to relay: $newRelayUrl")
         
         disconnect()
         
@@ -684,7 +625,6 @@ object NostrRepository {
 
         val pubKey = getPublicKey() ?: ""
         _joinedGroups.value = SecureStorage.getJoinedGroupsForRelay(pubKey, newRelayUrl)
-        println("📂 Loaded ${_joinedGroups.value.size} local joined groups")
         
         connect(newRelayUrl)
         
@@ -692,12 +632,10 @@ object NostrRepository {
         eoseReceived = false
 
         if (relayPool.isEmpty()) {
-            println("🔄 No outbox relays connected, initializing...")
             initializeOutboxModel()
         }
         // No delay needed - initializeOutboxModel already waits for connection
 
-        println("🔄 Loading kind:10009 for new relay...")
         loadJoinedGroupsFromNostr()
     }
 
@@ -707,7 +645,6 @@ object NostrRepository {
     suspend fun requestUserMetadata(pubkeys: Set<String>) {
         if (pubkeys.isEmpty()) return
 
-        println("📥 Requesting metadata for ${pubkeys.size} users: ${pubkeys.map { it.take(8) }}")
 
         // For each user, fetch from their WRITE relays
         pubkeys.forEach { pubkey ->
@@ -727,11 +664,9 @@ object NostrRepository {
                             val client = getOrConnectRelay(relayUrl)
                             client?.requestMetadata(listOf(pubkey))
                         } catch (e: Exception) {
-                            println("⚠️ Failed to fetch metadata from $relayUrl: ${e.message}")
                         }
                     }
                 } catch (e: Exception) {
-                    println("⚠️ Failed to fetch metadata for ${pubkey.take(8)}: ${e.message}")
                 }
             }
         }
@@ -748,11 +683,9 @@ object NostrRepository {
                 try {
                     relayListManager.getRelayList(pubkey)
                 } catch (e: Exception) {
-                    println("⚠️ Failed to fetch relay list for ${pubkey.take(8)}: ${e.message}")
                 }
             }
         }
-        println("📥 Requesting NIP-65 relay lists for ${pubkeys.size} users via RelayListManager")
     }
 
     /**
@@ -847,7 +780,6 @@ object NostrRepository {
 
         // Log if we're using fallback relays due to missing NIP-65 data
         if (!hasAuthorRelays && authors.isNotEmpty()) {
-            println("ℹ️ NIP-65: No relay list found for authors, using default relays")
         }
 
         return relays
@@ -859,7 +791,6 @@ object NostrRepository {
             return
         }
 
-        println("📥 Requesting event: ${eventId.take(8)}..." + (author?.let { " by ${it.take(8)}" } ?: ""))
 
         // If we have an author, try to get their relay list first
         if (author != null && relayListManager.getCachedRelayList(author).isEmpty()) {
@@ -874,7 +805,6 @@ object NostrRepository {
             explicitRelays = relayHints
         )
 
-        println("   Trying ${relaysToTry.size} relays (outbox): ${relaysToTry.take(3).joinToString(", ")}${if (relaysToTry.size > 3) "..." else ""}")
 
         // Request from all available relays
         for (relayUrl in relaysToTry) {
@@ -882,7 +812,6 @@ object NostrRepository {
                 val client = getOrConnectHintRelay(relayUrl)
                 client?.requestEventById(eventId)
             } catch (e: Exception) {
-                println("⚠️ Failed to request from $relayUrl: ${e.message}")
             }
         }
     }
@@ -928,7 +857,6 @@ object NostrRepository {
                         tags = tags
                     )
                     _cachedEvents.value = _cachedEvents.value + (eventId to cachedEvent)
-                    println("✅ Cached event ${eventId.take(8)}... from hint relay (kind $kind)")
 
                     // Also request metadata for the event author
                     if (!_userMetadata.value.containsKey(pubkey)) {
@@ -939,7 +867,6 @@ object NostrRepository {
                 }
             }
         } catch (e: Exception) {
-            println("⚠️ Error parsing hint relay message: ${e.message}")
         }
     }
 
@@ -947,7 +874,6 @@ object NostrRepository {
         // Handle NIP-42 AUTH challenge first
         val authChallenge = client.parseAuthChallenge(msg)
         if (authChallenge != null) {
-            println("🔐 AUTH challenge received from ${client.getRelayUrl()}")
             CoroutineScope(Dispatchers.Default).launch {
                 handleAuthChallenge(client, authChallenge)
             }
@@ -964,7 +890,6 @@ object NostrRepository {
         if (userMetadata != null) {
             val (pubkey, metadata) = userMetadata
             _userMetadata.value = _userMetadata.value + (pubkey to metadata)
-            println("✅ Loaded metadata from group relay for ${metadata.name ?: metadata.displayName ?: pubkey.take(8)}")
             return
         }
         
@@ -984,7 +909,6 @@ object NostrRepository {
                 _messages.value = _messages.value + (groupId to (currentMessages + message).sortedBy { it.createdAt })
 
                 if (!_userMetadata.value.containsKey(message.pubkey)) {
-                    println("🔍 Requesting metadata for new user: ${message.pubkey.take(8)}")
                     CoroutineScope(Dispatchers.Default).launch {
                         requestUserMetadata(setOf(message.pubkey))
                         // Also request NIP-65 relay list for outbox model support
@@ -998,7 +922,6 @@ object NostrRepository {
                     9022 -> "leave"
                     else -> "event"
                 }
-                println("✅ Added $eventType to group $groupId from ${message.pubkey.take(8)}")
             }
         }
     } 
@@ -1008,7 +931,6 @@ object NostrRepository {
      */
     private suspend fun handleAuthChallenge(client: NostrGroupClient, challenge: String) {
         val pubKey = getPublicKey() ?: run {
-            println("⚠️ Cannot respond to AUTH - not logged in")
             return
         }
 
@@ -1034,15 +956,12 @@ object NostrRepository {
             }.toString()
 
             client.send(message)
-            println("🔐 AUTH response sent to ${client.getRelayUrl()}")
 
             // Re-request groups after authentication
             kotlinx.coroutines.delay(500)
             client.requestGroups()
-            println("📋 Re-requested groups after AUTH")
 
         } catch (e: Exception) {
-            println("❌ Failed to respond to AUTH: ${e.message}")
         }
     }
 
@@ -1065,12 +984,10 @@ object NostrRepository {
 
     suspend fun joinGroup(groupId: String) {
         val currentClient = client ?: run {
-            println("⚠️ Cannot join group - not connected")
             return
         }
         
         val pubKey = getPublicKey() ?: run {
-            println("⚠️ Cannot join group - not logged in")
             return
         }
         
@@ -1085,7 +1002,6 @@ object NostrRepository {
                 content = "/join"
             )
 
-            println(event)
             
             val signedEvent = signEvent(event)
             
@@ -1101,24 +1017,20 @@ object NostrRepository {
 
             publishJoinedGroupsList()
 
-            println("✅ Joined group $groupId on relay ${_currentRelayUrl.value}")
             
             requestGroupMessages(groupId)
             
         } catch (e: Exception) {
-            println("❌ Failed to join group: ${e.message}")
             e.printStackTrace()
         }
     }
     
     suspend fun leaveGroup(groupId: String, reason: String? = null) {
         val currentClient = client ?: run {
-            println("⚠️ Cannot leave group - not connected")
             return
         }
         
         val pubKey = getPublicKey() ?: run {
-            println("⚠️ Cannot leave group - not logged in")
             return
         }
         
@@ -1133,7 +1045,6 @@ object NostrRepository {
                 content = reason.orEmpty()
             )
 
-            println(event)
             
             val signedEvent = signEvent(event)
             
@@ -1151,10 +1062,8 @@ object NostrRepository {
 
             _messages.value = _messages.value - groupId
 
-            println("✅ Left group $groupId on relay ${_currentRelayUrl.value}")
             
         } catch (e: Exception) {
-            println("❌ Failed to leave group: ${e.message}")
             e.printStackTrace()
         }
     }
@@ -1166,7 +1075,6 @@ object NostrRepository {
     suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
         val currentClient = client
         if (currentClient == null) {
-            println("⚠️ Not connected, connecting first...")
             connect()
             return requestGroupMessages(groupId, channel)
         }
@@ -1176,12 +1084,10 @@ object NostrRepository {
 
     suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()) {
         val currentClient = client ?: run {
-            println("⚠️ Cannot send message - not connected")
             return
         }
 
         val pubKey = getPublicKey() ?: run {
-            println("⚠️ Cannot send message - not logged in")
             return
         }
 
@@ -1217,10 +1123,8 @@ object NostrRepository {
             }.toString()
             
             currentClient.send(message)
-            println("📤 Sent message to group $groupId${if (channel != null && channel != "general") " in channel $channel" else " (general)"}: $processedContent")
             
         } catch (e: Exception) {
-            println("❌ Failed to send message: ${e.message}")
             e.printStackTrace()
         }
     }

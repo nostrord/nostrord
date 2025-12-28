@@ -13,7 +13,6 @@ object JoinedGroupsManager {
 
     suspend fun loadJoinedGroups(pubKey: String, client: NostrGroupClient?) {
         if (client == null) {
-            println("⚠️ Cannot load kind:10009 - no client")
             return
         }
         
@@ -32,9 +31,7 @@ object JoinedGroupsManager {
             }.toString()
             
             client.send(message)
-            println("📥 Requesting kind:10009 joined groups")
         } catch (e: Exception) {
-            println("❌ Error loading joined groups: ${e.message}")
         }
     }
 
@@ -52,9 +49,7 @@ object JoinedGroupsManager {
             }
 
             _joinedGroups.value = groups
-            println("✅ Loaded ${groups.size} groups from kind:10009")
         } catch (e: Exception) {
-            println("❌ Error parsing joined groups: ${e.message}")
         }
     }
 
@@ -65,7 +60,6 @@ object JoinedGroupsManager {
         relayUrl: String
     ) {
         if (keyPair == null || client == null) {
-            println("⚠️ Cannot publish kind:10009 - not logged in or no client")
             return
         }
         
@@ -91,9 +85,7 @@ object JoinedGroupsManager {
 
             client.send(message)
             _joinedGroups.value = groups
-            println("📤 Published kind:10009 with ${groups.size} groups")
         } catch (e: Exception) {
-            println("❌ Error publishing joined groups: ${e.message}")
         }
     }
 
