@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.outbox.EventDeduplicator
@@ -20,6 +22,9 @@ import org.nostr.nostrord.utils.urlDecode
  * Manages relay connections, group operations, and coordinates with AuthManager for authentication.
  */
 object NostrRepository {
+    // Managed coroutine scope for background operations - cancelled on logout
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     private var client: NostrGroupClient? = null
     private var isConnecting = false
 
@@ -298,7 +303,7 @@ object NostrRepository {
 
         // Connect to all bootstrap relays in parallel
         val connectionJobs = bootstrapRelays.map { relayUrl ->
-            CoroutineScope(Dispatchers.Default).launch {
+            repositoryScope.launch {
                 try {
                     val client = getOrConnectRelay(relayUrl)
                     client?.requestMetadata(listOf(pubKey))
@@ -308,12 +313,12 @@ object NostrRepository {
         }
 
         // Step 2: Fetch NIP-65 relay list in background (don't block)
-        CoroutineScope(Dispatchers.Default).launch {
+        repositoryScope.launch {
             loadUserRelayList(pubKey)
         }
 
         // Step 3: Load joined groups in background (don't block)
-        CoroutineScope(Dispatchers.Default).launch {
+        repositoryScope.launch {
             // Small delay to let at least one connection establish
             kotlinx.coroutines.delay(300)
             loadJoinedGroupsFromNostr()
@@ -353,7 +358,7 @@ object NostrRepository {
      */
     private suspend fun sendToRelays(relayUrls: List<String>, message: String) {
         relayUrls.forEach { relayUrl ->
-            CoroutineScope(Dispatchers.Default).launch {
+            repositoryScope.launch {
                 try {
                     val client = getOrConnectRelay(relayUrl)
                     client?.send(message)
@@ -376,7 +381,7 @@ object NostrRepository {
 
         // Connect to each relay in parallel
         relayUrls.forEach { relayUrl ->
-            CoroutineScope(Dispatchers.Default).launch {
+            repositoryScope.launch {
                 try {
                     val client = getOrConnectRelay(relayUrl)
                     if (client != null) {
@@ -590,6 +595,9 @@ object NostrRepository {
      * Logout - clear all state
      */
     suspend fun logout() {
+        // Cancel all background coroutines
+        repositoryScope.coroutineContext.cancelChildren()
+
         // Clear account-specific data before logout
         getPublicKey()?.let { pubKey ->
             SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
@@ -648,7 +656,7 @@ object NostrRepository {
 
         // For each user, fetch from their WRITE relays
         pubkeys.forEach { pubkey ->
-            CoroutineScope(Dispatchers.Default).launch {
+            repositoryScope.launch {
                 try {
                     // First, get their relay list
                     val relays = relayListManager.getRelayList(pubkey)
@@ -679,7 +687,7 @@ object NostrRepository {
     suspend fun requestRelayLists(pubkeys: Set<String>) {
         // RelayListManager handles caching and fetching from bootstrap relays
         pubkeys.forEach { pubkey ->
-            CoroutineScope(Dispatchers.Default).launch {
+            repositoryScope.launch {
                 try {
                     relayListManager.getRelayList(pubkey)
                 } catch (e: Exception) {
@@ -860,7 +868,7 @@ object NostrRepository {
 
                     // Also request metadata for the event author
                     if (!_userMetadata.value.containsKey(pubkey)) {
-                        CoroutineScope(Dispatchers.Default).launch {
+                        repositoryScope.launch {
                             requestUserMetadata(setOf(pubkey))
                         }
                     }
@@ -874,7 +882,7 @@ object NostrRepository {
         // Handle NIP-42 AUTH challenge first
         val authChallenge = client.parseAuthChallenge(msg)
         if (authChallenge != null) {
-            CoroutineScope(Dispatchers.Default).launch {
+            repositoryScope.launch {
                 handleAuthChallenge(client, authChallenge)
             }
             return
@@ -909,7 +917,7 @@ object NostrRepository {
                 _messages.value = _messages.value + (groupId to (currentMessages + message).sortedBy { it.createdAt })
 
                 if (!_userMetadata.value.containsKey(message.pubkey)) {
-                    CoroutineScope(Dispatchers.Default).launch {
+                    repositoryScope.launch {
                         requestUserMetadata(setOf(message.pubkey))
                         // Also request NIP-65 relay list for outbox model support
                         requestRelayLists(setOf(message.pubkey))

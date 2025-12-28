@@ -20,7 +20,10 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     private var pendingRequests: MutableMap<String, CompletableDeferred<String>> = mutableMapOf()
     private var connectionSecret: String? = null
     private var useNip44: Boolean = false
-    
+
+    // Managed coroutine scope for this client - cancelled on disconnect
+    private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     // Callback for auth URL - UI should open this URL
     actual var onAuthUrl: ((String) -> Unit)? = null
     
@@ -246,8 +249,10 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     }
 
     actual fun disconnect() {
+        // Cancel all managed coroutines
+        clientScope.coroutineContext.cancelChildren()
         relayClients.forEach { client ->
-            CoroutineScope(Dispatchers.Default).launch {
+            clientScope.launch {
                 try { client.disconnect() } catch (_: Exception) {}
             }
         }

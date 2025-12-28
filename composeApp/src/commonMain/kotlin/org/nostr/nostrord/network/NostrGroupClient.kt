@@ -38,6 +38,9 @@ data class CachedEvent(
 class NostrGroupClient(
     private val relayUrl: String = "wss://groups.fiatjaf.com"
 ) {
+    // Managed coroutine scope for this client - cancelled on disconnect
+    private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     private val client = createHttpClient()
     private var session: DefaultClientWebSocketSession? = null
     private val json = Json { ignoreUnknownKeys = true }
@@ -67,7 +70,7 @@ class NostrGroupClient(
     }
 
     suspend fun connect(onMessage: (String) -> Unit) {
-        connectionJob = CoroutineScope(Dispatchers.Default).launch {
+        connectionJob = clientScope.launch {
             try {
                 client.webSocket(relayUrl) {
                     session = this
@@ -325,6 +328,8 @@ suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
     }
 
     suspend fun disconnect() {
+        // Cancel all managed coroutines
+        clientScope.coroutineContext.cancelChildren()
         connectionJob?.cancel()
         session?.close()
         client.close()
