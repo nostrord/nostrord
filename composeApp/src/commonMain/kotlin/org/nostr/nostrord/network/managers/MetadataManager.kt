@@ -1,8 +1,6 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,9 +16,9 @@ import org.nostr.nostrord.network.UserMetadata
  */
 class MetadataManager(
     private val connectionManager: ConnectionManager,
-    private val outboxManager: OutboxManager
+    private val outboxManager: OutboxManager,
+    private val scope: CoroutineScope
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _userMetadata = MutableStateFlow<Map<String, UserMetadata>>(emptyMap())

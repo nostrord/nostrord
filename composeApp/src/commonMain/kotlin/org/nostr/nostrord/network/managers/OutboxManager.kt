@@ -1,8 +1,6 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -19,18 +17,11 @@ import org.nostr.nostrord.utils.epochMillis
  * Handles relay list fetching, caching, and relay selection for publishing/reading.
  */
 class OutboxManager(
-    private val connectionManager: ConnectionManager
+    private val connectionManager: ConnectionManager,
+    private val relayListManager: RelayListManager,
+    private val scope: CoroutineScope
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    val bootstrapRelays = listOf(
-        "wss://relay.damus.io",
-        "wss://nos.lol",
-        "wss://relay.nostr.net",
-        "wss://purplepag.es"
-    )
-
-    private val relayListManager = RelayListManager(bootstrapRelays = bootstrapRelays)
+    val bootstrapRelays: List<String> = relayListManager.bootstrapRelays
 
     // Expose user's relay list
     val userRelayList: StateFlow<List<Nip65Relay>> = relayListManager.myRelayList

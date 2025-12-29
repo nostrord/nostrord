@@ -1,10 +1,7 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.NostrGroupClient
@@ -16,96 +13,95 @@ import org.nostr.nostrord.utils.epochMillis
  * Handles login, logout, session restoration, and NIP-42 AUTH challenges.
  */
 class SessionManager(
-    private val connectionManager: ConnectionManager
+    private val authManager: AuthManager,
+    private val scope: CoroutineScope
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
     // Delegate auth state to AuthManager
-    val isLoggedIn: StateFlow<Boolean> = AuthManager.isLoggedIn
-    val isBunkerConnected: StateFlow<Boolean> = AuthManager.isBunkerConnected
-    val authUrl: StateFlow<String?> = AuthManager.authUrl
+    val isLoggedIn: StateFlow<Boolean> = authManager.isLoggedIn
+    val isBunkerConnected: StateFlow<Boolean> = authManager.isBunkerConnected
+    val authUrl: StateFlow<String?> = authManager.authUrl
 
     /**
      * Restore session from storage
      */
     suspend fun restoreSession(): Boolean {
-        return AuthManager.restoreSession()
+        return authManager.restoreSession()
     }
 
     /**
      * Login with NIP-46 bunker URL
      */
     suspend fun loginWithBunker(bunkerUrl: String): String {
-        return AuthManager.loginWithBunker(bunkerUrl)
+        return authManager.loginWithBunker(bunkerUrl)
     }
 
     /**
      * Login with private key
      */
     suspend fun loginWithPrivateKey(privKey: String, pubKey: String) {
-        AuthManager.loginWithPrivateKey(privKey, pubKey)
+        authManager.loginWithPrivateKey(privKey, pubKey)
     }
 
     /**
      * Set logged in state
      */
     fun setLoggedIn(value: Boolean) {
-        AuthManager.setLoggedIn(value)
+        authManager.setLoggedIn(value)
     }
 
     /**
      * Logout
      */
     fun logout() {
-        AuthManager.logout()
+        authManager.logout()
     }
 
     /**
      * Clear auth URL
      */
     fun clearAuthUrl() {
-        AuthManager.clearAuthUrl()
+        authManager.clearAuthUrl()
     }
 
     /**
      * Forget bunker connection
      */
     fun forgetBunkerConnection() {
-        AuthManager.forgetBunkerConnection()
+        authManager.forgetBunkerConnection()
     }
 
     /**
      * Get public key
      */
-    fun getPublicKey(): String? = AuthManager.getPublicKey()
+    fun getPublicKey(): String? = authManager.getPublicKey()
 
     /**
      * Get private key
      */
-    fun getPrivateKey(): String? = AuthManager.getPrivateKey()
+    fun getPrivateKey(): String? = authManager.getPrivateKey()
 
     /**
      * Check if using bunker
      */
-    fun isUsingBunker(): Boolean = AuthManager.isUsingBunker()
+    fun isUsingBunker(): Boolean = authManager.isUsingBunker()
 
     /**
      * Check if bunker is ready
      */
-    fun isBunkerReady(): Boolean = AuthManager.isBunkerReady()
+    fun isBunkerReady(): Boolean = authManager.isBunkerReady()
 
     /**
      * Ensure bunker is connected
      */
     suspend fun ensureBunkerConnected(): Boolean {
-        return AuthManager.ensureBunkerConnected()
+        return authManager.ensureBunkerConnected()
     }
 
     /**
      * Sign an event
      */
     suspend fun signEvent(event: Event): Event {
-        return AuthManager.signEvent(event)
+        return authManager.signEvent(event)
     }
 
     /**

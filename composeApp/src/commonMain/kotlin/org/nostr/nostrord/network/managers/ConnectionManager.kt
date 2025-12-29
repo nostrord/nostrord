@@ -1,8 +1,6 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,9 +15,9 @@ import org.nostr.nostrord.storage.SecureStorage
  * Manages relay connections and connection pooling.
  * Handles primary NIP-29 relay connection and auxiliary relay pool.
  */
-class ConnectionManager {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
+class ConnectionManager(
+    private val scope: CoroutineScope
+) {
     private var primaryClient: NostrGroupClient? = null
     private var isConnecting = false
 
@@ -153,7 +151,7 @@ class ConnectionManager {
         onMessage: (String, NostrGroupClient) -> Unit,
         timeoutMs: Long = 2000
     ) {
-        val jobs = relayUrls.map { relayUrl ->
+        relayUrls.map { relayUrl ->
             scope.launch {
                 try {
                     getOrConnectRelay(relayUrl, onMessage)

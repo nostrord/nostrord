@@ -1,5 +1,6 @@
 package org.nostr.nostrord.network.managers
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,7 +18,7 @@ import org.nostr.nostrord.utils.epochMillis
  */
 class GroupManager(
     private val connectionManager: ConnectionManager,
-    private val outboxManager: OutboxManager
+    private val scope: CoroutineScope
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val eventDeduplicator = EventDeduplicator()

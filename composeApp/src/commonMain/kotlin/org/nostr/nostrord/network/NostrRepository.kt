@@ -1,8 +1,6 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,23 +13,24 @@ import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
-import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.utils.urlDecode
 
 /**
- * Repository facade for Nostr operations.
+ * Repository for Nostr operations.
  * Coordinates between specialized managers for different concerns.
+ *
+ * Dependencies are injected via constructor for testability.
+ * Use [NostrRepository.instance] for the default singleton.
  */
-object NostrRepository {
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+class NostrRepository(
+    private val connectionManager: ConnectionManager,
+    private val sessionManager: SessionManager,
+    private val groupManager: GroupManager,
+    private val metadataManager: MetadataManager,
+    private val outboxManager: OutboxManager,
+    private val scope: CoroutineScope
+) {
     private val json = Json { ignoreUnknownKeys = true }
-
-    // Managers
-    private val connectionManager = ConnectionManager()
-    private val outboxManager = OutboxManager(connectionManager)
-    private val sessionManager = SessionManager(connectionManager)
-    private val groupManager = GroupManager(connectionManager, outboxManager)
-    private val metadataManager = MetadataManager(connectionManager, outboxManager)
 
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
@@ -56,7 +55,6 @@ object NostrRepository {
 
     // Expose NIP-65 state
     val userRelayList: StateFlow<List<Nip65Relay>> = outboxManager.userRelayList
-
 
     fun forceInitialized() {
         _isInitialized.value = true
@@ -98,7 +96,7 @@ object NostrRepository {
     }
 
     suspend fun logout() {
-        repositoryScope.coroutineContext.cancelChildren()
+        scope.coroutineContext.cancelChildren()
 
         sessionManager.getPublicKey()?.let { pubKey ->
             groupManager.clearJoinedGroupsForAccount(pubKey)
@@ -277,7 +275,7 @@ object NostrRepository {
         // Handle NIP-42 AUTH challenge first
         val authChallenge = client.parseAuthChallenge(msg)
         if (authChallenge != null) {
-            repositoryScope.launch {
+            scope.launch {
                 sessionManager.handleAuthChallenge(client, authChallenge)
             }
             return
@@ -303,7 +301,7 @@ object NostrRepository {
         if (message != null) {
             val senderPubkey = groupManager.handleMessage(message, msg)
             if (senderPubkey != null && !metadataManager.hasMetadata(senderPubkey)) {
-                repositoryScope.launch {
+                scope.launch {
                     requestUserMetadata(setOf(senderPubkey))
                     requestRelayLists(setOf(senderPubkey))
                 }
@@ -332,7 +330,7 @@ object NostrRepository {
                 if (subId.startsWith("event_")) {
                     metadataManager.parseAndCacheEvent(event)?.let { cachedEvent ->
                         if (!metadataManager.hasMetadata(cachedEvent.pubkey)) {
-                            repositoryScope.launch {
+                            scope.launch {
                                 requestUserMetadata(setOf(cachedEvent.pubkey))
                             }
                         }
@@ -366,6 +364,60 @@ object NostrRepository {
             val (pubkey, metadata) = userMetadata
             metadataManager.handleMetadataEvent(pubkey, metadata)
         }
+    }
+
+    companion object {
+        /**
+         * Default singleton instance using AppModule.
+         * Provides backward compatibility with code that uses NostrRepository directly.
+         */
+        private val instance: NostrRepository by lazy {
+            org.nostr.nostrord.di.AppModule.nostrRepository
+        }
+
+        // Static accessors for backward compatibility
+        val isInitialized get() = instance.isInitialized
+        val currentRelayUrl get() = instance.currentRelayUrl
+        val connectionState get() = instance.connectionState
+        val groups get() = instance.groups
+        val messages get() = instance.messages
+        val joinedGroups get() = instance.joinedGroups
+        val isLoggedIn get() = instance.isLoggedIn
+        val isBunkerConnected get() = instance.isBunkerConnected
+        val authUrl get() = instance.authUrl
+        val userMetadata get() = instance.userMetadata
+        val cachedEvents get() = instance.cachedEvents
+        val userRelayList get() = instance.userRelayList
+
+        fun forceInitialized() = instance.forceInitialized()
+        suspend fun initialize() = instance.initialize()
+        fun clearAuthUrl() = instance.clearAuthUrl()
+        suspend fun loginWithBunker(bunkerUrl: String) = instance.loginWithBunker(bunkerUrl)
+        suspend fun loginSuspend(privKey: String, pubKey: String) = instance.loginSuspend(privKey, pubKey)
+        suspend fun logout() = instance.logout()
+        fun forgetBunkerConnection() = instance.forgetBunkerConnection()
+        suspend fun connect() = instance.connect()
+        suspend fun switchRelay(newRelayUrl: String) = instance.switchRelay(newRelayUrl)
+        suspend fun disconnect() = instance.disconnect()
+        fun getPublicKey() = instance.getPublicKey()
+        fun getPrivateKey() = instance.getPrivateKey()
+        fun isUsingBunker() = instance.isUsingBunker()
+        fun isBunkerReady() = instance.isBunkerReady()
+        suspend fun ensureBunkerConnected() = instance.ensureBunkerConnected()
+        suspend fun joinGroup(groupId: String) = instance.joinGroup(groupId)
+        suspend fun leaveGroup(groupId: String, reason: String? = null) = instance.leaveGroup(groupId, reason)
+        fun isGroupJoined(groupId: String) = instance.isGroupJoined(groupId)
+        suspend fun requestGroupMessages(groupId: String, channel: String? = null) = instance.requestGroupMessages(groupId, channel)
+        suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()) =
+            instance.sendMessage(groupId, content, channel, mentions)
+        fun getMessagesForGroup(groupId: String) = instance.getMessagesForGroup(groupId)
+        suspend fun requestUserMetadata(pubkeys: Set<String>) = instance.requestUserMetadata(pubkeys)
+        suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null) =
+            instance.requestEventById(eventId, relayHints, author)
+        suspend fun requestRelayLists(pubkeys: Set<String>) = instance.requestRelayLists(pubkeys)
+        fun getRelayListForPubkey(pubkey: String) = instance.getRelayListForPubkey(pubkey)
+        fun selectOutboxRelays(authors: List<String> = emptyList(), taggedPubkeys: List<String> = emptyList(), explicitRelays: List<String> = emptyList()) =
+            instance.selectOutboxRelays(authors, taggedPubkeys, explicitRelays)
     }
 }
 
