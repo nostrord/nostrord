@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.Screen
 
 @Composable
@@ -34,11 +35,11 @@ fun HomeScreen(
     }
 
     val connectionStatus = when (connectionState) {
-        is NostrRepository.ConnectionState.Disconnected -> "Disconnected"
-        is NostrRepository.ConnectionState.Connecting -> "Connecting..."
-        is NostrRepository.ConnectionState.Connected -> "Connected"
-        is NostrRepository.ConnectionState.Error ->
-            "Error: ${(connectionState as NostrRepository.ConnectionState.Error).message}"
+        is ConnectionManager.ConnectionState.Disconnected -> "Disconnected"
+        is ConnectionManager.ConnectionState.Connecting -> "Connecting..."
+        is ConnectionManager.ConnectionState.Connected -> "Connected"
+        is ConnectionManager.ConnectionState.Error ->
+            "Error: ${(connectionState as ConnectionManager.ConnectionState.Error).message}"
     }
 
     val pubKey = NostrRepository.getPublicKey()
