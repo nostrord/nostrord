@@ -18,6 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.ui.components.navigation.BottomNavItem
+import org.nostr.nostrord.ui.components.navigation.BottomNavigationBar
 import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBarCompact
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
@@ -82,6 +84,28 @@ fun HomeScreenMobile(
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = NostrordColors.BackgroundDark
                     )
+                )
+            },
+            bottomBar = {
+                BottomNavigationBar(
+                    selectedItem = BottomNavItem.Home,
+                    onItemSelected = { item ->
+                        when (item) {
+                            BottomNavItem.Home -> { /* Already on home */ }
+                            BottomNavItem.Messages -> {
+                                // Navigate to first joined group if available
+                                joinedGroups.firstOrNull()?.let { groupId ->
+                                    val group = groups.find { it.id == groupId }
+                                    onNavigate(Screen.Group(groupId, group?.name))
+                                }
+                            }
+                            BottomNavItem.Notifications -> { /* Future feature */ }
+                            BottomNavItem.Profile -> {
+                                // Open sidebar for profile
+                                scope.launch { drawerState.open() }
+                            }
+                        }
+                    }
                 )
             },
             containerColor = NostrordColors.Background

@@ -25,6 +25,8 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.components.navigation.BottomNavItem
+import org.nostr.nostrord.ui.components.navigation.BottomNavigationBar
 import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBarCompact
 import org.nostr.nostrord.ui.components.sidebars.GroupSidebar
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
@@ -162,6 +164,22 @@ fun GroupScreenMobile(
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = NostrordColors.BackgroundDark
                     )
+                )
+            },
+            bottomBar = {
+                BottomNavigationBar(
+                    selectedItem = BottomNavItem.Messages,
+                    onItemSelected = { item ->
+                        when (item) {
+                            BottomNavItem.Home -> onBack()
+                            BottomNavItem.Messages -> { /* Already viewing messages */ }
+                            BottomNavItem.Notifications -> { /* Future feature */ }
+                            BottomNavItem.Profile -> {
+                                // Navigate back to home and open sidebar
+                                onBack()
+                            }
+                        }
+                    }
                 )
             },
             containerColor = NostrordColors.Background
