@@ -139,9 +139,13 @@ fun HomeScreenMobile(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(filteredGroups) { group ->
-                            GroupCard(group = group, onClick = {
-                                onNavigate(Screen.Group(group.id, group.name))
-                            })
+                            GroupCard(
+                                group = group,
+                                onClick = {
+                                    onNavigate(Screen.Group(group.id, group.name))
+                                },
+                                isJoined = joinedGroups.contains(group.id)
+                            )
                         }
                     }
                 }
