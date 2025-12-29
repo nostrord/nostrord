@@ -15,6 +15,7 @@ actual object SecureStorage {
     private const val BUNKER_URL_PREF = "nostr_bunker_url"
     private const val BUNKER_USER_PUBKEY_PREF = "nostr_bunker_user_pubkey"
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
+    private const val LAST_READ_PREFIX = "last_read_"
     
     private lateinit var prefs: SharedPreferences
     
@@ -166,5 +167,38 @@ actual object SecureStorage {
     actual fun clearAll() {
         ensureInitialized()
         prefs.edit().clear().apply()
+    }
+
+    // Last read timestamp tracking
+    actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
+        ensureInitialized()
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        prefs.edit().putLong(key, timestamp).apply()
+    }
+
+    actual fun getLastReadTimestamp(pubkey: String, groupId: String): Long? {
+        ensureInitialized()
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        val value = prefs.getLong(key, -1L)
+        return if (value == -1L) null else value
+    }
+
+    actual fun clearLastReadTimestamp(pubkey: String, groupId: String) {
+        ensureInitialized()
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        prefs.edit().remove(key).apply()
+    }
+
+    actual fun getAllLastReadTimestamps(pubkey: String): Map<String, Long> {
+        ensureInitialized()
+        val prefix = LAST_READ_PREFIX + pubkey.hashCode() + "_"
+        val result = mutableMapOf<String, Long>()
+        prefs.all.forEach { (key, value) ->
+            if (key.startsWith(prefix) && value is Long) {
+                val groupHash = key.removePrefix(prefix)
+                result[groupHash] = value
+            }
+        }
+        return result
     }
 }

@@ -9,6 +9,7 @@ actual object SecureStorage {
     private const val BUNKER_URL_PREF = "nostr_bunker_url"
     private const val BUNKER_USER_PUBKEY_PREF = "nostr_bunker_user_pubkey"
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
+    private const val LAST_READ_PREFIX = "last_read_"
     
     actual fun savePrivateKey(privateKeyHex: String) {
         localStorage.setItem(PRIVATE_KEY_PREF, privateKeyHex)
@@ -112,5 +113,36 @@ actual object SecureStorage {
     
     actual fun clearAll() {
         localStorage.clear()
+    }
+
+    // Last read timestamp tracking
+    actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        localStorage.setItem(key, timestamp.toString())
+    }
+
+    actual fun getLastReadTimestamp(pubkey: String, groupId: String): Long? {
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        return localStorage.getItem(key)?.toLongOrNull()
+    }
+
+    actual fun clearLastReadTimestamp(pubkey: String, groupId: String) {
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        localStorage.removeItem(key)
+    }
+
+    actual fun getAllLastReadTimestamps(pubkey: String): Map<String, Long> {
+        val prefix = LAST_READ_PREFIX + pubkey.hashCode() + "_"
+        val result = mutableMapOf<String, Long>()
+        for (i in 0 until localStorage.length) {
+            val key = localStorage.key(i)
+            if (key != null && key.startsWith(prefix)) {
+                val groupHash = key.removePrefix(prefix)
+                localStorage.getItem(key)?.toLongOrNull()?.let { timestamp ->
+                    result[groupHash] = timestamp
+                }
+            }
+        }
+        return result
     }
 }

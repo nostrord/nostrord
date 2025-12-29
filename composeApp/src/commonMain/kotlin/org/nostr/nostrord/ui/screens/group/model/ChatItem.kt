@@ -13,6 +13,11 @@ sealed class ChatItem {
     data class DateSeparator(val date: String) : ChatItem()
 
     /**
+     * Divider shown to indicate where new (unread) messages begin.
+     */
+    data object NewMessagesDivider : ChatItem()
+
+    /**
      * System event (join/leave) with optional grouping.
      * When multiple users perform the same action close together, they are grouped.
      */
@@ -39,11 +44,20 @@ sealed class ChatItem {
     ) : ChatItem()
 }
 
-fun buildChatItems(messages: List<NostrGroupClient.NostrMessage>): List<ChatItem> {
+/**
+ * Build chat items from messages.
+ * @param messages The list of messages to process
+ * @param lastReadTimestamp Optional timestamp of last read message (for new messages divider)
+ */
+fun buildChatItems(
+    messages: List<NostrGroupClient.NostrMessage>,
+    lastReadTimestamp: Long? = null
+): List<ChatItem> {
     val items = mutableListOf<ChatItem>()
     var lastDate: String? = null
     var lastMessagePubkey: String? = null
     var lastMessageTime: Long? = null
+    var newMessagesDividerInserted = false
 
     val sortedMessages = messages.sortedBy { it.createdAt }
 
@@ -70,6 +84,16 @@ fun buildChatItems(messages: List<NostrGroupClient.NostrMessage>): List<ChatItem
             // Reset grouping after date separator
             lastMessagePubkey = null
             lastMessageTime = null
+        }
+
+        // Insert new messages divider before first unread message
+        if (!newMessagesDividerInserted &&
+            lastReadTimestamp != null &&
+            message.createdAt > lastReadTimestamp
+        ) {
+            flushPendingSystemEvent()
+            items.add(ChatItem.NewMessagesDivider)
+            newMessagesDividerInserted = true
         }
 
         when (message.kind) {

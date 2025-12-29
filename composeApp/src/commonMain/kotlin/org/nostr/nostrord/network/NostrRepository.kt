@@ -12,6 +12,7 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.SessionManager
+import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
@@ -30,6 +31,7 @@ class NostrRepository(
     private val groupManager: GroupManager,
     private val metadataManager: MetadataManager,
     private val outboxManager: OutboxManager,
+    private val unreadManager: UnreadManager,
     private val scope: CoroutineScope
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -60,6 +62,9 @@ class NostrRepository(
     // Expose NIP-65 state
     val userRelayList: StateFlow<List<Nip65Relay>> = outboxManager.userRelayList
 
+    // Expose unread state
+    val unreadCounts: StateFlow<Map<String, Int>> = unreadManager.unreadCounts
+
     fun forceInitialized() {
         _isInitialized.value = true
     }
@@ -72,6 +77,7 @@ class NostrRepository(
             val pubkey = sessionManager.getPublicKey()
             if (pubkey != null) {
                 groupManager.loadJoinedGroupsFromStorage(pubkey, connectionManager.currentRelayUrl.value)
+                unreadManager.initialize(pubkey)
             }
             initializeOutboxModel()
             connect()
@@ -86,6 +92,7 @@ class NostrRepository(
 
     suspend fun loginWithBunker(bunkerUrl: String): String {
         val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
+        unreadManager.initialize(userPubkey)
         initializeOutboxModel()
         connect()
         sessionManager.setLoggedIn(true)
@@ -94,6 +101,7 @@ class NostrRepository(
 
     suspend fun loginSuspend(privKey: String, pubKey: String) {
         sessionManager.loginWithPrivateKey(privKey, pubKey)
+        unreadManager.initialize(pubKey)
         initializeOutboxModel()
         connect()
         sessionManager.setLoggedIn(true)
@@ -111,6 +119,7 @@ class NostrRepository(
         outboxManager.clear()
         sessionManager.logout()
         groupManager.clear()
+        unreadManager.clear()
     }
 
     fun forgetBunkerConnection() {
@@ -231,6 +240,23 @@ class NostrRepository(
 
     fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> {
         return groupManager.getMessagesForGroup(groupId)
+    }
+
+    // Unread message operations
+    fun markGroupAsRead(groupId: String) {
+        unreadManager.markAsRead(groupId)
+    }
+
+    fun getUnreadCount(groupId: String): Int {
+        return unreadManager.getUnreadCount(groupId)
+    }
+
+    fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
+        unreadManager.updateUnreadCount(groupId, messages)
+    }
+
+    fun getLastReadTimestamp(groupId: String): Long? {
+        return unreadManager.getLastReadTimestamp(groupId)
     }
 
     // Metadata operations
@@ -424,6 +450,7 @@ class NostrRepository(
         val userMetadata get() = instance.userMetadata
         val cachedEvents get() = instance.cachedEvents
         val userRelayList get() = instance.userRelayList
+        val unreadCounts get() = instance.unreadCounts
 
         fun forceInitialized() = instance.forceInitialized()
         suspend fun initialize() = instance.initialize()
@@ -448,6 +475,10 @@ class NostrRepository(
         suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()) =
             instance.sendMessage(groupId, content, channel, mentions)
         fun getMessagesForGroup(groupId: String) = instance.getMessagesForGroup(groupId)
+        fun markGroupAsRead(groupId: String) = instance.markGroupAsRead(groupId)
+        fun getUnreadCount(groupId: String) = instance.getUnreadCount(groupId)
+        fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>) = instance.updateUnreadCount(groupId, messages)
+        fun getLastReadTimestamp(groupId: String) = instance.getLastReadTimestamp(groupId)
         suspend fun requestUserMetadata(pubkeys: Set<String>) = instance.requestUserMetadata(pubkeys)
         suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null) =
             instance.requestEventById(eventId, relayHints, author)

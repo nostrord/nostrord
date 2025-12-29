@@ -20,6 +20,7 @@ actual object SecureStorage {
     private const val BUNKER_URL_PREF = "nostr_bunker_url"
     private const val BUNKER_USER_PUBKEY_PREF = "nostr_bunker_user_pubkey"
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
+    private const val LAST_READ_PREFIX = "last_read_"
     
     init {
         if (prefs.get(ENCRYPTION_KEY_PREF, null) == null) {
@@ -197,7 +198,45 @@ actual object SecureStorage {
         prefs.clear()
         prefs.flush()
     }
-    
+
+    // Last read timestamp tracking
+    actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        prefs.putLong(key, timestamp)
+        prefs.flush()
+    }
+
+    actual fun getLastReadTimestamp(pubkey: String, groupId: String): Long? {
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        val value = prefs.getLong(key, -1L)
+        return if (value == -1L) null else value
+    }
+
+    actual fun clearLastReadTimestamp(pubkey: String, groupId: String) {
+        val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        prefs.remove(key)
+        prefs.flush()
+    }
+
+    actual fun getAllLastReadTimestamps(pubkey: String): Map<String, Long> {
+        val prefix = LAST_READ_PREFIX + pubkey.hashCode() + "_"
+        val result = mutableMapOf<String, Long>()
+        try {
+            prefs.keys().forEach { key ->
+                if (key.startsWith(prefix)) {
+                    val groupHash = key.removePrefix(prefix)
+                    val timestamp = prefs.getLong(key, -1L)
+                    if (timestamp != -1L) {
+                        result[groupHash] = timestamp
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore errors
+        }
+        return result
+    }
+
     private fun saveString(key: String, value: String) {
         val encrypted = encrypt(value)
         prefs.put(key, encrypted)

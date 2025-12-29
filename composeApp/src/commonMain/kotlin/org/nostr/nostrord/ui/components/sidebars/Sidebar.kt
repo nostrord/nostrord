@@ -3,6 +3,7 @@ package org.nostr.nostrord.ui.components.sidebars
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -24,6 +25,7 @@ import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
+import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.generateColorFromString
@@ -34,7 +36,8 @@ fun Sidebar(
     connectionStatus: String,
     pubKey: String?,
     joinedGroups: Set<String>,
-    groups: List<GroupMetadata>
+    groups: List<GroupMetadata>,
+    unreadCounts: Map<String, Int> = emptyMap()
 ) {
     val scope = rememberCoroutineScope()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
@@ -182,6 +185,8 @@ fun Sidebar(
                         val groupId = joinedList[index]
                         val group = groups.find { it.id == groupId }
                         val groupName = group?.name ?: groupId
+                        val unreadCount = unreadCounts[groupId] ?: 0
+                        val hasUnread = unreadCount > 0
 
                         Row(
                             modifier = Modifier
@@ -192,27 +197,42 @@ fun Sidebar(
                                 .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(generateColorFromString(groupId)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = groupName.take(1).uppercase(),
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
+                            // Avatar with unread badge
+                            Box {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(generateColorFromString(groupId)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = groupName.take(1).uppercase(),
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                // Unread badge
+                                if (hasUnread) {
+                                    UnreadBadge(
+                                        count = unreadCount,
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .offset(x = 4.dp, y = (-4).dp),
+                                        size = 16.dp
+                                    )
+                                }
                             }
 
                             Spacer(modifier = Modifier.width(12.dp))
 
                             Text(
                                 text = groupName,
-                                color = Color.White,
+                                color = if (hasUnread) Color.White else NostrordColors.TextSecondary,
                                 style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
                                 modifier = Modifier.weight(1f)
                             )
                         }

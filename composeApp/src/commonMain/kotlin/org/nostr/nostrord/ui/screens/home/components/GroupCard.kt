@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.generateColorFromString
 
@@ -39,7 +40,8 @@ fun GroupCard(
     group: GroupMetadata,
     onClick: () -> Unit,
     memberCount: Int = 0,
-    isJoined: Boolean = false
+    isJoined: Boolean = false,
+    unreadCount: Int = 0
 ) {
     val groupName = group.name ?: group.id
     val hasCoverImage = !group.picture.isNullOrBlank()
@@ -118,7 +120,7 @@ fun GroupCard(
                 }
             }
 
-            // Avatar overlapping the cover
+            // Avatar overlapping the cover with unread badge
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
@@ -130,6 +132,17 @@ fun GroupCard(
                     pictureUrl = if (hasCoverImage) null else group.picture, // Don't repeat cover as avatar
                     size = 48.dp
                 )
+
+                // Unread badge positioned at top-right of avatar
+                if (unreadCount > 0) {
+                    UnreadBadge(
+                        count = unreadCount,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 4.dp, y = (-4).dp),
+                        size = 18.dp
+                    )
+                }
             }
         }
 

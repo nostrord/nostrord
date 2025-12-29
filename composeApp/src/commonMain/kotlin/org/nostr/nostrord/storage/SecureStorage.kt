@@ -37,6 +37,12 @@ expect object SecureStorage {
     fun clearBunkerClientPrivateKey()
     
     fun clearAll()
+
+    // Last read timestamp tracking (account-scoped, per group)
+    fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long)
+    fun getLastReadTimestamp(pubkey: String, groupId: String): Long?
+    fun clearLastReadTimestamp(pubkey: String, groupId: String)
+    fun getAllLastReadTimestamps(pubkey: String): Map<String, Long>
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)

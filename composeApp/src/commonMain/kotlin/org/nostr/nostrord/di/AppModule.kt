@@ -10,6 +10,7 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.SessionManager
+import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.storage.SecureStorage
 
@@ -68,6 +69,10 @@ object AppModule {
         )
     }
 
+    val unreadManager: UnreadManager by lazy {
+        UnreadManager()
+    }
+
     val nostrRepository: NostrRepository by lazy {
         NostrRepository(
             connectionManager = connectionManager,
@@ -75,6 +80,7 @@ object AppModule {
             groupManager = groupManager,
             metadataManager = metadataManager,
             outboxManager = outboxManager,
+            unreadManager = unreadManager,
             scope = appScope
         )
     }

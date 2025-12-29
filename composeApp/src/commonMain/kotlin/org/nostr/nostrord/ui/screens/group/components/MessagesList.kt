@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.filter
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.MessageItem
+import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
 import org.nostr.nostrord.ui.components.loading.MessagesListSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
@@ -125,12 +126,14 @@ fun MessagesList(
                 items(chatItems, key = { item ->
                     when (item) {
                         is ChatItem.DateSeparator -> "date_${item.date}"
+                        is ChatItem.NewMessagesDivider -> "new_messages_divider"
                         is ChatItem.SystemEvent -> "system_${item.id}"
                         is ChatItem.Message -> "msg_${item.message.id}"
                     }
                 }) { item ->
                     when (item) {
                         is ChatItem.DateSeparator -> DateSeparator(item.date)
+                        is ChatItem.NewMessagesDivider -> NewMessagesDivider()
                         is ChatItem.SystemEvent -> SystemEventItem(
                             pubkey = item.pubkey,
                             action = item.action,
