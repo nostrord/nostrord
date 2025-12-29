@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBar
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.sidebars.Sidebar
@@ -75,6 +76,20 @@ fun HomeScreenDesktop(
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
                     }
                 }
+            }
+
+            // Quick-switch bar for joined groups
+            if (joinedGroups.isNotEmpty()) {
+                GroupQuickSwitchBar(
+                    joinedGroups = joinedGroups,
+                    groups = groups,
+                    activeGroupId = null, // No active group on home screen
+                    onHomeClick = { /* Already on home */ },
+                    onGroupClick = { groupId, groupName ->
+                        onNavigate(Screen.Group(groupId, groupName))
+                    },
+                    onExploreClick = { /* Already on explore/home */ }
+                )
             }
 
             // Header section

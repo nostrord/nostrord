@@ -80,7 +80,10 @@ fun App() {
                     GroupScreen(
                         groupId = screen.groupId,
                         groupName = screen.groupName,
-                        onBack = { currentScreen = Screen.Home }
+                        onBack = { currentScreen = Screen.Home },
+                        onNavigateToGroup = { newGroupId, newGroupName ->
+                            currentScreen = Screen.Group(newGroupId, newGroupName)
+                        }
                     )
                 }
                 is Screen.RelaySettings -> {

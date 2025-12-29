@@ -18,7 +18,8 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 fun GroupScreen(
     groupId: String,
     groupName: String?,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> }
 ) {
     val scope = rememberCoroutineScope()
 
@@ -41,6 +42,7 @@ fun GroupScreen(
 
     val connectionState by NostrRepository.connectionState.collectAsState()
     val joinedGroups by NostrRepository.joinedGroups.collectAsState()
+    val groups by NostrRepository.groups.collectAsState()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
 
     // Pagination state
@@ -160,7 +162,10 @@ fun GroupScreen(
                 hasMoreMessages = hasMoreMessages,
                 onLoadMore = {
                     scope.launch { NostrRepository.loadMoreMessages(groupId, selectedChannel) }
-                }
+                },
+                joinedGroups = joinedGroups,
+                groups = groups,
+                onNavigateToGroup = onNavigateToGroup
             )
         } else {
             GroupScreenDesktop(
@@ -194,7 +199,10 @@ fun GroupScreen(
                 hasMoreMessages = hasMoreMessages,
                 onLoadMore = {
                     scope.launch { NostrRepository.loadMoreMessages(groupId, selectedChannel) }
-                }
+                },
+                joinedGroups = joinedGroups,
+                groups = groups,
+                onNavigateToGroup = onNavigateToGroup
             )
         }
     }

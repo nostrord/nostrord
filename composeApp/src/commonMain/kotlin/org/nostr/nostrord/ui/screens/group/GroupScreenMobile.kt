@@ -11,8 +11,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBarCompact
 import org.nostr.nostrord.ui.components.sidebars.GroupSidebar
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
@@ -43,7 +45,10 @@ fun GroupScreenMobile(
     onMentionsChange: (Map<String, String>) -> Unit = {},
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
-    onLoadMore: () -> Unit = {}
+    onLoadMore: () -> Unit = {},
+    joinedGroups: Set<String> = emptySet(),
+    groups: List<GroupMetadata> = emptyList(),
+    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> }
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -111,6 +116,22 @@ fun GroupScreenMobile(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
+                // Quick-switch bar for navigating between groups
+                if (joinedGroups.isNotEmpty()) {
+                    GroupQuickSwitchBarCompact(
+                        joinedGroups = joinedGroups,
+                        groups = groups,
+                        activeGroupId = groupId,
+                        onHomeClick = onBack,
+                        onGroupClick = { newGroupId, newGroupName ->
+                            if (newGroupId != groupId) {
+                                onNavigateToGroup(newGroupId, newGroupName)
+                            }
+                        },
+                        onExploreClick = onBack
+                    )
+                }
+
                 // Messages area
                 Box(
                     modifier = Modifier

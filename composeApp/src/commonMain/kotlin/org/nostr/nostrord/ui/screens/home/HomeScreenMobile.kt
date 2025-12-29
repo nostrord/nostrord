@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBarCompact
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.sidebars.Sidebar
 import org.nostr.nostrord.ui.screens.home.components.GroupCard
@@ -85,6 +86,20 @@ fun HomeScreenMobile(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
+                // Quick-switch bar for joined groups
+                if (joinedGroups.isNotEmpty()) {
+                    GroupQuickSwitchBarCompact(
+                        joinedGroups = joinedGroups,
+                        groups = groups,
+                        activeGroupId = null, // No active group on home screen
+                        onHomeClick = { /* Already on home */ },
+                        onGroupClick = { groupId, groupName ->
+                            onNavigate(Screen.Group(groupId, groupName))
+                        },
+                        onExploreClick = { /* Already on explore/home */ }
+                    )
+                }
+
                 // Search and header
                 Column(
                     modifier = Modifier
