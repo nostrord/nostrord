@@ -14,14 +14,17 @@ import org.nostr.nostrord.utils.epochMillis
  * ## Features:
  * - Thread-safe operations using Mutex
  * - LRU-style eviction when cache is full
- * - Configurable cache size
+ * - TTL-based eviction (default 24 hours)
+ * - Configurable cache size and TTL
  * - Statistics tracking
  */
 class EventDeduplicator(
-    private val maxSize: Int = DEFAULT_MAX_SIZE
+    private val maxSize: Int = DEFAULT_MAX_SIZE,
+    private val ttlMs: Long = DEFAULT_TTL_MS
 ) {
     companion object {
         const val DEFAULT_MAX_SIZE = 10_000
+        const val DEFAULT_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
     }
 
     // Simple map for seen events (eventId -> timestamp)
@@ -41,6 +44,10 @@ class EventDeduplicator(
     suspend fun tryAdd(eventId: String): Boolean {
         return mutex.withLock {
             totalEvents++
+            val now = epochMillis()
+
+            // Evict expired entries first
+            evictExpired(now)
 
             if (seenEvents.containsKey(eventId)) {
                 duplicateEvents++
@@ -52,9 +59,28 @@ class EventDeduplicator(
                     seenEvents.remove(oldest)
                 }
 
-                seenEvents[eventId] = epochMillis()
+                seenEvents[eventId] = now
                 insertionOrder.add(eventId)
                 true
+            }
+        }
+    }
+
+    /**
+     * Evict entries older than TTL
+     */
+    private fun evictExpired(now: Long) {
+        val expiredBefore = now - ttlMs
+        val iterator = insertionOrder.iterator()
+        while (iterator.hasNext()) {
+            val eventId = iterator.next()
+            val timestamp = seenEvents[eventId] ?: continue
+            if (timestamp < expiredBefore) {
+                iterator.remove()
+                seenEvents.remove(eventId)
+            } else {
+                // Since insertionOrder is sorted by time, we can stop early
+                break
             }
         }
     }
@@ -96,6 +122,10 @@ class EventDeduplicator(
      */
     fun tryAddSync(eventId: String): Boolean {
         totalEvents++
+        val now = epochMillis()
+
+        // Evict expired entries first
+        evictExpired(now)
 
         return if (seenEvents.containsKey(eventId)) {
             duplicateEvents++
@@ -107,7 +137,7 @@ class EventDeduplicator(
                 seenEvents.remove(oldest)
             }
 
-            seenEvents[eventId] = epochMillis()
+            seenEvents[eventId] = now
             insertionOrder.add(eventId)
             true
         }

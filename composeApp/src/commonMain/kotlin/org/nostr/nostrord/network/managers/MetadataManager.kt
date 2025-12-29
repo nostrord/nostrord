@@ -9,6 +9,7 @@ import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.utils.LruCache
 
 /**
  * Manages user metadata (profiles) and cached events.
@@ -20,6 +21,15 @@ class MetadataManager(
     private val scope: CoroutineScope
 ) {
     private val json = Json { ignoreUnknownKeys = true }
+
+    companion object {
+        const val MAX_METADATA_CACHE_SIZE = 500
+        const val MAX_EVENTS_CACHE_SIZE = 500
+    }
+
+    // LRU caches for bounded memory usage
+    private val metadataCache = LruCache<String, UserMetadata>(MAX_METADATA_CACHE_SIZE)
+    private val eventsCache = LruCache<String, CachedEvent>(MAX_EVENTS_CACHE_SIZE)
 
     private val _userMetadata = MutableStateFlow<Map<String, UserMetadata>>(emptyMap())
     val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata.asStateFlow()
@@ -95,14 +105,16 @@ class MetadataManager(
      * Handle incoming metadata message
      */
     fun handleMetadataEvent(pubkey: String, metadata: UserMetadata) {
-        _userMetadata.value = _userMetadata.value + (pubkey to metadata)
+        metadataCache.put(pubkey, metadata)
+        _userMetadata.value = metadataCache.toMap()
     }
 
     /**
      * Handle incoming cached event
      */
     fun handleCachedEvent(event: CachedEvent) {
-        _cachedEvents.value = _cachedEvents.value + (event.id to event)
+        eventsCache.put(event.id, event)
+        _cachedEvents.value = eventsCache.toMap()
     }
 
     /**
@@ -113,9 +125,7 @@ class MetadataManager(
             val eventId = eventJson["id"]?.jsonPrimitive?.content ?: return null
 
             // Skip if already cached
-            if (_cachedEvents.value.containsKey(eventId)) {
-                return _cachedEvents.value[eventId]
-            }
+            eventsCache.get(eventId)?.let { return it }
 
             val pubkey = eventJson["pubkey"]?.jsonPrimitive?.content ?: return null
             val content = eventJson["content"]?.jsonPrimitive?.content ?: ""
@@ -134,7 +144,8 @@ class MetadataManager(
                 tags = tags
             )
 
-            _cachedEvents.value = _cachedEvents.value + (eventId to cachedEvent)
+            eventsCache.put(eventId, cachedEvent)
+            _cachedEvents.value = eventsCache.toMap()
             cachedEvent
         } catch (e: Exception) {
             null
@@ -144,27 +155,29 @@ class MetadataManager(
     /**
      * Check if we have metadata for a pubkey
      */
-    fun hasMetadata(pubkey: String): Boolean = _userMetadata.value.containsKey(pubkey)
+    fun hasMetadata(pubkey: String): Boolean = metadataCache.containsKey(pubkey)
 
     /**
      * Check if we have a cached event
      */
-    fun hasCachedEvent(eventId: String): Boolean = _cachedEvents.value.containsKey(eventId)
+    fun hasCachedEvent(eventId: String): Boolean = eventsCache.containsKey(eventId)
 
     /**
      * Get metadata for a pubkey
      */
-    fun getMetadata(pubkey: String): UserMetadata? = _userMetadata.value[pubkey]
+    fun getMetadata(pubkey: String): UserMetadata? = metadataCache.get(pubkey)
 
     /**
      * Get cached event by ID
      */
-    fun getCachedEvent(eventId: String): CachedEvent? = _cachedEvents.value[eventId]
+    fun getCachedEvent(eventId: String): CachedEvent? = eventsCache.get(eventId)
 
     /**
      * Clear all cached data
      */
     fun clear() {
+        metadataCache.clear()
+        eventsCache.clear()
         _userMetadata.value = emptyMap()
         _cachedEvents.value = emptyMap()
     }
