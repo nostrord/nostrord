@@ -74,6 +74,15 @@ fun GroupScreen(
             .sortedBy { it.displayName.lowercase() }
     }
 
+    // Determine recently active members (messaged in last 10 minutes)
+    val recentlyActiveMembers = remember(allGroupMessages) {
+        val tenMinutesAgo = (System.currentTimeMillis() / 1000) - (10 * 60)
+        allGroupMessages
+            .filter { it.createdAt >= tenMinutesAgo }
+            .map { it.pubkey }
+            .toSet()
+    }
+
     val connectionStatus = when (connectionState) {
         is ConnectionManager.ConnectionState.Disconnected -> "Disconnected"
         is ConnectionManager.ConnectionState.Connecting -> "Connecting..."
@@ -156,6 +165,7 @@ fun GroupScreen(
                 onLeaveGroup = { showLeaveDialog = true },
                 onBack = onBack,
                 groupMembers = groupMembers,
+                recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
                 onMentionsChange = { mentions = it },
                 isLoadingMore = isLoadingMore,
@@ -193,6 +203,7 @@ fun GroupScreen(
                 onLeaveGroup = { showLeaveDialog = true },
                 onBack = onBack,
                 groupMembers = groupMembers,
+                recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
                 onMentionsChange = { mentions = it },
                 isLoadingMore = isLoadingMore,

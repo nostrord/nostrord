@@ -16,6 +16,7 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBar
 import org.nostr.nostrord.ui.components.sidebars.GroupSidebar
+import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
@@ -40,6 +41,7 @@ fun GroupScreenDesktop(
     onLeaveGroup: () -> Unit,
     onBack: () -> Unit,
     groupMembers: List<MemberInfo> = emptyList(),
+    recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
     onMentionsChange: (Map<String, String>) -> Unit = {},
     isLoadingMore: Boolean = false,
@@ -153,5 +155,12 @@ fun GroupScreenDesktop(
                 onMentionsChange = onMentionsChange
             )
         }
+
+        // Member sidebar on the right
+        MemberSidebar(
+            members = groupMembers,
+            recentlyActiveMembers = recentlyActiveMembers,
+            onMemberClick = { /* TODO: Show member profile */ }
+        )
     }
 }

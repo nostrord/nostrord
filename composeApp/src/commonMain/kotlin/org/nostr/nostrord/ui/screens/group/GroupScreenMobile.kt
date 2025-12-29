@@ -4,9 +4,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -16,6 +21,7 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBarCompact
 import org.nostr.nostrord.ui.components.sidebars.GroupSidebar
+import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
@@ -41,6 +47,7 @@ fun GroupScreenMobile(
     onLeaveGroup: () -> Unit,
     onBack: () -> Unit,
     groupMembers: List<MemberInfo> = emptyList(),
+    recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
     onMentionsChange: (Map<String, String>) -> Unit = {},
     isLoadingMore: Boolean = false,
@@ -52,6 +59,8 @@ fun GroupScreenMobile(
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var showMemberSheet by remember { mutableStateOf(false) }
+    val memberSheetState = rememberModalBottomSheetState()
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -94,6 +103,10 @@ fun GroupScreenMobile(
                         }
                     },
                     actions = {
+                        // Members button
+                        IconButton(onClick = { showMemberSheet = true }) {
+                            Icon(Icons.Default.People, contentDescription = "Members", tint = Color.White)
+                        }
                         if (!isJoined) {
                             TextButton(onClick = onJoinGroup) {
                                 Text("Join", color = NostrordColors.Primary)
@@ -161,6 +174,22 @@ fun GroupScreenMobile(
                     onMentionsChange = onMentionsChange
                 )
             }
+        }
+    }
+
+    // Member list bottom sheet
+    if (showMemberSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showMemberSheet = false },
+            sheetState = memberSheetState,
+            containerColor = NostrordColors.Surface
+        ) {
+            MemberSidebar(
+                members = groupMembers,
+                recentlyActiveMembers = recentlyActiveMembers,
+                onMemberClick = { /* TODO: Show member profile */ },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
