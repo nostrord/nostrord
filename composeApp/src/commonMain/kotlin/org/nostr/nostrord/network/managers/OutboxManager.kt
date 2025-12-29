@@ -12,6 +12,8 @@ import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.utils.AppError
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
 
 /**
@@ -146,8 +148,8 @@ class OutboxManager(
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
         messageHandler: (String, NostrGroupClient) -> Unit
-    ) {
-        try {
+    ): Result<Unit> {
+        return try {
             val tags = groupsMutex.withLock {
                 allRelayGroups = allRelayGroups + (currentRelayUrl to joinedGroups)
 
@@ -178,8 +180,9 @@ class OutboxManager(
             // Publish to user's WRITE relays
             val writeRelays = relayListManager.selectPublishRelays()
             connectionManager.sendToRelays(writeRelays, message, messageHandler)
+            Result.Success(Unit)
         } catch (e: Exception) {
-            e.printStackTrace()
+            Result.Error(AppError.Unknown("Failed to publish joined groups", e))
         }
     }
 

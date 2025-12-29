@@ -10,6 +10,8 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.utils.AppError
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
 
 /**
@@ -55,10 +57,11 @@ class GroupManager(
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit
-    ): Boolean {
-        val currentClient = connectionManager.getPrimaryClient() ?: return false
+    ): Result<Unit> {
+        val currentClient = connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
 
-        try {
+        return try {
             val event = Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
@@ -84,10 +87,9 @@ class GroupManager(
             // Request group messages
             currentClient.requestGroupMessages(groupId)
 
-            return true
+            Result.Success(Unit)
         } catch (e: Exception) {
-            e.printStackTrace()
-            return false
+            Result.Error(AppError.Group.JoinFailed(groupId, e))
         }
     }
 
@@ -101,10 +103,11 @@ class GroupManager(
         reason: String? = null,
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit
-    ): Boolean {
-        val currentClient = connectionManager.getPrimaryClient() ?: return false
+    ): Result<Unit> {
+        val currentClient = connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
 
-        try {
+        return try {
             val event = Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
@@ -130,10 +133,9 @@ class GroupManager(
             // Clear messages for this group
             _messages.value = _messages.value - groupId
 
-            return true
+            Result.Success(Unit)
         } catch (e: Exception) {
-            e.printStackTrace()
-            return false
+            Result.Error(AppError.Group.LeaveFailed(groupId, e))
         }
     }
 
@@ -163,10 +165,11 @@ class GroupManager(
         channel: String? = null,
         mentions: Map<String, String> = emptyMap(),
         signEvent: suspend (Event) -> Event
-    ): Boolean {
-        val currentClient = connectionManager.getPrimaryClient() ?: return false
+    ): Result<Unit> {
+        val currentClient = connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(""))
 
-        try {
+        return try {
             val tags = mutableListOf(listOf("h", groupId))
             if (channel != null && channel != "general") {
                 tags.add(listOf("channel", channel))
@@ -197,10 +200,9 @@ class GroupManager(
             }.toString()
 
             currentClient.send(message)
-            return true
+            Result.Success(Unit)
         } catch (e: Exception) {
-            e.printStackTrace()
-            return false
+            Result.Error(AppError.Group.SendFailed(groupId, e))
         }
     }
 

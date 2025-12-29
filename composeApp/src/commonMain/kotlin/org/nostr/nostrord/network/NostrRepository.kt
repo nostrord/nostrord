@@ -13,6 +13,8 @@ import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.utils.AppError
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.urlDecode
 
 /**
@@ -174,9 +176,10 @@ class NostrRepository(
     suspend fun ensureBunkerConnected(): Boolean = sessionManager.ensureBunkerConnected()
 
     // Group operations
-    suspend fun joinGroup(groupId: String) {
-        val pubKey = sessionManager.getPublicKey() ?: return
-        groupManager.joinGroup(
+    suspend fun joinGroup(groupId: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.joinGroup(
             groupId = groupId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
@@ -185,9 +188,10 @@ class NostrRepository(
         )
     }
 
-    suspend fun leaveGroup(groupId: String, reason: String? = null) {
-        val pubKey = sessionManager.getPublicKey() ?: return
-        groupManager.leaveGroup(
+    suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.leaveGroup(
             groupId = groupId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
@@ -206,9 +210,10 @@ class NostrRepository(
         groupManager.requestGroupMessages(groupId, channel)
     }
 
-    suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()) {
-        val pubKey = sessionManager.getPublicKey() ?: return
-        groupManager.sendMessage(
+    suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.sendMessage(
             groupId = groupId,
             content = content,
             pubKey = pubKey,
