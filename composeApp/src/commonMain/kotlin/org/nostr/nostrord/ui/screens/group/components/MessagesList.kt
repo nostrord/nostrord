@@ -119,7 +119,9 @@ fun MessagesList(
                             pubkey = item.pubkey,
                             action = item.action,
                             createdAt = item.createdAt,
-                            metadata = userMetadata[item.pubkey]
+                            metadata = userMetadata[item.pubkey],
+                            additionalUsers = item.additionalUsers,
+                            allUserMetadata = userMetadata
                         )
                         is ChatItem.Message -> MessageItem(
                             message = item.message,

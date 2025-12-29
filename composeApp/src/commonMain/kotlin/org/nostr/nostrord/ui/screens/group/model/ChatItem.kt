@@ -6,14 +6,26 @@ import org.nostr.nostrord.utils.getDateLabel
 // Time window for grouping consecutive messages from the same author (5 minutes)
 private const val MESSAGE_GROUP_WINDOW_SECONDS = 5 * 60
 
+// Time window for grouping consecutive system events (2 minutes)
+private const val SYSTEM_EVENT_GROUP_WINDOW_SECONDS = 2 * 60
+
 sealed class ChatItem {
     data class DateSeparator(val date: String) : ChatItem()
+
+    /**
+     * System event (join/leave) with optional grouping.
+     * When multiple users perform the same action close together, they are grouped.
+     */
     data class SystemEvent(
         val pubkey: String,
         val action: String,
         val createdAt: Long,
-        val id: String
-    ) : ChatItem()
+        val id: String,
+        val additionalUsers: List<String> = emptyList() // Additional pubkeys for grouped events
+    ) : ChatItem() {
+        val totalUsers: Int get() = 1 + additionalUsers.size
+        val isGrouped: Boolean get() = additionalUsers.isNotEmpty()
+    }
     /**
      * Message item with grouping information.
      * @param message The actual message
@@ -35,11 +47,24 @@ fun buildChatItems(messages: List<NostrGroupClient.NostrMessage>): List<ChatItem
 
     val sortedMessages = messages.sortedBy { it.createdAt }
 
+    // Track system events for grouping
+    var pendingSystemEvent: ChatItem.SystemEvent? = null
+    val pendingSystemEventUsers = mutableListOf<String>()
+
+    fun flushPendingSystemEvent() {
+        pendingSystemEvent?.let { event ->
+            items.add(event.copy(additionalUsers = pendingSystemEventUsers.toList()))
+        }
+        pendingSystemEvent = null
+        pendingSystemEventUsers.clear()
+    }
+
     sortedMessages.forEachIndexed { index, message ->
         val messageDate = getDateLabel(message.createdAt)
 
         // Check if we need a date separator
         if (messageDate != lastDate) {
+            flushPendingSystemEvent()
             items.add(ChatItem.DateSeparator(messageDate))
             lastDate = messageDate
             // Reset grouping after date separator
@@ -49,6 +74,9 @@ fun buildChatItems(messages: List<NostrGroupClient.NostrMessage>): List<ChatItem
 
         when (message.kind) {
             9 -> {
+                // Flush any pending system events before adding a message
+                flushPendingSystemEvent()
+
                 // Determine if this message should be grouped with the previous one
                 val timeSinceLastMessage = lastMessageTime?.let { message.createdAt - it } ?: Long.MAX_VALUE
                 val isSameAuthor = message.pubkey == lastMessagePubkey
@@ -77,29 +105,62 @@ fun buildChatItems(messages: List<NostrGroupClient.NostrMessage>): List<ChatItem
                 lastMessageTime = message.createdAt
             }
             9021 -> {
-                items.add(ChatItem.SystemEvent(
-                    pubkey = message.pubkey,
-                    action = "joined the group",
-                    createdAt = message.createdAt,
-                    id = message.id
-                ))
-                // Reset grouping after system event
+                val action = "joined the group"
+                val pending = pendingSystemEvent
+
+                // Check if we can group with pending system event
+                if (pending != null &&
+                    pending.action == action &&
+                    message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
+                ) {
+                    // Add to existing group
+                    pendingSystemEventUsers.add(message.pubkey)
+                } else {
+                    // Flush previous and start new group
+                    flushPendingSystemEvent()
+                    pendingSystemEvent = ChatItem.SystemEvent(
+                        pubkey = message.pubkey,
+                        action = action,
+                        createdAt = message.createdAt,
+                        id = message.id
+                    )
+                }
+
+                // Reset message grouping after system event
                 lastMessagePubkey = null
                 lastMessageTime = null
             }
             9022 -> {
-                items.add(ChatItem.SystemEvent(
-                    pubkey = message.pubkey,
-                    action = "left the group",
-                    createdAt = message.createdAt,
-                    id = message.id
-                ))
-                // Reset grouping after system event
+                val action = "left the group"
+                val pending = pendingSystemEvent
+
+                // Check if we can group with pending system event
+                if (pending != null &&
+                    pending.action == action &&
+                    message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
+                ) {
+                    // Add to existing group
+                    pendingSystemEventUsers.add(message.pubkey)
+                } else {
+                    // Flush previous and start new group
+                    flushPendingSystemEvent()
+                    pendingSystemEvent = ChatItem.SystemEvent(
+                        pubkey = message.pubkey,
+                        action = action,
+                        createdAt = message.createdAt,
+                        id = message.id
+                    )
+                }
+
+                // Reset message grouping after system event
                 lastMessagePubkey = null
                 lastMessageTime = null
             }
         }
     }
+
+    // Flush any remaining pending system event
+    flushPendingSystemEvent()
 
     return items
 }
