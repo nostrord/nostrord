@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.storage.SecureStorage
 
 /**
@@ -39,7 +40,7 @@ class UnreadManager {
      */
     fun markAsRead(groupId: String) {
         val pubkey = currentPubkey ?: return
-        val currentTime = System.currentTimeMillis() / 1000 // Unix timestamp in seconds
+        val currentTime = epochSeconds()
         SecureStorage.saveLastReadTimestamp(pubkey, groupId, currentTime)
 
         // Update unread count to 0 for this group

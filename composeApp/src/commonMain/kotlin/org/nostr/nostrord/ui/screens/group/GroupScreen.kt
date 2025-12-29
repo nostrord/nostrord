@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -81,7 +82,7 @@ fun GroupScreen(
 
     // Determine recently active members (messaged in last 10 minutes)
     val recentlyActiveMembers = remember(allGroupMessages) {
-        val tenMinutesAgo = (System.currentTimeMillis() / 1000) - (10 * 60)
+        val tenMinutesAgo = epochSeconds() - (10 * 60)
         allGroupMessages
             .filter { it.createdAt >= tenMinutesAgo }
             .map { it.pubkey }
