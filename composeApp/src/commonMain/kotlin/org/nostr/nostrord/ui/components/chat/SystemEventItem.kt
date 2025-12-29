@@ -1,6 +1,10 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,13 +24,22 @@ fun SystemEventItem(
     metadata: UserMetadata? = null
 ) {
     val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8)
+    val isJoinEvent = action.contains("joined", ignoreCase = true)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp, horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(vertical = 8.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
     ) {
+        Icon(
+            imageVector = if (isJoinEvent) Icons.Default.Login else Icons.Default.Logout,
+            contentDescription = null,
+            modifier = Modifier.size(14.dp),
+            tint = if (isJoinEvent) NostrordColors.Success else NostrordColors.TextMuted
+        )
+        Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = displayName,
             color = NostrordColors.TextSecondary,
@@ -42,8 +55,8 @@ fun SystemEventItem(
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = formatTimestamp(createdAt),
-            color = NostrordColors.TextMuted,
-            style = MaterialTheme.typography.bodySmall
+            color = NostrordColors.TextMuted.copy(alpha = 0.7f),
+            style = MaterialTheme.typography.labelSmall
         )
     }
 }

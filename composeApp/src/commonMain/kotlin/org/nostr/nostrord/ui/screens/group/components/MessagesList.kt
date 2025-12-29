@@ -85,8 +85,8 @@ fun MessagesList(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                contentPadding = PaddingValues(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 // Loading indicator at top for older messages
                 if (isLoadingMore) {
@@ -123,7 +123,9 @@ fun MessagesList(
                         )
                         is ChatItem.Message -> MessageItem(
                             message = item.message,
-                            metadata = userMetadata[item.message.pubkey]
+                            metadata = userMetadata[item.message.pubkey],
+                            isFirstInGroup = item.isFirstInGroup,
+                            isLastInGroup = item.isLastInGroup
                         )
                     }
                 }
