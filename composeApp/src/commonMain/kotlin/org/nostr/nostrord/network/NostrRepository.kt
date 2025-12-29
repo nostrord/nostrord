@@ -341,12 +341,14 @@ class NostrRepository(
                 // Handle kind:10009 (joined groups)
                 if (kind == 10009) {
                     val pubKey = sessionManager.getPublicKey() ?: ""
-                    outboxManager.handleKind10009Event(
-                        event = event,
-                        currentRelayUrl = connectionManager.currentRelayUrl.value,
-                        pubKey = pubKey,
-                        onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) }
-                    )
+                    scope.launch {
+                        outboxManager.handleKind10009Event(
+                            event = event,
+                            currentRelayUrl = connectionManager.currentRelayUrl.value,
+                            pubKey = pubKey,
+                            onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) }
+                        )
+                    }
                     return
                 }
 

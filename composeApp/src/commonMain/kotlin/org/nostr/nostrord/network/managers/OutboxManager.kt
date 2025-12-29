@@ -4,6 +4,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.outbox.Nip65Relay
@@ -26,14 +28,15 @@ class OutboxManager(
     // Expose user's relay list
     val userRelayList: StateFlow<List<Nip65Relay>> = relayListManager.myRelayList
 
-    // Track kind:10009 subscription state
+    // Track kind:10009 subscription state - simple flags for coroutine coordination
     private var kind10009SubId: String? = null
     private var kind10009Received = false
     private var eoseReceived = false
     private var kind10002Received = false
 
-    // All groups across all relays (for kind:10009)
-    private val allRelayGroups = mutableMapOf<String, MutableSet<String>>()
+    // All groups across all relays (for kind:10009) - protected by groupsMutex
+    private val groupsMutex = Mutex()
+    private var allRelayGroups: Map<String, Set<String>> = emptyMap()
 
     init {
         // Share relay pool with RelayListManager
@@ -126,7 +129,9 @@ class OutboxManager(
             }.toString()
             currentClient.send(closeMsg)
 
-            return allRelayGroups[connectionManager.currentRelayUrl.value] ?: emptySet()
+            return groupsMutex.withLock {
+                allRelayGroups[connectionManager.currentRelayUrl.value] ?: emptySet()
+            }
         } catch (_: Exception) {
             return emptySet()
         }
@@ -143,13 +148,16 @@ class OutboxManager(
         messageHandler: (String, NostrGroupClient) -> Unit
     ) {
         try {
-            allRelayGroups[currentRelayUrl] = joinedGroups.toMutableSet()
+            val tags = groupsMutex.withLock {
+                allRelayGroups = allRelayGroups + (currentRelayUrl to joinedGroups)
 
-            val tags = mutableListOf<List<String>>()
-            allRelayGroups.forEach { (relayUrl, groupIds) ->
-                groupIds.forEach { groupId ->
-                    tags.add(listOf("group", groupId, relayUrl))
+                val tagsList = mutableListOf<List<String>>()
+                allRelayGroups.forEach { (relayUrl, groupIds) ->
+                    groupIds.forEach { groupId ->
+                        tagsList.add(listOf("group", groupId, relayUrl))
+                    }
                 }
+                tagsList
             }
 
             val event = Event(
@@ -178,7 +186,7 @@ class OutboxManager(
     /**
      * Handle kind:10009 event (joined groups)
      */
-    fun handleKind10009Event(
+    suspend fun handleKind10009Event(
         event: JsonObject,
         currentRelayUrl: String,
         pubKey: String,
@@ -187,8 +195,8 @@ class OutboxManager(
         kind10009Received = true
         val tags = event["tags"]?.jsonArray ?: return
 
-        allRelayGroups.clear()
         val currentRelayGroups = mutableSetOf<String>()
+        val newRelayGroups = mutableMapOf<String, MutableSet<String>>()
 
         tags.forEach { tag ->
             val tagArray = tag.jsonArray
@@ -197,15 +205,20 @@ class OutboxManager(
                 val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content
 
                 if (relayUrl != null) {
-                    allRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
+                    newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
                     if (relayUrl == currentRelayUrl) {
                         currentRelayGroups.add(groupId)
                     }
                 } else {
                     currentRelayGroups.add(groupId)
-                    allRelayGroups.getOrPut(currentRelayUrl) { mutableSetOf() }.add(groupId)
+                    newRelayGroups.getOrPut(currentRelayUrl) { mutableSetOf() }.add(groupId)
                 }
             }
+        }
+
+        // Update allRelayGroups atomically
+        groupsMutex.withLock {
+            allRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
         }
 
         SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, currentRelayGroups)
@@ -266,6 +279,7 @@ class OutboxManager(
      * Connect to relays discovered from kind:10009
      */
     private fun connectToKind10009Relays(messageHandler: (String, NostrGroupClient) -> Unit) {
+        // Take a snapshot of relay URLs to avoid holding the lock during connection
         val relayUrls = allRelayGroups.keys.toList()
         if (relayUrls.isEmpty()) return
 
@@ -388,13 +402,15 @@ class OutboxManager(
     /**
      * Get all relay groups (for kind:10009)
      */
-    fun getAllRelayGroups(): Map<String, Set<String>> = allRelayGroups.toMap()
+    fun getAllRelayGroups(): Map<String, Set<String>> = allRelayGroups
 
     /**
      * Update groups for a specific relay
      */
-    fun updateRelayGroups(relayUrl: String, groups: Set<String>) {
-        allRelayGroups[relayUrl] = groups.toMutableSet()
+    suspend fun updateRelayGroups(relayUrl: String, groups: Set<String>) {
+        groupsMutex.withLock {
+            allRelayGroups = allRelayGroups + (relayUrl to groups)
+        }
     }
 
     /**
@@ -413,9 +429,11 @@ class OutboxManager(
     /**
      * Clear all state
      */
-    fun clear() {
+    suspend fun clear() {
         relayListManager.clear()
-        allRelayGroups.clear()
+        groupsMutex.withLock {
+            allRelayGroups = emptyMap()
+        }
         kind10009Received = false
         eoseReceived = false
         kind10002Received = false

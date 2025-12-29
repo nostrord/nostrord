@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.network.NostrGroupClient
@@ -28,6 +30,7 @@ class ConnectionManager(
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     // Shared relay pool for all auxiliary connections (outbox, metadata, NIP-65)
+    private val poolMutex = Mutex()
     private val relayPool = mutableMapOf<String, NostrGroupClient>()
 
     sealed class ConnectionState {
@@ -114,15 +117,27 @@ class ConnectionManager(
         onMessage: (String, NostrGroupClient) -> Unit
     ): NostrGroupClient? {
         // Check if we already have a connection
-        relayPool[relayUrl]?.let { return it }
+        poolMutex.withLock {
+            relayPool[relayUrl]?.let { return it }
+        }
 
+        // Create new connection outside the lock to avoid blocking other operations
         return try {
             val newClient = NostrGroupClient(relayUrl)
             newClient.connect { msg ->
                 onMessage(msg, newClient)
             }
             newClient.waitForConnection()
-            relayPool[relayUrl] = newClient
+
+            // Add to pool with lock, but check again in case another coroutine added it
+            poolMutex.withLock {
+                relayPool[relayUrl]?.let {
+                    // Another coroutine already added a connection, disconnect ours
+                    newClient.disconnect()
+                    return it
+                }
+                relayPool[relayUrl] = newClient
+            }
             newClient
         } catch (e: Exception) {
             null
@@ -161,7 +176,7 @@ class ConnectionManager(
 
         // Wait briefly for at least one connection
         withTimeoutOrNull(timeoutMs) {
-            while (relayPool.isEmpty()) {
+            while (!hasPoolConnections()) {
                 delay(50)
             }
         }
@@ -170,7 +185,9 @@ class ConnectionManager(
     /**
      * Check if any relay is connected in the pool
      */
-    fun hasPoolConnections(): Boolean = relayPool.isNotEmpty()
+    suspend fun hasPoolConnections(): Boolean = poolMutex.withLock {
+        relayPool.isNotEmpty()
+    }
 
     /**
      * Clear all connections
@@ -178,12 +195,20 @@ class ConnectionManager(
     suspend fun clearAll() {
         scope.coroutineContext.cancelChildren()
         disconnectPrimary()
-        relayPool.values.forEach { it.disconnect() }
-        relayPool.clear()
+
+        // Get clients to disconnect while holding lock, then disconnect outside lock
+        val clientsToDisconnect = poolMutex.withLock {
+            val clients = relayPool.values.toList()
+            relayPool.clear()
+            clients
+        }
+        clientsToDisconnect.forEach { it.disconnect() }
     }
 
     /**
      * Get all connected relay URLs
      */
-    fun getConnectedRelays(): List<String> = relayPool.keys.toList()
+    suspend fun getConnectedRelays(): List<String> = poolMutex.withLock {
+        relayPool.keys.toList()
+    }
 }
