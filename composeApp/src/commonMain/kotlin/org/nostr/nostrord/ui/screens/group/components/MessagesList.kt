@@ -25,6 +25,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.MessageItem
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
+import org.nostr.nostrord.ui.components.loading.MessagesListSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -34,6 +35,7 @@ fun MessagesList(
     chatItems: List<ChatItem>,
     userMetadata: Map<String, UserMetadata>,
     isJoined: Boolean,
+    isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {}
@@ -59,28 +61,42 @@ fun MessagesList(
             }
     }
 
-    if (chatItems.isEmpty()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                "No messages yet",
-                color = NostrordColors.TextSecondary,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                if (isJoined) "Be the first to send a message!" else "Join the group to participate!",
-                color = NostrordColors.TextMuted,
-                style = MaterialTheme.typography.bodySmall
-            )
+    when {
+        isInitialLoading && chatItems.isEmpty() -> {
+            // Show skeleton loaders during initial loading
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                MessagesListSkeleton(
+                    count = 8,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
         }
-    } else {
+        chatItems.isEmpty() -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    "No messages yet",
+                    color = NostrordColors.TextSecondary,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    if (isJoined) "Be the first to send a message!" else "Join the group to participate!",
+                    color = NostrordColors.TextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+        else -> {
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
@@ -172,6 +188,7 @@ fun MessagesList(
                 }
             }
             previousSize = chatItems.size
+        }
         }
     }
 }

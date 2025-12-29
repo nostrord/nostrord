@@ -55,6 +55,10 @@ fun HomeScreen(
         val isCompact = maxWidth < 600.dp
         val isMedium = maxWidth in 600.dp..840.dp
 
+        // Determine loading state
+        val isLoading = connectionState is ConnectionManager.ConnectionState.Connecting
+        val hasError = connectionState is ConnectionManager.ConnectionState.Error
+
         if (isCompact) {
             HomeScreenMobile(
                 gridState = gridState,
@@ -66,7 +70,10 @@ fun HomeScreen(
                 filteredGroups = filteredGroups,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
-                currentRelayUrl = currentRelayUrl
+                currentRelayUrl = currentRelayUrl,
+                isLoading = isLoading,
+                hasError = hasError,
+                onRetry = { scope.launch { NostrRepository.connect() } }
             )
         } else {
             HomeScreenDesktop(
@@ -80,7 +87,10 @@ fun HomeScreen(
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
                 currentRelayUrl = currentRelayUrl,
-                gridColumns = if (isMedium) 2 else 3
+                gridColumns = if (isMedium) 2 else 3,
+                isLoading = isLoading,
+                hasError = hasError,
+                onRetry = { scope.launch { NostrRepository.connect() } }
             )
         }
     }

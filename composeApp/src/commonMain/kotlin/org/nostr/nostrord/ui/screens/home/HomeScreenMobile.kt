@@ -20,6 +20,8 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBarCompact
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
+import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
 import org.nostr.nostrord.ui.components.sidebars.Sidebar
 import org.nostr.nostrord.ui.screens.home.components.GroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -36,7 +38,10 @@ fun HomeScreenMobile(
     filteredGroups: List<GroupMetadata>,
     searchQuery: String,
     onSearchChange: (String) -> Unit,
-    currentRelayUrl: String
+    currentRelayUrl: String,
+    isLoading: Boolean = false,
+    hasError: Boolean = false,
+    onRetry: () -> Unit = {}
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -122,30 +127,54 @@ fun HomeScreenMobile(
                     )
                 }
 
-                // Single column grid for mobile
-                if (filteredGroups.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("No groups found", color = NostrordColors.TextSecondary)
+                // Grid content
+                when {
+                    hasError -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            ConnectionErrorState(onRetry = onRetry)
+                        }
                     }
-                } else {
-                    LazyVerticalGrid(
-                        state = gridState,
-                        columns = GridCells.Fixed(1),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(filteredGroups) { group ->
-                            GroupCard(
-                                group = group,
-                                onClick = {
-                                    onNavigate(Screen.Group(group.id, group.name))
-                                },
-                                isJoined = joinedGroups.contains(group.id)
-                            )
+                    isLoading && filteredGroups.isEmpty() -> {
+                        // Show skeleton loaders while loading
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(1),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(4) {
+                                GroupCardSkeleton()
+                            }
+                        }
+                    }
+                    filteredGroups.isEmpty() -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("No groups found", color = NostrordColors.TextSecondary)
+                        }
+                    }
+                    else -> {
+                        LazyVerticalGrid(
+                            state = gridState,
+                            columns = GridCells.Fixed(1),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(filteredGroups) { group ->
+                                GroupCard(
+                                    group = group,
+                                    onClick = {
+                                        onNavigate(Screen.Group(group.id, group.name))
+                                    },
+                                    isJoined = joinedGroups.contains(group.id)
+                                )
+                            }
                         }
                     }
                 }

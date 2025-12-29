@@ -19,6 +19,8 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBar
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
+import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
 import org.nostr.nostrord.ui.components.sidebars.Sidebar
 import org.nostr.nostrord.ui.screens.home.components.GroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -35,7 +37,10 @@ fun HomeScreenDesktop(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     currentRelayUrl: String,
-    gridColumns: Int
+    gridColumns: Int,
+    isLoading: Boolean = false,
+    hasError: Boolean = false,
+    onRetry: () -> Unit = {}
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         // Sidebar
@@ -114,39 +119,64 @@ fun HomeScreenDesktop(
                 )
             }
 
-            // Grid
-            if (filteredGroups.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No groups found", color = NostrordColors.TextSecondary)
+            // Grid content
+            when {
+                hasError -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ConnectionErrorState(onRetry = onRetry)
+                    }
                 }
-            } else {
-                Box(modifier = Modifier.fillMaxSize()) {
+                isLoading && filteredGroups.isEmpty() -> {
+                    // Show skeleton loaders while loading
                     LazyVerticalGrid(
-                        state = gridState,
                         columns = GridCells.Fixed(gridColumns),
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(filteredGroups) { group ->
-                            GroupCard(
-                                group = group,
-                                onClick = {
-                                    onNavigate(Screen.Group(group.id, group.name))
-                                },
-                                isJoined = joinedGroups.contains(group.id)
-                            )
+                        items(6) {
+                            GroupCardSkeleton()
                         }
                     }
+                }
+                filteredGroups.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No groups found", color = NostrordColors.TextSecondary)
+                    }
+                }
+                else -> {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyVerticalGrid(
+                            state = gridState,
+                            columns = GridCells.Fixed(gridColumns),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(filteredGroups) { group ->
+                                GroupCard(
+                                    group = group,
+                                    onClick = {
+                                        onNavigate(Screen.Group(group.id, group.name))
+                                    },
+                                    isJoined = joinedGroups.contains(group.id)
+                                )
+                            }
+                        }
 
-                    VerticalScrollbarWrapper(
-                        gridState = gridState,
-                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-                    )
+                        VerticalScrollbarWrapper(
+                            gridState = gridState,
+                            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                        )
+                    }
                 }
             }
         }
