@@ -40,7 +40,10 @@ fun GroupScreenMobile(
     onBack: () -> Unit,
     groupMembers: List<MemberInfo> = emptyList(),
     mentions: Map<String, String> = emptyMap(),
-    onMentionsChange: (Map<String, String>) -> Unit = {}
+    onMentionsChange: (Map<String, String>) -> Unit = {},
+    isLoadingMore: Boolean = false,
+    hasMoreMessages: Boolean = true,
+    onLoadMore: () -> Unit = {}
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -117,7 +120,10 @@ fun GroupScreenMobile(
                     MessagesList(
                         chatItems = chatItems,
                         userMetadata = userMetadata,
-                        isJoined = isJoined
+                        isJoined = isJoined,
+                        isLoadingMore = isLoadingMore,
+                        hasMoreMessages = hasMoreMessages,
+                        onLoadMore = onLoadMore
                     )
                 }
 

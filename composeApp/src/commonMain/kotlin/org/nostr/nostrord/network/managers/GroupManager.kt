@@ -34,6 +34,22 @@ class GroupManager(
     private val _joinedGroups = MutableStateFlow<Set<String>>(emptySet())
     val joinedGroups: StateFlow<Set<String>> = _joinedGroups.asStateFlow()
 
+    // Pagination state per group
+    private val _isLoadingMore = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val isLoadingMore: StateFlow<Map<String, Boolean>> = _isLoadingMore.asStateFlow()
+
+    private val _hasMoreMessages = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val hasMoreMessages: StateFlow<Map<String, Boolean>> = _hasMoreMessages.asStateFlow()
+
+    companion object {
+        const val PAGE_SIZE = 50
+    }
+
+    // Track pagination subscriptions: subscriptionId -> groupId
+    private val paginationSubscriptions = mutableMapOf<String, String>()
+    // Track message count per subscription for determining hasMore
+    private val subscriptionMessageCounts = mutableMapOf<String, Int>()
+
     /**
      * Load joined groups from storage
      */
@@ -147,12 +163,86 @@ class GroupManager(
     }
 
     /**
-     * Request group messages
+     * Request group messages (initial load)
      */
     suspend fun requestGroupMessages(groupId: String, channel: String? = null): Boolean {
         val currentClient = connectionManager.getPrimaryClient() ?: return false
-        currentClient.requestGroupMessages(groupId, channel)
+
+        // Generate subscription ID and set up tracking BEFORE sending request
+        // This avoids race condition where events arrive before tracking is set up
+        val subId = "msg_${epochMillis()}"
+        paginationSubscriptions[subId] = groupId
+        subscriptionMessageCounts[subId] = 0
+        _hasMoreMessages.value = _hasMoreMessages.value + (groupId to true)
+
+        currentClient.requestGroupMessages(groupId, channel, until = null, limit = PAGE_SIZE, subscriptionId = subId)
         return true
+    }
+
+    /**
+     * Load older messages for pagination (infinite scroll)
+     */
+    suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
+        // Don't load if already loading
+        if (_isLoadingMore.value[groupId] == true) return false
+
+        // Don't load if no more messages
+        if (_hasMoreMessages.value[groupId] == false) return false
+
+        val currentClient = connectionManager.getPrimaryClient() ?: return false
+
+        val currentMessages = _messages.value[groupId] ?: emptyList()
+        if (currentMessages.isEmpty()) return false
+
+        // Get the oldest message timestamp
+        val oldestTimestamp = currentMessages.minOfOrNull { it.createdAt } ?: return false
+
+        // Generate subscription ID and set up tracking BEFORE sending request
+        // This avoids race condition where events arrive before tracking is set up
+        val subId = "msg_${epochMillis()}"
+        paginationSubscriptions[subId] = groupId
+        subscriptionMessageCounts[subId] = 0
+        _isLoadingMore.value = _isLoadingMore.value + (groupId to true)
+
+        currentClient.requestGroupMessages(
+            groupId = groupId,
+            channel = channel,
+            until = oldestTimestamp,
+            limit = PAGE_SIZE,
+            subscriptionId = subId
+        )
+
+        return true
+    }
+
+    /**
+     * Called when EOSE is received for a subscription
+     * Returns true if this was a pagination subscription
+     */
+    fun handleEose(subscriptionId: String): Boolean {
+        val groupId = paginationSubscriptions.remove(subscriptionId) ?: return false
+        val messageCount = subscriptionMessageCounts.remove(subscriptionId) ?: 0
+
+        _isLoadingMore.value = _isLoadingMore.value + (groupId to false)
+        // If we received fewer messages than requested, there are no more
+        if (messageCount < PAGE_SIZE) {
+            _hasMoreMessages.value = _hasMoreMessages.value + (groupId to false)
+        }
+        return true
+    }
+
+    /**
+     * Track message received for a subscription (for pagination counting)
+     */
+    fun trackMessageForSubscription(subscriptionId: String) {
+        subscriptionMessageCounts[subscriptionId] = (subscriptionMessageCounts[subscriptionId] ?: 0) + 1
+    }
+
+    /**
+     * Check if a subscription is a pagination subscription
+     */
+    fun isPaginationSubscription(subscriptionId: String): Boolean {
+        return paginationSubscriptions.containsKey(subscriptionId)
     }
 
     /**
@@ -270,6 +360,10 @@ class GroupManager(
         _groups.value = emptyList()
         _messages.value = emptyMap()
         _joinedGroups.value = emptySet()
+        _isLoadingMore.value = emptyMap()
+        _hasMoreMessages.value = emptyMap()
+        paginationSubscriptions.clear()
+        subscriptionMessageCounts.clear()
     }
 
     /**

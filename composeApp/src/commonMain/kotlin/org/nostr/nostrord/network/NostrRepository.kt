@@ -45,6 +45,8 @@ class NostrRepository(
     val groups: StateFlow<List<GroupMetadata>> = groupManager.groups
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.messages
     val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
+    val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
+    val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
 
     // Expose auth state
     val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
@@ -210,6 +212,10 @@ class NostrRepository(
         groupManager.requestGroupMessages(groupId, channel)
     }
 
+    suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
+        return groupManager.loadMoreMessages(groupId, channel)
+    }
+
     suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -286,6 +292,16 @@ class NostrRepository(
             return
         }
 
+        // Handle EOSE for pagination
+        try {
+            val arr = json.parseToJsonElement(msg).jsonArray
+            if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
+                val subId = arr[1].jsonPrimitive.content
+                groupManager.handleEose(subId)
+                return
+            }
+        } catch (_: Exception) {}
+
         // Handle group metadata
         val groupMetadata = client.parseGroupMetadata(msg)
         if (groupMetadata != null) {
@@ -304,6 +320,17 @@ class NostrRepository(
         // Handle group messages
         val message = client.parseMessage(msg)
         if (message != null) {
+            // Track message for pagination counting
+            try {
+                val arr = json.parseToJsonElement(msg).jsonArray
+                if (arr.size >= 2) {
+                    val subId = arr[1].jsonPrimitive.content
+                    if (groupManager.isPaginationSubscription(subId)) {
+                        groupManager.trackMessageForSubscription(subId)
+                    }
+                }
+            } catch (_: Exception) {}
+
             val senderPubkey = groupManager.handleMessage(message, msg)
             if (senderPubkey != null && !metadataManager.hasMetadata(senderPubkey)) {
                 scope.launch {
@@ -389,6 +416,8 @@ class NostrRepository(
         val groups get() = instance.groups
         val messages get() = instance.messages
         val joinedGroups get() = instance.joinedGroups
+        val isLoadingMore get() = instance.isLoadingMore
+        val hasMoreMessages get() = instance.hasMoreMessages
         val isLoggedIn get() = instance.isLoggedIn
         val isBunkerConnected get() = instance.isBunkerConnected
         val authUrl get() = instance.authUrl
@@ -415,6 +444,7 @@ class NostrRepository(
         suspend fun leaveGroup(groupId: String, reason: String? = null) = instance.leaveGroup(groupId, reason)
         fun isGroupJoined(groupId: String) = instance.isGroupJoined(groupId)
         suspend fun requestGroupMessages(groupId: String, channel: String? = null) = instance.requestGroupMessages(groupId, channel)
+        suspend fun loadMoreMessages(groupId: String, channel: String? = null) = instance.loadMoreMessages(groupId, channel)
         suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()) =
             instance.sendMessage(groupId, content, channel, mentions)
         fun getMessagesForGroup(groupId: String) = instance.getMessagesForGroup(groupId)

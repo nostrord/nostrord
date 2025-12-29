@@ -133,10 +133,17 @@ class NostrGroupClient(
         sendJson(req)
     }
 
-suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
+suspend fun requestGroupMessages(
+    groupId: String,
+    channel: String? = null,
+    until: Long? = null,
+    limit: Int = 50,
+    subscriptionId: String? = null
+): String {
+    val subId = subscriptionId ?: "msg_${epochMillis()}"
     val subscription = buildJsonArray {
         add("REQ")
-        add("sub_${epochMillis()}")
+        add(subId)
         add(buildJsonObject {
             put("kinds", buildJsonArray {
                 add(9)      // Messages
@@ -152,11 +159,16 @@ suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
                     add(channel)
                 })
             }
-            put("limit", 100)
+            // Pagination: fetch messages before this timestamp
+            if (until != null) {
+                put("until", until)
+            }
+            put("limit", limit)
         })
     }.toString()
-    
+
     send(subscription)
+    return subId
 }
 
     private suspend fun sendJson(jsonElement: JsonElement) {

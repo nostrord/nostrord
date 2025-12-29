@@ -39,7 +39,10 @@ fun GroupScreenDesktop(
     onBack: () -> Unit,
     groupMembers: List<MemberInfo> = emptyList(),
     mentions: Map<String, String> = emptyMap(),
-    onMentionsChange: (Map<String, String>) -> Unit = {}
+    onMentionsChange: (Map<String, String>) -> Unit = {},
+    isLoadingMore: Boolean = false,
+    hasMoreMessages: Boolean = true,
+    onLoadMore: () -> Unit = {}
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         GroupSidebar(
@@ -109,7 +112,10 @@ fun GroupScreenDesktop(
                 MessagesList(
                     chatItems = chatItems,
                     userMetadata = userMetadata,
-                    isJoined = isJoined
+                    isJoined = isJoined,
+                    isLoadingMore = isLoadingMore,
+                    hasMoreMessages = hasMoreMessages,
+                    onLoadMore = onLoadMore
                 )
             }
 

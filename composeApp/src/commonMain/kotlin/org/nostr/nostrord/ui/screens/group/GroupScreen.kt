@@ -43,6 +43,12 @@ fun GroupScreen(
     val joinedGroups by NostrRepository.joinedGroups.collectAsState()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
 
+    // Pagination state
+    val isLoadingMoreMap by NostrRepository.isLoadingMore.collectAsState()
+    val hasMoreMessagesMap by NostrRepository.hasMoreMessages.collectAsState()
+    val isLoadingMore = isLoadingMoreMap[groupId] ?: false
+    val hasMoreMessages = hasMoreMessagesMap[groupId] ?: true
+
     var messageInput by remember { mutableStateOf("") }
     var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) } // displayName -> pubkey
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -149,7 +155,12 @@ fun GroupScreen(
                 onBack = onBack,
                 groupMembers = groupMembers,
                 mentions = mentions,
-                onMentionsChange = { mentions = it }
+                onMentionsChange = { mentions = it },
+                isLoadingMore = isLoadingMore,
+                hasMoreMessages = hasMoreMessages,
+                onLoadMore = {
+                    scope.launch { NostrRepository.loadMoreMessages(groupId, selectedChannel) }
+                }
             )
         } else {
             GroupScreenDesktop(
@@ -178,7 +189,12 @@ fun GroupScreen(
                 onBack = onBack,
                 groupMembers = groupMembers,
                 mentions = mentions,
-                onMentionsChange = { mentions = it }
+                onMentionsChange = { mentions = it },
+                isLoadingMore = isLoadingMore,
+                hasMoreMessages = hasMoreMessages,
+                onLoadMore = {
+                    scope.launch { NostrRepository.loadMoreMessages(groupId, selectedChannel) }
+                }
             )
         }
     }
