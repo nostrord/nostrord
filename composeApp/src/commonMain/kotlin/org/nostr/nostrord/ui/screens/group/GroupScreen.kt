@@ -45,6 +45,11 @@ fun GroupScreen(
     val groups by NostrRepository.groups.collectAsState()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
 
+    // Get current group metadata
+    val currentGroupMetadata = remember(groups, groupId) {
+        groups.find { it.id == groupId }
+    }
+
     // Pagination state
     val isLoadingMoreMap by NostrRepository.isLoadingMore.collectAsState()
     val hasMoreMessagesMap by NostrRepository.hasMoreMessages.collectAsState()
@@ -143,11 +148,13 @@ fun GroupScreen(
             GroupScreenMobile(
                 groupId = groupId,
                 groupName = groupName,
+                groupMetadata = currentGroupMetadata,
                 selectedChannel = selectedChannel,
                 onChannelSelect = { selectedChannel = it },
                 messages = messages,
                 chatItems = chatItems,
                 connectionStatus = connectionStatus,
+                connectionState = connectionState,
                 isJoined = isJoined,
                 userMetadata = userMetadata,
                 messageInput = messageInput,
@@ -181,11 +188,13 @@ fun GroupScreen(
             GroupScreenDesktop(
                 groupId = groupId,
                 groupName = groupName,
+                groupMetadata = currentGroupMetadata,
                 selectedChannel = selectedChannel,
                 onChannelSelect = { selectedChannel = it },
                 messages = messages,
                 chatItems = chatItems,
                 connectionStatus = connectionStatus,
+                connectionState = connectionState,
                 isJoined = isJoined,
                 userMetadata = userMetadata,
                 messageInput = messageInput,
