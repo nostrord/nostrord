@@ -1,6 +1,8 @@
 package org.nostr.nostrord.ui.components.navigation
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
@@ -12,9 +14,11 @@ import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 /**
@@ -43,7 +47,7 @@ enum class BottomNavItem(
         enabled = false // Future feature
     ),
     Profile(
-        label = "Profile",
+        label = "You",
         selectedIcon = Icons.Filled.Person,
         unselectedIcon = Icons.Outlined.Person
     )
@@ -58,7 +62,10 @@ fun BottomNavigationBar(
     selectedItem: BottomNavItem,
     onItemSelected: (BottomNavItem) -> Unit,
     modifier: Modifier = Modifier,
-    hasUnreadNotifications: Boolean = false
+    hasUnreadNotifications: Boolean = false,
+    userAvatarUrl: String? = null,
+    userDisplayName: String? = null,
+    userPubkey: String? = null
 ) {
     NavigationBar(
         modifier = modifier,
@@ -86,11 +93,28 @@ fun BottomNavigationBar(
                             }
                         }
                     ) {
-                        Icon(
-                            imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
-                            contentDescription = item.label,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        if (item == BottomNavItem.Profile && userPubkey != null) {
+                            // Show user avatar for Profile tab
+                            ProfileAvatar(
+                                imageUrl = userAvatarUrl,
+                                displayName = userDisplayName ?: "Profile",
+                                pubkey = userPubkey,
+                                size = 24.dp,
+                                modifier = if (isSelected) {
+                                    Modifier
+                                        .clip(CircleShape)
+                                        .border(2.dp, NostrordColors.Primary, CircleShape)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
+                                contentDescription = item.label,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 },
                 label = {

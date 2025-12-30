@@ -23,6 +23,7 @@ fun HomeScreen(
     val connectionState by NostrRepository.connectionState.collectAsState()
     val currentRelayUrl by NostrRepository.currentRelayUrl.collectAsState()
     val joinedGroups by NostrRepository.joinedGroups.collectAsState()
+    val userMetadata by NostrRepository.userMetadata.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
 
@@ -43,6 +44,7 @@ fun HomeScreen(
     }
 
     val pubKey = NostrRepository.getPublicKey()
+    val currentUserMetadata = pubKey?.let { userMetadata[it] }
 
     LaunchedEffect(Unit) {
         scope.launch {
@@ -73,7 +75,9 @@ fun HomeScreen(
                 currentRelayUrl = currentRelayUrl,
                 isLoading = isLoading,
                 hasError = hasError,
-                onRetry = { scope.launch { NostrRepository.connect() } }
+                onRetry = { scope.launch { NostrRepository.connect() } },
+                userAvatarUrl = currentUserMetadata?.picture,
+                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name
             )
         } else {
             HomeScreenDesktop(

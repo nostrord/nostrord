@@ -43,7 +43,9 @@ fun HomeScreenMobile(
     currentRelayUrl: String,
     isLoading: Boolean = false,
     hasError: Boolean = false,
-    onRetry: () -> Unit = {}
+    onRetry: () -> Unit = {},
+    userAvatarUrl: String? = null,
+    userDisplayName: String? = null
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -105,7 +107,10 @@ fun HomeScreenMobile(
                                 scope.launch { drawerState.open() }
                             }
                         }
-                    }
+                    },
+                    userAvatarUrl = userAvatarUrl,
+                    userDisplayName = userDisplayName,
+                    userPubkey = pubKey
                 )
             },
             containerColor = NostrordColors.Background
