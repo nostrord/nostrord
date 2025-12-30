@@ -129,7 +129,7 @@ fun GroupCard(
                 GroupAvatar(
                     groupId = group.id,
                     groupName = groupName,
-                    pictureUrl = if (hasCoverImage) null else group.picture, // Don't repeat cover as avatar
+                    pictureUrl = group.picture,
                     size = 48.dp
                 )
 
