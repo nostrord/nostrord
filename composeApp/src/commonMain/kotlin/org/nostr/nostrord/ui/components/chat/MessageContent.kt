@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -33,6 +34,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Size
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
@@ -194,12 +196,7 @@ fun MessageContent(
                 // Render inline group as single AnnotatedString
                 InlineContentGroup(
                     parts = group,
-                    userMetadata = userMetadata,
-                    onLinkClick = { url ->
-                        try {
-                            uriHandler.openUri(url)
-                        } catch (_: Exception) {}
-                    }
+                    userMetadata = userMetadata
                 )
             }
         }
@@ -217,30 +214,78 @@ fun MessageContent(
 /**
  * Renders a group of inline parts as a single Text with AnnotatedString.
  *
- * This is the key fix for the displacement bug: all inline content is
- * rendered in one Text composable, so line breaking and baseline alignment
- * work correctly.
+ * ## Custom Emoji Strategy: Conditional Selection Disabling
+ *
+ * InlineTextContent with images causes crashes in Compose Desktop/Skiko when
+ * text selection intersects with inline content placeholders. The crash occurs
+ * in SkiaParagraph.getLineForOffset() which returns null for placeholder offsets.
+ *
+ * **Solution**: When a message contains custom emojis:
+ * 1. Wrap the Text in DisableSelection to prevent the crash
+ * 2. Use InlineTextContent to render actual emoji images
+ *
+ * When a message has NO custom emojis:
+ * - Render normally with full text selection support
+ *
+ * This gives us the best of both worlds:
+ * - Emoji images display correctly
+ * - No crashes
+ * - Text selection works for messages without emojis
  */
 @Composable
 private fun InlineContentGroup(
     parts: List<ContentPart>,
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
-    onLinkClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Build inline content map for custom emojis
+    // Check if this group contains any custom emojis
+    val hasCustomEmojis = remember(parts) {
+        parts.any { it is CustomEmojiPart }
+    }
+
+    if (hasCustomEmojis) {
+        // Messages with emojis: disable selection to prevent crash, but show images
+        DisableSelection {
+            InlineContentWithEmojis(
+                parts = parts,
+                userMetadata = userMetadata,
+                modifier = modifier
+            )
+        }
+    } else {
+        // Messages without emojis: full selection support
+        InlineContentTextOnly(
+            parts = parts,
+            userMetadata = userMetadata,
+            modifier = modifier
+        )
+    }
+}
+
+/**
+ * Renders inline content WITH custom emoji images.
+ * Must be wrapped in DisableSelection to prevent crashes.
+ */
+@Composable
+private fun InlineContentWithEmojis(
+    parts: List<ContentPart>,
+    userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
+    modifier: Modifier = Modifier
+) {
+    // Build inline content map for custom emojis with unique sequential IDs
     val inlineContentMap = remember(parts) {
+        var emojiIndex = 0
         parts.filterIsInstance<CustomEmojiPart>()
             .associate { emoji ->
-                val id = "emoji_${emoji.shortcode}"
+                val id = "emoji_${emojiIndex++}_${emoji.shortcode}"
                 id to InlineTextContent(
                     placeholder = Placeholder(
-                        width = 22.sp,  // Match line height
+                        width = 22.sp,
                         height = 22.sp,
                         placeholderVerticalAlign = PlaceholderVerticalAlign.Center
                     )
                 ) {
-                    InlineCustomEmoji(
+                    SafeEmojiImage(
                         shortcode = emoji.shortcode,
                         imageUrl = emoji.imageUrl
                     )
@@ -248,14 +293,13 @@ private fun InlineContentGroup(
             }
     }
 
-    // Build the annotated string
+    // Build the annotated string with matching sequential emoji IDs
     val annotatedString = remember(parts, userMetadata) {
+        var emojiIndex = 0
         buildAnnotatedString {
             parts.forEach { part ->
                 when (part) {
-                    is TextPart -> {
-                        append(part.content)
-                    }
+                    is TextPart -> append(part.content)
                     is LinkPart -> {
                         withLink(
                             LinkAnnotation.Url(
@@ -285,8 +329,10 @@ private fun InlineContentGroup(
                         }
                     }
                     is CustomEmojiPart -> {
-                        // Insert placeholder for inline content
-                        appendInlineContent("emoji_${part.shortcode}", "[${part.shortcode}]")
+                        appendInlineContent(
+                            "emoji_${emojiIndex++}_${part.shortcode}",
+                            ":${part.shortcode}:"
+                        )
                     }
                     else -> {}
                 }
@@ -299,6 +345,63 @@ private fun InlineContentGroup(
         color = NostrordColors.TextContent,
         style = NostrordTypography.MessageBody,
         inlineContent = inlineContentMap,
+        modifier = modifier
+    )
+}
+
+/**
+ * Renders inline content WITHOUT custom emojis.
+ * Supports full text selection.
+ */
+@Composable
+private fun InlineContentTextOnly(
+    parts: List<ContentPart>,
+    userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
+    modifier: Modifier = Modifier
+) {
+    val annotatedString = remember(parts, userMetadata) {
+        buildAnnotatedString {
+            parts.forEach { part ->
+                when (part) {
+                    is TextPart -> append(part.content)
+                    is LinkPart -> {
+                        withLink(
+                            LinkAnnotation.Url(
+                                url = part.url,
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(color = NostrordColors.TextLink)
+                                )
+                            )
+                        ) {
+                            append(part.url)
+                        }
+                    }
+                    is MentionPart -> {
+                        val displayText = getMentionDisplayText(part, userMetadata)
+                        withLink(
+                            LinkAnnotation.Url(
+                                url = part.reference.uri,
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(
+                                        color = NostrordColors.MentionText,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                )
+                            )
+                        ) {
+                            append(displayText)
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    Text(
+        text = annotatedString,
+        color = NostrordColors.TextContent,
+        style = NostrordTypography.MessageBody,
         modifier = modifier
     )
 }
@@ -323,30 +426,103 @@ private fun getMentionDisplayText(
     }
 }
 
+// =============================================================================
+// SAFE EMOJI IMAGE RENDERING
+// =============================================================================
+//
+// Custom emojis are rendered as inline images using InlineTextContent.
+// To prevent crashes from SelectionContainer + InlineTextContent interaction,
+// messages containing emojis are wrapped in DisableSelection.
+//
+// Key safety measures:
+// 1. URL validation before image loading
+// 2. Size constraints to prevent OOM
+// 3. Error state with text fallback
+// 4. No exceptions can escape to parent composables
+// =============================================================================
+
 /**
- * Renders a custom emoji as an inline image.
- * Size matches line height for proper text alignment.
+ * Safe emoji image renderer with comprehensive error handling.
+ *
+ * Renders custom emoji as an inline image, or falls back to text on failure.
+ * Size is fixed at 22dp to match line height.
  */
 @Composable
-private fun InlineCustomEmoji(
+private fun SafeEmojiImage(
     shortcode: String,
     imageUrl: String,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalPlatformContext.current
+    // Validate and sanitize inputs
+    val safeShortcode = remember(shortcode) {
+        shortcode.take(32).filter { it.isLetterOrDigit() || it == '_' || it == '-' }
+            .ifEmpty { "emoji" }
+    }
 
-    AsyncImage(
-        model = ImageRequest.Builder(context)
-            .data(imageUrl)
-            .crossfade(true)
-            .memoryCachePolicy(CachePolicy.ENABLED)
-            .diskCachePolicy(CachePolicy.ENABLED)
-            .build(),
-        contentDescription = ":$shortcode:",
-        contentScale = ContentScale.Fit,
-        filterQuality = FilterQuality.Medium,
-        modifier = modifier.fillMaxSize()
-    )
+    val isValidUrl = remember(imageUrl) {
+        imageUrl.isNotBlank() &&
+        imageUrl.length <= 2048 &&
+        (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) &&
+        !imageUrl.lowercase().contains("javascript:") &&
+        !imageUrl.lowercase().contains("data:")
+    }
+
+    // Track error state
+    var showFallback by remember(imageUrl) { mutableStateOf(!isValidUrl) }
+
+    if (showFallback) {
+        // Text fallback - always safe
+        Box(
+            modifier = modifier.size(22.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = ":$safeShortcode:",
+                color = NostrordColors.Primary,
+                style = NostrordTypography.Caption,
+                maxLines = 1
+            )
+        }
+    } else {
+        val context = LocalPlatformContext.current
+
+        // Build image request with safety constraints
+        val imageRequest = remember(imageUrl, context) {
+            runCatching {
+                ImageRequest.Builder(context)
+                    .data(imageUrl)
+                    .crossfade(false) // Disable animations for stability
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .size(Size(44, 44)) // 2x for retina displays
+                    .build()
+            }.getOrNull()
+        }
+
+        if (imageRequest == null) {
+            // Failed to build request - show fallback
+            showFallback = true
+            return
+        }
+
+        Box(
+            modifier = modifier.size(22.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = ":$safeShortcode:",
+                contentScale = ContentScale.Fit,
+                filterQuality = FilterQuality.Medium,
+                modifier = Modifier.size(22.dp),
+                onState = { state: AsyncImagePainter.State ->
+                    if (state is AsyncImagePainter.State.Error) {
+                        showFallback = true
+                    }
+                }
+            )
+        }
+    }
 }
 
 @Composable

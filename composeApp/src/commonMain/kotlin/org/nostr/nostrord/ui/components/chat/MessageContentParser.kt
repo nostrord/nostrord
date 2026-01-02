@@ -100,15 +100,62 @@ object MessageContentParser {
     }
 
     /**
-     * Extract emoji map from NIP-30 tags.
+     * Extract emoji map from NIP-30 tags with validation.
+     *
+     * Validates:
+     * - Tag structure (must have emoji, shortcode, URL)
+     * - Shortcode format (alphanumeric, underscores, hyphens only)
+     * - URL format (must be valid http/https URL)
+     * - Reasonable limits (shortcode <= 64 chars, URL <= 2048 chars)
+     *
+     * Invalid entries are silently skipped to prevent crashes.
      *
      * @param tags List of tags from a Nostr event
-     * @return Map of shortcode to image URL
+     * @return Map of validated shortcode to image URL
      */
     fun extractEmojiMap(tags: List<List<String>>): Map<String, String> {
         return tags
-            .filter { it.size >= 3 && it[0] == "emoji" }
-            .associate { it[1] to it[2] }
+            .filter { tag ->
+                // Basic structure validation
+                tag.size >= 3 && tag[0] == "emoji"
+            }
+            .mapNotNull { tag ->
+                val shortcode = tag[1]
+                val url = tag[2]
+
+                // Validate shortcode
+                if (!isValidShortcode(shortcode)) return@mapNotNull null
+
+                // Validate URL
+                if (!isValidEmojiUrl(url)) return@mapNotNull null
+
+                shortcode to url
+            }
+            .toMap()
+    }
+
+    /**
+     * Validate shortcode format.
+     * Must be alphanumeric with underscores/hyphens, 1-64 characters.
+     */
+    private fun isValidShortcode(shortcode: String): Boolean {
+        if (shortcode.isEmpty() || shortcode.length > 64) return false
+        return shortcode.all { it.isLetterOrDigit() || it == '_' || it == '-' }
+    }
+
+    /**
+     * Validate emoji image URL.
+     * Must be http/https, reasonable length, and not contain dangerous characters.
+     */
+    private fun isValidEmojiUrl(url: String): Boolean {
+        if (url.length < 10 || url.length > 2048) return false
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return false
+
+        // Block javascript: and data: URLs that might be embedded
+        val lowercase = url.lowercase()
+        if (lowercase.contains("javascript:") || lowercase.contains("data:")) return false
+
+        return true
     }
 
     // ============================================================================
