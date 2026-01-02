@@ -3,8 +3,9 @@ package org.nostr.nostrord.ui.components.chat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -14,8 +15,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
@@ -40,13 +51,6 @@ private typealias CustomEmojiPart = MessageContentParser.ParsedPart.CustomEmoji
 
 /**
  * Parses message content into parts using the robust MessageContentParser.
- *
- * The parser handles:
- * - URLs with proper trailing punctuation cleanup
- * - Balanced parentheses in URLs (Wikipedia-style)
- * - Nostr mentions that are NOT inside URLs
- * - Custom emojis (NIP-30) with :shortcode: syntax
- * - Preserved whitespace and text ordering
  */
 private fun parseContent(content: String, emojiMap: Map<String, String> = emptyMap()): List<ContentPart> {
     return MessageContentParser.parse(content, emojiMap)
@@ -69,7 +73,34 @@ private fun isBlockPart(part: ContentPart): Boolean {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * # MessageContent - Robust Inline Text Rendering
+ *
+ * This component uses a single AnnotatedString with InlineContent to render
+ * mixed content (text, links, mentions, emojis) as truly inline text.
+ *
+ * ## Why AnnotatedString instead of FlowRow?
+ *
+ * FlowRow treats each child as a separate layout box, causing:
+ * - Mentions to wrap as entire units instead of flowing with text
+ * - Whitespace to become independent boxes with inconsistent spacing
+ * - Baseline misalignment between text and styled mentions
+ *
+ * AnnotatedString keeps everything in a single Text composable where:
+ * - Line breaking happens at character/word boundaries, not component boundaries
+ * - Baseline alignment is consistent across all styled spans
+ * - Whitespace flows naturally with surrounding text
+ *
+ * ## Architecture
+ *
+ * 1. Parse content into typed parts (Text, Link, Mention, CustomEmoji, Image)
+ * 2. Group into inline sequences vs block elements
+ * 3. For inline groups: Build single AnnotatedString with:
+ *    - SpanStyle for visual styling (color, font weight)
+ *    - LinkAnnotation for clickable URLs and mentions
+ *    - InlineContent placeholders for custom emojis
+ * 4. For block elements: Render as separate composables in Column
+ */
 @Composable
 fun MessageContent(
     content: String,
@@ -83,6 +114,9 @@ fun MessageContent(
 
     // Image viewer modal state
     var selectedImageUrl by remember { mutableStateOf<String?>(null) }
+
+    // Collect user metadata for mention display names
+    val userMetadata by NostrRepository.userMetadata.collectAsState()
 
     // Group parts into inline sequences and block elements
     val groups = remember(parts) {
@@ -109,6 +143,24 @@ fun MessageContent(
         result
     }
 
+    // Request metadata for all mentions
+    LaunchedEffect(parts) {
+        val pubkeysToFetch = parts.filterIsInstance<MentionPart>()
+            .mapNotNull { mention ->
+                when (val entity = mention.reference.entity) {
+                    is Nip19.Entity.Npub -> entity.pubkey
+                    is Nip19.Entity.Nprofile -> entity.pubkey
+                    else -> null
+                }
+            }
+            .filter { !userMetadata.containsKey(it) }
+            .toSet()
+
+        if (pubkeysToFetch.isNotEmpty()) {
+            NostrRepository.requestUserMetadata(pubkeysToFetch)
+        }
+    }
+
     Column(modifier = modifier) {
         groups.forEach { group ->
             val firstPart = group.firstOrNull()
@@ -126,7 +178,7 @@ fun MessageContent(
                     }
                     is MentionPart -> {
                         Spacer(modifier = Modifier.height(4.dp))
-                        NostrMentionChip(
+                        QuotedEventBlock(
                             mention = firstPart,
                             onClick = {
                                 try {
@@ -139,56 +191,16 @@ fun MessageContent(
                     else -> {}
                 }
             } else {
-                // Render inline group with FlowRow
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    group.forEach { part ->
-                        when (part) {
-                            is TextPart -> {
-                                // Text is selectable via parent SelectionContainer
-                                Text(
-                                    text = part.content,
-                                    color = NostrordColors.TextContent,
-                                    style = NostrordTypography.MessageBody // 14sp/22sp (157% line height)
-                                )
-                            }
-                            is LinkPart -> {
-                                // Links are both selectable and clickable
-                                Text(
-                                    text = part.url,
-                                    color = NostrordColors.TextLink,
-                                    style = NostrordTypography.Link, // Same as MessageBody
-                                    modifier = Modifier.clickable {
-                                        try {
-                                            uriHandler.openUri(part.url)
-                                        } catch (_: Exception) {}
-                                    }
-                                )
-                            }
-                            is MentionPart -> {
-                                // Inline mention (npub, nprofile, etc.)
-                                NostrMentionChip(
-                                    mention = part,
-                                    onClick = {
-                                        try {
-                                            uriHandler.openUri(part.reference.uri)
-                                        } catch (_: Exception) {}
-                                    }
-                                )
-                            }
-                            is CustomEmojiPart -> {
-                                // NIP-30 custom emoji - rendered as inline image
-                                InlineCustomEmoji(
-                                    shortcode = part.shortcode,
-                                    imageUrl = part.imageUrl
-                                )
-                            }
-                            else -> {}
-                        }
+                // Render inline group as single AnnotatedString
+                InlineContentGroup(
+                    parts = group,
+                    userMetadata = userMetadata,
+                    onLinkClick = { url ->
+                        try {
+                            uriHandler.openUri(url)
+                        } catch (_: Exception) {}
                     }
-                }
+                )
             }
         }
     }
@@ -199,6 +211,115 @@ fun MessageContent(
             imageUrl = imageUrl,
             onDismiss = { selectedImageUrl = null }
         )
+    }
+}
+
+/**
+ * Renders a group of inline parts as a single Text with AnnotatedString.
+ *
+ * This is the key fix for the displacement bug: all inline content is
+ * rendered in one Text composable, so line breaking and baseline alignment
+ * work correctly.
+ */
+@Composable
+private fun InlineContentGroup(
+    parts: List<ContentPart>,
+    userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
+    onLinkClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Build inline content map for custom emojis
+    val inlineContentMap = remember(parts) {
+        parts.filterIsInstance<CustomEmojiPart>()
+            .associate { emoji ->
+                val id = "emoji_${emoji.shortcode}"
+                id to InlineTextContent(
+                    placeholder = Placeholder(
+                        width = 22.sp,  // Match line height
+                        height = 22.sp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                    )
+                ) {
+                    InlineCustomEmoji(
+                        shortcode = emoji.shortcode,
+                        imageUrl = emoji.imageUrl
+                    )
+                }
+            }
+    }
+
+    // Build the annotated string
+    val annotatedString = remember(parts, userMetadata) {
+        buildAnnotatedString {
+            parts.forEach { part ->
+                when (part) {
+                    is TextPart -> {
+                        append(part.content)
+                    }
+                    is LinkPart -> {
+                        withLink(
+                            LinkAnnotation.Url(
+                                url = part.url,
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(color = NostrordColors.TextLink)
+                                )
+                            )
+                        ) {
+                            append(part.url)
+                        }
+                    }
+                    is MentionPart -> {
+                        val displayText = getMentionDisplayText(part, userMetadata)
+                        withLink(
+                            LinkAnnotation.Url(
+                                url = part.reference.uri,
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(
+                                        color = NostrordColors.MentionText,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                )
+                            )
+                        ) {
+                            append(displayText)
+                        }
+                    }
+                    is CustomEmojiPart -> {
+                        // Insert placeholder for inline content
+                        appendInlineContent("emoji_${part.shortcode}", "[${part.shortcode}]")
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    Text(
+        text = annotatedString,
+        color = NostrordColors.TextContent,
+        style = NostrordTypography.MessageBody,
+        inlineContent = inlineContentMap,
+        modifier = modifier
+    )
+}
+
+/**
+ * Get display text for a mention, using cached metadata if available.
+ */
+private fun getMentionDisplayText(
+    mention: MentionPart,
+    userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>
+): String {
+    return when (val entity = mention.reference.entity) {
+        is Nip19.Entity.Npub -> {
+            val metadata = userMetadata[entity.pubkey]
+            metadata?.displayName ?: metadata?.name ?: Nip19.getDisplayName(entity)
+        }
+        is Nip19.Entity.Nprofile -> {
+            val metadata = userMetadata[entity.pubkey]
+            metadata?.displayName ?: metadata?.name ?: Nip19.getDisplayName(entity)
+        }
+        else -> Nip19.getDisplayName(entity)
     }
 }
 
@@ -224,9 +345,7 @@ private fun InlineCustomEmoji(
         contentDescription = ":$shortcode:",
         contentScale = ContentScale.Fit,
         filterQuality = FilterQuality.Medium,
-        modifier = modifier
-            .height(22.dp) // Match line height of MessageBody (22sp)
-            .widthIn(max = 22.dp)
+        modifier = modifier.fillMaxSize()
     )
 }
 
@@ -298,8 +417,11 @@ private fun ChatImage(
     }
 }
 
+/**
+ * Block-level quoted event display (for nevent/note mentions).
+ */
 @Composable
-private fun NostrMentionChip(
+private fun QuotedEventBlock(
     mention: MentionPart,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -310,8 +432,8 @@ private fun NostrMentionChip(
         is Nip19.Entity.Nevent -> {
             QuotedEvent(
                 eventId = entity.eventId,
-                relayHints = entity.relays,  // Pass relay hints from nevent
-                author = entity.author,       // Pass author for outbox model
+                relayHints = entity.relays,
+                author = entity.author,
                 onClick = onClick,
                 modifier = modifier
             )
@@ -319,65 +441,14 @@ private fun NostrMentionChip(
         is Nip19.Entity.Note -> {
             QuotedEvent(
                 eventId = entity.eventId,
-                relayHints = emptyList(),  // note doesn't have relay hints
+                relayHints = emptyList(),
                 author = null,
                 onClick = onClick,
                 modifier = modifier
             )
         }
-        else -> {
-            UserMentionChip(
-                entity = entity,
-                onClick = onClick,
-                modifier = modifier
-            )
-        }
+        else -> {}
     }
-}
-
-@Composable
-private fun UserMentionChip(
-    entity: Nip19.Entity,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
-
-    val displayText = when (entity) {
-        is Nip19.Entity.Npub -> {
-            val metadata = userMetadata[entity.pubkey]
-            metadata?.displayName ?: metadata?.name ?: Nip19.getDisplayName(entity)
-        }
-        is Nip19.Entity.Nprofile -> {
-            val metadata = userMetadata[entity.pubkey]
-            metadata?.displayName ?: metadata?.name ?: Nip19.getDisplayName(entity)
-        }
-        else -> Nip19.getDisplayName(entity)
-    }
-
-    LaunchedEffect(entity) {
-        when (entity) {
-            is Nip19.Entity.Npub -> {
-                if (!userMetadata.containsKey(entity.pubkey)) {
-                    NostrRepository.requestUserMetadata(setOf(entity.pubkey))
-                }
-            }
-            is Nip19.Entity.Nprofile -> {
-                if (!userMetadata.containsKey(entity.pubkey)) {
-                    NostrRepository.requestUserMetadata(setOf(entity.pubkey))
-                }
-            }
-            else -> {}
-        }
-    }
-
-    Text(
-        text = displayText,
-        color = NostrordColors.MentionText,
-        style = NostrordTypography.MessageBody,
-        fontWeight = FontWeight.Medium,
-        modifier = modifier.clickable(onClick = onClick)
-    )
 }
 
 @Composable
@@ -437,8 +508,6 @@ private fun QuotedEvent(
                     )
                 }
                 Spacer(modifier = Modifier.height(Spacing.sm))
-                // Text selection is inherited from parent SelectionContainer in MessagesList
-                // Do NOT nest SelectionContainers - they create separate selection contexts
                 QuotedEventContent(content = event.content)
             } else {
                 Text(
@@ -451,7 +520,9 @@ private fun QuotedEvent(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+/**
+ * Content inside a quoted event - uses same AnnotatedString approach.
+ */
 @Composable
 private fun QuotedEventContent(
     content: String,
@@ -459,6 +530,7 @@ private fun QuotedEventContent(
 ) {
     val parts = remember(content) { parseContent(content) }
     val uriHandler = LocalUriHandler.current
+    val userMetadata by NostrRepository.userMetadata.collectAsState()
 
     // Image viewer modal state
     var selectedImageUrl by remember { mutableStateOf<String?>(null) }
@@ -516,51 +588,16 @@ private fun QuotedEventContent(
                     else -> {}
                 }
             } else {
-                // Render inline group with FlowRow
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(0.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    group.forEach { part ->
-                        when (part) {
-                            is TextPart -> {
-                                Text(
-                                    text = part.content,
-                                    color = NostrordColors.TextContent,
-                                    style = NostrordTypography.Caption,
-                                    maxLines = 6
-                                )
-                            }
-                            is LinkPart -> {
-                                Text(
-                                    text = part.url,
-                                    color = NostrordColors.Primary,
-                                    style = NostrordTypography.Caption,
-                                    modifier = Modifier.clickable {
-                                        try {
-                                            uriHandler.openUri(part.url)
-                                        } catch (_: Exception) {}
-                                    }
-                                )
-                            }
-                            is MentionPart -> {
-                                // Inline mention in quoted content
-                                Text(
-                                    text = Nip19.getDisplayName(part.reference.entity),
-                                    color = NostrordColors.MentionText,
-                                    style = NostrordTypography.Caption,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.clickable {
-                                        try {
-                                            uriHandler.openUri(part.reference.uri)
-                                        } catch (_: Exception) {}
-                                    }
-                                )
-                            }
-                            else -> {}
-                        }
+                // Render inline group using AnnotatedString
+                QuotedInlineContentGroup(
+                    parts = group,
+                    userMetadata = userMetadata,
+                    onLinkClick = { url ->
+                        try {
+                            uriHandler.openUri(url)
+                        } catch (_: Exception) {}
                     }
-                }
+                )
             }
         }
     }
@@ -572,6 +609,66 @@ private fun QuotedEventContent(
             onDismiss = { selectedImageUrl = null }
         )
     }
+}
+
+/**
+ * Inline content group for quoted events - uses Caption style.
+ */
+@Composable
+private fun QuotedInlineContentGroup(
+    parts: List<ContentPart>,
+    userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
+    onLinkClick: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val annotatedString = remember(parts, userMetadata) {
+        buildAnnotatedString {
+            parts.forEach { part ->
+                when (part) {
+                    is TextPart -> {
+                        append(part.content)
+                    }
+                    is LinkPart -> {
+                        withLink(
+                            LinkAnnotation.Url(
+                                url = part.url,
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(color = NostrordColors.Primary)
+                                )
+                            )
+                        ) {
+                            append(part.url)
+                        }
+                    }
+                    is MentionPart -> {
+                        val displayText = getMentionDisplayText(part, userMetadata)
+                        withLink(
+                            LinkAnnotation.Url(
+                                url = part.reference.uri,
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(
+                                        color = NostrordColors.MentionText,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                )
+                            )
+                        ) {
+                            append(displayText)
+                        }
+                    }
+                    else -> {}
+                }
+            }
+        }
+    }
+
+    Text(
+        text = annotatedString,
+        color = NostrordColors.TextContent,
+        style = NostrordTypography.Caption,
+        maxLines = 6,
+        modifier = modifier
+    )
 }
 
 @Composable
