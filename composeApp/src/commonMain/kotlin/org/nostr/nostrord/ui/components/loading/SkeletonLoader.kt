@@ -14,84 +14,51 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 
 /**
  * Skeleton loader for group cards on the home screen.
- * Matches the layout of GroupCard component.
+ * Matches the row-style layout of GroupCard component.
  */
 @Composable
 fun GroupCardSkeleton(
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .height(48.dp)
+            .clip(RoundedCornerShape(8.dp))
             .background(NostrordColors.Surface)
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Cover image skeleton
+        // Avatar skeleton
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(80.dp)
+                .size(40.dp)
+                .clip(CircleShape)
                 .shimmerEffect()
-        ) {
-            // Avatar skeleton overlapping cover
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset(x = 12.dp, y = 24.dp)
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(NostrordColors.Surface)
-                    .padding(2.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(CircleShape)
-                        .shimmerEffect()
-                )
-            }
-        }
+        )
 
-        // Content skeleton
+        Spacer(modifier = Modifier.width(12.dp))
+
+        // Text content
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 72.dp, end = 12.dp, top = 8.dp, bottom = 12.dp)
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
         ) {
-            // Title skeleton
+            // Group name skeleton
             Box(
                 modifier = Modifier
-                    .width(120.dp)
-                    .height(16.dp)
+                    .width(140.dp)
+                    .height(14.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .shimmerEffect()
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Description skeleton (2 lines)
+            // Description skeleton
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.9f)
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .shimmerEffect()
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .shimmerEffect()
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Member count skeleton
-            Box(
-                modifier = Modifier
-                    .width(80.dp)
+                    .fillMaxWidth(0.7f)
                     .height(10.dp)
                     .clip(RoundedCornerShape(4.dp))
                     .shimmerEffect()
