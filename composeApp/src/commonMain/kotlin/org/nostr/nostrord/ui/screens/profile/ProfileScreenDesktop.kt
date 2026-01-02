@@ -41,6 +41,7 @@ fun ProfileScreenDesktop(
     about: String?,
     showCopiedMessage: Boolean,
     onCopyNpub: () -> Unit,
+    onEditProfile: () -> Unit,
     onBackupKeys: () -> Unit,
     onRelaySettings: () -> Unit,
     onLogout: () -> Unit,
@@ -205,6 +206,18 @@ fun ProfileScreenDesktop(
                                     top = Spacing.lg,
                                     bottom = Spacing.sm
                                 )
+                            )
+
+                            SettingsMenuItem(
+                                icon = Icons.Default.Edit,
+                                title = "Edit Profile",
+                                subtitle = "Update your profile information",
+                                onClick = onEditProfile
+                            )
+
+                            HorizontalDivider(
+                                color = NostrordColors.Divider,
+                                modifier = Modifier.padding(horizontal = Spacing.lg)
                             )
 
                             SettingsMenuItem(

@@ -63,6 +63,7 @@ fun ProfileScreen(
                         showCopiedMessage = true
                     }
                 },
+                onEditProfile = { onNavigate(Screen.EditProfile) },
                 onBackupKeys = { onNavigate(Screen.BackupPrivateKey) },
                 onRelaySettings = { onNavigate(Screen.RelaySettings) },
                 onLogout = {
@@ -88,6 +89,7 @@ fun ProfileScreen(
                         showCopiedMessage = true
                     }
                 },
+                onEditProfile = { onNavigate(Screen.EditProfile) },
                 onBackupKeys = { onNavigate(Screen.BackupPrivateKey) },
                 onRelaySettings = { onNavigate(Screen.RelaySettings) },
                 onLogout = {

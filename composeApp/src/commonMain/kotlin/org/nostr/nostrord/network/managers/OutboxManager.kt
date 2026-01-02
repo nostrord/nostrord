@@ -403,6 +403,11 @@ class OutboxManager(
     }
 
     /**
+     * Get write relays for publishing events
+     */
+    fun getWriteRelays(): List<String> = relayListManager.selectPublishRelays()
+
+    /**
      * Get all relay groups (for kind:10009)
      */
     fun getAllRelayGroups(): Map<String, Set<String>> = allRelayGroups

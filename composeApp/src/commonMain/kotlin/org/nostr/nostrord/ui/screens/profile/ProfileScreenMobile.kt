@@ -48,6 +48,7 @@ fun ProfileScreenMobile(
     about: String?,
     showCopiedMessage: Boolean,
     onCopyNpub: () -> Unit,
+    onEditProfile: () -> Unit,
     onBackupKeys: () -> Unit,
     onRelaySettings: () -> Unit,
     onLogout: () -> Unit,
@@ -220,6 +221,18 @@ fun ProfileScreenMobile(
                         top = Spacing.lg,
                         bottom = Spacing.sm
                     )
+                )
+
+                SettingsMenuItem(
+                    icon = Icons.Default.Edit,
+                    title = "Edit Profile",
+                    subtitle = "Update your profile info",
+                    onClick = onEditProfile
+                )
+
+                HorizontalDivider(
+                    color = NostrordColors.Divider,
+                    modifier = Modifier.padding(horizontal = Spacing.lg)
                 )
 
                 SettingsMenuItem(

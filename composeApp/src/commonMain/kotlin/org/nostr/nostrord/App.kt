@@ -21,6 +21,7 @@ import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.relay.RelaySettingsScreen
 import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
+import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
 import org.nostr.nostrord.ui.screens.profile.ProfileScreen
 import org.nostr.nostrord.ui.theme.NostrordColors
 
@@ -185,6 +186,9 @@ private fun DesktopContent(
                 onLogout = { onNavigate(Screen.Home) }
             )
         }
+        is Screen.EditProfile -> {
+            EditProfileScreen(onNavigate = onNavigate)
+        }
         is Screen.PAGE1 -> {
             HomeScreen(
                 gridState = homeGridState,
@@ -242,6 +246,9 @@ private fun MobileContent(
                 onNavigate = onNavigate,
                 onLogout = { onNavigate(Screen.Home) }
             )
+        }
+        is Screen.EditProfile -> {
+            EditProfileScreen(onNavigate = onNavigate)
         }
         is Screen.PAGE1 -> {
             HomeScreen(

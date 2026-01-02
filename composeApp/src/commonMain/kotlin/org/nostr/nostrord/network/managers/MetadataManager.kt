@@ -110,6 +110,14 @@ class MetadataManager(
     }
 
     /**
+     * Update local metadata cache directly (for optimistic UI updates)
+     */
+    fun updateLocalMetadata(pubkey: String, metadata: UserMetadata) {
+        metadataCache.put(pubkey, metadata)
+        _userMetadata.value = metadataCache.toMap()
+    }
+
+    /**
      * Handle incoming cached event
      */
     fun handleCachedEvent(event: CachedEvent) {

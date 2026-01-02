@@ -274,6 +274,80 @@ class NostrRepository(
         }
     }
 
+    /**
+     * Update the current user's profile metadata (kind 0 event).
+     */
+    suspend fun updateProfileMetadata(
+        displayName: String? = null,
+        name: String? = null,
+        about: String? = null,
+        picture: String? = null,
+        nip05: String? = null
+    ): kotlin.Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return kotlin.Result.failure(Exception("Not logged in"))
+
+        return try {
+            // Build metadata content JSON
+            val content = buildJsonObject {
+                displayName?.let { put("display_name", it) }
+                name?.let { put("name", it) }
+                about?.let { put("about", it) }
+                picture?.let { put("picture", it) }
+                nip05?.let { put("nip05", it) }
+            }.toString()
+
+            // Create kind 0 event
+            val event = org.nostr.nostrord.nostr.Event(
+                pubkey = pubKey,
+                createdAt = org.nostr.nostrord.utils.epochSeconds(),
+                kind = 0,
+                tags = emptyList(),
+                content = content
+            )
+
+            // Sign the event
+            val signedEvent = sessionManager.signEvent(event)
+
+            // Build event message in correct format
+            val message = buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString()
+
+            // Publish to user's write relays
+            val writeRelays = outboxManager.getWriteRelays()
+
+            if (writeRelays.isEmpty()) {
+                // Fallback to current relay if no write relays configured
+                val client = connectionManager.getPrimaryClient()
+                if (client != null) {
+                    client.send(message)
+                } else {
+                    return kotlin.Result.failure(Exception("No relay connection"))
+                }
+            } else {
+                // Publish to all write relays using connection manager
+                connectionManager.sendToRelays(writeRelays, message) { _, _ -> /* ignore responses */ }
+            }
+
+            // Update local cache
+            val newMetadata = UserMetadata(
+                pubkey = pubKey,
+                name = name,
+                displayName = displayName,
+                picture = picture,
+                about = about,
+                nip05 = nip05
+            )
+            metadataManager.updateLocalMetadata(pubKey, newMetadata)
+
+            kotlin.Result.success(Unit)
+        } catch (e: Exception) {
+            kotlin.Result.failure(e)
+        }
+    }
+
     suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null) {
         metadataManager.requestEventById(eventId, relayHints, author) { msg, client ->
             handleRelayMessage(msg, client)
@@ -488,6 +562,13 @@ class NostrRepository(
         fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>) = instance.updateUnreadCount(groupId, messages)
         fun getLastReadTimestamp(groupId: String) = instance.getLastReadTimestamp(groupId)
         suspend fun requestUserMetadata(pubkeys: Set<String>) = instance.requestUserMetadata(pubkeys)
+        suspend fun updateProfileMetadata(
+            displayName: String? = null,
+            name: String? = null,
+            about: String? = null,
+            picture: String? = null,
+            nip05: String? = null
+        ) = instance.updateProfileMetadata(displayName, name, about, picture, nip05)
         suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null) =
             instance.requestEventById(eventId, relayHints, author)
         suspend fun requestRelayLists(pubkeys: Set<String>) = instance.requestRelayLists(pubkeys)
