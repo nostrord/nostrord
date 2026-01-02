@@ -19,24 +19,38 @@ fun getDateLabel(timestamp: Long): String {
     val now = epochSeconds()
     val nowDateTime = timestampToDateTime(now)
     val messageDateTime = timestampToDateTime(timestamp)
-    
+
     val daysDiff = calculateDaysDiff(nowDateTime, messageDateTime)
-    
+    val monthNames = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    val monthName = monthNames.getOrNull(messageDateTime.month - 1) ?: messageDateTime.month.toString()
+
     return when {
         daysDiff == 0 -> "Today"
         daysDiff == 1 -> "Yesterday"
+        messageDateTime.year != nowDateTime.year -> {
+            "${messageDateTime.day} $monthName ${messageDateTime.year}"
+        }
         else -> {
-            val monthNames = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-            "${messageDateTime.day} ${monthNames.getOrNull(messageDateTime.month - 1) ?: messageDateTime.month}"
+            "${messageDateTime.day} $monthName"
         }
     }
 }
 
 fun formatTime(timestamp: Long): String {
+    val now = epochSeconds()
+    val nowDateTime = timestampToDateTime(now)
     val dateTime = timestampToDateTime(timestamp)
     val hour = dateTime.hour.toString().padStart(2, '0')
     val minute = dateTime.minute.toString().padStart(2, '0')
-    return "$hour:$minute"
+
+    return if (dateTime.year != nowDateTime.year) {
+        // Show date and year for messages from previous years
+        val day = dateTime.day.toString().padStart(2, '0')
+        val month = dateTime.month.toString().padStart(2, '0')
+        "$day/$month/${dateTime.year} $hour:$minute"
+    } else {
+        "$hour:$minute"
+    }
 }
 
 fun formatTimestamp(timestamp: Long): String {
