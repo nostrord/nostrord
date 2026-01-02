@@ -37,14 +37,6 @@ fun HomeScreen(
         }
     }
 
-    val connectionStatus = when (connectionState) {
-        is ConnectionManager.ConnectionState.Disconnected -> "Disconnected"
-        is ConnectionManager.ConnectionState.Connecting -> "Connecting..."
-        is ConnectionManager.ConnectionState.Connected -> "Connected"
-        is ConnectionManager.ConnectionState.Error ->
-            "Error: ${(connectionState as ConnectionManager.ConnectionState.Error).message}"
-    }
-
     val pubKey = NostrRepository.getPublicKey()
     val currentUserMetadata = pubKey?.let { userMetadata[it] }
 
@@ -67,8 +59,6 @@ fun HomeScreen(
             HomeScreenMobile(
                 gridState = gridState,
                 onNavigate = onNavigate,
-                connectionStatus = connectionStatus,
-                pubKey = pubKey,
                 joinedGroups = joinedGroups,
                 groups = groups,
                 filteredGroups = filteredGroups,
@@ -80,6 +70,7 @@ fun HomeScreen(
                 onRetry = { scope.launch { NostrRepository.connect() } },
                 userAvatarUrl = currentUserMetadata?.picture,
                 userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
+                userPubkey = pubKey,
                 unreadCounts = unreadCounts,
                 onGroupClick = { groupId, groupName ->
                     onNavigate(Screen.Group(groupId, groupName))
@@ -91,8 +82,6 @@ fun HomeScreen(
             HomeScreenDesktop(
                 gridState = gridState,
                 onNavigate = onNavigate,
-                connectionStatus = connectionStatus,
-                pubKey = pubKey,
                 joinedGroups = joinedGroups,
                 groups = groups,
                 filteredGroups = filteredGroups,

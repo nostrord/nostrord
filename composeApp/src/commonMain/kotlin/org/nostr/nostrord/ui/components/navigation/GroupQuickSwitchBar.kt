@@ -229,30 +229,3 @@ private fun GroupAvatar(
         }
     }
 }
-
-/**
- * Compact version for mobile - smaller avatars, tighter spacing
- */
-@Composable
-fun GroupQuickSwitchBarCompact(
-    joinedGroups: Set<String>,
-    groups: List<GroupMetadata>,
-    activeGroupId: String?,
-    onHomeClick: () -> Unit,
-    onGroupClick: (groupId: String, groupName: String?) -> Unit,
-    onExploreClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    unreadCounts: Map<String, Int> = emptyMap()
-) {
-    GroupQuickSwitchBar(
-        joinedGroups = joinedGroups,
-        groups = groups,
-        activeGroupId = activeGroupId,
-        onHomeClick = onHomeClick,
-        onGroupClick = onGroupClick,
-        onExploreClick = onExploreClick,
-        modifier = modifier,
-        avatarSize = 40.dp,
-        unreadCounts = unreadCounts
-    )
-}

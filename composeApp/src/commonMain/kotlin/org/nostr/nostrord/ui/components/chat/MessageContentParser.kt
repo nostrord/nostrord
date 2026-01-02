@@ -387,14 +387,4 @@ object MessageContentParser {
     }
 
     // ============================================================================
-    // UTILITIES
-    // ============================================================================
-
-    /**
-     * Check if a character position is inside a URL match.
-     */
-    fun isPositionInUrl(content: String, position: Int): Boolean {
-        val urlMatches = findUrls(content)
-        return urlMatches.any { position in it.range }
-    }
 }

@@ -45,8 +45,6 @@ import org.nostr.nostrord.ui.theme.Spacing
 fun HomeScreenDesktop(
     gridState: LazyGridState,
     onNavigate: (Screen) -> Unit,
-    connectionStatus: String,
-    pubKey: String?,
     joinedGroups: Set<String>,
     groups: List<GroupMetadata>,
     filteredGroups: List<GroupMetadata>,

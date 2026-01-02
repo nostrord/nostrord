@@ -38,8 +38,6 @@ import org.nostr.nostrord.ui.theme.Spacing
 fun HomeScreenMobile(
     gridState: LazyGridState,
     onNavigate: (Screen) -> Unit,
-    connectionStatus: String,
-    pubKey: String?,
     joinedGroups: Set<String>,
     groups: List<GroupMetadata>,
     filteredGroups: List<GroupMetadata>,
@@ -51,6 +49,7 @@ fun HomeScreenMobile(
     onRetry: () -> Unit = {},
     userAvatarUrl: String? = null,
     userDisplayName: String? = null,
+    userPubkey: String? = null,
     unreadCounts: Map<String, Int> = emptyMap(),
     onGroupClick: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
     onUserClick: () -> Unit = {},
@@ -102,7 +101,7 @@ fun HomeScreenMobile(
                     onAddClick = { /* Scroll to explore or show join dialog */ },
                     userAvatarUrl = userAvatarUrl,
                     userDisplayName = userDisplayName,
-                    userPubkey = pubKey,
+                    userPubkey = userPubkey,
                     onUserClick = onUserClick
                 )
             }
