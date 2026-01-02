@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -61,6 +62,7 @@ fun GroupScreen(
     var messageInput by remember { mutableStateOf("") }
     var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) } // displayName -> pubkey
     var showLeaveDialog by remember { mutableStateOf(false) }
+    var showGroupInfoModal by remember { mutableStateOf(false) }
     val isJoined = joinedGroups.contains(groupId)
 
     // Derive group members from all message pubkeys
@@ -111,6 +113,16 @@ fun GroupScreen(
         scope.launch {
             NostrRepository.requestGroupMessages(groupId, selectedChannel)
         }
+    }
+
+    // Group info modal
+    if (showGroupInfoModal) {
+        GroupInfoModal(
+            groupId = groupId,
+            groupName = groupName,
+            groupMetadata = currentGroupMetadata,
+            onDismiss = { showGroupInfoModal = false }
+        )
     }
 
     if (showLeaveDialog) {
@@ -173,6 +185,7 @@ fun GroupScreen(
                 },
                 onLeaveGroup = { showLeaveDialog = true },
                 onBack = onBack,
+                onShowGroupInfo = { showGroupInfoModal = true },
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
@@ -213,6 +226,7 @@ fun GroupScreen(
                 },
                 onLeaveGroup = { showLeaveDialog = true },
                 onBack = onBack,
+                onShowGroupInfo = { showGroupInfoModal = true },
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,

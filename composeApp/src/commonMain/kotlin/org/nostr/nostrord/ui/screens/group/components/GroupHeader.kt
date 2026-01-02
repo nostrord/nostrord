@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -16,6 +17,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -25,6 +28,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 
 /**
  * Enhanced group header with description, member count, and status indicators.
+ * Click on the title area to open group info modal.
  */
 @Composable
 fun GroupHeader(
@@ -35,6 +39,7 @@ fun GroupHeader(
     onJoinClick: () -> Unit,
     onLeaveClick: () -> Unit,
     onSettingsClick: () -> Unit = {},
+    onTitleClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     navigationIcon: @Composable (() -> Unit)? = null
 ) {
@@ -63,40 +68,46 @@ fun GroupHeader(
                 }
             }
 
-            // Group avatar
-            ProfileAvatar(
-                imageUrl = groupMetadata?.picture,
-                displayName = groupName ?: "Group",
-                pubkey = groupMetadata?.id ?: "",
-                size = 36.dp
-            )
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Group name and description
-            Column(
+            // Clickable title area (avatar + name + description)
+            Row(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 8.dp)
+                    .clickable(onClick = onTitleClick)
+                    .pointerHoverIcon(PointerIcon.Hand)
+                    .padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = groupName ?: "Unknown Group",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                // Group avatar
+                ProfileAvatar(
+                    imageUrl = groupMetadata?.picture,
+                    displayName = groupName ?: "Group",
+                    pubkey = groupMetadata?.id ?: "",
+                    size = 36.dp
                 )
 
-                // Description
-                if (!groupMetadata?.about.isNullOrBlank()) {
+                Spacer(modifier = Modifier.width(12.dp))
+
+                // Group name and description
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = groupMetadata?.about ?: "",
-                        color = NostrordColors.TextSecondary,
-                        style = MaterialTheme.typography.bodySmall,
+                        text = groupName ?: "Unknown Group",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+
+                    // Description
+                    if (!groupMetadata?.about.isNullOrBlank()) {
+                        Text(
+                            text = groupMetadata?.about ?: "",
+                            color = NostrordColors.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 

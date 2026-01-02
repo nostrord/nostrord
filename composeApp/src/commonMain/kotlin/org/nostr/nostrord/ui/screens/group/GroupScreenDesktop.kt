@@ -48,6 +48,7 @@ fun GroupScreenDesktop(
     onJoinGroup: () -> Unit,
     onLeaveGroup: () -> Unit,
     onBack: () -> Unit,
+    onShowGroupInfo: () -> Unit = {},
     groupMembers: List<MemberInfo> = emptyList(),
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
@@ -74,7 +75,8 @@ fun GroupScreenDesktop(
                 isJoined = isJoined,
                 onBackClick = onBack,
                 onJoinClick = onJoinGroup,
-                onLeaveClick = onLeaveGroup
+                onLeaveClick = onLeaveGroup,
+                onTitleClick = onShowGroupInfo
             )
 
             // Messages area (fills remaining space)

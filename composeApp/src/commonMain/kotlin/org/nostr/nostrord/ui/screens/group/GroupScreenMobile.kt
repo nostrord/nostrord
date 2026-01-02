@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -70,6 +71,7 @@ fun GroupScreenMobile(
     onJoinGroup: () -> Unit,
     onLeaveGroup: () -> Unit,
     onBack: () -> Unit,
+    onShowGroupInfo: () -> Unit = {},
     groupMembers: List<MemberInfo> = emptyList(),
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
@@ -96,6 +98,7 @@ fun GroupScreenMobile(
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
                 onBackClick = onBack,
+                onTitleClick = onShowGroupInfo,
                 onMembersClick = { showMemberSheet = true },
                 onJoinClick = onJoinGroup,
                 onLeaveClick = onLeaveGroup
@@ -189,6 +192,7 @@ fun GroupScreenMobile(
 /**
  * Mobile-optimized top bar with proper touch targets (48dp minimum).
  * Follows desktop design with avatar and description.
+ * Click on the title area to open group info modal.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -197,6 +201,7 @@ private fun MobileGroupTopBar(
     groupMetadata: GroupMetadata?,
     isJoined: Boolean,
     onBackClick: () -> Unit,
+    onTitleClick: () -> Unit,
     onMembersClick: () -> Unit,
     onJoinClick: () -> Unit,
     onLeaveClick: () -> Unit
@@ -205,7 +210,9 @@ private fun MobileGroupTopBar(
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = Spacing.xs)
+                modifier = Modifier
+                    .padding(start = Spacing.xs)
+                    .clickable(onClick = onTitleClick)
             ) {
                 // Group avatar
                 ProfileAvatar(

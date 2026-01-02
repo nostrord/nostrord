@@ -187,17 +187,22 @@ suspend fun requestGroupMessages(
             if (event["kind"]?.jsonPrimitive?.int != 39000) return null
 
             val tags = event["tags"]?.jsonArray ?: return null
+
+            // Build map for tags with values (size >= 2)
             val tagMap = tags
                 .filter { it.jsonArray.size >= 2 }
                 .associate { it.jsonArray[0].jsonPrimitive.content to it.jsonArray[1].jsonPrimitive.content }
+
+            // Get all tag names (including presence-only tags like ["public"], ["open"])
+            val tagNames = tags.map { it.jsonArray[0].jsonPrimitive.content }.toSet()
 
             GroupMetadata(
                 id = tagMap["d"] ?: "unknown",
                 name = tagMap["name"],
                 about = tagMap["about"],
                 picture = tagMap["picture"],
-                isPublic = tagMap.containsKey("public"),
-                isOpen = tagMap.containsKey("open")
+                isPublic = tagNames.contains("public"),
+                isOpen = tagNames.contains("open")
             )
         } catch (e: Exception) {
             null
