@@ -112,11 +112,9 @@ fun RelaySettingsScreen(
                 currentRelay = currentRelay,
                 onNavigate = onNavigate,
                 onSelectRelay = { relayUrl ->
+                    onNavigate(Screen.Home)
                     scope.launch {
                         NostrRepository.switchRelay(relayUrl)
-                        relays = relays.map { r ->
-                            r.copy(status = if (r.url == relayUrl) RelayStatus.CONNECTED else RelayStatus.DISCONNECTED)
-                        }
                     }
                 },
                 onAddRelay = { showAddDialog = true }
@@ -128,11 +126,9 @@ fun RelaySettingsScreen(
                 currentRelay = currentRelay,
                 onNavigate = onNavigate,
                 onSelectRelay = { relayUrl ->
+                    onNavigate(Screen.Home)
                     scope.launch {
                         NostrRepository.switchRelay(relayUrl)
-                        relays = relays.map { r ->
-                            r.copy(status = if (r.url == relayUrl) RelayStatus.CONNECTED else RelayStatus.DISCONNECTED)
-                        }
                     }
                 },
                 onAddRelay = { showAddDialog = true }

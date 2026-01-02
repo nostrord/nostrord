@@ -5,12 +5,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -28,7 +31,8 @@ fun RelaySettingsDesktop(
     currentRelay: String,
     onNavigate: (Screen) -> Unit,
     onSelectRelay: (String) -> Unit,
-    onAddRelay: () -> Unit
+    onAddRelay: () -> Unit,
+    onDeleteRelay: ((String) -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -45,46 +49,111 @@ fun RelaySettingsDesktop(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = { onNavigate(Screen.Home) }) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White
+                )
             }
 
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
-            Text(
-                text = "Relay Settings",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
+            // Header icon
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(NostrordColors.Primary.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Public,
+                    contentDescription = null,
+                    tint = NostrordColors.Primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column {
+                Text(
+                    text = "Relay Settings",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Manage your NIP-29 group relays",
+                    color = NostrordColors.TextSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         }
 
-        // Content
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                state = listState,
+        // Content with centered max-width container
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter
+        ) {
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                    .widthIn(max = 800.dp)
+                    .fillMaxHeight()
             ) {
-                items(relays) { relay ->
-                    RelayCard(
-                        relay = relay,
-                        isActive = relay.url == currentRelay,
-                        isCompact = false,
-                        onSelectRelay = { onSelectRelay(relay.url) }
-                    )
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Section header
+                    item {
+                        Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                            Text(
+                                text = "Connected Relays",
+                                color = NostrordColors.TextSecondary,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "${relays.size} relay${if (relays.size != 1) "s" else ""} configured",
+                                color = NostrordColors.TextMuted,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+
+                    items(relays) { relay ->
+                        RelayCard(
+                            relay = relay,
+                            isActive = relay.url == currentRelay,
+                            isCompact = false,
+                            onSelectRelay = { onSelectRelay(relay.url) },
+                            onDeleteRelay = if (onDeleteRelay != null && relay.url != currentRelay) {
+                                { onDeleteRelay(relay.url) }
+                            } else null
+                        )
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AddRelayCard(isCompact = false, onClick = onAddRelay)
+                    }
+
+                    // Bottom spacing
+                    item {
+                        Spacer(modifier = Modifier.height(24.dp))
+                    }
                 }
 
-                item {
-                    AddRelayCard(isCompact = false, onClick = onAddRelay)
-                }
+                VerticalScrollbarWrapper(
+                    listState = listState,
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                )
             }
-
-            VerticalScrollbarWrapper(
-                listState = listState,
-                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-            )
         }
     }
 }
