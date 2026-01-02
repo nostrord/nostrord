@@ -2,7 +2,7 @@ package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -145,14 +145,14 @@ fun MessagesList(
                             }
                         }
 
-                        items(chatItems, key = { item ->
+                        itemsIndexed(chatItems, key = { index, item ->
                             when (item) {
-                                is ChatItem.DateSeparator -> "date_${item.date}"
-                                is ChatItem.NewMessagesDivider -> "new_messages_divider"
+                                is ChatItem.DateSeparator -> "date_${index}_${item.date}"
+                                is ChatItem.NewMessagesDivider -> "new_messages_divider_$index"
                                 is ChatItem.SystemEvent -> "system_${item.id}"
                                 is ChatItem.Message -> "msg_${item.message.id}"
                             }
-                        }) { item ->
+                        }) { _, item ->
                             when (item) {
                                 is ChatItem.DateSeparator -> DateSeparator(item.date)
                                 is ChatItem.NewMessagesDivider -> NewMessagesDivider()
