@@ -81,6 +81,9 @@ fun MessageContent(
     val parts = remember(content, emojiMap) { parseContent(content, emojiMap) }
     val uriHandler = LocalUriHandler.current
 
+    // Image viewer modal state
+    var selectedImageUrl by remember { mutableStateOf<String?>(null) }
+
     // Group parts into inline sequences and block elements
     val groups = remember(parts) {
         val result = mutableListOf<List<ContentPart>>()
@@ -117,11 +120,7 @@ fun MessageContent(
                         Spacer(modifier = Modifier.height(8.dp))
                         ChatImage(
                             imageUrl = firstPart.url,
-                            onClick = {
-                                try {
-                                    uriHandler.openUri(firstPart.url)
-                                } catch (_: Exception) {}
-                            }
+                            onClick = { selectedImageUrl = firstPart.url }
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
@@ -192,6 +191,14 @@ fun MessageContent(
                 }
             }
         }
+    }
+
+    // Image viewer modal
+    selectedImageUrl?.let { imageUrl ->
+        ImageViewerModal(
+            imageUrl = imageUrl,
+            onDismiss = { selectedImageUrl = null }
+        )
     }
 }
 
@@ -453,6 +460,9 @@ private fun QuotedEventContent(
     val parts = remember(content) { parseContent(content) }
     val uriHandler = LocalUriHandler.current
 
+    // Image viewer modal state
+    var selectedImageUrl by remember { mutableStateOf<String?>(null) }
+
     // Group parts into inline sequences and block elements
     val groups = remember(parts) {
         val result = mutableListOf<List<ContentPart>>()
@@ -485,11 +495,7 @@ private fun QuotedEventContent(
                         Spacer(modifier = Modifier.height(6.dp))
                         QuotedImage(
                             imageUrl = firstPart.url,
-                            onClick = {
-                                try {
-                                    uriHandler.openUri(firstPart.url)
-                                } catch (_: Exception) {}
-                            }
+                            onClick = { selectedImageUrl = firstPart.url }
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
@@ -557,6 +563,14 @@ private fun QuotedEventContent(
                 }
             }
         }
+    }
+
+    // Image viewer modal
+    selectedImageUrl?.let { imageUrl ->
+        ImageViewerModal(
+            imageUrl = imageUrl,
+            onDismiss = { selectedImageUrl = null }
+        )
     }
 }
 
