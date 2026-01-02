@@ -4,11 +4,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.*
@@ -20,9 +21,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.Spacing
 
 /**
  * Navigation items for the bottom bar.
+ *
+ * Mobile-first Discord-like pattern:
+ * - Explore: Discover and browse groups
+ * - Groups: Your joined groups list
+ * - Notifications: Activity alerts (future)
+ * - Profile: User settings and info
  */
 enum class BottomNavItem(
     val label: String,
@@ -30,15 +38,15 @@ enum class BottomNavItem(
     val unselectedIcon: ImageVector,
     val enabled: Boolean = true
 ) {
-    Home(
-        label = "Home",
-        selectedIcon = Icons.Filled.Home,
-        unselectedIcon = Icons.Outlined.Home
+    Explore(
+        label = "Explore",
+        selectedIcon = Icons.Filled.Explore,
+        unselectedIcon = Icons.Outlined.Explore
     ),
-    Messages(
-        label = "Messages",
-        selectedIcon = Icons.Outlined.ChatBubbleOutline,
-        unselectedIcon = Icons.Outlined.ChatBubbleOutline
+    Groups(
+        label = "Groups",
+        selectedIcon = Icons.Filled.Groups,
+        unselectedIcon = Icons.Outlined.Groups
     ),
     Notifications(
         label = "Alerts",
@@ -55,7 +63,9 @@ enum class BottomNavItem(
 
 /**
  * Bottom navigation bar for mobile screens.
- * Provides navigation between Home, Messages, Notifications, and Profile.
+ * Provides navigation between Explore, Groups, Notifications, and Profile.
+ *
+ * Touch targets are 48dp minimum for accessibility.
  */
 @Composable
 fun BottomNavigationBar(
@@ -63,6 +73,7 @@ fun BottomNavigationBar(
     onItemSelected: (BottomNavItem) -> Unit,
     modifier: Modifier = Modifier,
     hasUnreadNotifications: Boolean = false,
+    unreadGroupCount: Int = 0,
     userAvatarUrl: String? = null,
     userDisplayName: String? = null,
     userPubkey: String? = null
@@ -70,7 +81,8 @@ fun BottomNavigationBar(
     NavigationBar(
         modifier = modifier,
         containerColor = NostrordColors.BackgroundDark,
-        contentColor = Color.White
+        contentColor = Color.White,
+        tonalElevation = 0.dp
     ) {
         BottomNavItem.entries.forEach { item ->
             val isSelected = selectedItem == item
@@ -85,11 +97,23 @@ fun BottomNavigationBar(
                 icon = {
                     BadgedBox(
                         badge = {
-                            // Show notification badge for Notifications item
-                            if (item == BottomNavItem.Notifications && hasUnreadNotifications) {
-                                Badge(
-                                    containerColor = NostrordColors.Error
-                                )
+                            when {
+                                // Show notification badge for Notifications item
+                                item == BottomNavItem.Notifications && hasUnreadNotifications -> {
+                                    Badge(containerColor = NostrordColors.Error)
+                                }
+                                // Show unread count badge for Groups item
+                                item == BottomNavItem.Groups && unreadGroupCount > 0 -> {
+                                    Badge(
+                                        containerColor = NostrordColors.Error,
+                                        contentColor = Color.White
+                                    ) {
+                                        Text(
+                                            text = if (unreadGroupCount > 99) "99+" else unreadGroupCount.toString(),
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                }
                             }
                         }
                     ) {
@@ -99,7 +123,7 @@ fun BottomNavigationBar(
                                 imageUrl = userAvatarUrl,
                                 displayName = userDisplayName ?: "Profile",
                                 pubkey = userPubkey,
-                                size = 24.dp,
+                                size = Spacing.iconMd,
                                 modifier = if (isSelected) {
                                     Modifier
                                         .clip(CircleShape)
@@ -112,7 +136,7 @@ fun BottomNavigationBar(
                             Icon(
                                 imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
                                 contentDescription = item.label,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(Spacing.iconMd)
                             )
                         }
                     }

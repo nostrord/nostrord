@@ -1,39 +1,50 @@
 package org.nostr.nostrord.ui.screens.home.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.NostrordShapes
+import org.nostr.nostrord.ui.theme.NostrordTypography
+import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.generateColorFromString
 
 /**
- * Enhanced group card with cover image, badges, and member count.
- * Inspired by Discord Groups design.
+ * Simplified row-style group card for joined groups list.
+ *
+ * Discord-style layout:
+ * - 44dp height
+ * - 40dp avatar
+ * - 12dp gap
+ * - Group name (bold white)
+ * - Subtext with channel and member count
+ * - Unread badge at right edge
  */
 @Composable
 fun GroupCard(
@@ -44,195 +55,75 @@ fun GroupCard(
     unreadCount: Int = 0
 ) {
     val groupName = group.name ?: group.id
-    val hasCoverImage = !group.picture.isNullOrBlank()
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(NostrordColors.Surface)
+            .height(Spacing.memberItemHeight + Spacing.xxs) // ~44dp
+            .border(
+                width = 1.dp,
+                color = NostrordColors.Divider,
+                shape = NostrordShapes.channelItemShape
+            )
+            .clip(NostrordShapes.channelItemShape)
+            .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
+            .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
+            .padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Cover image area
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(80.dp)
-        ) {
-            if (hasCoverImage) {
-                // Cover image from group.picture
-                AsyncImage(
-                    model = group.picture,
-                    contentDescription = groupName,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                // Gradient overlay for text readability
-                Box(
+        // Avatar with unread badge
+        Box {
+            GroupAvatar(
+                groupId = group.id,
+                groupName = groupName,
+                pictureUrl = group.picture,
+                size = Spacing.avatarSize
+            )
+
+            // Unread badge positioned at bottom-right of avatar
+            if (unreadCount > 0) {
+                UnreadBadge(
+                    count = unreadCount,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    NostrordColors.Surface.copy(alpha = 0.7f)
-                                )
-                            )
-                        )
+                        .align(Alignment.BottomEnd)
+                        .offset(x = Spacing.xxs, y = Spacing.xxs),
+                    size = Spacing.badgeSize
                 )
-            } else {
-                // Fallback: gradient background with pattern
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    generateColorFromString(group.id),
-                                    generateColorFromString(group.id + "alt").copy(alpha = 0.7f)
-                                )
-                            )
-                        )
-                )
-            }
-
-            // Badges in top-right corner
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                if (group.isPublic) {
-                    Badge(
-                        icon = { Icon(Icons.Default.Public, contentDescription = "Public", modifier = Modifier.size(12.dp), tint = Color.White) },
-                        text = "Public"
-                    )
-                }
-                if (group.isOpen) {
-                    Badge(
-                        icon = { Icon(Icons.Default.Lock, contentDescription = "Open", modifier = Modifier.size(12.dp), tint = NostrordColors.Success) },
-                        text = "Open",
-                        backgroundColor = NostrordColors.Success.copy(alpha = 0.2f),
-                        textColor = NostrordColors.Success
-                    )
-                }
-            }
-
-            // Avatar overlapping the cover with unread badge
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .offset(x = 12.dp, y = 24.dp)
-            ) {
-                GroupAvatar(
-                    groupId = group.id,
-                    groupName = groupName,
-                    pictureUrl = group.picture,
-                    size = 48.dp
-                )
-
-                // Unread badge positioned at top-right of avatar
-                if (unreadCount > 0) {
-                    UnreadBadge(
-                        count = unreadCount,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 4.dp, y = (-4).dp),
-                        size = 18.dp
-                    )
-                }
             }
         }
 
-        // Content area
+        Spacer(modifier = Modifier.width(Spacing.md))
+
+        // Name and subtext
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 72.dp, end = 12.dp, top = 8.dp, bottom = 12.dp)
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center
         ) {
-            // Group name
+            // Group name - bold white
             Text(
                 text = groupName,
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                color = if (unreadCount > 0) NostrordColors.ChannelUnread else Color.White,
+                style = if (unreadCount > 0) NostrordTypography.ChannelNameUnread else NostrordTypography.ChannelName,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
-            // Description
-            if (!group.about.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
+            // Subtext with description
+            val description = group.about?.takeIf { it.isNotBlank() }
+            if (description != null) {
                 Text(
-                    text = group.about,
-                    color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
+                    text = description,
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Timestamp,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-
-            // Member count and joined status
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Member count
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.People,
-                        contentDescription = "Members",
-                        modifier = Modifier.size(14.dp),
-                        tint = NostrordColors.TextMuted
-                    )
-                    Text(
-                        text = if (memberCount > 0) "$memberCount members" else "No activity yet",
-                        color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.labelSmall
-                    )
-                }
-
-                // Joined indicator
-                if (isJoined) {
-                    Text(
-                        text = "Joined",
-                        color = NostrordColors.Success,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
         }
-    }
-}
-
-@Composable
-private fun Badge(
-    icon: @Composable () -> Unit,
-    text: String,
-    backgroundColor: Color = Color.Black.copy(alpha = 0.5f),
-    textColor: Color = Color.White
-) {
-    Row(
-        modifier = Modifier
-            .background(backgroundColor, RoundedCornerShape(4.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        icon()
-        Text(
-            text = text,
-            color = textColor,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Medium
-        )
     }
 }
 
@@ -241,25 +132,20 @@ private fun GroupAvatar(
     groupId: String,
     groupName: String,
     pictureUrl: String?,
-    size: androidx.compose.ui.unit.Dp
+    size: Dp
 ) {
     Box(
         modifier = Modifier
             .size(size)
             .clip(CircleShape)
-            .background(NostrordColors.Surface)
-            .padding(2.dp) // Border effect
     ) {
-        if (!pictureUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = pictureUrl,
-                contentDescription = groupName,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
-        } else {
+        var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+        val showPlaceholder = pictureUrl.isNullOrBlank() ||
+            imageState is AsyncImagePainter.State.Loading ||
+            imageState is AsyncImagePainter.State.Error
+
+        // Show placeholder when no URL, loading, or error
+        if (showPlaceholder) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -271,9 +157,22 @@ private fun GroupAvatar(
                     text = groupName.take(1).uppercase(),
                     color = Color.White,
                     fontSize = (size.value * 0.4f).sp,
-                    fontWeight = FontWeight.Bold
+                    style = NostrordTypography.AvatarInitial
                 )
             }
+        }
+
+        // Only attempt to load image if URL is provided and not in error state
+        if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
+            AsyncImage(
+                model = pictureUrl,
+                contentDescription = groupName,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop,
+                onState = { imageState = it }
+            )
         }
     }
 }

@@ -4,13 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
-import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBar
-import org.nostr.nostrord.ui.components.sidebars.GroupSidebar
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.GroupHeader
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
@@ -19,6 +16,19 @@ import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
 
+/**
+ * Desktop group screen layout.
+ *
+ * Two-column layout (when inside DesktopShell with ServerRail):
+ * ┌───────────────────────┬──────────────┐
+ * │       Messages        │    Members   │
+ * │                       │    Sidebar   │
+ * │       (flex)          │    (240dp)   │
+ * └───────────────────────┴──────────────┘
+ *
+ * Note: ServerRail (72dp) is handled by DesktopShell wrapper,
+ * not this component.
+ */
 @Composable
 fun GroupScreenDesktop(
     groupId: String,
@@ -50,47 +60,24 @@ fun GroupScreenDesktop(
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> }
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
-        GroupSidebar(
-            groupName = groupName,
-            selectedId = selectedChannel,
-            onSelect = onChannelSelect
-        )
-
+        // Main content area (messages)
         Column(
             modifier = Modifier
                 .fillMaxHeight()
                 .weight(1f)
                 .background(NostrordColors.Background)
         ) {
-            // Enhanced Header
+            // Header with group info and actions
             GroupHeader(
-                selectedChannel = selectedChannel,
+                groupName = groupName,
                 groupMetadata = groupMetadata,
-                connectionState = connectionState,
-                memberCount = groupMembers.size,
                 isJoined = isJoined,
                 onBackClick = onBack,
                 onJoinClick = onJoinGroup,
                 onLeaveClick = onLeaveGroup
             )
 
-            // Quick-switch bar for navigating between groups
-            if (joinedGroups.isNotEmpty()) {
-                GroupQuickSwitchBar(
-                    joinedGroups = joinedGroups,
-                    groups = groups,
-                    activeGroupId = groupId,
-                    onHomeClick = onBack,
-                    onGroupClick = { newGroupId, newGroupName ->
-                        if (newGroupId != groupId) {
-                            onNavigateToGroup(newGroupId, newGroupName)
-                        }
-                    },
-                    onExploreClick = onBack
-                )
-            }
-
-            // Messages area
+            // Messages area (fills remaining space)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -106,7 +93,7 @@ fun GroupScreenDesktop(
                 )
             }
 
-            // Input area
+            // Message input
             MessageInput(
                 isJoined = isJoined,
                 selectedChannel = selectedChannel,
@@ -120,7 +107,7 @@ fun GroupScreenDesktop(
             )
         }
 
-        // Member sidebar on the right
+        // Member sidebar (240dp fixed width)
         MemberSidebar(
             members = groupMembers,
             recentlyActiveMembers = recentlyActiveMembers,

@@ -81,6 +81,10 @@ class NostrRepository(
             }
             initializeOutboxModel()
             connect()
+            // Fetch current user's metadata after login
+            if (pubkey != null) {
+                requestUserMetadata(setOf(pubkey))
+            }
         }
 
         _isInitialized.value = true
@@ -96,6 +100,8 @@ class NostrRepository(
         initializeOutboxModel()
         connect()
         sessionManager.setLoggedIn(true)
+        // Fetch current user's metadata after login
+        requestUserMetadata(setOf(userPubkey))
         return userPubkey
     }
 
@@ -105,6 +111,8 @@ class NostrRepository(
         initializeOutboxModel()
         connect()
         sessionManager.setLoggedIn(true)
+        // Fetch current user's metadata after login
+        requestUserMetadata(setOf(pubKey))
     }
 
     suspend fun logout() {

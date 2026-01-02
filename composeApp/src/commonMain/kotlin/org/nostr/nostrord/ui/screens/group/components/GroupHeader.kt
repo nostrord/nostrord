@@ -2,23 +2,25 @@ package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 /**
@@ -26,16 +28,13 @@ import org.nostr.nostrord.ui.theme.NostrordColors
  */
 @Composable
 fun GroupHeader(
-    selectedChannel: String,
+    groupName: String?,
     groupMetadata: GroupMetadata?,
-    connectionState: ConnectionManager.ConnectionState,
-    memberCount: Int,
     isJoined: Boolean,
     onBackClick: () -> Unit,
     onJoinClick: () -> Unit,
     onLeaveClick: () -> Unit,
     onSettingsClick: () -> Unit = {},
-    onNotificationsClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     navigationIcon: @Composable (() -> Unit)? = null
 ) {
@@ -64,72 +63,40 @@ fun GroupHeader(
                 }
             }
 
-            // Channel name and description
+            // Group avatar
+            ProfileAvatar(
+                imageUrl = groupMetadata?.picture,
+                displayName = groupName ?: "Group",
+                pubkey = groupMetadata?.id ?: "",
+                size = 36.dp
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Group name and description
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 8.dp)
+                    .padding(end = 8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Text(
+                    text = groupName ?: "Unknown Group",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                // Description
+                if (!groupMetadata?.about.isNullOrBlank()) {
                     Text(
-                        text = "#$selectedChannel",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        text = groupMetadata?.about ?: "",
+                        color = NostrordColors.TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-
-                    // Divider
-                    if (!groupMetadata?.about.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Box(
-                            modifier = Modifier
-                                .width(1.dp)
-                                .height(16.dp)
-                                .background(NostrordColors.Divider)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // Description snippet
-                        Text(
-                            text = groupMetadata?.about ?: "",
-                            color = NostrordColors.TextSecondary,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
-                    }
-                }
-
-                // Status row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Connection status indicator
-                    ConnectionStatusIndicator(connectionState)
-
-                    // Member count
-                    if (memberCount > 0) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.People,
-                                contentDescription = "Members",
-                                modifier = Modifier.size(12.dp),
-                                tint = NostrordColors.TextMuted
-                            )
-                            Text(
-                                text = "$memberCount",
-                                color = NostrordColors.TextMuted,
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
                 }
             }
 
@@ -138,36 +105,8 @@ fun GroupHeader(
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Notifications button
-                IconButton(
-                    onClick = onNotificationsClick,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        Icons.Outlined.Notifications,
-                        contentDescription = "Notifications",
-                        tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                // Settings button
-                IconButton(
-                    onClick = onSettingsClick,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Settings,
-                        contentDescription = "Settings",
-                        tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Join/Leave button
                 if (!isJoined) {
+                    // Join button for non-members
                     Button(
                         onClick = onJoinClick,
                         colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
@@ -176,46 +115,67 @@ fun GroupHeader(
                         Text("Join", style = MaterialTheme.typography.labelMedium)
                     }
                 } else {
-                    OutlinedButton(
-                        onClick = onLeaveClick,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = NostrordColors.Error),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text("Leave", style = MaterialTheme.typography.labelMedium)
+                    // Dropdown menu for members
+                    var menuExpanded by remember { mutableStateOf(false) }
+
+                    Box {
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "More options",
+                                tint = NostrordColors.TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                            containerColor = NostrordColors.Surface,
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Settings", color = NostrordColors.TextPrimary) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSettingsClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Settings,
+                                        contentDescription = null,
+                                        tint = NostrordColors.TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Leave Group",
+                                        color = NostrordColors.Error
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onLeaveClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ExitToApp,
+                                        contentDescription = null,
+                                        tint = NostrordColors.Error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun ConnectionStatusIndicator(
-    connectionState: ConnectionManager.ConnectionState
-) {
-    val (color, text) = when (connectionState) {
-        is ConnectionManager.ConnectionState.Connected -> NostrordColors.Success to "Connected"
-        is ConnectionManager.ConnectionState.Connecting -> NostrordColors.Warning to "Connecting..."
-        is ConnectionManager.ConnectionState.Disconnected -> NostrordColors.TextMuted to "Disconnected"
-        is ConnectionManager.ConnectionState.Error -> NostrordColors.Error to "Error"
-    }
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        // Status dot
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(color)
-        )
-        Text(
-            text = text,
-            color = NostrordColors.TextMuted,
-            style = MaterialTheme.typography.labelSmall
-        )
     }
 }
 
@@ -224,37 +184,42 @@ private fun ConnectionStatusIndicator(
  */
 @Composable
 fun GroupHeaderCompact(
-    selectedChannel: String,
+    groupName: String?,
     groupMetadata: GroupMetadata?,
-    connectionState: ConnectionManager.ConnectionState,
-    memberCount: Int,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Group avatar
+        ProfileAvatar(
+            imageUrl = groupMetadata?.picture,
+            displayName = groupName ?: "Group",
+            pubkey = groupMetadata?.id ?: "",
+            size = 32.dp
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Column {
             Text(
-                text = "#$selectedChannel",
+                text = groupName ?: "Unknown Group",
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-        }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Connection status
-            ConnectionStatusIndicator(connectionState)
-
-            // Member count
-            if (memberCount > 0) {
+            // Description
+            if (!groupMetadata?.about.isNullOrBlank()) {
                 Text(
-                    text = "• $memberCount members",
-                    color = NostrordColors.TextMuted,
-                    style = MaterialTheme.typography.labelSmall
+                    text = groupMetadata?.about ?: "",
+                    color = NostrordColors.TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -19,6 +18,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.NostrordTypography
+import org.nostr.nostrord.ui.theme.Spacing
 
 /**
  * Unread message count badge.
@@ -35,13 +36,14 @@ fun UnreadBadge(
     if (count <= 0) return
 
     val displayText = if (count > 99) "99+" else count.toString()
+    val shape = RoundedCornerShape(size / 2)
 
     Box(
         modifier = modifier
             .widthIn(min = size)
-            .clip(RoundedCornerShape(size / 2))
+            .clip(shape)
             .background(backgroundColor)
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -49,7 +51,7 @@ fun UnreadBadge(
             color = textColor,
             fontSize = (size.value * 0.55f).sp,
             fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.labelSmall
+            style = NostrordTypography.Badge
         )
     }
 }

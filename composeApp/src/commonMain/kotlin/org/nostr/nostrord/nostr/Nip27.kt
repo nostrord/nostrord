@@ -8,15 +8,20 @@ package org.nostr.nostrord.nostr
 object Nip27 {
 
     // nostr: URI regex pattern
+    // Matches nostr:npub1..., nostr:note1..., etc.
+    // The bech32 part must be followed by a word boundary or end of string
     private val nostrUriRegex = Regex(
-        """nostr:(npub1|nsec1|note1|nevent1|nprofile1|naddr1)[a-z0-9]+""",
+        """nostr:(npub1|nsec1|note1|nevent1|nprofile1|naddr1)[a-z0-9]+(?![a-z0-9])""",
         RegexOption.IGNORE_CASE
     )
 
     // Bare bech32 regex pattern (without nostr: prefix)
-    // Uses word boundary to avoid matching partial strings
+    // Negative lookbehind: must not be preceded by URL-like characters or alphanumerics
+    // This prevents matching npub1... inside URLs like https://example.com/npub1...
+    // Also prevents matching partial strings like "xnpub1..."
+    // Negative lookahead: must not be followed by more bech32 characters
     private val bareBech32Regex = Regex(
-        """(?<![:/a-z0-9])(npub1|nsec1|note1|nevent1|nprofile1|naddr1)[a-z0-9]+""",
+        """(?<![:/a-zA-Z0-9_\-])(npub1|nsec1|note1|nevent1|nprofile1|naddr1)[a-z0-9]+(?![a-z0-9])""",
         RegexOption.IGNORE_CASE
     )
 

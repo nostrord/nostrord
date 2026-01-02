@@ -1,11 +1,10 @@
 package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -16,24 +15,38 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
-import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBarCompact
-import org.nostr.nostrord.ui.components.sidebars.GroupSidebar
+import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.NostrordShapes
+import org.nostr.nostrord.ui.theme.NostrordTypography
+import org.nostr.nostrord.ui.theme.Spacing
 
+/**
+ * Mobile group screen with gesture navigation.
+ *
+ * Gesture support:
+ * - Swipe left from right edge: Open member sheet
+ * - Tap people icon: Open member sheet
+ *
+ * Layout follows mobile-first design:
+ * - Full-screen message view
+ * - Bottom-anchored input (thumb-reachable)
+ * - Slide-in member panel
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupScreenMobile(
@@ -65,129 +78,62 @@ fun GroupScreenMobile(
     groups: List<GroupMetadata> = emptyList(),
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> }
 ) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
     val memberSheetState = rememberModalBottomSheetState()
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = NostrordColors.Surface
-            ) {
-                GroupSidebar(
-                    groupName = groupName,
-                    selectedId = selectedChannel,
-                    onSelect = { channel ->
-                        scope.launch { drawerState.close() }
-                        onChannelSelect(channel)
-                    }
-                )
-            }
-        }
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text("#$selectedChannel", color = Color.White, fontWeight = FontWeight.Bold)
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                // Connection status dot
-                                val statusColor = when (connectionState) {
-                                    is ConnectionManager.ConnectionState.Connected -> NostrordColors.Success
-                                    is ConnectionManager.ConnectionState.Connecting -> NostrordColors.Warning
-                                    is ConnectionManager.ConnectionState.Disconnected -> NostrordColors.TextMuted
-                                    is ConnectionManager.ConnectionState.Error -> NostrordColors.Error
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(statusColor)
-                                )
-                                Text(
-                                    text = connectionStatus,
-                                    color = NostrordColors.TextMuted,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                                Text(
-                                    text = "•",
-                                    color = NostrordColors.TextMuted,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                                Icon(
-                                    Icons.Default.People,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(12.dp),
-                                    tint = NostrordColors.TextMuted
-                                )
-                                Text(
-                                    text = "${groupMembers.size}",
-                                    color = NostrordColors.TextMuted,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-                        }
-                    },
-                    navigationIcon = {
-                        Row {
-                            IconButton(onClick = onBack) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-                            }
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Default.Menu, contentDescription = "Channels", tint = Color.White)
-                            }
-                        }
-                    },
-                    actions = {
-                        // Members button
-                        IconButton(onClick = { showMemberSheet = true }) {
-                            Icon(Icons.Default.People, contentDescription = "Members", tint = Color.White)
-                        }
-                        if (!isJoined) {
-                            TextButton(onClick = onJoinGroup) {
-                                Text("Join", color = NostrordColors.Primary)
-                            }
-                        } else {
-                            TextButton(onClick = onLeaveGroup) {
-                                Text("Leave", color = NostrordColors.Error)
-                            }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = NostrordColors.BackgroundDark
-                    )
-                )
-            },
-            containerColor = NostrordColors.Background
-        ) { paddingValues ->
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-            ) {
-                // Quick-switch bar for navigating between groups
-                if (joinedGroups.isNotEmpty()) {
-                    GroupQuickSwitchBarCompact(
-                        joinedGroups = joinedGroups,
-                        groups = groups,
-                        activeGroupId = groupId,
-                        onHomeClick = onBack,
-                        onGroupClick = { newGroupId, newGroupName ->
-                            if (newGroupId != groupId) {
-                                onNavigateToGroup(newGroupId, newGroupName)
-                            }
+    // Gesture detection state
+    var dragStartX by remember { mutableStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            MobileGroupTopBar(
+                groupName = groupName,
+                groupMetadata = groupMetadata,
+                isJoined = isJoined,
+                onBackClick = onBack,
+                onMembersClick = { showMemberSheet = true },
+                onJoinClick = onJoinGroup,
+                onLeaveClick = onLeaveGroup
+            )
+        },
+        containerColor = NostrordColors.Background
+    ) { paddingValues ->
+        // Main content with swipe gesture detection
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            dragStartX = offset.x
+                            isDragging = true
                         },
-                        onExploreClick = onBack
+                        onDragEnd = {
+                            isDragging = false
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            val screenWidth = size.width.toFloat()
+                            val edgeThreshold = screenWidth * 0.15f // 15% of screen width
+                            val swipeThreshold = 100f // Minimum drag distance
+
+                            // Swipe left from right edge -> open member sheet
+                            if (dragStartX > screenWidth - edgeThreshold && dragAmount < -swipeThreshold) {
+                                showMemberSheet = true
+                                isDragging = false
+                            }
+                        }
                     )
                 }
-
-                // Messages area
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Messages area (fills available space)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -203,7 +149,7 @@ fun GroupScreenMobile(
                     )
                 }
 
-                // Input area
+                // Input area (thumb-reachable at bottom)
                 MessageInput(
                     isJoined = isJoined,
                     selectedChannel = selectedChannel,
@@ -224,7 +170,8 @@ fun GroupScreenMobile(
         ModalBottomSheet(
             onDismissRequest = { showMemberSheet = false },
             sheetState = memberSheetState,
-            containerColor = NostrordColors.Surface
+            containerColor = NostrordColors.Surface,
+            shape = NostrordShapes.bottomSheetShape
         ) {
             MemberSidebar(
                 members = groupMembers,
@@ -234,4 +181,108 @@ fun GroupScreenMobile(
             )
         }
     }
+}
+
+/**
+ * Mobile-optimized top bar with proper touch targets (48dp minimum).
+ * Follows desktop design with avatar and description.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MobileGroupTopBar(
+    groupName: String?,
+    groupMetadata: GroupMetadata?,
+    isJoined: Boolean,
+    onBackClick: () -> Unit,
+    onMembersClick: () -> Unit,
+    onJoinClick: () -> Unit,
+    onLeaveClick: () -> Unit
+) {
+    TopAppBar(
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = Spacing.xs)
+            ) {
+                // Group avatar
+                ProfileAvatar(
+                    imageUrl = groupMetadata?.picture,
+                    displayName = groupName ?: "Group",
+                    pubkey = groupMetadata?.id ?: "",
+                    size = 32.dp
+                )
+
+                Spacer(modifier = Modifier.width(Spacing.sm))
+
+                // Group name and description
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Group name
+                    Text(
+                        text = groupName ?: "Unknown Group",
+                        style = NostrordTypography.ServerHeader,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    // Description (limited to prevent layout breaking)
+                    if (!groupMetadata?.about.isNullOrBlank()) {
+                        Text(
+                            text = groupMetadata?.about ?: "",
+                            style = NostrordTypography.Tiny,
+                            color = NostrordColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        },
+        navigationIcon = {
+            // Back button (48dp touch target)
+            IconButton(
+                onClick = onBackClick,
+                modifier = Modifier.size(Spacing.touchTargetMin)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White
+                )
+            }
+        },
+        actions = {
+            // Members button (48dp touch target)
+            IconButton(
+                onClick = onMembersClick,
+                modifier = Modifier.size(Spacing.touchTargetMin)
+            ) {
+                Icon(
+                    Icons.Default.People,
+                    contentDescription = "Members",
+                    tint = Color.White
+                )
+            }
+
+            // Join/Leave button
+            if (!isJoined) {
+                TextButton(
+                    onClick = onJoinClick,
+                    modifier = Modifier.height(Spacing.touchTargetMin),
+                    contentPadding = PaddingValues(horizontal = Spacing.md)
+                ) {
+                    Text(
+                        "Join",
+                        style = NostrordTypography.Button,
+                        color = NostrordColors.Primary
+                    )
+                }
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = NostrordColors.BackgroundDark
+        )
+    )
 }

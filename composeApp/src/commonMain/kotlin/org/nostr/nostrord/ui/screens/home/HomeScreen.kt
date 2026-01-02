@@ -15,7 +15,8 @@ import org.nostr.nostrord.ui.Screen
 @Composable
 fun HomeScreen(
     gridState: LazyGridState = rememberLazyGridState(),
-    onNavigate: (Screen) -> Unit
+    onNavigate: (Screen) -> Unit,
+    showServerRail: Boolean = true // When false, server rail is handled by parent shell
 ) {
     val scope = rememberCoroutineScope()
 
@@ -24,6 +25,7 @@ fun HomeScreen(
     val currentRelayUrl by NostrRepository.currentRelayUrl.collectAsState()
     val joinedGroups by NostrRepository.joinedGroups.collectAsState()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val unreadCounts by NostrRepository.unreadCounts.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
 
@@ -77,7 +79,13 @@ fun HomeScreen(
                 hasError = hasError,
                 onRetry = { scope.launch { NostrRepository.connect() } },
                 userAvatarUrl = currentUserMetadata?.picture,
-                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name
+                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
+                unreadCounts = unreadCounts,
+                onGroupClick = { groupId, groupName ->
+                    onNavigate(Screen.Group(groupId, groupName))
+                },
+                onUserClick = { onNavigate(Screen.Profile) },
+                showServerRail = showServerRail
             )
         } else {
             HomeScreenDesktop(

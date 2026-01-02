@@ -6,25 +6,41 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBar
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
-import org.nostr.nostrord.ui.components.sidebars.Sidebar
 import org.nostr.nostrord.ui.screens.home.components.GroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.NostrordShapes
+import org.nostr.nostrord.ui.theme.NostrordTypography
+import org.nostr.nostrord.ui.theme.Spacing
 
+/**
+ * Desktop home screen - group discovery/explore view.
+ *
+ * When inside DesktopShell, the ServerRail handles group navigation.
+ * This screen focuses on exploring and finding new groups.
+ *
+ * Layout:
+ * ┌─────────────────────────────────────────────┐
+ * │ Header: Relay info + Settings               │
+ * ├─────────────────────────────────────────────┤
+ * │ Search bar                                  │
+ * ├─────────────────────────────────────────────┤
+ * │                                             │
+ * │        Group cards grid (2-3 columns)       │
+ * │                                             │
+ * └─────────────────────────────────────────────┘
+ */
 @Composable
 fun HomeScreenDesktop(
     gridState: LazyGridState,
@@ -42,82 +58,89 @@ fun HomeScreenDesktop(
     hasError: Boolean = false,
     onRetry: () -> Unit = {}
 ) {
-    Row(modifier = Modifier.fillMaxSize()) {
-        // Sidebar
-        Sidebar(
-            onNavigate = onNavigate,
-            connectionStatus = connectionStatus,
-            pubKey = pubKey,
-            joinedGroups = joinedGroups,
-            groups = groups
-        )
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NostrordColors.Background)
+    ) {
+        // Header bar
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Spacing.headerHeight)
+                .background(NostrordColors.BackgroundDark)
+                .padding(horizontal = Spacing.lg),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Explore Groups",
+                    style = NostrordTypography.ServerHeader,
+                    color = Color.White
+                )
+                IconButton(onClick = { onNavigate(Screen.RelaySettings) }) {
+                    Icon(
+                        Icons.Default.Cloud,
+                        contentDescription = "Relay Settings",
+                        tint = NostrordColors.TextSecondary
+                    )
+                }
+            }
+        }
 
-        // Main content
+        // Search and content area
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(NostrordColors.Background)
+                .padding(horizontal = Spacing.lg)
         ) {
-            // Top bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .background(NostrordColors.BackgroundDark)
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            // Search header
+            Spacer(modifier = Modifier.height(Spacing.lg))
+
+            Text(
+                text = "Discover",
+                style = NostrordTypography.ServerHeader,
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(Spacing.xs))
+
+            Text(
+                text = "${filteredGroups.size} groups on $currentRelayUrl",
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextSecondary
+            )
+
+            Spacer(modifier = Modifier.height(Spacing.md))
+
+            // Search input
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = onSearchChange,
+                placeholder = {
                     Text(
-                        text = "Relay: $currentRelayUrl",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium
+                        "Search groups...",
+                        style = NostrordTypography.InputPlaceholder,
+                        color = NostrordColors.TextMuted
                     )
-                    IconButton(onClick = { onNavigate(Screen.RelaySettings) }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
-                    }
-                }
-            }
-
-            // Quick-switch bar for joined groups
-            if (joinedGroups.isNotEmpty()) {
-                GroupQuickSwitchBar(
-                    joinedGroups = joinedGroups,
-                    groups = groups,
-                    activeGroupId = null, // No active group on home screen
-                    onHomeClick = { /* Already on home */ },
-                    onGroupClick = { groupId, groupName ->
-                        onNavigate(Screen.Group(groupId, groupName))
-                    },
-                    onExploreClick = { /* Already on explore/home */ }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                textStyle = NostrordTypography.Input.copy(color = Color.White),
+                shape = NostrordShapes.inputShape,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = NostrordColors.Primary,
+                    unfocusedBorderColor = NostrordColors.Divider,
+                    focusedContainerColor = NostrordColors.InputBackground,
+                    unfocusedContainerColor = NostrordColors.InputBackground
                 )
-            }
+            )
 
-            // Header section
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp)
-            ) {
-                Text("Explore", color = Color.White)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Groups found: ${filteredGroups.size}", color = NostrordColors.TextSecondary)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = onSearchChange,
-                    placeholder = { Text("Search groups...", color = NostrordColors.TextSecondary) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(color = Color.White),
-                    shape = RoundedCornerShape(8.dp)
-                )
-            }
+            Spacer(modifier = Modifier.height(Spacing.lg))
 
             // Grid content
             when {
@@ -130,13 +153,12 @@ fun HomeScreenDesktop(
                     }
                 }
                 isLoading && filteredGroups.isEmpty() -> {
-                    // Show skeleton loaders while loading
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(gridColumns),
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        contentPadding = PaddingValues(vertical = Spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                     ) {
                         items(6) {
                             GroupCardSkeleton()
@@ -148,7 +170,11 @@ fun HomeScreenDesktop(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No groups found", color = NostrordColors.TextSecondary)
+                        Text(
+                            "No groups found",
+                            style = NostrordTypography.MessageBody,
+                            color = NostrordColors.TextSecondary
+                        )
                     }
                 }
                 else -> {
@@ -157,9 +183,9 @@ fun HomeScreenDesktop(
                             state = gridState,
                             columns = GridCells.Fixed(gridColumns),
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            contentPadding = PaddingValues(vertical = Spacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
                         ) {
                             items(filteredGroups) { group ->
                                 GroupCard(

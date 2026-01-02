@@ -5,8 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,126 +24,30 @@ import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.NostrordShapes
+import org.nostr.nostrord.ui.theme.NostrordTypography
+import org.nostr.nostrord.ui.theme.Spacing
 
-// Supported image extensions
-private val imageExtensions = listOf(
-    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico"
-)
-
-// URL regex pattern
-private val urlRegex = Regex(
-    """https?://[^\s<>"{}|\\^`\[\]]+""",
-    RegexOption.IGNORE_CASE
-)
-
-/**
- * Checks if a URL points to an image
- */
-private fun isImageUrl(url: String): Boolean {
-    val lowercaseUrl = url.lowercase()
-    // Check file extension
-    if (imageExtensions.any { lowercaseUrl.contains(it) }) {
-        return true
-    }
-    // Check common image hosting patterns
-    if (lowercaseUrl.contains("imgur.com") ||
-        lowercaseUrl.contains("i.redd.it") ||
-        lowercaseUrl.contains("pbs.twimg.com") ||
-        lowercaseUrl.contains("cdn.discordapp.com") ||
-        lowercaseUrl.contains("media.tenor.com") ||
-        lowercaseUrl.contains("giphy.com") ||
-        lowercaseUrl.contains("nostr.build") ||
-        lowercaseUrl.contains("void.cat") ||
-        lowercaseUrl.contains("imgproxy") ||
-        lowercaseUrl.contains("image")) {
-        return true
-    }
-    return false
-}
+// Type alias to bridge new parser to existing rendering code
+private typealias ContentPart = MessageContentParser.ParsedPart
+private typealias TextPart = MessageContentParser.ParsedPart.Text
+private typealias ImagePart = MessageContentParser.ParsedPart.Image
+private typealias LinkPart = MessageContentParser.ParsedPart.Link
+private typealias MentionPart = MessageContentParser.ParsedPart.Mention
+private typealias CustomEmojiPart = MessageContentParser.ParsedPart.CustomEmoji
 
 /**
- * Represents a part of message content - text, image, link, or nostr mention
+ * Parses message content into parts using the robust MessageContentParser.
+ *
+ * The parser handles:
+ * - URLs with proper trailing punctuation cleanup
+ * - Balanced parentheses in URLs (Wikipedia-style)
+ * - Nostr mentions that are NOT inside URLs
+ * - Custom emojis (NIP-30) with :shortcode: syntax
+ * - Preserved whitespace and text ordering
  */
-private sealed class ContentPart {
-    data class TextPart(val text: String) : ContentPart()
-    data class ImagePart(val url: String) : ContentPart()
-    data class LinkPart(val url: String) : ContentPart()
-    data class NostrMention(val reference: Nip27.NostrReference) : ContentPart()
-}
-
-/**
- * Represents a match found during content parsing
- */
-private data class ContentMatch(
-    val range: IntRange,
-    val part: ContentPart
-)
-
-/**
- * Parses message content into parts (text, images, links, nostr mentions)
- */
-private fun parseContent(content: String): List<ContentPart> {
-    val matches = mutableListOf<ContentMatch>()
-
-    // Find all URL matches
-    urlRegex.findAll(content).forEach { match ->
-        val url = match.value
-        val part = if (isImageUrl(url)) {
-            ContentPart.ImagePart(url)
-        } else {
-            ContentPart.LinkPart(url)
-        }
-        matches.add(ContentMatch(match.range, part))
-    }
-
-    // Find all nostr: URI matches (NIP-27)
-    Nip27.findReferenceMatches(content).forEach { (range, reference) ->
-        matches.add(ContentMatch(range, ContentPart.NostrMention(reference)))
-    }
-
-    // Sort matches by start position
-    matches.sortBy { it.range.first }
-
-    // Remove overlapping matches (keep first one)
-    val filteredMatches = mutableListOf<ContentMatch>()
-    var lastEnd = -1
-    for (match in matches) {
-        if (match.range.first > lastEnd) {
-            filteredMatches.add(match)
-            lastEnd = match.range.last
-        }
-    }
-
-    // Build parts list with text between matches
-    val parts = mutableListOf<ContentPart>()
-    var lastIndex = 0
-
-    for (match in filteredMatches) {
-        // Add text before match if any
-        if (match.range.first > lastIndex) {
-            val text = content.substring(lastIndex, match.range.first)
-            if (text.isNotBlank()) {
-                parts.add(ContentPart.TextPart(text))
-            }
-        }
-        parts.add(match.part)
-        lastIndex = match.range.last + 1
-    }
-
-    // Add remaining text after last match
-    if (lastIndex < content.length) {
-        val text = content.substring(lastIndex)
-        if (text.isNotBlank()) {
-            parts.add(ContentPart.TextPart(text))
-        }
-    }
-
-    // If no matches found, return the whole content as text
-    if (parts.isEmpty() && content.isNotBlank()) {
-        parts.add(ContentPart.TextPart(content))
-    }
-
-    return parts
+private fun parseContent(content: String, emojiMap: Map<String, String> = emptyMap()): List<ContentPart> {
+    return MessageContentParser.parse(content, emojiMap)
 }
 
 /**
@@ -153,8 +55,8 @@ private fun parseContent(content: String): List<ContentPart> {
  */
 private fun isBlockPart(part: ContentPart): Boolean {
     return when (part) {
-        is ContentPart.ImagePart -> true
-        is ContentPart.NostrMention -> {
+        is ImagePart -> true
+        is MentionPart -> {
             // Quoted events (nevent, note) are block elements
             when (part.reference.entity) {
                 is Nip19.Entity.Nevent, is Nip19.Entity.Note -> true
@@ -169,9 +71,12 @@ private fun isBlockPart(part: ContentPart): Boolean {
 @Composable
 fun MessageContent(
     content: String,
+    tags: List<List<String>> = emptyList(),
     modifier: Modifier = Modifier
 ) {
-    val parts = remember(content) { parseContent(content) }
+    // Extract custom emoji map from NIP-30 tags
+    val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
+    val parts = remember(content, emojiMap) { parseContent(content, emojiMap) }
     val uriHandler = LocalUriHandler.current
 
     // Group parts into inline sequences and block elements
@@ -206,7 +111,7 @@ fun MessageContent(
             // Check if this is a block element group (single block element)
             if (group.size == 1 && isBlockPart(firstPart!!)) {
                 when (firstPart) {
-                    is ContentPart.ImagePart -> {
+                    is ImagePart -> {
                         Spacer(modifier = Modifier.height(8.dp))
                         ChatImage(
                             imageUrl = firstPart.url,
@@ -218,7 +123,7 @@ fun MessageContent(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
-                    is ContentPart.NostrMention -> {
+                    is MentionPart -> {
                         Spacer(modifier = Modifier.height(4.dp))
                         NostrMentionChip(
                             mention = firstPart,
@@ -240,20 +145,20 @@ fun MessageContent(
                 ) {
                     group.forEach { part ->
                         when (part) {
-                            is ContentPart.TextPart -> {
-                                SelectionContainer {
-                                    Text(
-                                        text = part.text,
-                                        color = NostrordColors.TextContent,
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
+                            is TextPart -> {
+                                // Text is selectable via parent SelectionContainer
+                                Text(
+                                    text = part.content,
+                                    color = NostrordColors.TextContent,
+                                    style = NostrordTypography.MessageBody // 14sp/22sp (157% line height)
+                                )
                             }
-                            is ContentPart.LinkPart -> {
+                            is LinkPart -> {
+                                // Links are both selectable and clickable
                                 Text(
                                     text = part.url,
-                                    color = NostrordColors.Primary,
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = NostrordColors.TextLink,
+                                    style = NostrordTypography.Link, // Same as MessageBody
                                     modifier = Modifier.clickable {
                                         try {
                                             uriHandler.openUri(part.url)
@@ -261,7 +166,7 @@ fun MessageContent(
                                     }
                                 )
                             }
-                            is ContentPart.NostrMention -> {
+                            is MentionPart -> {
                                 // Inline mention (npub, nprofile, etc.)
                                 NostrMentionChip(
                                     mention = part,
@@ -272,6 +177,13 @@ fun MessageContent(
                                     }
                                 )
                             }
+                            is CustomEmojiPart -> {
+                                // NIP-30 custom emoji - rendered as inline image
+                                InlineCustomEmoji(
+                                    shortcode = part.shortcode,
+                                    imageUrl = part.imageUrl
+                                )
+                            }
                             else -> {}
                         }
                     }
@@ -279,6 +191,32 @@ fun MessageContent(
             }
         }
     }
+}
+
+/**
+ * Renders a custom emoji as an inline image.
+ * Size matches line height for proper text alignment.
+ */
+@Composable
+private fun InlineCustomEmoji(
+    shortcode: String,
+    imageUrl: String,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalPlatformContext.current
+
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(imageUrl)
+            .crossfade(true)
+            .build(),
+        contentDescription = ":$shortcode:",
+        contentScale = ContentScale.Fit,
+        filterQuality = FilterQuality.Medium,
+        modifier = modifier
+            .height(22.dp) // Match line height of MessageBody (22sp)
+            .widthIn(max = 22.dp)
+    )
 }
 
 @Composable
@@ -295,14 +233,14 @@ private fun ChatImage(
         // Show URL as link if image fails to load
         Text(
             text = imageUrl,
-            color = NostrordColors.Primary,
-            style = MaterialTheme.typography.bodyMedium,
+            color = NostrordColors.TextLink,
+            style = NostrordTypography.Link,
             modifier = Modifier.clickable(onClick = onClick)
         )
     } else {
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(8.dp))
+                .clip(NostrordShapes.imageShape)
                 .background(NostrordColors.Surface)
                 .clickable(onClick = onClick)
         ) {
@@ -317,7 +255,7 @@ private fun ChatImage(
                 modifier = Modifier
                     .widthIn(max = 400.dp)
                     .heightIn(max = 300.dp)
-                    .clip(RoundedCornerShape(8.dp)),
+                    .clip(NostrordShapes.imageShape),
                 onState = { state ->
                     imageState = state
                     if (state is AsyncImagePainter.State.Error) {
@@ -332,7 +270,7 @@ private fun ChatImage(
                     modifier = Modifier
                         .widthIn(min = 200.dp)
                         .heightIn(min = 100.dp)
-                        .background(NostrordColors.Surface, RoundedCornerShape(8.dp))
+                        .background(NostrordColors.Surface, NostrordShapes.imageShape)
                 )
             }
         }
@@ -341,7 +279,7 @@ private fun ChatImage(
 
 @Composable
 private fun NostrMentionChip(
-    mention: ContentPart.NostrMention,
+    mention: MentionPart,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -414,14 +352,10 @@ private fun UserMentionChip(
 
     Text(
         text = displayText,
-        color = NostrordColors.Primary,
-        style = MaterialTheme.typography.bodyMedium,
+        color = NostrordColors.MentionText,
+        style = NostrordTypography.MessageBody,
         fontWeight = FontWeight.Medium,
-        modifier = modifier
-            .clip(RoundedCornerShape(4.dp))
-            .background(NostrordColors.Primary.copy(alpha = 0.1f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 2.dp)
+        modifier = modifier.clickable(onClick = onClick)
     )
 }
 
@@ -450,41 +384,48 @@ private fun QuotedEvent(
         }
     }
 
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
             .background(NostrordColors.Surface)
             .clickable(onClick = onClick)
-            .padding(12.dp)
     ) {
-        if (event != null) {
-            val metadata = userMetadata[event.pubkey]
-            val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8)
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(Spacing.md)
+        ) {
+            if (event != null) {
+                val metadata = userMetadata[event.pubkey]
+                val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(NostrordColors.Primary.copy(alpha = 0.3f))
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(NostrordColors.Primary.copy(alpha = 0.3f))
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    Text(
+                        text = authorName,
+                        color = NostrordColors.TextSecondary,
+                        style = NostrordTypography.Caption,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                // Text selection is inherited from parent SelectionContainer in MessagesList
+                // Do NOT nest SelectionContainers - they create separate selection contexts
+                QuotedEventContent(content = event.content)
+            } else {
                 Text(
-                    text = authorName,
-                    color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium
+                    text = "Loading event ${eventId.take(8)}...",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            QuotedEventContent(content = event.content)
-        } else {
-            Text(
-                text = "Loading event ${eventId.take(8)}...",
-                color = NostrordColors.TextMuted,
-                style = MaterialTheme.typography.bodySmall
-            )
         }
     }
 }
@@ -526,7 +467,7 @@ private fun QuotedEventContent(
 
             if (group.size == 1 && isBlockPart(firstPart!!)) {
                 when (firstPart) {
-                    is ContentPart.ImagePart -> {
+                    is ImagePart -> {
                         Spacer(modifier = Modifier.height(6.dp))
                         QuotedImage(
                             imageUrl = firstPart.url,
@@ -538,22 +479,18 @@ private fun QuotedEventContent(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
-                    is ContentPart.NostrMention -> {
+                    is MentionPart -> {
                         // Nested quoted event - show as simple link
                         Text(
                             text = Nip19.getDisplayName(firstPart.reference.entity),
-                            color = NostrordColors.Primary,
-                            style = MaterialTheme.typography.bodySmall,
+                            color = NostrordColors.MentionText,
+                            style = NostrordTypography.Caption,
                             fontWeight = FontWeight.Medium,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(NostrordColors.Primary.copy(alpha = 0.1f))
-                                .clickable {
-                                    try {
-                                        uriHandler.openUri(firstPart.reference.uri)
-                                    } catch (_: Exception) {}
-                                }
-                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                            modifier = Modifier.clickable {
+                                try {
+                                    uriHandler.openUri(firstPart.reference.uri)
+                                } catch (_: Exception) {}
+                            }
                         )
                     }
                     else -> {}
@@ -566,19 +503,19 @@ private fun QuotedEventContent(
                 ) {
                     group.forEach { part ->
                         when (part) {
-                            is ContentPart.TextPart -> {
+                            is TextPart -> {
                                 Text(
-                                    text = part.text,
+                                    text = part.content,
                                     color = NostrordColors.TextContent,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = NostrordTypography.Caption,
                                     maxLines = 6
                                 )
                             }
-                            is ContentPart.LinkPart -> {
+                            is LinkPart -> {
                                 Text(
                                     text = part.url,
                                     color = NostrordColors.Primary,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style = NostrordTypography.Caption,
                                     modifier = Modifier.clickable {
                                         try {
                                             uriHandler.openUri(part.url)
@@ -586,22 +523,18 @@ private fun QuotedEventContent(
                                     }
                                 )
                             }
-                            is ContentPart.NostrMention -> {
+                            is MentionPart -> {
                                 // Inline mention in quoted content
                                 Text(
                                     text = Nip19.getDisplayName(part.reference.entity),
-                                    color = NostrordColors.Primary,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    color = NostrordColors.MentionText,
+                                    style = NostrordTypography.Caption,
                                     fontWeight = FontWeight.Medium,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(NostrordColors.Primary.copy(alpha = 0.1f))
-                                        .clickable {
-                                            try {
-                                                uriHandler.openUri(part.reference.uri)
-                                            } catch (_: Exception) {}
-                                        }
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    modifier = Modifier.clickable {
+                                        try {
+                                            uriHandler.openUri(part.reference.uri)
+                                        } catch (_: Exception) {}
+                                    }
                                 )
                             }
                             else -> {}
@@ -627,13 +560,13 @@ private fun QuotedImage(
         Text(
             text = imageUrl,
             color = NostrordColors.Primary,
-            style = MaterialTheme.typography.bodySmall,
+            style = NostrordTypography.Caption,
             modifier = Modifier.clickable(onClick = onClick)
         )
     } else {
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(6.dp))
+                .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
                 .background(NostrordColors.BackgroundDark)
                 .clickable(onClick = onClick)
         ) {
@@ -648,7 +581,7 @@ private fun QuotedImage(
                 modifier = Modifier
                     .widthIn(max = 280.dp)
                     .heightIn(max = 200.dp)
-                    .clip(RoundedCornerShape(6.dp)),
+                    .clip(RoundedCornerShape(NostrordShapes.radiusMedium)),
                 onState = { state ->
                     imageState = state
                     if (state is AsyncImagePainter.State.Error) {
@@ -662,7 +595,7 @@ private fun QuotedImage(
                     modifier = Modifier
                         .widthIn(min = 150.dp)
                         .heightIn(min = 80.dp)
-                        .background(NostrordColors.BackgroundDark, RoundedCornerShape(6.dp))
+                        .background(NostrordColors.BackgroundDark, RoundedCornerShape(NostrordShapes.radiusMedium))
                 )
             }
         }

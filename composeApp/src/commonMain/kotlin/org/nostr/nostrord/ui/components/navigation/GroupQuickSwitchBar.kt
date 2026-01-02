@@ -13,6 +13,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,8 +31,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.generateColorFromString
 
 /**
@@ -47,7 +54,8 @@ fun GroupQuickSwitchBar(
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onExploreClick: () -> Unit,
     modifier: Modifier = Modifier,
-    avatarSize: Dp = 44.dp
+    avatarSize: Dp = 44.dp,
+    unreadCounts: Map<String, Int> = emptyMap()
 ) {
     val scrollState = rememberScrollState()
 
@@ -90,12 +98,14 @@ fun GroupQuickSwitchBar(
             val group = groups.find { it.id == groupId }
             val groupName = group?.name ?: groupId
             val isActive = activeGroupId == groupId
+            val unreadCount = unreadCounts[groupId] ?: 0
 
             QuickSwitchItem(
                 isActive = isActive,
                 onClick = { onGroupClick(groupId, group?.name) },
                 size = avatarSize,
-                tooltip = groupName
+                tooltip = groupName,
+                unreadCount = unreadCount
             ) {
                 GroupAvatar(
                     groupId = groupId,
@@ -138,6 +148,7 @@ private fun QuickSwitchItem(
     size: Dp,
     tooltip: String,
     showActiveRing: Boolean = true,
+    unreadCount: Int = 0,
     content: @Composable () -> Unit
 ) {
     Box(
@@ -156,6 +167,17 @@ private fun QuickSwitchItem(
         contentAlignment = Alignment.Center
     ) {
         content()
+
+        // Unread badge
+        if (unreadCount > 0 && !isActive) {
+            UnreadBadge(
+                count = unreadCount,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = Spacing.xxs, y = -Spacing.xxs),
+                size = Spacing.badgeSize
+            )
+        }
     }
 }
 
@@ -166,29 +188,43 @@ private fun GroupAvatar(
     pictureUrl: String?,
     size: Dp
 ) {
-    if (pictureUrl != null) {
-        AsyncImage(
-            model = pictureUrl,
-            contentDescription = groupName,
-            modifier = Modifier
-                .size(size)
-                .clip(CircleShape),
-            contentScale = ContentScale.Crop
-        )
-    } else {
-        // Fallback: colored circle with first letter
-        Box(
-            modifier = Modifier
-                .size(size)
-                .background(generateColorFromString(groupId), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = groupName.take(1).uppercase(),
-                color = Color.White,
-                fontSize = (size.value * 0.4f).sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
+    Box(
+        modifier = Modifier.size(size),
+        contentAlignment = Alignment.Center
+    ) {
+        var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+        val showPlaceholder = pictureUrl.isNullOrBlank() ||
+            imageState is AsyncImagePainter.State.Loading ||
+            imageState is AsyncImagePainter.State.Error
+
+        // Show placeholder when no URL, loading, or error
+        if (showPlaceholder) {
+            Box(
+                modifier = Modifier
+                    .size(size)
+                    .background(generateColorFromString(groupId), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = groupName.take(1).uppercase(),
+                    color = Color.White,
+                    fontSize = (size.value * 0.4f).sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        // Only attempt to load image if URL is provided and not in error state
+        if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
+            AsyncImage(
+                model = pictureUrl,
+                contentDescription = groupName,
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop,
+                onState = { imageState = it }
             )
         }
     }
@@ -205,7 +241,8 @@ fun GroupQuickSwitchBarCompact(
     onHomeClick: () -> Unit,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onExploreClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    unreadCounts: Map<String, Int> = emptyMap()
 ) {
     GroupQuickSwitchBar(
         joinedGroups = joinedGroups,
@@ -215,6 +252,7 @@ fun GroupQuickSwitchBarCompact(
         onGroupClick = onGroupClick,
         onExploreClick = onExploreClick,
         modifier = modifier,
-        avatarSize = 40.dp
+        avatarSize = 40.dp,
+        unreadCounts = unreadCounts
     )
 }

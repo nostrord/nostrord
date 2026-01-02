@@ -20,7 +20,8 @@ fun GroupScreen(
     groupId: String,
     groupName: String?,
     onBack: () -> Unit,
-    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> }
+    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
+    showServerRail: Boolean = true // When false, server rail is handled by parent shell
 ) {
     val scope = rememberCoroutineScope()
 
@@ -115,6 +116,9 @@ fun GroupScreen(
     if (showLeaveDialog) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
             title = { Text("Leave Group") },
             text = { Text("Are you sure you want to leave ${groupName ?: "this group"}? You can rejoin later if you change your mind.") },
             confirmButton = {
@@ -125,17 +129,14 @@ fun GroupScreen(
                             showLeaveDialog = false
                             onBack()
                         }
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = NostrordColors.Error
-                    )
+                    }
                 ) {
-                    Text("Leave")
+                    Text("Leave", color = NostrordColors.Error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showLeaveDialog = false }) {
-                    Text("Cancel")
+                    Text("Cancel", color = NostrordColors.TextSecondary)
                 }
             }
         )

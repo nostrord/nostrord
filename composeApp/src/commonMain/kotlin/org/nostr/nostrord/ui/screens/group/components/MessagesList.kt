@@ -5,10 +5,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,7 +34,15 @@ import org.nostr.nostrord.ui.components.loading.MessagesListSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.Spacing
 
+/**
+ * Messages list with pull-to-refresh and infinite scroll.
+ *
+ * Pull-to-refresh: Swipe down from top to refresh messages
+ * Infinite scroll: Automatically loads older messages when scrolling up
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MessagesList(
     chatItems: List<ChatItem>,
@@ -39,7 +51,9 @@ fun MessagesList(
     isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
-    onLoadMore: () -> Unit = {}
+    onLoadMore: () -> Unit = {},
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
@@ -98,64 +112,74 @@ fun MessagesList(
             }
         }
         else -> {
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
-            ) {
-                // Loading indicator at top for older messages
-                if (isLoadingMore) {
-                    item(key = "loading_more") {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = NostrordColors.Primary,
-                                strokeWidth = 2.dp
-                            )
+        // Pull-to-refresh wrapper for mobile interactions
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // SelectionContainer enables website-like text selection across messages
+            SelectionContainer {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(vertical = Spacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(0.dp)
+                    ) {
+                        // Loading indicator at top for older messages
+                        if (isLoadingMore) {
+                            item(key = "loading_more") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(Spacing.sm),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(Spacing.iconMd),
+                                        color = NostrordColors.Primary,
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                            }
+                        }
+
+                        items(chatItems, key = { item ->
+                            when (item) {
+                                is ChatItem.DateSeparator -> "date_${item.date}"
+                                is ChatItem.NewMessagesDivider -> "new_messages_divider"
+                                is ChatItem.SystemEvent -> "system_${item.id}"
+                                is ChatItem.Message -> "msg_${item.message.id}"
+                            }
+                        }) { item ->
+                            when (item) {
+                                is ChatItem.DateSeparator -> DateSeparator(item.date)
+                                is ChatItem.NewMessagesDivider -> NewMessagesDivider()
+                                is ChatItem.SystemEvent -> SystemEventItem(
+                                    pubkey = item.pubkey,
+                                    action = item.action,
+                                    createdAt = item.createdAt,
+                                    metadata = userMetadata[item.pubkey],
+                                    additionalUsers = item.additionalUsers,
+                                    allUserMetadata = userMetadata
+                                )
+                                is ChatItem.Message -> MessageItem(
+                                    message = item.message,
+                                    metadata = userMetadata[item.message.pubkey],
+                                    isFirstInGroup = item.isFirstInGroup,
+                                    isLastInGroup = item.isLastInGroup
+                                )
+                            }
                         }
                     }
-                }
 
-                items(chatItems, key = { item ->
-                    when (item) {
-                        is ChatItem.DateSeparator -> "date_${item.date}"
-                        is ChatItem.NewMessagesDivider -> "new_messages_divider"
-                        is ChatItem.SystemEvent -> "system_${item.id}"
-                        is ChatItem.Message -> "msg_${item.message.id}"
-                    }
-                }) { item ->
-                    when (item) {
-                        is ChatItem.DateSeparator -> DateSeparator(item.date)
-                        is ChatItem.NewMessagesDivider -> NewMessagesDivider()
-                        is ChatItem.SystemEvent -> SystemEventItem(
-                            pubkey = item.pubkey,
-                            action = item.action,
-                            createdAt = item.createdAt,
-                            metadata = userMetadata[item.pubkey],
-                            additionalUsers = item.additionalUsers,
-                            allUserMetadata = userMetadata
-                        )
-                        is ChatItem.Message -> MessageItem(
-                            message = item.message,
-                            metadata = userMetadata[item.message.pubkey],
-                            isFirstInGroup = item.isFirstInGroup,
-                            isLastInGroup = item.isLastInGroup
-                        )
-                    }
+                    VerticalScrollbarWrapper(
+                        listState = listState,
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                    )
                 }
             }
-
-            VerticalScrollbarWrapper(
-                listState = listState,
-                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-            )
         }
 
         // Track if this is initial load vs pagination

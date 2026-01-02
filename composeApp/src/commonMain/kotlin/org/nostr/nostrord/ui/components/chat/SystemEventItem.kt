@@ -94,7 +94,7 @@ fun SystemEventItem(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (totalUsers == 1) {
-                    val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8)
+                    val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
                     Text(
                         text = displayName,
                         color = Color.White,

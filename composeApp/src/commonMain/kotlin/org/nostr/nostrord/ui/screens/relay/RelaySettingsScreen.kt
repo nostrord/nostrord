@@ -9,10 +9,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepository
-import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.screens.relay.model.RelayInfo
 import org.nostr.nostrord.ui.screens.relay.model.RelayStatus
+import org.nostr.nostrord.ui.theme.NostrordColors
 
 @Composable
 fun RelaySettingsScreen(
@@ -20,27 +20,16 @@ fun RelaySettingsScreen(
     onNavigate: (Screen) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-
-    val groups by NostrRepository.groups.collectAsState()
-    val connectionState by NostrRepository.connectionState.collectAsState()
-    val joinedGroups by NostrRepository.joinedGroups.collectAsState()
     val currentRelay by NostrRepository.currentRelayUrl.collectAsState()
-    val pubKey = NostrRepository.getPublicKey()
-
-    val connectionStatus = when (connectionState) {
-        is ConnectionManager.ConnectionState.Disconnected -> "Disconnected"
-        is ConnectionManager.ConnectionState.Connecting -> "Connecting..."
-        is ConnectionManager.ConnectionState.Connected -> "Connected"
-        is ConnectionManager.ConnectionState.Error ->
-            "Error: ${(connectionState as ConnectionManager.ConnectionState.Error).message}"
-    }
 
     var relays by remember {
         mutableStateOf(
             listOf(
                 RelayInfo("wss://groups.fiatjaf.com"),
                 RelayInfo("wss://relay.groups.nip29.com"),
-                RelayInfo("wss://groups.0xchat.com")
+                RelayInfo("wss://groups.0xchat.com"),
+                RelayInfo("wss://groups.hzrd149.com"),
+                RelayInfo("wss://pyramid.fiatjaf.com")
             )
         )
     }
@@ -60,6 +49,9 @@ fun RelaySettingsScreen(
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
             title = { Text("Add New Relay") },
             text = {
                 Column {
@@ -69,7 +61,18 @@ fun RelaySettingsScreen(
                         value = newRelayUrl,
                         onValueChange = { newRelayUrl = it },
                         placeholder = { Text("wss://example.com") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors(
+                            focusedTextColor = NostrordColors.TextPrimary,
+                            unfocusedTextColor = NostrordColors.TextPrimary,
+                            focusedContainerColor = NostrordColors.InputBackground,
+                            unfocusedContainerColor = NostrordColors.InputBackground,
+                            focusedPlaceholderColor = NostrordColors.TextMuted,
+                            unfocusedPlaceholderColor = NostrordColors.TextMuted,
+                            cursorColor = NostrordColors.Primary,
+                            focusedIndicatorColor = NostrordColors.Primary,
+                            unfocusedIndicatorColor = NostrordColors.Divider
+                        )
                     )
                 }
             },
@@ -84,7 +87,7 @@ fun RelaySettingsScreen(
                     },
                     enabled = newRelayUrl.isNotBlank() && newRelayUrl.startsWith("wss://")
                 ) {
-                    Text("Add")
+                    Text("Add", color = NostrordColors.Primary)
                 }
             },
             dismissButton = {
@@ -92,7 +95,7 @@ fun RelaySettingsScreen(
                     showAddDialog = false
                     newRelayUrl = ""
                 }) {
-                    Text("Cancel")
+                    Text("Cancel", color = NostrordColors.TextSecondary)
                 }
             }
         )
@@ -107,10 +110,6 @@ fun RelaySettingsScreen(
                 listState = listState,
                 relays = relays,
                 currentRelay = currentRelay,
-                connectionStatus = connectionStatus,
-                pubKey = pubKey,
-                joinedGroups = joinedGroups,
-                groups = groups,
                 onNavigate = onNavigate,
                 onSelectRelay = { relayUrl ->
                     scope.launch {
@@ -127,10 +126,6 @@ fun RelaySettingsScreen(
                 listState = listState,
                 relays = relays,
                 currentRelay = currentRelay,
-                connectionStatus = connectionStatus,
-                pubKey = pubKey,
-                joinedGroups = joinedGroups,
-                groups = groups,
                 onNavigate = onNavigate,
                 onSelectRelay = { relayUrl ->
                     scope.launch {

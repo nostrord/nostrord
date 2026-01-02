@@ -1,33 +1,38 @@
 package org.nostr.nostrord.ui.screens.home
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.ui.components.navigation.BottomNavItem
-import org.nostr.nostrord.ui.components.navigation.BottomNavigationBar
-import org.nostr.nostrord.ui.components.navigation.GroupQuickSwitchBarCompact
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
-import org.nostr.nostrord.ui.components.sidebars.Sidebar
+import org.nostr.nostrord.ui.components.navigation.ServerRail
 import org.nostr.nostrord.ui.screens.home.components.GroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.NostrordShapes
+import org.nostr.nostrord.ui.theme.NostrordTypography
+import org.nostr.nostrord.ui.theme.Spacing
 
+/**
+ * Mobile home screen - group discovery/explore view.
+ *
+ * Mobile-first Discord-like pattern:
+ * - Server rail on left (when showServerRail=true)
+ * - Full-width search
+ * - Single-column group cards
+ * - Thumb-reachable actions at bottom
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreenMobile(
@@ -45,114 +50,113 @@ fun HomeScreenMobile(
     hasError: Boolean = false,
     onRetry: () -> Unit = {},
     userAvatarUrl: String? = null,
-    userDisplayName: String? = null
+    userDisplayName: String? = null,
+    unreadCounts: Map<String, Int> = emptyMap(),
+    onGroupClick: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
+    onUserClick: () -> Unit = {},
+    showServerRail: Boolean = true // When false, server rail is handled by parent shell
 ) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ModalDrawerSheet(
-                drawerContainerColor = NostrordColors.Surface
-            ) {
-                Sidebar(
-                    onNavigate = { screen ->
-                        scope.launch { drawerState.close() }
-                        onNavigate(screen)
-                    },
-                    connectionStatus = connectionStatus,
-                    pubKey = pubKey,
-                    joinedGroups = joinedGroups,
-                    groups = groups
-                )
-            }
-        }
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = { Text("Nostrord", color = Color.White) },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { onNavigate(Screen.RelaySettings) }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = NostrordColors.BackgroundDark
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        "Explore Groups",
+                        style = NostrordTypography.ServerHeader,
+                        color = Color.White
                     )
+                },
+                actions = {
+                    IconButton(
+                        onClick = { onNavigate(Screen.RelaySettings) },
+                        modifier = Modifier.size(Spacing.touchTargetMin)
+                    ) {
+                        Icon(
+                            Icons.Default.Cloud,
+                            contentDescription = "Relay Settings",
+                            tint = NostrordColors.TextSecondary
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = NostrordColors.BackgroundDark
                 )
-            },
-            bottomBar = {
-                BottomNavigationBar(
-                    selectedItem = BottomNavItem.Home,
-                    onItemSelected = { item ->
-                        when (item) {
-                            BottomNavItem.Home -> { /* Already on home */ }
-                            BottomNavItem.Messages -> {
-                                // Navigate to first joined group if available
-                                joinedGroups.firstOrNull()?.let { groupId ->
-                                    val group = groups.find { it.id == groupId }
-                                    onNavigate(Screen.Group(groupId, group?.name))
-                                }
-                            }
-                            BottomNavItem.Notifications -> { /* Future feature */ }
-                            BottomNavItem.Profile -> {
-                                // Open sidebar for profile
-                                scope.launch { drawerState.open() }
-                            }
-                        }
-                    },
+            )
+        },
+        containerColor = NostrordColors.Background
+    ) { paddingValues ->
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+        ) {
+            // Server rail on the left - only show when not handled by parent shell
+            if (showServerRail) {
+                ServerRail(
+                    joinedGroups = joinedGroups,
+                    groups = groups,
+                    activeGroupId = null, // No active group on home screen
+                    unreadCounts = unreadCounts,
+                    onHomeClick = { /* Already on home */ },
+                    onGroupClick = onGroupClick,
+                    onAddClick = { /* Scroll to explore or show join dialog */ },
                     userAvatarUrl = userAvatarUrl,
                     userDisplayName = userDisplayName,
-                    userPubkey = pubKey
+                    userPubkey = pubKey,
+                    onUserClick = onUserClick
                 )
-            },
-            containerColor = NostrordColors.Background
-        ) { paddingValues ->
+            }
+
+            // Main content area
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .background(NostrordColors.Background)
             ) {
-                // Quick-switch bar for joined groups
-                if (joinedGroups.isNotEmpty()) {
-                    GroupQuickSwitchBarCompact(
-                        joinedGroups = joinedGroups,
-                        groups = groups,
-                        activeGroupId = null, // No active group on home screen
-                        onHomeClick = { /* Already on home */ },
-                        onGroupClick = { groupId, groupName ->
-                            onNavigate(Screen.Group(groupId, groupName))
-                        },
-                        onExploreClick = { /* Already on explore/home */ }
-                    )
-                }
-
-                // Search and header
+                // Search and header section
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .background(NostrordColors.Background)
+                        .padding(horizontal = Spacing.lg, vertical = Spacing.md)
                 ) {
-                    Text("Explore", color = Color.White, style = MaterialTheme.typography.titleLarge)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Groups found: ${filteredGroups.size}", color = NostrordColors.TextSecondary)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Discover",
+                        style = NostrordTypography.ServerHeader,
+                        color = Color.White
+                    )
 
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+
+                    Text(
+                        text = "${filteredGroups.size} groups on $currentRelayUrl",
+                        style = NostrordTypography.Caption,
+                        color = NostrordColors.TextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.md))
+
+                    // Search input
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = onSearchChange,
-                        placeholder = { Text("Search groups...", color = NostrordColors.TextSecondary) },
+                        placeholder = {
+                            Text(
+                                "Search groups...",
+                                style = NostrordTypography.InputPlaceholder,
+                                color = NostrordColors.TextMuted
+                            )
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(color = Color.White),
-                        shape = RoundedCornerShape(8.dp)
+                        textStyle = NostrordTypography.Input.copy(color = Color.White),
+                        shape = NostrordShapes.inputShape,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = NostrordColors.Primary,
+                            unfocusedBorderColor = NostrordColors.Divider,
+                            focusedContainerColor = NostrordColors.InputBackground,
+                            unfocusedContainerColor = NostrordColors.InputBackground
+                        )
                     )
                 }
 
@@ -167,12 +171,14 @@ fun HomeScreenMobile(
                         }
                     }
                     isLoading && filteredGroups.isEmpty() -> {
-                        // Show skeleton loaders while loading
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(1),
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            contentPadding = PaddingValues(
+                                horizontal = Spacing.lg,
+                                vertical = Spacing.sm
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
                         ) {
                             items(4) {
                                 GroupCardSkeleton()
@@ -184,7 +190,11 @@ fun HomeScreenMobile(
                             modifier = Modifier.fillMaxSize(),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("No groups found", color = NostrordColors.TextSecondary)
+                            Text(
+                                "No groups found",
+                                style = NostrordTypography.MessageBody,
+                                color = NostrordColors.TextSecondary
+                            )
                         }
                     }
                     else -> {
@@ -192,8 +202,11 @@ fun HomeScreenMobile(
                             state = gridState,
                             columns = GridCells.Fixed(1),
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            contentPadding = PaddingValues(
+                                horizontal = Spacing.lg,
+                                vertical = Spacing.sm
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
                         ) {
                             items(filteredGroups) { group ->
                                 GroupCard(
