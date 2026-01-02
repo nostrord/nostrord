@@ -5,7 +5,7 @@ import androidx.compose.ui.graphics.Color
 /**
  * Nostrord Design System - Color Tokens
  *
- * Based on Discord's color palette for familiarity.
+ * Dark theme color palette optimized for chat applications.
  * All colors are semantically named for their use case.
  */
 object NostrordColors {
@@ -38,7 +38,7 @@ object NostrordColors {
     // PRIMARY / BRAND COLORS
     // ============================================
 
-    /** Discord blurple - use ONLY for active states, buttons, links */
+    /** Primary blurple - use ONLY for active states, buttons, links */
     val Primary = Color(0xFF5865F2)
 
     /** Primary hover/pressed state */

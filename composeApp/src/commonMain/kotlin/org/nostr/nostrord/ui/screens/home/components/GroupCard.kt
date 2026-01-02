@@ -42,7 +42,7 @@ import org.nostr.nostrord.ui.util.generateColorFromString
 /**
  * Simplified row-style group card for joined groups list.
  *
- * Discord-style layout:
+ * Layout:
  * - 44dp height
  * - 40dp avatar
  * - 12dp gap

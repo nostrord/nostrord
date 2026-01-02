@@ -12,7 +12,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 /**
  * Desktop Shell - Persistent navigation wrapper for desktop screens.
  *
- * This component provides the Discord-like three-column hierarchy:
+ * This component provides the three-column hierarchy:
  *
  * ┌──────┬──────────────────────────────────────────┐
  * │      │                                          │

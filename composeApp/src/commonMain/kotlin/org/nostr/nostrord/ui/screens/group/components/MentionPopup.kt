@@ -55,7 +55,7 @@ fun MentionPopup(
         tonalElevation = 0.dp
     ) {
         Column {
-            // Header - Discord style uppercase section
+            // Header - uppercase section
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

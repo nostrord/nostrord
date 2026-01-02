@@ -10,7 +10,7 @@ import androidx.compose.ui.unit.dp
  * Nostrord Design System - Shape Tokens
  *
  * Standardized corner radii and shapes.
- * Discord uses subtle rounding - avoid the "rounded-corner obsession"
+ * Use subtle rounding - avoid the "rounded-corner obsession"
  * that plagues modern web apps.
  *
  * RULE: Most interactive elements use 4dp radius.
@@ -41,7 +41,7 @@ object NostrordShapes {
     val radiusFull: Dp = 999.dp
 
     // ============================================
-    // SERVER ICON RADII (Special Discord behavior)
+    // SERVER ICON RADII (Special hover/active behavior)
     // ============================================
 
     /**

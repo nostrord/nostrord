@@ -29,7 +29,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
  * Main application entry point.
  *
  * Desktop layout uses a persistent ServerRail (72dp) that is always visible,
- * providing Discord-like navigation between groups.
+ * providing persistent navigation between groups.
  *
  * Screen size breakpoints:
  * - < 600dp: Mobile (no server rail, bottom navigation)

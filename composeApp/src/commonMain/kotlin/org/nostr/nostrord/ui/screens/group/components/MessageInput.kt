@@ -22,7 +22,7 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
 /**
- * Message input field with Discord-like keyboard behavior.
+ * Message input field with standard keyboard behavior.
  *
  * Keyboard behavior:
  * - Enter: Send message
@@ -182,7 +182,7 @@ fun MessageInput(
                                     mentionQuery = ""
                                     true
                                 }
-                                // Enter (without Shift) sends the message - Discord pattern
+                                // Enter (without Shift) sends the message
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.Enter &&
                                 !event.isShiftPressed -> {

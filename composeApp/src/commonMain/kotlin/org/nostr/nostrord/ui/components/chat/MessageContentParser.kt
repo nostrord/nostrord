@@ -288,7 +288,6 @@ object MessageContentParser {
             "imgur.com", "i.imgur.com",
             "i.redd.it",
             "pbs.twimg.com",
-            "cdn.discordapp.com",
             "media.tenor.com",
             "giphy.com", "media.giphy.com",
             "nostr.build",

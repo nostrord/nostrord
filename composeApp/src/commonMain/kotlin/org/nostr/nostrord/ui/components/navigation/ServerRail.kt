@@ -45,7 +45,7 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
 
 /**
- * Discord-style Server Rail - vertical column of group/server icons.
+ * Server Rail - vertical column of group/server icons.
  *
  * This component is ALWAYS visible on desktop, providing persistent
  * navigation between groups. It sits at the left edge of the screen.

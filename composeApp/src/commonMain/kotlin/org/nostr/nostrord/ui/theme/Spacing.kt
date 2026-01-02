@@ -48,26 +48,26 @@ object Spacing {
 
     /**
      * Message list padding - horizontal space on message rows.
-     * Discord uses 16dp on each side.
+     * 16dp on each side.
      */
     val messagePaddingHorizontal: Dp = 16.dp
 
     /**
      * Message avatar to content gap.
-     * Discord uses 16dp between avatar and text.
+     * 16dp between avatar and text.
      */
     val messageAvatarGap: Dp = 16.dp
 
     /**
      * Avatar column width (includes avatar + gap).
      * 40dp avatar + 16dp gap = 56dp, but we use 72dp total
-     * to match Discord's visual alignment.
+     * for better visual alignment.
      */
     val avatarColumnWidth: Dp = 72.dp
 
     /**
      * Space between grouped messages (same author).
-     * Discord uses very tight spacing here.
+     * Very tight spacing for grouped messages.
      */
     val messageGroupGap: Dp = 2.dp
 
@@ -132,19 +132,19 @@ object Spacing {
 
     /**
      * Server rail width (vertical group icons).
-     * Discord: 72dp
+     * 72dp standard width.
      */
     val serverRailWidth: Dp = 72.dp
 
     /**
      * Channel sidebar width.
-     * Discord: 240dp
+     * 240dp standard width.
      */
     val channelSidebarWidth: Dp = 240.dp
 
     /**
      * Member sidebar width.
-     * Discord: 240dp
+     * 240dp standard width.
      */
     val memberSidebarWidth: Dp = 240.dp
 
@@ -175,7 +175,7 @@ object Spacing {
 
     /**
      * Channel list item height.
-     * Discord: 32dp
+     * 32dp standard height.
      */
     val channelItemHeight: Dp = 32.dp
 

@@ -42,7 +42,6 @@ import org.nostr.nostrord.ui.util.generateColorFromString
 
 /**
  * Enhanced member sidebar with online/offline status, avatars, and role badges.
- * Inspired by Discord's member list design.
  */
 @Composable
 fun MemberSidebar(

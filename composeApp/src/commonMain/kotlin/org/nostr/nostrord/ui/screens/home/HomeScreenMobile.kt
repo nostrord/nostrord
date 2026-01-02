@@ -27,7 +27,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 /**
  * Mobile home screen - group discovery/explore view.
  *
- * Mobile-first Discord-like pattern:
+ * Mobile-first layout:
  * - Server rail on left (when showServerRail=true)
  * - Full-width search
  * - Single-column group cards

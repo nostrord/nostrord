@@ -8,7 +8,7 @@ import androidx.compose.ui.unit.sp
 /**
  * Nostrord Design System - Typography
  *
- * Discord-inspired type scale optimized for chat applications.
+ * Type scale optimized for chat applications.
  * Key principle: Long reading sessions require generous line height.
  *
  * USAGE GUIDE:

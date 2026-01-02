@@ -14,7 +14,7 @@ import androidx.compose.animation.core.tween
  * - Every animation must be interruptible
  * - Prefer opacity changes over movement
  *
- * Discord uses very subtle, fast animations. Match this feel.
+ * Use very subtle, fast animations for a polished feel.
  */
 object NostrordAnimation {
 

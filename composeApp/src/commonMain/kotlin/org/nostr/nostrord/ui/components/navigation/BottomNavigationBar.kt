@@ -26,7 +26,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 /**
  * Navigation items for the bottom bar.
  *
- * Mobile-first Discord-like pattern:
+ * Mobile-first layout:
  * - Explore: Discover and browse groups
  * - Groups: Your joined groups list
  * - Notifications: Activity alerts (future)

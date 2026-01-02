@@ -30,7 +30,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 /**
  * Channel sidebar for group screens.
  *
- * Discord-style layout:
+ * Layout:
  * - 240dp fixed width
  * - Group name header (48dp)
  * - Section headers (uppercase, 12sp)
@@ -125,7 +125,7 @@ private fun SectionHeader(title: String) {
 }
 
 /**
- * Channel list item with proper Discord-like states.
+ * Channel list item with proper states.
  *
  * States:
  * - Default: muted text, transparent background
@@ -202,7 +202,7 @@ private fun ChannelItem(
 }
 
 /**
- * Unread count badge - Discord-style pill with count.
+ * Unread count badge - pill with count.
  */
 @Composable
 private fun UnreadBadge(count: Int) {

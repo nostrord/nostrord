@@ -123,7 +123,7 @@ fun MessageItem(
                     bottom = if (isLastInGroup) Spacing.sm else Spacing.messageGroupGap
                 )
         ) {
-            // Avatar column - 72dp total width (matches Discord)
+            // Avatar column - 72dp total width
             Box(
                 modifier = Modifier.width(Spacing.avatarColumnWidth - Spacing.messagePaddingHorizontal),
                 contentAlignment = Alignment.TopStart
@@ -219,7 +219,7 @@ fun MessageItem(
 /**
  * Hover actions toolbar for messages.
  *
- * Discord pattern:
+ * Behavior:
  * - Positioned at top-right, overlapping message slightly
  * - Appears with 100ms fade in after 50ms hover delay
  * - Disappears immediately (50ms fade out)

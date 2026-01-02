@@ -42,7 +42,7 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
 /**
- * Discord-style group info modal displaying group details and cover image.
+ * Group info modal displaying group details and cover image.
  *
  * Features:
  * - Cover/banner image at the top (if available)
