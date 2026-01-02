@@ -5,7 +5,10 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -266,8 +269,8 @@ private fun MobileGroupTopBar(
                 )
             }
 
-            // Join/Leave button
             if (!isJoined) {
+                // Join button for non-members
                 TextButton(
                     onClick = onJoinClick,
                     modifier = Modifier.height(Spacing.touchTargetMin),
@@ -278,6 +281,64 @@ private fun MobileGroupTopBar(
                         style = NostrordTypography.Button,
                         color = NostrordColors.Primary
                     )
+                }
+            } else {
+                // Dropdown menu for members
+                var menuExpanded by remember { mutableStateOf(false) }
+
+                Box {
+                    IconButton(
+                        onClick = { menuExpanded = true },
+                        modifier = Modifier.size(Spacing.touchTargetMin)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "More options",
+                            tint = Color.White
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                        containerColor = NostrordColors.Surface
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Settings", color = NostrordColors.TextPrimary) },
+                            onClick = {
+                                menuExpanded = false
+                                // TODO: Navigate to group settings
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Settings,
+                                    contentDescription = null,
+                                    tint = NostrordColors.TextSecondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    "Leave Group",
+                                    color = NostrordColors.Error
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onLeaveClick()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ExitToApp,
+                                    contentDescription = null,
+                                    tint = NostrordColors.Error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        )
+                    }
                 }
             }
         },
