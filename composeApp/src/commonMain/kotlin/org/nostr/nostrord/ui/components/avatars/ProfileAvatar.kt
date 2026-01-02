@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
@@ -49,6 +50,8 @@ fun ProfileAvatar(
                         .data(imageUrl)
                         .crossfade(true)
                         .size(Size(sizeInPx, sizeInPx))
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
                         .build(),
                     contentDescription = "$displayName's avatar",
                     contentScale = ContentScale.Crop,

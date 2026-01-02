@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.NostrRepository
@@ -209,6 +211,8 @@ private fun InlineCustomEmoji(
         model = ImageRequest.Builder(context)
             .data(imageUrl)
             .crossfade(true)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
             .build(),
         contentDescription = ":$shortcode:",
         contentScale = ContentScale.Fit,
@@ -242,12 +246,15 @@ private fun ChatImage(
             modifier = modifier
                 .clip(NostrordShapes.imageShape)
                 .background(NostrordColors.Surface)
-                .clickable(onClick = onClick)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
                     .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = "Image",
                 contentScale = ContentScale.FillWidth,
@@ -264,14 +271,21 @@ private fun ChatImage(
                 }
             )
 
-            // Show loading placeholder
+            // Show loading indicator with placeholder
             if (imageState is AsyncImagePainter.State.Loading) {
                 Box(
                     modifier = Modifier
                         .widthIn(min = 200.dp)
                         .heightIn(min = 100.dp)
-                        .background(NostrordColors.Surface, NostrordShapes.imageShape)
-                )
+                        .background(NostrordColors.Surface, NostrordShapes.imageShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        color = NostrordColors.Primary,
+                        strokeWidth = 3.dp
+                    )
+                }
             }
         }
     }
@@ -568,12 +582,15 @@ private fun QuotedImage(
             modifier = modifier
                 .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
                 .background(NostrordColors.BackgroundDark)
-                .clickable(onClick = onClick)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
                     .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = "Image",
                 contentScale = ContentScale.FillWidth,
@@ -595,8 +612,15 @@ private fun QuotedImage(
                     modifier = Modifier
                         .widthIn(min = 150.dp)
                         .heightIn(min = 80.dp)
-                        .background(NostrordColors.BackgroundDark, RoundedCornerShape(NostrordShapes.radiusMedium))
-                )
+                        .background(NostrordColors.BackgroundDark, RoundedCornerShape(NostrordShapes.radiusMedium)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = NostrordColors.Primary,
+                        strokeWidth = 2.dp
+                    )
+                }
             }
         }
     }

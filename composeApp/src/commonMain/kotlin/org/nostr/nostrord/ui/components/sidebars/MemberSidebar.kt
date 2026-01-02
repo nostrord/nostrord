@@ -31,6 +31,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -269,11 +273,17 @@ private fun MemberAvatar(
     size: androidx.compose.ui.unit.Dp,
     dimmed: Boolean = false
 ) {
+    val context = LocalPlatformContext.current
     val alpha = if (dimmed) 0.5f else 1f
 
     if (!member.picture.isNullOrBlank()) {
         AsyncImage(
-            model = member.picture,
+            model = ImageRequest.Builder(context)
+                .data(member.picture)
+                .crossfade(true)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .build(),
             contentDescription = member.displayName,
             modifier = Modifier
                 .size(size)

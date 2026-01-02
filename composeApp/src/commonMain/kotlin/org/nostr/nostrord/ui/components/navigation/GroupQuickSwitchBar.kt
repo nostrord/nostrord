@@ -32,6 +32,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -188,6 +192,8 @@ private fun GroupAvatar(
     pictureUrl: String?,
     size: Dp
 ) {
+    val context = LocalPlatformContext.current
+
     Box(
         modifier = Modifier.size(size),
         contentAlignment = Alignment.Center
@@ -218,7 +224,12 @@ private fun GroupAvatar(
         // Only attempt to load image if URL is provided and not in error state
         if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
             AsyncImage(
-                model = pictureUrl,
+                model = ImageRequest.Builder(context)
+                    .data(pictureUrl)
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
                 contentDescription = groupName,
                 modifier = Modifier
                     .size(size)

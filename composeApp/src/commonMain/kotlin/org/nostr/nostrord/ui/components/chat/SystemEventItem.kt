@@ -20,6 +20,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.generateColorFromString
@@ -191,11 +195,17 @@ private fun MiniAvatar(
     metadata: UserMetadata?,
     size: Int = 20
 ) {
+    val context = LocalPlatformContext.current
     val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(2)
 
     if (!metadata?.picture.isNullOrBlank()) {
         AsyncImage(
-            model = metadata?.picture,
+            model = ImageRequest.Builder(context)
+                .data(metadata?.picture)
+                .crossfade(true)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .build(),
             contentDescription = displayName,
             modifier = Modifier
                 .size(size.dp)
