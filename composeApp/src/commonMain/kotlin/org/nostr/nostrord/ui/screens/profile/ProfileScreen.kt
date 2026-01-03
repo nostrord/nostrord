@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package org.nostr.nostrord.ui.screens.profile
 
 import androidx.compose.foundation.layout.BoxWithConstraints

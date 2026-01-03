@@ -273,6 +273,7 @@ suspend fun requestGroupMessages(
         }
     }
 
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     fun prettyPrintEvent(message: String): String {
         return try {
             val json = Json { 

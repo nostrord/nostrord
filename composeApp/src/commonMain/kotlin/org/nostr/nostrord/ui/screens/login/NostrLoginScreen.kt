@@ -33,7 +33,8 @@ fun NostrLoginScreen(onLoginSuccess: () -> Unit) {
         Text("Nostr Login", color = Color.White, style = MaterialTheme.typography.titleLarge)
         Spacer(modifier = Modifier.height(16.dp))
 
-        TabRow(
+        @OptIn(ExperimentalMaterial3Api::class)
+        PrimaryTabRow(
             selectedTabIndex = tabs.indexOf(selectedTab),
             containerColor = NostrordColors.Surface,
             contentColor = Color.White

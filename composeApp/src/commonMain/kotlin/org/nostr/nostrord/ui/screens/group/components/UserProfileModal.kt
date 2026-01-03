@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background

@@ -6,7 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Warning
@@ -54,7 +54,7 @@ fun BackupScreenDesktop(
         ) {
             TextButton(onClick = onNavigateBack) {
                 Icon(
-                    Icons.Default.ArrowBack,
+                    Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
                     tint = NostrordColors.Primary,
                     modifier = Modifier.size(18.dp)
