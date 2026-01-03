@@ -118,6 +118,16 @@ class EventDeduplicator(
 
     /**
      * Non-suspend version for synchronous contexts.
+     */
+    fun clearSync() {
+        seenEvents.clear()
+        insertionOrder.clear()
+        totalEvents = 0
+        duplicateEvents = 0
+    }
+
+    /**
+     * Non-suspend version for synchronous contexts.
      * Uses blocking approach - use sparingly.
      */
     fun tryAddSync(eventId: String): Boolean {

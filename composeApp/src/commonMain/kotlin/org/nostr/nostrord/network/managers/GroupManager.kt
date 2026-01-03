@@ -149,6 +149,13 @@ class GroupManager(
             // Clear messages for this group
             _messages.value = _messages.value - groupId
 
+            // Clear pagination state for this group
+            _isLoadingMore.value = _isLoadingMore.value - groupId
+            _hasMoreMessages.value = _hasMoreMessages.value - groupId
+
+            // Clear event deduplicator so messages can be re-fetched on rejoin
+            eventDeduplicator.clear()
+
             Result.Success(Unit)
         } catch (e: Exception) {
             Result.Error(AppError.Group.LeaveFailed(groupId, e))
@@ -322,7 +329,10 @@ class GroupManager(
         val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
 
         val currentMessages = _messages.value[groupId] ?: emptyList()
-        _messages.value = _messages.value + (groupId to (currentMessages + message).sortedBy { it.createdAt })
+        // Check if message already exists in the list to prevent duplicate keys in LazyColumn
+        if (currentMessages.none { it.id == message.id }) {
+            _messages.value = _messages.value + (groupId to (currentMessages + message).sortedBy { it.createdAt })
+        }
 
         return message.pubkey
     }
@@ -364,6 +374,7 @@ class GroupManager(
         _hasMoreMessages.value = emptyMap()
         paginationSubscriptions.clear()
         subscriptionMessageCounts.clear()
+        eventDeduplicator.clearSync()
     }
 
     /**
