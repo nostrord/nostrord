@@ -38,6 +38,7 @@ import coil3.size.Size
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
+import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -726,11 +727,11 @@ private fun QuotedEvent(
                 val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(NostrordColors.Primary.copy(alpha = 0.3f))
+                    OptimizedUserAvatar(
+                        imageUrl = metadata?.picture,
+                        pubkey = event.pubkey,
+                        displayName = authorName,
+                        size = 24.dp
                     )
                     Spacer(modifier = Modifier.width(Spacing.sm))
                     Text(
