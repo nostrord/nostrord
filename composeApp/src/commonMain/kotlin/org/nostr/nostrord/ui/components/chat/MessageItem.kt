@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
@@ -77,7 +78,8 @@ fun MessageItem(
     onCopyText: () -> Unit = {},
     onCopyLink: () -> Unit = {},
     onPinMessage: () -> Unit = {},
-    onDeleteMessage: () -> Unit = {}
+    onDeleteMessage: () -> Unit = {},
+    onUsernameClick: (String) -> Unit = {}
 ) {
     val displayName = metadata?.displayName ?: metadata?.name ?: message.pubkey.take(8) + "..."
     val interactionSource = remember { MutableInteractionSource() }
@@ -129,12 +131,20 @@ fun MessageItem(
                 contentAlignment = Alignment.TopStart
             ) {
                 if (isFirstInGroup) {
-                    ProfileAvatar(
-                        imageUrl = metadata?.picture,
-                        displayName = displayName,
-                        pubkey = message.pubkey,
-                        size = Spacing.avatarSize
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(Spacing.avatarSize)
+                            .clip(CircleShape)
+                            .clickable { onUsernameClick(message.pubkey) }
+                            .pointerHoverIcon(PointerIcon.Hand)
+                    ) {
+                        ProfileAvatar(
+                            imageUrl = metadata?.picture,
+                            displayName = displayName,
+                            pubkey = message.pubkey,
+                            size = Spacing.avatarSize
+                        )
+                    }
                 } else if (isHovered) {
                     // Show time on hover for grouped messages
                     Text(
@@ -153,7 +163,10 @@ fun MessageItem(
                         Text(
                             text = displayName,
                             color = Color.White,
-                            style = NostrordTypography.Username
+                            style = NostrordTypography.Username,
+                            modifier = Modifier
+                                .clickable { onUsernameClick(message.pubkey) }
+                                .pointerHoverIcon(PointerIcon.Hand)
                         )
                         Spacer(modifier = Modifier.width(Spacing.sm))
                         Text(
@@ -166,7 +179,11 @@ fun MessageItem(
                 }
 
                 // Message content with NIP-30 custom emoji support
-                MessageContent(content = message.content, tags = message.tags)
+                MessageContent(
+                    content = message.content,
+                    tags = message.tags,
+                    onMentionClick = onUsernameClick
+                )
             }
         }
 

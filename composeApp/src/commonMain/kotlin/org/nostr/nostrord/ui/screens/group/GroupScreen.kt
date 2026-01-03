@@ -12,6 +12,7 @@ import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
+import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -63,6 +64,7 @@ fun GroupScreen(
     var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) } // displayName -> pubkey
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showGroupInfoModal by remember { mutableStateOf(false) }
+    var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     val isJoined = joinedGroups.contains(groupId)
 
     // Derive group members from all message pubkeys
@@ -122,6 +124,15 @@ fun GroupScreen(
             groupName = groupName,
             groupMetadata = currentGroupMetadata,
             onDismiss = { showGroupInfoModal = false }
+        )
+    }
+
+    // User profile modal
+    selectedUserPubkey?.let { pubkey ->
+        UserProfileModal(
+            pubkey = pubkey,
+            metadata = userMetadata[pubkey],
+            onDismiss = { selectedUserPubkey = null }
         )
     }
 
@@ -197,7 +208,8 @@ fun GroupScreen(
                 },
                 joinedGroups = joinedGroups,
                 groups = groups,
-                onNavigateToGroup = onNavigateToGroup
+                onNavigateToGroup = onNavigateToGroup,
+                onUserClick = { pubkey -> selectedUserPubkey = pubkey }
             )
         } else {
             GroupScreenDesktop(
@@ -238,7 +250,8 @@ fun GroupScreen(
                 },
                 joinedGroups = joinedGroups,
                 groups = groups,
-                onNavigateToGroup = onNavigateToGroup
+                onNavigateToGroup = onNavigateToGroup,
+                onUserClick = { pubkey -> selectedUserPubkey = pubkey }
             )
         }
     }

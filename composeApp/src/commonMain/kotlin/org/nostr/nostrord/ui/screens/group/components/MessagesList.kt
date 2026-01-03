@@ -53,7 +53,8 @@ fun MessagesList(
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
     isRefreshing: Boolean = false,
-    onRefresh: () -> Unit = {}
+    onRefresh: () -> Unit = {},
+    onUsernameClick: (String) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
 
@@ -168,7 +169,8 @@ fun MessagesList(
                                     message = item.message,
                                     metadata = userMetadata[item.message.pubkey],
                                     isFirstInGroup = item.isFirstInGroup,
-                                    isLastInGroup = item.isLastInGroup
+                                    isLastInGroup = item.isLastInGroup,
+                                    onUsernameClick = onUsernameClick
                                 )
                             }
                         }

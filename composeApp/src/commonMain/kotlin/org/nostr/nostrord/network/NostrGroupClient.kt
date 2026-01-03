@@ -23,7 +23,8 @@ data class UserMetadata(
     val displayName: String?,
     val picture: String?,
     val about: String?,
-    val nip05: String?
+    val nip05: String?,
+    val banner: String? = null
 )
 
 data class CachedEvent(
@@ -227,7 +228,8 @@ suspend fun requestGroupMessages(
                 displayName = metadata["display_name"]?.jsonPrimitive?.contentOrNull,
                 picture = metadata["picture"]?.jsonPrimitive?.contentOrNull,
                 about = metadata["about"]?.jsonPrimitive?.contentOrNull,
-                nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull
+                nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull,
+                banner = metadata["banner"]?.jsonPrimitive?.contentOrNull
             ))
         } catch (e: Exception) {
             null

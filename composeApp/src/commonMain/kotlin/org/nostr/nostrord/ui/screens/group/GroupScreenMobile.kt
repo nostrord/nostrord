@@ -81,7 +81,8 @@ fun GroupScreenMobile(
     onLoadMore: () -> Unit = {},
     joinedGroups: Set<String> = emptySet(),
     groups: List<GroupMetadata> = emptyList(),
-    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> }
+    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
+    onUserClick: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -151,7 +152,8 @@ fun GroupScreenMobile(
                         isJoined = isJoined,
                         isLoadingMore = isLoadingMore,
                         hasMoreMessages = hasMoreMessages,
-                        onLoadMore = onLoadMore
+                        onLoadMore = onLoadMore,
+                        onUsernameClick = onUserClick
                     )
                 }
 
@@ -182,7 +184,10 @@ fun GroupScreenMobile(
             MemberSidebar(
                 members = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
-                onMemberClick = { /* TODO: Show member profile */ },
+                onMemberClick = { member ->
+                    showMemberSheet = false
+                    onUserClick(member.pubkey)
+                },
                 modifier = Modifier.fillMaxWidth()
             )
         }

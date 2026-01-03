@@ -107,7 +107,8 @@ private fun isBlockPart(part: ContentPart): Boolean {
 fun MessageContent(
     content: String,
     tags: List<List<String>> = emptyList(),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onMentionClick: (String) -> Unit = {}
 ) {
     // Extract custom emoji map from NIP-30 tags
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
@@ -196,7 +197,8 @@ fun MessageContent(
                 // Render inline group as single AnnotatedString
                 InlineContentGroup(
                     parts = group,
-                    userMetadata = userMetadata
+                    userMetadata = userMetadata,
+                    onMentionClick = onMentionClick
                 )
             }
         }
@@ -236,7 +238,8 @@ fun MessageContent(
 private fun InlineContentGroup(
     parts: List<ContentPart>,
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onMentionClick: (String) -> Unit = {}
 ) {
     // Check if this group contains any custom emojis
     val hasCustomEmojis = remember(parts) {
@@ -249,7 +252,8 @@ private fun InlineContentGroup(
             InlineContentWithEmojis(
                 parts = parts,
                 userMetadata = userMetadata,
-                modifier = modifier
+                modifier = modifier,
+                onMentionClick = onMentionClick
             )
         }
     } else {
@@ -257,7 +261,8 @@ private fun InlineContentGroup(
         InlineContentTextOnly(
             parts = parts,
             userMetadata = userMetadata,
-            modifier = modifier
+            modifier = modifier,
+            onMentionClick = onMentionClick
         )
     }
 }
@@ -270,7 +275,8 @@ private fun InlineContentGroup(
 private fun InlineContentWithEmojis(
     parts: List<ContentPart>,
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onMentionClick: (String) -> Unit = {}
 ) {
     // Build inline content map for custom emojis with unique sequential IDs
     val inlineContentMap = remember(parts) {
@@ -314,18 +320,43 @@ private fun InlineContentWithEmojis(
                     }
                     is MentionPart -> {
                         val displayText = getMentionDisplayText(part, userMetadata)
-                        withLink(
-                            LinkAnnotation.Url(
-                                url = part.reference.uri,
-                                styles = TextLinkStyles(
-                                    style = SpanStyle(
-                                        color = NostrordColors.MentionText,
-                                        fontWeight = FontWeight.Medium
+                        val entity = part.reference.entity
+                        // For user mentions (npub/nprofile), use clickable to open profile modal
+                        // For other mentions (nevent, note), use URL to open in external handler
+                        val pubkey = when (entity) {
+                            is Nip19.Entity.Npub -> entity.pubkey
+                            is Nip19.Entity.Nprofile -> entity.pubkey
+                            else -> null
+                        }
+                        if (pubkey != null) {
+                            withLink(
+                                LinkAnnotation.Clickable(
+                                    tag = "mention_$pubkey",
+                                    styles = TextLinkStyles(
+                                        style = SpanStyle(
+                                            color = NostrordColors.MentionText,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    ),
+                                    linkInteractionListener = { onMentionClick(pubkey) }
+                                )
+                            ) {
+                                append(displayText)
+                            }
+                        } else {
+                            withLink(
+                                LinkAnnotation.Url(
+                                    url = part.reference.uri,
+                                    styles = TextLinkStyles(
+                                        style = SpanStyle(
+                                            color = NostrordColors.MentionText,
+                                            fontWeight = FontWeight.Medium
+                                        )
                                     )
                                 )
-                            )
-                        ) {
-                            append(displayText)
+                            ) {
+                                append(displayText)
+                            }
                         }
                     }
                     is CustomEmojiPart -> {
@@ -357,7 +388,8 @@ private fun InlineContentWithEmojis(
 private fun InlineContentTextOnly(
     parts: List<ContentPart>,
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onMentionClick: (String) -> Unit = {}
 ) {
     val annotatedString = remember(parts, userMetadata) {
         buildAnnotatedString {
@@ -378,18 +410,43 @@ private fun InlineContentTextOnly(
                     }
                     is MentionPart -> {
                         val displayText = getMentionDisplayText(part, userMetadata)
-                        withLink(
-                            LinkAnnotation.Url(
-                                url = part.reference.uri,
-                                styles = TextLinkStyles(
-                                    style = SpanStyle(
-                                        color = NostrordColors.MentionText,
-                                        fontWeight = FontWeight.Medium
+                        val entity = part.reference.entity
+                        // For user mentions (npub/nprofile), use clickable to open profile modal
+                        // For other mentions (nevent, note), use URL to open in external handler
+                        val pubkey = when (entity) {
+                            is Nip19.Entity.Npub -> entity.pubkey
+                            is Nip19.Entity.Nprofile -> entity.pubkey
+                            else -> null
+                        }
+                        if (pubkey != null) {
+                            withLink(
+                                LinkAnnotation.Clickable(
+                                    tag = "mention_$pubkey",
+                                    styles = TextLinkStyles(
+                                        style = SpanStyle(
+                                            color = NostrordColors.MentionText,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    ),
+                                    linkInteractionListener = { onMentionClick(pubkey) }
+                                )
+                            ) {
+                                append(displayText)
+                            }
+                        } else {
+                            withLink(
+                                LinkAnnotation.Url(
+                                    url = part.reference.uri,
+                                    styles = TextLinkStyles(
+                                        style = SpanStyle(
+                                            color = NostrordColors.MentionText,
+                                            fontWeight = FontWeight.Medium
+                                        )
                                     )
                                 )
-                            )
-                        ) {
-                            append(displayText)
+                            ) {
+                                append(displayText)
+                            }
                         }
                     }
                     else -> {}

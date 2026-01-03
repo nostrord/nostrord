@@ -58,7 +58,8 @@ fun GroupScreenDesktop(
     onLoadMore: () -> Unit = {},
     joinedGroups: Set<String> = emptySet(),
     groups: List<GroupMetadata> = emptyList(),
-    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> }
+    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
+    onUserClick: (String) -> Unit = {}
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         // Main content area (messages)
@@ -91,7 +92,8 @@ fun GroupScreenDesktop(
                     isJoined = isJoined,
                     isLoadingMore = isLoadingMore,
                     hasMoreMessages = hasMoreMessages,
-                    onLoadMore = onLoadMore
+                    onLoadMore = onLoadMore,
+                    onUsernameClick = onUserClick
                 )
             }
 
@@ -113,7 +115,7 @@ fun GroupScreenDesktop(
         MemberSidebar(
             members = groupMembers,
             recentlyActiveMembers = recentlyActiveMembers,
-            onMemberClick = { /* TODO: Show member profile */ }
+            onMemberClick = { member -> onUserClick(member.pubkey) }
         )
     }
 }
