@@ -14,6 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.startup.AppStartState
+import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.layout.DesktopShell
 import org.nostr.nostrord.ui.screens.home.HomeScreen
@@ -28,8 +31,13 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 /**
  * Main application entry point.
  *
- * Desktop layout uses a persistent ServerRail (72dp) that is always visible,
- * providing persistent navigation between groups.
+ * ARCHITECTURE:
+ * 1. Bootstrap Phase: Initialize repository, resolve startup state
+ * 2. Render Phase: Display UI based on resolved state
+ *
+ * The startup state is computed ONCE before any content UI is rendered.
+ * Navigation state is initialized from the resolved startup state.
+ * This prevents any screen flicker or navigation corrections.
  *
  * Screen size breakpoints:
  * - < 600dp: Mobile (no server rail, bottom navigation)
@@ -37,17 +45,90 @@ import org.nostr.nostrord.ui.theme.NostrordColors
  */
 @Composable
 fun App() {
-    val isLoggedIn by NostrRepository.isLoggedIn.collectAsState()
+    // Collect reactive state from repository
     val isInitialized by NostrRepository.isInitialized.collectAsState()
-    var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
+    val isLoggedIn by NostrRepository.isLoggedIn.collectAsState()
 
-    // Collect state needed for DesktopShell
+    // Phase 1: Trigger initialization (runs once)
+    LaunchedEffect(Unit) {
+        withTimeoutOrNull(30000) {
+            NostrRepository.initialize()
+        } ?: run {
+            NostrRepository.forceInitialized()
+        }
+    }
+
+    // Phase 2: Compute startup state synchronously from current values
+    // This is recomputed when dependencies change, but the key insight is
+    // that we don't render content UI until state is fully resolved
+    val startupState: AppStartState = remember(isInitialized, isLoggedIn) {
+        StartupResolver.resolve(isInitialized, isLoggedIn)
+    }
+
+    MaterialTheme {
+        // Phase 3: Render based on resolved startup state
+        when (startupState) {
+            is AppStartState.Initializing -> {
+                // Bootstrap not complete - show loading
+                LoadingScreen()
+            }
+
+            is AppStartState.Unauthenticated -> {
+                // Not logged in - show login
+                NostrLoginScreen {
+                    // After login, the startupState will recompute due to isLoggedIn change
+                }
+            }
+
+            is AppStartState.Authenticated -> {
+                // Authenticated with resolved initial screen
+                // Now we can create the navigation state with the correct initial value
+                AuthenticatedApp(
+                    initialScreen = startupState.initialScreen
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Loading screen shown during bootstrap.
+ */
+@Composable
+private fun LoadingScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(NostrordColors.Background),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(color = NostrordColors.Primary)
+    }
+}
+
+/**
+ * Main authenticated app with navigation.
+ *
+ * CRITICAL: The initialScreen parameter is the RESOLVED startup screen.
+ * It is used as the initial value for currentScreen state.
+ * This ensures no navigation corrections are needed after render.
+ *
+ * @param initialScreen The screen to start with - computed during bootstrap
+ */
+@Composable
+private fun AuthenticatedApp(initialScreen: Screen) {
+    // Initialize navigation state with the resolved initial screen
+    // This is the KEY fix - we don't start with Screen.Home and then navigate
+    var currentScreen by remember { mutableStateOf(initialScreen) }
+
+    // Collect state needed for UI
     val groups by NostrRepository.groups.collectAsState()
     val joinedGroups by NostrRepository.joinedGroups.collectAsState()
     val unreadCounts by NostrRepository.unreadCounts.collectAsState()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val isLoggedIn by NostrRepository.isLoggedIn.collectAsState()
 
-    // Get pubKey reactively - recalculate when login state changes
+    // Get pubKey reactively
     val pubKey = remember(isLoggedIn) { NostrRepository.getPublicKey() }
     val currentUserMetadata = remember(pubKey, userMetadata) {
         pubKey?.let { userMetadata[it] }
@@ -57,96 +138,72 @@ fun App() {
     val homeGridState = rememberLazyGridState()
     val relayListState = rememberLazyListState()
 
-    // Initialize repository on app start (checks for saved credentials)
-    // Add timeout to prevent indefinite loading on mobile browsers
-    LaunchedEffect(Unit) {
-        withTimeoutOrNull(30000) {
-            NostrRepository.initialize()
-        } ?: run {
-            // Force initialization to complete so the app is usable
-            NostrRepository.forceInitialized()
+    // Navigation handler that persists group state
+    val onNavigate: (Screen) -> Unit = { newScreen ->
+        currentScreen = newScreen
+
+        // Persist navigation state for next app launch
+        pubKey?.let { pk ->
+            when (newScreen) {
+                is Screen.Group -> {
+                    SecureStorage.saveLastViewedGroup(pk, newScreen.groupId, newScreen.groupName)
+                }
+                is Screen.Home -> {
+                    SecureStorage.clearLastViewedGroup(pk)
+                }
+                else -> {
+                    // Other screens don't affect persisted group state
+                }
+            }
         }
     }
 
-    MaterialTheme {
-        // Wait for initialization before deciding which screen to show
-        if (!isInitialized) {
-            // Show loading screen with app background color
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(NostrordColors.Background),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator(color = NostrordColors.Primary)
-            }
-            return@MaterialTheme
-        }
+    // Determine current active group ID for server rail highlighting
+    val activeGroupId = when (val screen = currentScreen) {
+        is Screen.Group -> screen.groupId
+        else -> null
+    }
 
-        if (!isLoggedIn) {
-            // Show login screen if not logged in
-            NostrLoginScreen {
-                // After successful login, stay on home
-                currentScreen = Screen.Home
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isDesktop = maxWidth >= 600.dp
+
+        if (isDesktop) {
+            DesktopShell(
+                joinedGroups = joinedGroups,
+                groups = groups,
+                activeGroupId = activeGroupId,
+                unreadCounts = unreadCounts,
+                onHomeClick = { onNavigate(Screen.Home) },
+                onGroupClick = { groupId, groupName ->
+                    onNavigate(Screen.Group(groupId, groupName))
+                },
+                onAddClick = { onNavigate(Screen.Home) },
+                userAvatarUrl = currentUserMetadata?.picture,
+                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
+                userPubkey = pubKey,
+                onUserClick = { onNavigate(Screen.Profile) },
+                isProfileActive = currentScreen is Screen.Profile
+            ) {
+                DesktopContent(
+                    currentScreen = currentScreen,
+                    homeGridState = homeGridState,
+                    relayListState = relayListState,
+                    onNavigate = onNavigate
+                )
             }
         } else {
-            // Determine current active group ID for server rail highlighting
-            val activeGroupId = when (val screen = currentScreen) {
-                is Screen.Group -> screen.groupId
-                else -> null
-            }
-
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val isDesktop = maxWidth >= 600.dp
-
-                if (isDesktop) {
-                    // Desktop: Wrap content with persistent DesktopShell
-                    DesktopShell(
-                        joinedGroups = joinedGroups,
-                        groups = groups,
-                        activeGroupId = activeGroupId,
-                        unreadCounts = unreadCounts,
-                        onHomeClick = {
-                            currentScreen = Screen.Home
-                        },
-                        onGroupClick = { groupId, groupName ->
-                            currentScreen = Screen.Group(groupId, groupName)
-                        },
-                        onAddClick = {
-                            // Navigate to home/explore to find new groups
-                            currentScreen = Screen.Home
-                        },
-                        userAvatarUrl = currentUserMetadata?.picture,
-                        userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
-                        userPubkey = pubKey,
-                        onUserClick = { currentScreen = Screen.Profile },
-                        isProfileActive = currentScreen is Screen.Profile
-                    ) {
-                        // Content inside the shell (without server rail)
-                        DesktopContent(
-                            currentScreen = currentScreen,
-                            homeGridState = homeGridState,
-                            relayListState = relayListState,
-                            onNavigate = { newScreen -> currentScreen = newScreen }
-                        )
-                    }
-                } else {
-                    // Mobile: Direct rendering without shell
-                    MobileContent(
-                        currentScreen = currentScreen,
-                        homeGridState = homeGridState,
-                        relayListState = relayListState,
-                        onNavigate = { newScreen -> currentScreen = newScreen }
-                    )
-                }
-            }
+            MobileContent(
+                currentScreen = currentScreen,
+                homeGridState = homeGridState,
+                relayListState = relayListState,
+                onNavigate = onNavigate
+            )
         }
     }
 }
 
 /**
  * Desktop content - screens rendered inside the DesktopShell.
- * Server rail is handled by the shell, so screens don't include it.
  */
 @Composable
 private fun DesktopContent(
@@ -160,7 +217,7 @@ private fun DesktopContent(
             HomeScreen(
                 gridState = homeGridState,
                 onNavigate = onNavigate,
-                showServerRail = false // Server rail is in the shell
+                showServerRail = false
             )
         }
         is Screen.Group -> {
@@ -171,7 +228,7 @@ private fun DesktopContent(
                 onNavigateToGroup = { newGroupId, newGroupName ->
                     onNavigate(Screen.Group(newGroupId, newGroupName))
                 },
-                showServerRail = false // Server rail is in the shell
+                showServerRail = false
             )
         }
         is Screen.RelaySettings -> {
@@ -209,7 +266,6 @@ private fun DesktopContent(
 
 /**
  * Mobile content - screens rendered directly without shell.
- * Mobile screens handle their own navigation (bottom bar, drawer).
  */
 @Composable
 private fun MobileContent(

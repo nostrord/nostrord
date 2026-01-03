@@ -43,6 +43,12 @@ expect object SecureStorage {
     fun getLastReadTimestamp(pubkey: String, groupId: String): Long?
     fun clearLastReadTimestamp(pubkey: String, groupId: String)
     fun getAllLastReadTimestamps(pubkey: String): Map<String, Long>
+
+    // Last viewed group persistence (for restoring state on app restart)
+    // Stores the group ID and name so the app can restore the last screen
+    fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?)
+    fun getLastViewedGroup(pubkey: String): Pair<String, String?>?
+    fun clearLastViewedGroup(pubkey: String)
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)

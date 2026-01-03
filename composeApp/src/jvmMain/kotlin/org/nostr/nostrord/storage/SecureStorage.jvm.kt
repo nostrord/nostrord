@@ -21,7 +21,8 @@ actual object SecureStorage {
     private const val BUNKER_USER_PUBKEY_PREF = "nostr_bunker_user_pubkey"
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
     private const val LAST_READ_PREFIX = "last_read_"
-    
+    private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
+
     init {
         if (prefs.get(ENCRYPTION_KEY_PREF, null) == null) {
             val key = generateEncryptionKey()
@@ -255,5 +256,28 @@ actual object SecureStorage {
     private fun remove(key: String) {
         prefs.remove(key)
         prefs.flush()
+    }
+
+    // Last viewed group persistence
+    actual fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?) {
+        val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
+        // Store as "groupId|groupName" (groupName can be empty)
+        val value = "$groupId|${groupName ?: ""}"
+        saveString(key, value)
+    }
+
+    actual fun getLastViewedGroup(pubkey: String): Pair<String, String?>? {
+        val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
+        val value = getString(key) ?: return null
+        val parts = value.split("|", limit = 2)
+        if (parts.isEmpty() || parts[0].isBlank()) return null
+        val groupId = parts[0]
+        val groupName = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
+        return Pair(groupId, groupName)
+    }
+
+    actual fun clearLastViewedGroup(pubkey: String) {
+        val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
+        remove(key)
     }
 }
