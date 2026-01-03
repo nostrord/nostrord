@@ -98,7 +98,11 @@ fun GroupScreen(
         is ConnectionManager.ConnectionState.Disconnected -> "Disconnected"
         is ConnectionManager.ConnectionState.Connecting -> "Connecting..."
         is ConnectionManager.ConnectionState.Connected -> "Connected"
-        is ConnectionManager.ConnectionState.Error -> "Error"
+        is ConnectionManager.ConnectionState.Reconnecting -> {
+            val state = connectionState as ConnectionManager.ConnectionState.Reconnecting
+            "Reconnecting (${state.attempt}/${state.maxAttempts})..."
+        }
+        is ConnectionManager.ConnectionState.Error -> "Connection lost"
     }
 
     val chatItems = remember(messages) {
@@ -209,7 +213,8 @@ fun GroupScreen(
                 joinedGroups = joinedGroups,
                 groups = groups,
                 onNavigateToGroup = onNavigateToGroup,
-                onUserClick = { pubkey -> selectedUserPubkey = pubkey }
+                onUserClick = { pubkey -> selectedUserPubkey = pubkey },
+                onReconnect = { scope.launch { NostrRepository.reconnect() } }
             )
         } else {
             GroupScreenDesktop(
@@ -251,7 +256,8 @@ fun GroupScreen(
                 joinedGroups = joinedGroups,
                 groups = groups,
                 onNavigateToGroup = onNavigateToGroup,
-                onUserClick = { pubkey -> selectedUserPubkey = pubkey }
+                onUserClick = { pubkey -> selectedUserPubkey = pubkey },
+                onReconnect = { scope.launch { NostrRepository.reconnect() } }
             )
         }
     }

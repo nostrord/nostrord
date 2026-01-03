@@ -143,6 +143,28 @@ class NostrRepository(
         connect(connectionManager.currentRelayUrl.value)
     }
 
+    /**
+     * Manually trigger reconnection to the relay.
+     * Use this when auto-reconnection fails or user wants to retry.
+     */
+    suspend fun reconnect(): Boolean {
+        val connected = connectionManager.reconnect()
+        if (connected) {
+            val client = connectionManager.getPrimaryClient()
+            if (client != null) {
+                sessionManager.sendAuthIfNeeded(client)
+                client.requestGroups()
+
+                // Re-request messages for current group if any
+                val pubKey = sessionManager.getPublicKey() ?: ""
+                if (pubKey.isNotEmpty()) {
+                    groupManager.loadJoinedGroupsFromStorage(pubKey, connectionManager.currentRelayUrl.value)
+                }
+            }
+        }
+        return connected
+    }
+
     private suspend fun connect(relayUrl: String) {
         val connected = connectionManager.connectPrimary(relayUrl) { msg, client ->
             handleMessage(msg, client)
@@ -542,6 +564,7 @@ class NostrRepository(
         suspend fun logout() = instance.logout()
         fun forgetBunkerConnection() = instance.forgetBunkerConnection()
         suspend fun connect() = instance.connect()
+        suspend fun reconnect() = instance.reconnect()
         suspend fun switchRelay(newRelayUrl: String) = instance.switchRelay(newRelayUrl)
         suspend fun disconnect() = instance.disconnect()
         fun getPublicKey() = instance.getPublicKey()

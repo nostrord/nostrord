@@ -54,7 +54,18 @@ class NostrGroupClient(
     // NIP-42 AUTH callback - set this to handle AUTH challenges
     var onAuthChallenge: ((challenge: String) -> Unit)? = null
 
+    // Connection lost callback - notifies when WebSocket disconnects unexpectedly
+    var onConnectionLost: (() -> Unit)? = null
+
+    // Track if this was a graceful disconnect
+    private var isDisconnecting = false
+
     fun getRelayUrl(): String = relayUrl
+
+    /**
+     * Check if the client is currently connected
+     */
+    fun isConnected(): Boolean = session != null && connectionJob?.isActive == true
 
     /**
      * Parse NIP-42 AUTH challenge from relay
@@ -74,11 +85,12 @@ class NostrGroupClient(
     }
 
     suspend fun connect(onMessage: (String) -> Unit) {
+        isDisconnecting = false
         connectionJob = clientScope.launch {
             try {
                 client.webSocket(relayUrl) {
                     session = this
-                    
+
                     // Signal that connection is ready
                     connectionReady.trySend(Unit)
 
@@ -86,17 +98,19 @@ class NostrGroupClient(
                     for (frame in incoming) {
                         if (frame is Frame.Text) {
                             val text = frame.readText()
-                            
-                            // Pretty print for debugging
-                            
-                            // Pass to handler
                             onMessage(text)
                         }
                     }
                 }
             } catch (e: Exception) {
+                // Connection error occurred
             } finally {
+                val wasConnected = session != null
                 session = null
+                // Notify if connection was lost unexpectedly (not a graceful disconnect)
+                if (wasConnected && !isDisconnecting) {
+                    onConnectionLost?.invoke()
+                }
             }
         }
     }
@@ -352,6 +366,8 @@ suspend fun requestGroupMessages(
     }
 
     suspend fun disconnect() {
+        // Mark as graceful disconnect to prevent onConnectionLost callback
+        isDisconnecting = true
         // Cancel all managed coroutines
         clientScope.coroutineContext.cancelChildren()
         connectionJob?.cancel()

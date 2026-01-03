@@ -8,6 +8,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.components.ConnectionStatusBanner
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.GroupHeader
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
@@ -59,7 +60,8 @@ fun GroupScreenDesktop(
     joinedGroups: Set<String> = emptySet(),
     groups: List<GroupMetadata> = emptyList(),
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    onReconnect: () -> Unit = {}
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         // Main content area (messages)
@@ -80,6 +82,12 @@ fun GroupScreenDesktop(
                 onTitleClick = onShowGroupInfo
             )
 
+            // Connection status banner (shown when disconnected/reconnecting)
+            ConnectionStatusBanner(
+                connectionState = connectionState,
+                onRetry = onReconnect
+            )
+
             // Messages area (fills remaining space)
             Box(
                 modifier = Modifier
@@ -87,6 +95,7 @@ fun GroupScreenDesktop(
                     .weight(1f)
             ) {
                 MessagesList(
+                    groupId = groupId,
                     chatItems = chatItems,
                     userMetadata = userMetadata,
                     isJoined = isJoined,

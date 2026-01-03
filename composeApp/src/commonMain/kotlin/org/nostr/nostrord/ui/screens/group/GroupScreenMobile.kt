@@ -28,6 +28,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.components.ConnectionStatusBanner
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
@@ -82,7 +83,8 @@ fun GroupScreenMobile(
     joinedGroups: Set<String> = emptySet(),
     groups: List<GroupMetadata> = emptyList(),
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    onReconnect: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -140,6 +142,12 @@ fun GroupScreenMobile(
                 }
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // Connection status banner (shown when disconnected/reconnecting)
+                ConnectionStatusBanner(
+                    connectionState = connectionState,
+                    onRetry = onReconnect
+                )
+
                 // Messages area (fills available space)
                 Box(
                     modifier = Modifier
@@ -147,6 +155,7 @@ fun GroupScreenMobile(
                         .weight(1f)
                 ) {
                     MessagesList(
+                        groupId = groupId,
                         chatItems = chatItems,
                         userMetadata = userMetadata,
                         isJoined = isJoined,

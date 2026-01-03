@@ -1,9 +1,12 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
@@ -43,12 +46,15 @@ class GroupManager(
 
     companion object {
         const val PAGE_SIZE = 50
+        const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
     }
 
     // Track pagination subscriptions: subscriptionId -> groupId
     private val paginationSubscriptions = mutableMapOf<String, String>()
     // Track message count per subscription for determining hasMore
     private val subscriptionMessageCounts = mutableMapOf<String, Int>()
+    // Track timeout jobs for each subscription to cancel if EOSE arrives
+    private val loadingTimeoutJobs = mutableMapOf<String, Job>()
 
     /**
      * Load joined groups from storage
@@ -211,6 +217,19 @@ class GroupManager(
         subscriptionMessageCounts[subId] = 0
         _isLoadingMore.value = _isLoadingMore.value + (groupId to true)
 
+        // Set up a timeout to clear loading state if EOSE never arrives
+        loadingTimeoutJobs[subId]?.cancel()
+        loadingTimeoutJobs[subId] = scope.launch {
+            delay(LOADING_TIMEOUT_MS)
+            // If still in paginationSubscriptions after timeout, clean up
+            if (paginationSubscriptions.containsKey(subId)) {
+                paginationSubscriptions.remove(subId)
+                subscriptionMessageCounts.remove(subId)
+                _isLoadingMore.value = _isLoadingMore.value + (groupId to false)
+            }
+            loadingTimeoutJobs.remove(subId)
+        }
+
         currentClient.requestGroupMessages(
             groupId = groupId,
             channel = channel,
@@ -227,6 +246,9 @@ class GroupManager(
      * Returns true if this was a pagination subscription
      */
     fun handleEose(subscriptionId: String): Boolean {
+        // Cancel timeout job since EOSE arrived
+        loadingTimeoutJobs.remove(subscriptionId)?.cancel()
+
         val groupId = paginationSubscriptions.remove(subscriptionId) ?: return false
         val messageCount = subscriptionMessageCounts.remove(subscriptionId) ?: 0
 
@@ -374,6 +396,9 @@ class GroupManager(
         _hasMoreMessages.value = emptyMap()
         paginationSubscriptions.clear()
         subscriptionMessageCounts.clear()
+        // Cancel all pending timeout jobs
+        loadingTimeoutJobs.values.forEach { it.cancel() }
+        loadingTimeoutJobs.clear()
         eventDeduplicator.clearSync()
     }
 

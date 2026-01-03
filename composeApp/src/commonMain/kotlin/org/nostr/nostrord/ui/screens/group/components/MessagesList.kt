@@ -12,8 +12,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +46,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MessagesList(
+    groupId: String,
     chatItems: List<ChatItem>,
     userMetadata: Map<String, UserMetadata>,
     isJoined: Boolean,
@@ -64,23 +65,115 @@ fun MessagesList(
 
     val listState = rememberLazyListState()
 
-    // Use snapshotFlow for reliable scroll detection
+    // Helper to get stable key for a chat item (must not depend on index for anchor tracking)
+    fun getItemKey(item: ChatItem): String = when (item) {
+        is ChatItem.DateSeparator -> "date_${item.date}"
+        is ChatItem.NewMessagesDivider -> "new_messages_divider"
+        is ChatItem.SystemEvent -> "system_${item.id}"
+        is ChatItem.Message -> "msg_${item.message.id}"
+    }
+
+    // Track scroll position by key for pagination
+    var anchorKey by remember { mutableStateOf<String?>(null) }
+    var anchorOffset by remember { mutableStateOf(0) }
+    var previousItemCount by remember { mutableStateOf(0) }
+    var hasInitiallyScrolled by remember { mutableStateOf(false) }
+    var pendingScrollRestore by remember { mutableStateOf(false) }
+    var restoredFromCache by remember(groupId) { mutableStateOf(false) }
+
+    // Save scroll position when leaving this group
+    DisposableEffect(groupId) {
+        onDispose {
+            // Save current scroll position for this group
+            val firstVisibleIndex = listState.firstVisibleItemIndex
+            if (firstVisibleIndex < chatItems.size && chatItems.isNotEmpty()) {
+                val key = getItemKey(chatItems[firstVisibleIndex])
+                ScrollPositionCache.save(groupId, key, listState.firstVisibleItemScrollOffset)
+            }
+        }
+    }
+
+    // Restore scroll position from cache when entering a group
+    LaunchedEffect(groupId, chatItems.size) {
+        if (!restoredFromCache && chatItems.isNotEmpty()) {
+            val cached = ScrollPositionCache.get(groupId)
+            if (cached != null) {
+                val index = chatItems.indexOfFirst { getItemKey(it) == cached.anchorKey }
+                if (index >= 0) {
+                    listState.scrollToItem(index, cached.offset)
+                    hasInitiallyScrolled = true
+                    restoredFromCache = true
+                    previousItemCount = chatItems.size
+                }
+            }
+        }
+    }
+
+    // Trigger load more when scrolling near top
     LaunchedEffect(listState, hasMoreMessages, isLoadingMore) {
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: Int.MAX_VALUE
             val totalItems = layoutInfo.totalItemsCount
-            // Check if we're near the top and should load more
             Triple(firstVisibleItem, totalItems, hasMoreMessages && !isLoadingMore && totalItems > 0)
         }
             .distinctUntilChanged()
             .filter { (firstVisible, _, canLoad) ->
-                // Trigger when first visible item is in the first few items and we can load
                 firstVisible <= 5 && canLoad
             }
             .collect {
+                // Save anchor before triggering load
+                val firstVisibleIndex = listState.firstVisibleItemIndex
+                if (firstVisibleIndex < chatItems.size) {
+                    anchorKey = getItemKey(chatItems[firstVisibleIndex])
+                    anchorOffset = listState.firstVisibleItemScrollOffset
+                    pendingScrollRestore = true
+                }
                 currentOnLoadMore()
             }
+    }
+
+    // Restore scroll position after items are added
+    LaunchedEffect(chatItems.size) {
+        if (chatItems.isEmpty()) {
+            hasInitiallyScrolled = false
+            previousItemCount = 0
+            anchorKey = null
+            pendingScrollRestore = false
+            return@LaunchedEffect
+        }
+
+        // Initial scroll to bottom
+        if (!hasInitiallyScrolled) {
+            listState.scrollToItem(chatItems.lastIndex)
+            hasInitiallyScrolled = true
+            previousItemCount = chatItems.size
+            return@LaunchedEffect
+        }
+
+        val itemsAdded = chatItems.size - previousItemCount
+
+        if (itemsAdded > 0) {
+            val savedKey = anchorKey
+            if (savedKey != null && pendingScrollRestore) {
+                // Find the anchor item's new index by its stable key
+                val newIndex = chatItems.indexOfFirst { item -> getItemKey(item) == savedKey }
+                if (newIndex >= 0) {
+                    listState.scrollToItem(newIndex, anchorOffset)
+                }
+                anchorKey = null
+                pendingScrollRestore = false
+            } else {
+                // New messages at bottom - auto-scroll if near bottom
+                val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                val wasNearBottom = lastVisibleIndex >= previousItemCount - 3
+                if (wasNearBottom) {
+                    listState.scrollToItem(chatItems.lastIndex)
+                }
+            }
+        }
+
+        previousItemCount = chatItems.size
     }
 
     when {
@@ -119,123 +212,80 @@ fun MessagesList(
             }
         }
         else -> {
-        // Pull-to-refresh wrapper for mobile interactions
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = currentOnRefresh,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // SelectionContainer enables website-like text selection across messages
-            SelectionContainer {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = Spacing.sm),
-                        verticalArrangement = Arrangement.spacedBy(0.dp)
-                    ) {
-                        // Loading indicator at top for older messages
-                        if (isLoadingMore) {
-                            item(key = "loading_more") {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(Spacing.sm),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(Spacing.iconMd),
-                                        color = NostrordColors.Primary,
-                                        strokeWidth = 2.dp
+            // Pull-to-refresh wrapper for mobile interactions
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = currentOnRefresh,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // SelectionContainer enables website-like text selection across messages
+                SelectionContainer {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = Spacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
+                        ) {
+                            // Loading indicator at top for older messages
+                            if (isLoadingMore) {
+                                item(key = "loading_more") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(Spacing.sm),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(Spacing.iconMd),
+                                            color = NostrordColors.Primary,
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                }
+                            }
+
+                            itemsIndexed(
+                                items = chatItems,
+                                key = { _, item -> getItemKey(item) },
+                                contentType = { _, item ->
+                                    when (item) {
+                                        is ChatItem.DateSeparator -> "date_separator"
+                                        is ChatItem.NewMessagesDivider -> "new_messages_divider"
+                                        is ChatItem.SystemEvent -> "system_event"
+                                        is ChatItem.Message -> "message"
+                                    }
+                                }
+                            ) { _, item ->
+                                when (item) {
+                                    is ChatItem.DateSeparator -> DateSeparator(item.date)
+                                    is ChatItem.NewMessagesDivider -> NewMessagesDivider()
+                                    is ChatItem.SystemEvent -> SystemEventItem(
+                                        pubkey = item.pubkey,
+                                        action = item.action,
+                                        createdAt = item.createdAt,
+                                        metadata = userMetadata[item.pubkey],
+                                        additionalUsers = item.additionalUsers,
+                                        allUserMetadata = userMetadata
+                                    )
+                                    is ChatItem.Message -> MessageItem(
+                                        message = item.message,
+                                        metadata = userMetadata[item.message.pubkey],
+                                        isFirstInGroup = item.isFirstInGroup,
+                                        isLastInGroup = item.isLastInGroup,
+                                        onUsernameClick = currentOnUsernameClick
                                     )
                                 }
                             }
                         }
 
-                        itemsIndexed(
-                            items = chatItems,
-                            key = { index, item ->
-                                when (item) {
-                                    is ChatItem.DateSeparator -> "date_${index}_${item.date}"
-                                    is ChatItem.NewMessagesDivider -> "new_messages_divider_$index"
-                                    is ChatItem.SystemEvent -> "system_${item.id}"
-                                    is ChatItem.Message -> "msg_${item.message.id}"
-                                }
-                            },
-                            contentType = { _, item ->
-                                // Content types for efficient item recycling
-                                when (item) {
-                                    is ChatItem.DateSeparator -> "date_separator"
-                                    is ChatItem.NewMessagesDivider -> "new_messages_divider"
-                                    is ChatItem.SystemEvent -> "system_event"
-                                    is ChatItem.Message -> "message"
-                                }
-                            }
-                        ) { _, item ->
-                            when (item) {
-                                is ChatItem.DateSeparator -> DateSeparator(item.date)
-                                is ChatItem.NewMessagesDivider -> NewMessagesDivider()
-                                is ChatItem.SystemEvent -> SystemEventItem(
-                                    pubkey = item.pubkey,
-                                    action = item.action,
-                                    createdAt = item.createdAt,
-                                    metadata = userMetadata[item.pubkey],
-                                    additionalUsers = item.additionalUsers,
-                                    allUserMetadata = userMetadata
-                                )
-                                is ChatItem.Message -> MessageItem(
-                                    message = item.message,
-                                    metadata = userMetadata[item.message.pubkey],
-                                    isFirstInGroup = item.isFirstInGroup,
-                                    isLastInGroup = item.isLastInGroup,
-                                    onUsernameClick = currentOnUsernameClick
-                                )
-                            }
-                        }
+                        VerticalScrollbarWrapper(
+                            listState = listState,
+                            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                        )
                     }
-
-                    VerticalScrollbarWrapper(
-                        listState = listState,
-                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-                    )
                 }
             }
-        }
-
-        // Track if this is initial load vs pagination
-        var hasInitiallyScrolled by remember { mutableStateOf(false) }
-        var previousSize by remember { mutableStateOf(0) }
-
-        LaunchedEffect(chatItems.size) {
-            if (chatItems.isEmpty()) {
-                hasInitiallyScrolled = false
-                previousSize = 0
-                return@LaunchedEffect
-            }
-
-            // Initial scroll to bottom
-            if (!hasInitiallyScrolled) {
-                listState.scrollToItem(chatItems.lastIndex)
-                hasInitiallyScrolled = true
-                previousSize = chatItems.size
-                return@LaunchedEffect
-            }
-
-            // Only auto-scroll if new messages arrived at the END (newer messages)
-            // and user is already near the bottom. Don't scroll when loading
-            // older messages via pagination (which adds to the beginning).
-            val newMessages = chatItems.size - previousSize
-            if (newMessages > 0) {
-                val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                val isNearBottom = lastVisibleItem >= previousSize - 5
-
-                // If user is near the bottom and new messages arrived, scroll to see them
-                if (isNearBottom) {
-                    listState.scrollToItem(chatItems.lastIndex)
-                }
-            }
-            previousSize = chatItems.size
-        }
         }
     }
 }

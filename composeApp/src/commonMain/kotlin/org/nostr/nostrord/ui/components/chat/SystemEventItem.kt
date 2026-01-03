@@ -25,8 +25,8 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.utils.formatTimestamp
 
 /**
@@ -213,18 +213,16 @@ private fun MiniAvatar(
             contentScale = ContentScale.Crop
         )
     } else {
+        // Use Jdenticon for fallback avatar
         Box(
             modifier = Modifier
                 .size(size.dp)
-                .clip(CircleShape)
-                .background(generateColorFromString(pubkey)),
+                .clip(CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = displayName.take(1).uppercase(),
-                color = Color.White,
-                fontSize = (size * 0.45f).sp,
-                fontWeight = FontWeight.Bold
+            Jdenticon(
+                value = pubkey,
+                size = size.dp
             )
         }
     }
