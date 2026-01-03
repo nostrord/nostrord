@@ -474,11 +474,13 @@ private fun getMentionDisplayText(
     return when (val entity = mention.reference.entity) {
         is Nip19.Entity.Npub -> {
             val metadata = userMetadata[entity.pubkey]
-            metadata?.displayName ?: metadata?.name ?: Nip19.getDisplayName(entity)
+            val name = metadata?.displayName ?: metadata?.name ?: Nip19.getDisplayName(entity)
+            "@$name"
         }
         is Nip19.Entity.Nprofile -> {
             val metadata = userMetadata[entity.pubkey]
-            metadata?.displayName ?: metadata?.name ?: Nip19.getDisplayName(entity)
+            val name = metadata?.displayName ?: metadata?.name ?: Nip19.getDisplayName(entity)
+            "@$name"
         }
         else -> Nip19.getDisplayName(entity)
     }
