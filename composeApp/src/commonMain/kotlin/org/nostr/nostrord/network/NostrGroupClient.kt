@@ -224,12 +224,12 @@ suspend fun requestGroupMessages(
             
             Pair(pubkey, UserMetadata(
                 pubkey = pubkey,
-                name = metadata["name"]?.jsonPrimitive?.contentOrNull,
-                displayName = metadata["display_name"]?.jsonPrimitive?.contentOrNull,
-                picture = metadata["picture"]?.jsonPrimitive?.contentOrNull,
-                about = metadata["about"]?.jsonPrimitive?.contentOrNull,
-                nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull,
-                banner = metadata["banner"]?.jsonPrimitive?.contentOrNull
+                name = metadata["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                displayName = metadata["display_name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                picture = metadata["picture"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                about = metadata["about"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                banner = metadata["banner"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
             ))
         } catch (e: Exception) {
             null
