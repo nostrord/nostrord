@@ -90,6 +90,7 @@ kotlin {
             implementation("fr.acinq.secp256k1:secp256k1-kmp:0.14.0")
             implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-jvm:0.14.0")
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+            implementation("org.slf4j:slf4j-nop:2.0.9")
         }
         
         jsMain.dependencies {
