@@ -24,7 +24,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
@@ -32,12 +31,12 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
-import org.nostr.nostrord.ui.util.generateColorFromString
 
 /**
  * Simplified row-style group card for joined groups list.
@@ -150,22 +149,12 @@ private fun GroupAvatar(
             imageState is AsyncImagePainter.State.Loading ||
             imageState is AsyncImagePainter.State.Error
 
-        // Show placeholder when no URL, loading, or error
+        // Show Jdenticon when no URL, loading, or error
         if (showPlaceholder) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(generateColorFromString(groupId)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = groupName.take(1).uppercase(),
-                    color = Color.White,
-                    fontSize = (size.value * 0.4f).sp,
-                    style = NostrordTypography.AvatarInitial
-                )
-            }
+            Jdenticon(
+                value = groupId,
+                size = size
+            )
         }
 
         // Only attempt to load image if URL is provided and not in error state

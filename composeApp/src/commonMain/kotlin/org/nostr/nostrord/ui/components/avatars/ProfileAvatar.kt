@@ -1,6 +1,5 @@
 package org.nostr.nostrord.ui.components.avatars
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -18,7 +17,6 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
-import org.nostr.nostrord.ui.util.generateColorFromString
 
 @Composable
 fun ProfileAvatar(
@@ -31,17 +29,16 @@ fun ProfileAvatar(
     val context = LocalPlatformContext.current
     // Memoize computed values to prevent recalculation on every recomposition
     val sizeInPx = remember(size) { (size.value * 2).toInt() }
-    val placeholderColor = remember(pubkey) { generateColorFromString(pubkey) }
 
     if (imageUrl.isNullOrBlank()) {
-        AvatarPlaceholder(displayName, pubkey, modifier.size(size))
+        AvatarPlaceholder(displayName, pubkey, modifier.size(size), size)
     } else {
         Box(modifier = modifier) {
             var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
 
             // Show placeholder background while loading or on error
             if (imageState is AsyncImagePainter.State.Loading || imageState is AsyncImagePainter.State.Error) {
-                AvatarPlaceholder(displayName, pubkey, Modifier.size(size))
+                AvatarPlaceholder(displayName, pubkey, Modifier.size(size), size)
             }
 
             if (imageState !is AsyncImagePainter.State.Error) {
@@ -63,8 +60,7 @@ fun ProfileAvatar(
                     filterQuality = FilterQuality.High,
                     modifier = Modifier
                         .size(size)
-                        .clip(CircleShape)
-                        .background(placeholderColor, CircleShape),
+                        .clip(CircleShape),
                     onState = { imageState = it }
                 )
             }

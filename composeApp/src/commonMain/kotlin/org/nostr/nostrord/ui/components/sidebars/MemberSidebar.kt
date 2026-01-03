@@ -23,22 +23,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import coil3.compose.AsyncImagePainter
 import coil3.request.crossfade
+import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.util.generateColorFromString
 
 /**
  * Enhanced member sidebar with online/offline status, avatars, and role badges.
@@ -275,34 +276,42 @@ private fun MemberAvatar(
     val context = LocalPlatformContext.current
     val alpha = if (dimmed) 0.5f else 1f
 
-    if (!member.picture.isNullOrBlank()) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(member.picture)
-                .crossfade(true)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .build(),
-            contentDescription = member.displayName,
-            modifier = Modifier
-                .size(size)
-                .clip(CircleShape),
-            contentScale = ContentScale.Crop,
-            alpha = alpha
-        )
-    } else {
-        Box(
-            modifier = Modifier
-                .size(size)
-                .clip(CircleShape)
-                .background(generateColorFromString(member.pubkey).copy(alpha = alpha)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = member.displayName.take(1).uppercase(),
-                color = Color.White.copy(alpha = alpha),
-                fontSize = (size.value * 0.4f).sp,
-                fontWeight = FontWeight.Bold
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+        val showPlaceholder = member.picture.isNullOrBlank() ||
+            imageState is AsyncImagePainter.State.Loading ||
+            imageState is AsyncImagePainter.State.Error
+
+        // Show Jdenticon when no picture, loading, or error
+        if (showPlaceholder) {
+            Jdenticon(
+                value = member.pubkey,
+                size = size,
+                modifier = Modifier.graphicsLayer { this.alpha = alpha }
+            )
+        }
+
+        // Only attempt to load image if URL is provided and not in error state
+        if (!member.picture.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(member.picture)
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = member.displayName,
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop,
+                alpha = alpha,
+                onState = { imageState = it }
             )
         }
     }

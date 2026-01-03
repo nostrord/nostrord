@@ -31,7 +31,6 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
-import org.nostr.nostrord.ui.util.generateColorFromString
 
 /**
  * Size category for avatar optimization.
@@ -95,28 +94,20 @@ fun OptimizedSmallAvatar(
     }
     val requestSizePx = with(density) { (size * requestMultiplier).roundToPx() }
 
-    // Generate a saturated, high-contrast placeholder color
-    val baseColor = generateColorFromString(identifier)
-    val enhancedColor = enhanceColorForSmallSize(baseColor, sizeCategory)
-
-    // Edge color for subtle border (darker version of base color)
-    val edgeColor = baseColor.copy(
-        red = (baseColor.red * 0.7f).coerceIn(0f, 1f),
-        green = (baseColor.green * 0.7f).coerceIn(0f, 1f),
-        blue = (baseColor.blue * 0.7f).coerceIn(0f, 1f),
+    // Edge color for subtle border at smaller sizes
+    val edgeColor = Color.Black.copy(
         alpha = when (sizeCategory) {
-            AvatarSizeCategory.LARGE -> 0f // No border for large
-            AvatarSizeCategory.MEDIUM -> 0.3f
-            AvatarSizeCategory.SMALL -> 0.5f
-            AvatarSizeCategory.TINY -> 0.6f
+            AvatarSizeCategory.LARGE -> 0f
+            AvatarSizeCategory.MEDIUM -> 0.1f
+            AvatarSizeCategory.SMALL -> 0.15f
+            AvatarSizeCategory.TINY -> 0.2f
         }
     )
 
-    // For tiny sizes, always use initial letter (photos are unrecognizable)
+    // For tiny sizes or no image, use Jdenticon
     if (sizeCategory == AvatarSizeCategory.TINY || imageUrl.isNullOrBlank()) {
         SmallAvatarPlaceholder(
-            displayName = displayName,
-            backgroundColor = enhancedColor,
+            identifier = identifier,
             edgeColor = edgeColor,
             size = size,
             shape = shape,
@@ -137,8 +128,7 @@ fun OptimizedSmallAvatar(
         // Always render placeholder behind (for loading state and as fallback)
         if (showPlaceholder) {
             SmallAvatarPlaceholder(
-                displayName = displayName,
-                backgroundColor = enhancedColor,
+                identifier = identifier,
                 edgeColor = edgeColor,
                 size = size,
                 shape = shape
@@ -186,27 +176,20 @@ fun OptimizedSmallAvatar(
 }
 
 /**
- * Placeholder for small avatars with enhanced visibility.
+ * Placeholder for small avatars using Jdenticon.
  */
 @Composable
 private fun SmallAvatarPlaceholder(
-    displayName: String,
-    backgroundColor: Color,
+    identifier: String,
     edgeColor: Color,
     size: Dp,
     shape: Shape,
     modifier: Modifier = Modifier
 ) {
-    val initial = displayName.firstOrNull()?.uppercase() ?: "?"
-
-    // Font size scales with avatar size, but with a minimum for readability
-    val fontSize = (size.value * 0.45f).coerceIn(10f, 24f).sp
-
     Box(
         modifier = modifier
             .size(size)
             .clip(shape)
-            .background(backgroundColor)
             .then(
                 if (edgeColor.alpha > 0f) {
                     Modifier.border(1.dp, edgeColor, shape)
@@ -214,36 +197,11 @@ private fun SmallAvatarPlaceholder(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = initial,
-            color = Color.White,
-            fontSize = fontSize,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
+        Jdenticon(
+            value = identifier,
+            size = size
         )
     }
-}
-
-/**
- * Enhances color saturation and brightness for better recognition at small sizes.
- * Colors appear washed out when viewed at small sizes, so we boost them.
- */
-private fun enhanceColorForSmallSize(color: Color, sizeCategory: AvatarSizeCategory): Color {
-    val boostFactor = when (sizeCategory) {
-        AvatarSizeCategory.LARGE -> 1.0f
-        AvatarSizeCategory.MEDIUM -> 1.1f
-        AvatarSizeCategory.SMALL -> 1.15f
-        AvatarSizeCategory.TINY -> 1.2f
-    }
-
-    // Simple saturation/brightness boost by pushing colors away from gray
-    val avg = (color.red + color.green + color.blue) / 3f
-    return Color(
-        red = (avg + (color.red - avg) * boostFactor).coerceIn(0f, 1f),
-        green = (avg + (color.green - avg) * boostFactor).coerceIn(0f, 1f),
-        blue = (avg + (color.blue - avg) * boostFactor).coerceIn(0f, 1f),
-        alpha = color.alpha
-    )
 }
 
 /**
