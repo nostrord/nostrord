@@ -65,7 +65,7 @@ fun GroupCard(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(Spacing.memberItemHeight + Spacing.xxs) // ~44dp
+            .height(Spacing.memberItemHeight + Spacing.lg) // ~44dp
             .border(
                 width = 1.dp,
                 color = NostrordColors.Divider,
@@ -76,7 +76,7 @@ fun GroupCard(
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
+            .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Avatar with unread badge
