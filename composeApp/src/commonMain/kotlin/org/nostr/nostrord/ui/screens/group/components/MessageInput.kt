@@ -39,6 +39,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 fun MessageInput(
     isJoined: Boolean,
     selectedChannel: String,
+    groupName: String?,
     messageInput: String,
     onMessageInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
@@ -163,7 +164,7 @@ fun MessageInput(
                     interactionSource = textFieldInteractionSource,
                     placeholder = {
                         Text(
-                            "Message #$selectedChannel",
+                            "Message ${groupName ?: selectedChannel}",
                             style = NostrordTypography.InputPlaceholder,
                             color = NostrordColors.TextMuted
                         )

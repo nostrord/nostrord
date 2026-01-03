@@ -101,6 +101,7 @@ fun GroupScreenDesktop(
             MessageInput(
                 isJoined = isJoined,
                 selectedChannel = selectedChannel,
+                groupName = groupName,
                 messageInput = messageInput,
                 onMessageInputChange = onMessageInputChange,
                 onSendMessage = onSendMessage,
