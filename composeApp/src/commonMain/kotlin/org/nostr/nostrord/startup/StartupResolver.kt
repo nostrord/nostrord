@@ -21,7 +21,6 @@ object StartupResolver {
      *
      * Examples: deep links, notification taps, shortcuts
      */
-    @Volatile
     var externalLaunchContext: ExternalLaunchContext? = null
         private set
 
