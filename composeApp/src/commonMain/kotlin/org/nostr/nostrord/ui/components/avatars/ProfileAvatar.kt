@@ -29,9 +29,9 @@ fun ProfileAvatar(
     modifier: Modifier = Modifier
 ) {
     val context = LocalPlatformContext.current
-    // Request higher resolution for better quality (2x for high DPI displays)
-    val sizeInPx = (size.value * 2).toInt()
-    val placeholderColor = generateColorFromString(pubkey)
+    // Memoize computed values to prevent recalculation on every recomposition
+    val sizeInPx = remember(size) { (size.value * 2).toInt() }
+    val placeholderColor = remember(pubkey) { generateColorFromString(pubkey) }
 
     if (imageUrl.isNullOrBlank()) {
         AvatarPlaceholder(displayName, pubkey, modifier.size(size))
@@ -45,14 +45,19 @@ fun ProfileAvatar(
             }
 
             if (imageState !is AsyncImagePainter.State.Error) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
+                // Memoize image request to prevent rebuilding on every recomposition
+                val imageRequest = remember(imageUrl, sizeInPx, context) {
+                    ImageRequest.Builder(context)
                         .data(imageUrl)
                         .crossfade(true)
                         .size(Size(sizeInPx, sizeInPx))
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
-                        .build(),
+                        .build()
+                }
+
+                AsyncImage(
+                    model = imageRequest,
                     contentDescription = "$displayName's avatar",
                     contentScale = ContentScale.Crop,
                     filterQuality = FilterQuality.High,

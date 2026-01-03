@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,7 +82,20 @@ fun MessageItem(
     onDeleteMessage: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {}
 ) {
-    val displayName = metadata?.displayName ?: metadata?.name ?: message.pubkey.take(8) + "..."
+    // Use rememberUpdatedState to avoid recomposition when callbacks change reference
+    val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
+    val currentOnReplyClick by rememberUpdatedState(onReplyClick)
+    val currentOnReactionClick by rememberUpdatedState(onReactionClick)
+    val currentOnCopyText by rememberUpdatedState(onCopyText)
+    val currentOnCopyLink by rememberUpdatedState(onCopyLink)
+    val currentOnPinMessage by rememberUpdatedState(onPinMessage)
+    val currentOnDeleteMessage by rememberUpdatedState(onDeleteMessage)
+
+    // Memoize display name calculation
+    val displayName = remember(metadata?.displayName, metadata?.name, message.pubkey) {
+        metadata?.displayName ?: metadata?.name ?: message.pubkey.take(8) + "..."
+    }
+
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -135,7 +149,7 @@ fun MessageItem(
                         modifier = Modifier
                             .size(Spacing.avatarSize)
                             .clip(CircleShape)
-                            .clickable { onUsernameClick(message.pubkey) }
+                            .clickable { currentOnUsernameClick(message.pubkey) }
                             .pointerHoverIcon(PointerIcon.Hand)
                     ) {
                         ProfileAvatar(
@@ -165,7 +179,7 @@ fun MessageItem(
                             color = Color.White,
                             style = NostrordTypography.Username,
                             modifier = Modifier
-                                .clickable { onUsernameClick(message.pubkey) }
+                                .clickable { currentOnUsernameClick(message.pubkey) }
                                 .pointerHoverIcon(PointerIcon.Hand)
                         )
                         Spacer(modifier = Modifier.width(Spacing.sm))
@@ -182,7 +196,7 @@ fun MessageItem(
                 MessageContent(
                     content = message.content,
                     tags = message.tags,
-                    onMentionClick = onUsernameClick
+                    onMentionClick = currentOnUsernameClick
                 )
             }
         }
@@ -204,8 +218,8 @@ fun MessageItem(
                 // DisableSelection prevents toolbar from being part of text selection
                 DisableSelection {
                     MessageActions(
-                        onReplyClick = onReplyClick,
-                        onReactionClick = onReactionClick,
+                        onReplyClick = currentOnReplyClick,
+                        onReactionClick = currentOnReactionClick,
                         onMoreClick = { showContextMenu = true }
                     )
                 }
@@ -219,12 +233,12 @@ fun MessageItem(
             onDismiss = { showContextMenu = false },
             onAction = { action ->
                 when (action) {
-                    MessageContextAction.AddReaction -> onReactionClick()
-                    MessageContextAction.Reply -> onReplyClick()
-                    MessageContextAction.CopyText -> onCopyText()
-                    MessageContextAction.CopyMessageLink -> onCopyLink()
-                    MessageContextAction.PinMessage -> onPinMessage()
-                    MessageContextAction.DeleteMessage -> onDeleteMessage()
+                    MessageContextAction.AddReaction -> currentOnReactionClick()
+                    MessageContextAction.Reply -> currentOnReplyClick()
+                    MessageContextAction.CopyText -> currentOnCopyText()
+                    MessageContextAction.CopyMessageLink -> currentOnCopyLink()
+                    MessageContextAction.PinMessage -> currentOnPinMessage()
+                    MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
                 }
             },
             isAuthor = isAuthor,

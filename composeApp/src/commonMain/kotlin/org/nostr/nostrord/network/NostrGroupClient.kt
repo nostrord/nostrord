@@ -1,5 +1,6 @@
 package org.nostr.nostrord.network
 
+import androidx.compose.runtime.Immutable
 import io.ktor.client.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
@@ -8,6 +9,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.utils.epochMillis
 
+@Immutable
 data class GroupMetadata(
     val id: String,
     val name: String?,
@@ -17,6 +19,7 @@ data class GroupMetadata(
     val isOpen: Boolean
 )
 
+@Immutable
 data class UserMetadata(
     val pubkey: String,
     val name: String?,
@@ -236,6 +239,7 @@ suspend fun requestGroupMessages(
         }
     }
 
+    @Immutable
     data class NostrMessage(
         val id: String,
         val pubkey: String,

@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -56,6 +57,11 @@ fun MessagesList(
     onRefresh: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {}
 ) {
+    // Use rememberUpdatedState to prevent unnecessary recompositions when callback references change
+    val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
+    val currentOnLoadMore by rememberUpdatedState(onLoadMore)
+    val currentOnRefresh by rememberUpdatedState(onRefresh)
+
     val listState = rememberLazyListState()
 
     // Use snapshotFlow for reliable scroll detection
@@ -73,7 +79,7 @@ fun MessagesList(
                 firstVisible <= 5 && canLoad
             }
             .collect {
-                onLoadMore()
+                currentOnLoadMore()
             }
     }
 
@@ -116,7 +122,7 @@ fun MessagesList(
         // Pull-to-refresh wrapper for mobile interactions
         PullToRefreshBox(
             isRefreshing = isRefreshing,
-            onRefresh = onRefresh,
+            onRefresh = currentOnRefresh,
             modifier = Modifier.fillMaxSize()
         ) {
             // SelectionContainer enables website-like text selection across messages
@@ -146,14 +152,26 @@ fun MessagesList(
                             }
                         }
 
-                        itemsIndexed(chatItems, key = { index, item ->
-                            when (item) {
-                                is ChatItem.DateSeparator -> "date_${index}_${item.date}"
-                                is ChatItem.NewMessagesDivider -> "new_messages_divider_$index"
-                                is ChatItem.SystemEvent -> "system_${item.id}"
-                                is ChatItem.Message -> "msg_${item.message.id}"
+                        itemsIndexed(
+                            items = chatItems,
+                            key = { index, item ->
+                                when (item) {
+                                    is ChatItem.DateSeparator -> "date_${index}_${item.date}"
+                                    is ChatItem.NewMessagesDivider -> "new_messages_divider_$index"
+                                    is ChatItem.SystemEvent -> "system_${item.id}"
+                                    is ChatItem.Message -> "msg_${item.message.id}"
+                                }
+                            },
+                            contentType = { _, item ->
+                                // Content types for efficient item recycling
+                                when (item) {
+                                    is ChatItem.DateSeparator -> "date_separator"
+                                    is ChatItem.NewMessagesDivider -> "new_messages_divider"
+                                    is ChatItem.SystemEvent -> "system_event"
+                                    is ChatItem.Message -> "message"
+                                }
                             }
-                        }) { _, item ->
+                        ) { _, item ->
                             when (item) {
                                 is ChatItem.DateSeparator -> DateSeparator(item.date)
                                 is ChatItem.NewMessagesDivider -> NewMessagesDivider()
@@ -170,7 +188,7 @@ fun MessagesList(
                                     metadata = userMetadata[item.message.pubkey],
                                     isFirstInGroup = item.isFirstInGroup,
                                     isLastInGroup = item.isLastInGroup,
-                                    onUsernameClick = onUsernameClick
+                                    onUsernameClick = currentOnUsernameClick
                                 )
                             }
                         }

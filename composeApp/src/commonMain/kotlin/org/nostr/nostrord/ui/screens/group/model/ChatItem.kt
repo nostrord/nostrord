@@ -1,5 +1,6 @@
 package org.nostr.nostrord.ui.screens.group.model
 
+import androidx.compose.runtime.Immutable
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.utils.getDateLabel
 
@@ -9,18 +10,26 @@ private const val MESSAGE_GROUP_WINDOW_SECONDS = 5 * 60
 // Time window for grouping consecutive system events (2 minutes)
 private const val SYSTEM_EVENT_GROUP_WINDOW_SECONDS = 2 * 60
 
+/**
+ * Sealed class representing different types of chat items.
+ * Marked as @Immutable for Compose stability to prevent unnecessary recompositions.
+ */
+@Immutable
 sealed class ChatItem {
+    @Immutable
     data class DateSeparator(val date: String) : ChatItem()
 
     /**
      * Divider shown to indicate where new (unread) messages begin.
      */
+    @Immutable
     data object NewMessagesDivider : ChatItem()
 
     /**
      * System event (join/leave) with optional grouping.
      * When multiple users perform the same action close together, they are grouped.
      */
+    @Immutable
     data class SystemEvent(
         val pubkey: String,
         val action: String,
@@ -31,12 +40,14 @@ sealed class ChatItem {
         val totalUsers: Int get() = 1 + additionalUsers.size
         val isGrouped: Boolean get() = additionalUsers.isNotEmpty()
     }
+
     /**
      * Message item with grouping information.
      * @param message The actual message
      * @param isFirstInGroup True if this is the first message in a group (shows avatar/name)
      * @param isLastInGroup True if this is the last message in a group (adds bottom spacing)
      */
+    @Immutable
     data class Message(
         val message: NostrGroupClient.NostrMessage,
         val isFirstInGroup: Boolean = true,
