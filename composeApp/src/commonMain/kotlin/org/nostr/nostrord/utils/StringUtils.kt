@@ -1,29 +1,44 @@
 package org.nostr.nostrord.utils
 
+/**
+ * URL decode a percent-encoded string.
+ *
+ * IMPORTANT: Handles multi-byte UTF-8 sequences correctly.
+ * Example: %E6%97%A5 → 日 (not æ—¥)
+ *
+ * The previous implementation incorrectly converted each percent-encoded
+ * byte to a Char individually, which corrupted multi-byte UTF-8 characters
+ * like CJK text, emojis, and other non-ASCII Unicode.
+ */
 fun String.urlDecode(): String {
-    val result = StringBuilder()
+    val bytes = mutableListOf<Byte>()
     var i = 0
+
     while (i < length) {
         when {
             this[i] == '%' && i + 2 < length -> {
                 try {
                     val hex = substring(i + 1, i + 3)
-                    result.append(hex.toInt(16).toChar())
+                    bytes.add(hex.toInt(16).toByte())
                     i += 3
                 } catch (e: NumberFormatException) {
-                    result.append(this[i])
+                    // Invalid hex sequence, keep original character as UTF-8 bytes
+                    bytes.addAll(this[i].toString().encodeToByteArray().toList())
                     i++
                 }
             }
             this[i] == '+' -> {
-                result.append(' ')
+                bytes.add(' '.code.toByte())
                 i++
             }
             else -> {
-                result.append(this[i])
+                // Regular character - encode to UTF-8 bytes
+                bytes.addAll(this[i].toString().encodeToByteArray().toList())
                 i++
             }
         }
     }
-    return result.toString()
+
+    // Decode accumulated bytes as UTF-8
+    return bytes.toByteArray().decodeToString()
 }

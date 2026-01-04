@@ -1,0 +1,28 @@
+/*
+ * Web font loading for Compose Web Unicode/emoji support.
+ * Loaded via Google Fonts CDN for reliability and caching.
+ *
+ * Coverage:
+ * - Noto Color Emoji: Full Unicode emoji (😀🎉👍)
+ * - Noto Sans: Extended Latin, Greek, Cyrillic
+ * - Noto Sans SC: Simplified Chinese (中文)
+ * - Noto Sans JP: Japanese (日本語)
+ * - Noto Sans KR: Korean (한국어)
+ * - Noto Sans Arabic: Arabic script (العربية)
+ * - Noto Sans Hebrew: Hebrew script (עברית)
+ */
+
+/* Noto Color Emoji - Full Unicode emoji coverage */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');
+
+/* Noto Sans - Extended Latin and base Unicode */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap');
+
+/* CJK Fonts - East Asian language support */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+
+/* RTL Fonts - Arabic and Hebrew */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@400;500;600;700&display=swap');

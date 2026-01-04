@@ -4,4 +4,23 @@ html, body {
     margin: 0;
     padding: 0;
     overflow: hidden;
+
+    /* Unicode-safe font stack for chat applications */
+    font-family:
+        /* System UI - uses platform native fonts */
+        system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        /* Emoji - color emoji support */
+        "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji",
+        /* CJK - East Asian scripts */
+        "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP", "Noto Sans CJK KR",
+        "PingFang SC", "Hiragino Sans", "Microsoft YaHei", "Malgun Gothic",
+        /* RTL - Arabic and Hebrew */
+        "Noto Sans Arabic", "Noto Sans Hebrew",
+        /* Universal fallback */
+        "Noto Sans", sans-serif;
+}
+
+/* Ensure canvas inherits for measurement purposes */
+canvas {
+    font-family: inherit;
 }

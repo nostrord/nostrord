@@ -4,6 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nostrord</title>
+
+    <!-- TIER 1: Critical fonts - HIGH PRIORITY preload (blocks app render) -->
+    <!-- Latin (~560KB) + Emoji (~10.7MB) = ~11MB to show app -->
+    <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSans-Regular.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
+    <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSans-Bold.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
+    <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoColorEmoji.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
+
+    <!-- TIER 2: Common fonts - prefetch (loads in background after critical) -->
+    <!-- CJK + RTL (~38MB) - starts loading after Tier 1 -->
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansJP-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansSC-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansKR-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansArabic-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansHebrew-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+
+    <!-- TIER 3: Rare fonts - prefetch lowest priority (~2MB) -->
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansThai-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansCherokee-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansSymbols-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansSymbols2-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansMath-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+
     <link type="text/css" rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/aes-js@3.1.2/index.min.js"></script>
 </head>
