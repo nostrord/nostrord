@@ -17,6 +17,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
+import org.nostr.nostrord.utils.getImageUrl
 
 @Composable
 fun ProfileAvatar(
@@ -45,7 +46,7 @@ fun ProfileAvatar(
                 // Memoize image request to prevent rebuilding on every recomposition
                 val imageRequest = remember(imageUrl, sizeInPx, context) {
                     ImageRequest.Builder(context)
-                        .data(imageUrl)
+                        .data(getImageUrl(imageUrl))
                         .crossfade(true)
                         .size(Size(sizeInPx, sizeInPx))
                         .memoryCachePolicy(CachePolicy.ENABLED)

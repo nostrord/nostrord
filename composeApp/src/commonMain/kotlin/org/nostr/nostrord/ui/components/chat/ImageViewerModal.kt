@@ -37,6 +37,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.getImageUrl
 
 /**
  * Full-screen image viewer modal with zoom and pan support.
@@ -124,7 +125,7 @@ fun ImageViewerModal(
             ) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
-                        .data(imageUrl)
+                        .data(getImageUrl(imageUrl))
                         .crossfade(true)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)

@@ -37,6 +37,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
@@ -225,7 +226,7 @@ private fun GroupAvatar(
         if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(pictureUrl)
+                    .data(getImageUrl(pictureUrl))
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)

@@ -25,6 +25,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.formatTimestamp
@@ -201,7 +202,7 @@ private fun MiniAvatar(
     if (!metadata?.picture.isNullOrBlank()) {
         AsyncImage(
             model = ImageRequest.Builder(context)
-                .data(metadata?.picture)
+                .data(getImageUrl(metadata?.picture!!))
                 .crossfade(true)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .diskCachePolicy(CachePolicy.ENABLED)

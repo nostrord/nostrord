@@ -36,6 +36,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -205,7 +206,7 @@ private fun BannerSection(
         if (hasCoverImage) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(coverImageUrl)
+                    .data(getImageUrl(coverImageUrl))
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
