@@ -23,10 +23,12 @@ import org.nostr.nostrord.ui.theme.AppFonts
  *
  * OPTIMIZATION: Uses tiered loading to show app faster:
  * - Tier 1 (Critical ~11MB): Latin + Emoji - App becomes usable immediately
- * - Tier 2 (Common ~38MB): CJK + RTL - Loads in background
+ * - Tier 2 (Common ~38MB): CJK + RTL - Loads in background AFTER Tier 1
  * - Tier 3 (Rare ~2MB): Specialized scripts - Loads last
  *
  * This reduces perceived load time from ~50MB to ~11MB before app is visible.
+ * IMPORTANT: Tier 2/3 fonts only start loading AFTER Tier 1 completes to prevent
+ * mobile browsers from freezing due to too many concurrent downloads.
  *
  * See: https://github.com/JetBrains/compose-multiplatform/issues/3051
  * See: https://github.com/JetBrains/compose-multiplatform/issues/3967
@@ -40,10 +42,7 @@ fun main() {
 
 /**
  * Progressive font loading with tiered priority.
- *
- * Tier 1 (Critical): Latin + Emoji (~11MB) - Must load before app renders
- * Tier 2 (Common): CJK + RTL (~38MB) - Load in background, update dynamically
- * Tier 3 (Rare): Thai, Cherokee, Symbols, Math (~2MB) - Load last
+ * Uses conditional composition to truly defer Tier 2/3 loading.
  */
 @OptIn(ExperimentalResourceApi::class)
 @Composable
@@ -54,24 +53,11 @@ private fun WebAppWithFontPreloading() {
     val notoSansBold = preloadFont(Res.font.NotoSans_Bold).value
     val notoColorEmoji = preloadFont(Res.font.NotoColorEmoji).value
 
-    // ========== TIER 2: Common fonts (CJK + RTL) ==========
-    // Load in background after app is visible (~38MB)
-    val notoSansJP = preloadFont(Res.font.NotoSansJP_Regular).value
-    val notoSansSC = preloadFont(Res.font.NotoSansSC_Regular).value
-    val notoSansKR = preloadFont(Res.font.NotoSansKR_Regular).value
-    val notoSansArabic = preloadFont(Res.font.NotoSansArabic_Regular).value
-    val notoSansHebrew = preloadFont(Res.font.NotoSansHebrew_Regular).value
-
-    // ========== TIER 3: Rare fonts (specialized scripts) ==========
-    // Load last (~2MB)
-    val notoSansThai = preloadFont(Res.font.NotoSansThai_Regular).value
-    val notoSansCherokee = preloadFont(Res.font.NotoSansCherokee_Regular).value
-    val notoSansSymbols = preloadFont(Res.font.NotoSansSymbols_Regular).value
-    val notoSansSymbols2 = preloadFont(Res.font.NotoSansSymbols2_Regular).value
-    val notoSansMath = preloadFont(Res.font.NotoSansMath_Regular).value
-
     // Track initialization state
     var tier1Registered by remember { mutableStateOf(false) }
+
+    // Track which tier we're loading (for sequential loading)
+    var currentTier by remember { mutableIntStateOf(1) }
 
     val fontFamilyResolver = LocalFontFamilyResolver.current
 
@@ -90,98 +76,68 @@ private fun WebAppWithFontPreloading() {
                 FontFamily(listOf(notoSansRegular, notoSansBold, notoColorEmoji))
             )
             tier1Registered = true
+            currentTier = 2
         }
     }
 
-    // Progressively register Tier 2 fonts as they load
-    LaunchedEffect(notoSansJP) {
-        notoSansJP?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
+    // ========== DEFERRED LOADING: Tier 2 & 3 ==========
+    // Only compose (and thus start loading) when previous tier completes
+    // This uses conditional composition to truly defer the preloadFont calls
+
+    // Tier 2 fonts - only start loading when tier1Registered is true
+    val tier2Fonts = if (tier1Registered) {
+        Tier2Fonts()
+    } else {
+        null
+    }
+
+    // Tier 3 fonts - only start loading when Tier 2 is complete
+    val tier3Fonts = if (tier2Fonts?.allLoaded == true) {
+        Tier3Fonts()
+    } else {
+        null
+    }
+
+    // Register Tier 2 fonts as they load
+    LaunchedEffect(tier2Fonts) {
+        tier2Fonts?.let { fonts ->
+            val loadedFonts = buildList {
+                notoSansRegular?.let { add(it) }
+                notoSansBold?.let { add(it) }
+                notoColorEmoji?.let { add(it) }
+                fonts.jp?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+                fonts.sc?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+                fonts.kr?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+                fonts.arabic?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+                fonts.hebrew?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+            }
+            if (loadedFonts.isNotEmpty()) {
+                AppFonts.setDefaultFontFamily(FontFamily(loadedFonts))
+            }
         }
     }
 
-    LaunchedEffect(notoSansSC) {
-        notoSansSC?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
-        }
-    }
-
-    LaunchedEffect(notoSansKR) {
-        notoSansKR?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
-        }
-    }
-
-    LaunchedEffect(notoSansArabic) {
-        notoSansArabic?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
-        }
-    }
-
-    LaunchedEffect(notoSansHebrew) {
-        notoSansHebrew?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
-        }
-    }
-
-    // Progressively register Tier 3 fonts as they load
-    LaunchedEffect(notoSansThai) {
-        notoSansThai?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
-        }
-    }
-
-    LaunchedEffect(notoSansCherokee) {
-        notoSansCherokee?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
-        }
-    }
-
-    LaunchedEffect(notoSansSymbols) {
-        notoSansSymbols?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
-        }
-    }
-
-    LaunchedEffect(notoSansSymbols2) {
-        notoSansSymbols2?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
-        }
-    }
-
-    LaunchedEffect(notoSansMath) {
-        notoSansMath?.let {
-            fontFamilyResolver.preload(FontFamily(listOf(it)))
-            updateFontFamily(notoSansRegular, notoSansBold, notoColorEmoji,
-                notoSansJP, notoSansSC, notoSansKR, notoSansArabic, notoSansHebrew,
-                notoSansThai, notoSansCherokee, notoSansSymbols, notoSansSymbols2, notoSansMath)
+    // Register Tier 3 fonts as they load
+    LaunchedEffect(tier3Fonts) {
+        tier3Fonts?.let { fonts ->
+            val loadedFonts = buildList {
+                notoSansRegular?.let { add(it) }
+                notoSansBold?.let { add(it) }
+                notoColorEmoji?.let { add(it) }
+                tier2Fonts?.jp?.let { add(it) }
+                tier2Fonts?.sc?.let { add(it) }
+                tier2Fonts?.kr?.let { add(it) }
+                tier2Fonts?.arabic?.let { add(it) }
+                tier2Fonts?.hebrew?.let { add(it) }
+                fonts.thai?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+                fonts.cherokee?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+                fonts.symbols?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+                fonts.symbols2?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+                fonts.math?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
+            }
+            if (loadedFonts.isNotEmpty()) {
+                AppFonts.setDefaultFontFamily(FontFamily(loadedFonts))
+            }
         }
     }
 
@@ -202,42 +158,55 @@ private fun WebAppWithFontPreloading() {
 }
 
 /**
- * Updates the combined FontFamily with all currently loaded fonts.
- * Called each time a new font finishes loading.
+ * Tier 2 fonts container - CJK + RTL (~38MB)
+ * By being a separate composable, these fonts only start loading when this is composed.
  */
-private fun updateFontFamily(
-    notoSansRegular: Font?,
-    notoSansBold: Font?,
-    notoColorEmoji: Font?,
-    notoSansJP: Font?,
-    notoSansSC: Font?,
-    notoSansKR: Font?,
-    notoSansArabic: Font?,
-    notoSansHebrew: Font?,
-    notoSansThai: Font?,
-    notoSansCherokee: Font?,
-    notoSansSymbols: Font?,
-    notoSansSymbols2: Font?,
-    notoSansMath: Font?
+private data class Tier2FontState(
+    val jp: Font?,
+    val sc: Font?,
+    val kr: Font?,
+    val arabic: Font?,
+    val hebrew: Font?
 ) {
-    // Build list of all currently loaded fonts
-    val loadedFonts = buildList {
-        notoSansRegular?.let { add(it) }
-        notoSansBold?.let { add(it) }
-        notoColorEmoji?.let { add(it) }
-        notoSansJP?.let { add(it) }
-        notoSansSC?.let { add(it) }
-        notoSansKR?.let { add(it) }
-        notoSansArabic?.let { add(it) }
-        notoSansHebrew?.let { add(it) }
-        notoSansThai?.let { add(it) }
-        notoSansCherokee?.let { add(it) }
-        notoSansSymbols?.let { add(it) }
-        notoSansSymbols2?.let { add(it) }
-        notoSansMath?.let { add(it) }
-    }
+    val allLoaded: Boolean
+        get() = jp != null && sc != null && kr != null && arabic != null && hebrew != null
+}
 
-    if (loadedFonts.isNotEmpty()) {
-        AppFonts.setDefaultFontFamily(FontFamily(loadedFonts))
-    }
+@OptIn(ExperimentalResourceApi::class)
+@Composable
+private fun Tier2Fonts(): Tier2FontState {
+    return Tier2FontState(
+        jp = preloadFont(Res.font.NotoSansJP_Regular).value,
+        sc = preloadFont(Res.font.NotoSansSC_Regular).value,
+        kr = preloadFont(Res.font.NotoSansKR_Regular).value,
+        arabic = preloadFont(Res.font.NotoSansArabic_Regular).value,
+        hebrew = preloadFont(Res.font.NotoSansHebrew_Regular).value
+    )
+}
+
+/**
+ * Tier 3 fonts container - specialized scripts (~2MB)
+ * By being a separate composable, these fonts only start loading when this is composed.
+ */
+private data class Tier3FontState(
+    val thai: Font?,
+    val cherokee: Font?,
+    val symbols: Font?,
+    val symbols2: Font?,
+    val math: Font?
+) {
+    val allLoaded: Boolean
+        get() = thai != null && cherokee != null && symbols != null && symbols2 != null && math != null
+}
+
+@OptIn(ExperimentalResourceApi::class)
+@Composable
+private fun Tier3Fonts(): Tier3FontState {
+    return Tier3FontState(
+        thai = preloadFont(Res.font.NotoSansThai_Regular).value,
+        cherokee = preloadFont(Res.font.NotoSansCherokee_Regular).value,
+        symbols = preloadFont(Res.font.NotoSansSymbols_Regular).value,
+        symbols2 = preloadFont(Res.font.NotoSansSymbols2_Regular).value,
+        math = preloadFont(Res.font.NotoSansMath_Regular).value
+    )
 }
