@@ -112,6 +112,8 @@ kotlin {
 
         val wasmJsMain by getting {
             dependencies {
+                // Ktor JS engine for HTTP requests (required for Coil image loading)
+                implementation("io.ktor:ktor-client-js:3.0.0")
                 // Compression webpack plugin for production builds
                 implementation(devNpm("compression-webpack-plugin", "11.1.0"))
             }
