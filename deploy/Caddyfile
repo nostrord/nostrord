@@ -1,0 +1,110 @@
+# Caddyfile for Nostrord web app
+# Optimized for maximum performance with WASM and large font files
+#
+# Caddy automatically:
+# - Obtains and renews SSL certificates
+# - Enables HTTP/2 and HTTP/3
+# - Compresses responses with gzip/brotli
+#
+# Usage:
+#   1. Install Caddy: https://caddyserver.com/docs/install
+#   2. Update domain and root path below
+#   3. Run: caddy run --config Caddyfile
+
+your-domain.com {
+    # Root directory - update to your build output path
+    root * /var/www/nostrord/composeApp/build/dist/wasmJs/productionExecutable
+
+    # Enable file server with precompressed file support
+    file_server {
+        precompressed br gzip
+    }
+
+    # ============================================
+    # Compression (automatic, but configure explicitly)
+    # ============================================
+    encode {
+        gzip
+        zstd
+    }
+
+    # ============================================
+    # MIME Types
+    # ============================================
+    @wasm path *.wasm
+    header @wasm Content-Type "application/wasm"
+
+    # ============================================
+    # Cache Headers
+    # ============================================
+
+    # WASM files - immutable, cache forever
+    @wasmFiles path *.wasm
+    header @wasmFiles {
+        Cache-Control "public, max-age=31536000, immutable"
+        Cross-Origin-Embedder-Policy "require-corp"
+        Cross-Origin-Opener-Policy "same-origin"
+    }
+
+    # Font files - immutable, cache forever
+    @fontFiles path *.ttf *.woff *.woff2 *.otf *.eot
+    header @fontFiles {
+        Cache-Control "public, max-age=31536000, immutable"
+        Access-Control-Allow-Origin "*"
+    }
+
+    # JS/CSS files - immutable (hashed filenames)
+    @staticAssets path *.js *.css
+    header @staticAssets {
+        Cache-Control "public, max-age=31536000, immutable"
+    }
+
+    # Images - long cache
+    @images path *.png *.jpg *.jpeg *.gif *.ico *.svg *.webp
+    header @images {
+        Cache-Control "public, max-age=2592000"
+    }
+
+    # HTML - no cache (always fresh)
+    @html path *.html /
+    header @html {
+        Cache-Control "no-cache, no-store, must-revalidate"
+        Pragma "no-cache"
+    }
+
+    # Service Worker - no cache
+    @sw path /sw.js
+    header @sw {
+        Cache-Control "no-cache, no-store, must-revalidate"
+    }
+
+    # ============================================
+    # Security Headers (global)
+    # ============================================
+    header {
+        # Required for SharedArrayBuffer (WASM threads)
+        Cross-Origin-Embedder-Policy "require-corp"
+        Cross-Origin-Opener-Policy "same-origin"
+
+        # General security
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # Remove server header
+        -Server
+    }
+
+    # ============================================
+    # SPA Routing
+    # ============================================
+    try_files {path} /index.html
+
+    # ============================================
+    # Logging (optional)
+    # ============================================
+    log {
+        output file /var/log/caddy/nostrord.log
+        format json
+    }
+}
