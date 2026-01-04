@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nostrord</title>
 
+    <!-- DNS prefetch for common Nostr relays - speeds up WebSocket connections -->
+    <link rel="dns-prefetch" href="https://relay.damus.io">
+    <link rel="dns-prefetch" href="https://nos.lol">
+    <link rel="dns-prefetch" href="https://relay.nostr.net">
+    <link rel="dns-prefetch" href="https://purplepag.es">
+    <link rel="preconnect" href="https://relay.damus.io" crossorigin>
+
     <!-- TIER 1: Critical fonts - HIGH PRIORITY preload (blocks app render) -->
     <!-- Latin (~560KB) + Emoji (~10.7MB) = ~11MB to show app -->
     <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSans-Regular.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
@@ -32,6 +39,37 @@
     <script defer src="noble-crypto.min.js"></script>
 </head>
 <body>
+<!-- GitHub Pages SPA redirect handler -->
+<script>
+    // Handle redirect from 404.html for SPA routing
+    (function() {
+        const redirect = sessionStorage.redirect;
+        delete sessionStorage.redirect;
+        if (redirect && redirect !== location.href) {
+            history.replaceState(null, null, redirect);
+        }
+
+        // Also handle query string redirect from 404.html
+        const query = window.location.search;
+        if (query && query.startsWith('?/')) {
+            const decoded = query.slice(2).split('&')
+                .map(s => s.replace(/~and~/g, '&'))
+                .join('?');
+            const path = window.location.pathname.slice(0, -1) + decoded;
+            history.replaceState(null, null, path + window.location.hash);
+        }
+    })();
+</script>
+<!-- Register Service Worker for caching (relative path for GitHub Pages) -->
+<script>
+    if ('serviceWorker' in navigator) {
+        // Use relative path to work with GitHub Pages subdirectory
+        const swPath = new URL('./sw.js', window.location.href).href;
+        navigator.serviceWorker.register(swPath)
+            .then(reg => console.log('[SW] Registered:', reg.scope))
+            .catch(err => console.warn('[SW] Registration failed:', err));
+    }
+</script>
 <div id="composeApplication"></div>
 <script type="module">
     // Wait for deferred scripts to load

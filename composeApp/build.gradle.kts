@@ -35,13 +35,23 @@ kotlin {
     jvm()
     
     js {
-        browser()
+        browser {
+            // Configure webpack for production builds
+            webpackTask {
+                mainOutputFileName = "composeApp.js"
+            }
+        }
         binaries.executable()
     }
-    
+
     @OptIn(ExperimentalWasmDsl::class)
     wasmJs {
-        browser()
+        browser {
+            // Configure webpack for production builds
+            webpackTask {
+                mainOutputFileName = "composeApp.js"
+            }
+        }
         binaries.executable()
     }
     
@@ -96,6 +106,15 @@ kotlin {
         jsMain.dependencies {
             implementation("io.ktor:ktor-client-js:3.0.0")
             implementation("media.kamel:kamel-image:0.9.5")
+            // Compression webpack plugin for production builds
+            implementation(devNpm("compression-webpack-plugin", "11.1.0"))
+        }
+
+        val wasmJsMain by getting {
+            dependencies {
+                // Compression webpack plugin for production builds
+                implementation(devNpm("compression-webpack-plugin", "11.1.0"))
+            }
         }
     }
 }
@@ -147,4 +166,31 @@ compose.desktop {
             packageVersion = "1.0.0"
         }
     }
+}
+
+// Copy pre-compressed files (.gz, .br) to distribution folder for wasmJs
+tasks.register<Copy>("copyWasmJsCompressedFiles") {
+    dependsOn("wasmJsBrowserProductionWebpack")
+    from(layout.buildDirectory.dir("kotlin-webpack/wasmJs/productionExecutable")) {
+        include("**/*.gz", "**/*.br")
+    }
+    into(layout.buildDirectory.dir("dist/wasmJs/productionExecutable"))
+}
+
+// Copy pre-compressed files for js target
+tasks.register<Copy>("copyJsCompressedFiles") {
+    dependsOn("jsBrowserProductionWebpack")
+    from(layout.buildDirectory.dir("kotlin-webpack/js/productionExecutable")) {
+        include("**/*.gz", "**/*.br")
+    }
+    into(layout.buildDirectory.dir("dist/js/productionExecutable"))
+}
+
+// Make distribution tasks depend on copy tasks
+tasks.matching { it.name == "wasmJsBrowserDistribution" }.configureEach {
+    finalizedBy("copyWasmJsCompressedFiles")
+}
+
+tasks.matching { it.name == "jsBrowserDistribution" }.configureEach {
+    finalizedBy("copyJsCompressedFiles")
 }
