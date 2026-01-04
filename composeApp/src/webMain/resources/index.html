@@ -27,31 +27,19 @@
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansMath-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
 
     <link type="text/css" rel="stylesheet" href="styles.css">
-    <script src="aes-js.min.js"></script>
+    <!-- Crypto libraries - defer loading to not block render -->
+    <script defer src="aes-js.min.js"></script>
+    <script defer src="noble-crypto.min.js"></script>
 </head>
 <body>
 <div id="composeApplication"></div>
 <script type="module">
-    const [secp256k1Module, hashesModule, hmacModule] = await Promise.all([
-        import('https://esm.sh/@noble/secp256k1@1.7.1'),
-        import('https://esm.sh/@noble/hashes@1.4.0/sha256'),
-        import('https://esm.sh/@noble/hashes@1.4.0/hmac')
-    ]);
-    
-    secp256k1Module.utils.sha256Sync = (...messages) => {
-        const data = secp256k1Module.utils.concatBytes(...messages);
-        return hashesModule.sha256(data);
-    };
-    
-    secp256k1Module.utils.hmacSha256Sync = (key, ...messages) => {
-        const data = secp256k1Module.utils.concatBytes(...messages);
-        return hmacModule.hmac(hashesModule.sha256, key, data);
-    };
-    
-    globalThis.nobleSecp256k1 = secp256k1Module;
-    globalThis.nobleSha256 = hashesModule.sha256;
-    globalThis.nobleHmac = hmacModule.hmac;
-    
+    // Wait for deferred scripts to load
+    await new Promise(resolve => {
+        if (globalThis.nobleSecp256k1) resolve();
+        else window.addEventListener('load', resolve);
+    });
+
     // ============================================
     // Pure JS ChaCha20 Implementation
     // ============================================
@@ -210,40 +198,39 @@
     globalThis.hkdfExtract = function(salt, ikm) {
         const saltArr = new Uint8Array(salt);
         const ikmArr = new Uint8Array(ikm);
-        return hmacModule.hmac(hashesModule.sha256, saltArr, ikmArr);
+        return nobleHmac(nobleSha256, saltArr, ikmArr);
     };
-    
+
     globalThis.hkdfExpand = function(prk, info, length) {
         const prkArr = new Uint8Array(prk);
         const infoArr = new Uint8Array(info);
-        
+
         const hashLen = 32;
         const n = Math.ceil(length / hashLen);
         const okm = new Uint8Array(n * hashLen);
-        
+
         let prev = new Uint8Array(0);
         for (let i = 0; i < n; i++) {
             const input = new Uint8Array(prev.length + infoArr.length + 1);
             input.set(prev, 0);
             input.set(infoArr, prev.length);
             input[prev.length + infoArr.length] = i + 1;
-            
-            prev = hmacModule.hmac(hashesModule.sha256, prkArr, input);
+
+            prev = nobleHmac(nobleSha256, prkArr, input);
             okm.set(prev, i * hashLen);
         }
-        
+
         return new Uint8Array(okm.slice(0, length));
     };
-    
+
     globalThis.hmacSha256 = function(key, data) {
         const keyArr = new Uint8Array(key);
         const dataArr = new Uint8Array(data);
-        return hmacModule.hmac(hashesModule.sha256, keyArr, dataArr);
+        return nobleHmac(nobleSha256, keyArr, dataArr);
     };
-    
-    console.log('✅ Noble modules loaded and configured');
+
     console.log('✅ NIP-04 crypto helpers ready');
-    console.log('✅ NIP-44 crypto helpers ready (with pure JS ChaCha20)');
+    console.log('✅ NIP-44 crypto helpers ready');
     
     const script = document.createElement('script');
     script.src = 'composeApp.js';
