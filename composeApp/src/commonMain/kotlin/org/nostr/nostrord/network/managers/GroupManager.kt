@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.network.GroupMembers
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.outbox.EventDeduplicator
@@ -55,6 +56,10 @@ class GroupManager(
     // Reactions: messageId -> (emoji -> ReactionInfo)
     private val _reactions = MutableStateFlow<Map<String, Map<String, ReactionInfo>>>(emptyMap())
     val reactions: StateFlow<Map<String, Map<String, ReactionInfo>>> = _reactions.asStateFlow()
+
+    // Group members from kind 39002: groupId -> list of member pubkeys
+    private val _groupMembers = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val groupMembers: StateFlow<Map<String, List<String>>> = _groupMembers.asStateFlow()
 
     companion object {
         const val PAGE_SIZE = 50
@@ -347,6 +352,31 @@ class GroupManager(
     }
 
     /**
+     * Handle incoming group members (kind 39002)
+     * Returns list of member pubkeys that need metadata fetching
+     */
+    fun handleGroupMembers(members: GroupMembers): List<String> {
+        _groupMembers.value = _groupMembers.value + (members.groupId to members.members)
+        return members.members
+    }
+
+    /**
+     * Request group members (kind 39002)
+     */
+    suspend fun requestGroupMembers(groupId: String): Boolean {
+        val currentClient = connectionManager.getPrimaryClient() ?: return false
+        currentClient.requestGroupMembers(groupId)
+        return true
+    }
+
+    /**
+     * Get members for a specific group
+     */
+    fun getMembersForGroup(groupId: String): List<String> {
+        return _groupMembers.value[groupId] ?: emptyList()
+    }
+
+    /**
      * Handle incoming message
      * Returns the pubkey of the message sender if metadata should be fetched
      */
@@ -442,6 +472,7 @@ class GroupManager(
         _isLoadingMore.value = emptyMap()
         _hasMoreMessages.value = emptyMap()
         _reactions.value = emptyMap()
+        _groupMembers.value = emptyMap()
         paginationSubscriptions.clear()
         subscriptionMessageCounts.clear()
         // Cancel all pending timeout jobs

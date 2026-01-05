@@ -50,12 +50,16 @@ fun GroupScreen(
     val groups by NostrRepository.groups.collectAsState()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
     val allReactions by NostrRepository.reactions.collectAsState()
+    val allGroupMembers by NostrRepository.groupMembers.collectAsState()
     val currentUserPubkey = NostrRepository.getPublicKey()
 
     // Get current group metadata
     val currentGroupMetadata = remember(groups, groupId) {
         groups.find { it.id == groupId }
     }
+
+    // Get members from kind 39002 for this group
+    val kind39002Members = allGroupMembers[groupId] ?: emptyList()
 
     // Pagination state
     val isLoadingMoreMap by NostrRepository.isLoadingMore.collectAsState()
@@ -70,11 +74,16 @@ fun GroupScreen(
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     val isJoined = joinedGroups.contains(groupId)
 
-    // Derive group members from all message pubkeys
-    val groupMembers = remember(allGroupMessages, userMetadata) {
-        allGroupMessages
-            .map { it.pubkey }
-            .distinct()
+    // Use kind 39002 members if available, otherwise fall back to message-based members
+    val groupMembers = remember(kind39002Members, allGroupMessages, userMetadata) {
+        // Prefer kind 39002 members, fall back to message pubkeys
+        val memberPubkeys = if (kind39002Members.isNotEmpty()) {
+            kind39002Members
+        } else {
+            allGroupMessages.map { it.pubkey }.distinct()
+        }
+
+        memberPubkeys
             .map { pubkey ->
                 val metadata = userMetadata[pubkey]
                 MemberInfo(

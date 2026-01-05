@@ -50,6 +50,7 @@ class NostrRepository(
     val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
+    val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
 
     // Expose auth state
     val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
@@ -250,6 +251,18 @@ class NostrRepository(
             connect()
         }
         groupManager.requestGroupMessages(groupId, channel)
+        // Also request group members (kind 39002) when loading a group
+        groupManager.requestGroupMembers(groupId)
+    }
+
+    /**
+     * Request group members (kind 39002) for a specific group.
+     */
+    suspend fun requestGroupMembers(groupId: String) {
+        if (connectionManager.getPrimaryClient() == null) {
+            connect()
+        }
+        groupManager.requestGroupMembers(groupId)
     }
 
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
@@ -468,6 +481,20 @@ class NostrRepository(
             return
         }
 
+        // Handle group members (kind 39002)
+        val groupMembers = client.parseGroupMembers(msg)
+        if (groupMembers != null) {
+            val memberPubkeys = groupManager.handleGroupMembers(groupMembers)
+            // Fetch metadata for all members
+            val pubkeysNeedingMetadata = memberPubkeys.filter { !metadataManager.hasMetadata(it) }
+            if (pubkeysNeedingMetadata.isNotEmpty()) {
+                scope.launch {
+                    requestUserMetadata(pubkeysNeedingMetadata.toSet())
+                }
+            }
+            return
+        }
+
         // Handle user metadata
         val userMetadata = client.parseUserMetadata(msg)
         if (userMetadata != null) {
@@ -590,6 +617,7 @@ class NostrRepository(
         val isLoadingMore get() = instance.isLoadingMore
         val hasMoreMessages get() = instance.hasMoreMessages
         val reactions get() = instance.reactions
+        val groupMembers get() = instance.groupMembers
         val isLoggedIn get() = instance.isLoggedIn
         val isBunkerConnected get() = instance.isBunkerConnected
         val authUrl get() = instance.authUrl
@@ -618,6 +646,7 @@ class NostrRepository(
         suspend fun leaveGroup(groupId: String, reason: String? = null) = instance.leaveGroup(groupId, reason)
         fun isGroupJoined(groupId: String) = instance.isGroupJoined(groupId)
         suspend fun requestGroupMessages(groupId: String, channel: String? = null) = instance.requestGroupMessages(groupId, channel)
+        suspend fun requestGroupMembers(groupId: String) = instance.requestGroupMembers(groupId)
         suspend fun loadMoreMessages(groupId: String, channel: String? = null) = instance.loadMoreMessages(groupId, channel)
         suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()) =
             instance.sendMessage(groupId, content, channel, mentions)

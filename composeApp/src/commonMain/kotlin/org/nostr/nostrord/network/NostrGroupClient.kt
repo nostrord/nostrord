@@ -19,6 +19,16 @@ data class GroupMetadata(
     val isOpen: Boolean
 )
 
+/**
+ * Group members list from kind 39002 event.
+ * Contains all pubkeys that are members of the group.
+ */
+@Immutable
+data class GroupMembers(
+    val groupId: String,
+    val members: List<String> // List of pubkeys
+)
+
 @Immutable
 data class UserMetadata(
     val pubkey: String,
@@ -226,6 +236,56 @@ suspend fun requestGroupMessages(
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Parse kind 39002 group members event.
+     * Returns GroupMembers containing all member pubkeys from "p" tags.
+     */
+    fun parseGroupMembers(message: String): GroupMembers? {
+        return try {
+            val arr = json.parseToJsonElement(message).jsonArray
+            if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
+            val event = arr[2].jsonObject
+            if (event["kind"]?.jsonPrimitive?.int != 39002) return null
+
+            val tags = event["tags"]?.jsonArray ?: return null
+
+            // Get group ID from "d" tag
+            val groupId = tags
+                .firstOrNull { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "d" }
+                ?.jsonArray?.get(1)?.jsonPrimitive?.content
+                ?: return null
+
+            // Extract all pubkeys from "p" tags
+            val members = tags
+                .filter { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "p" }
+                .map { it.jsonArray[1].jsonPrimitive.content }
+
+            GroupMembers(
+                groupId = groupId,
+                members = members
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Request group members (kind 39002) for a specific group.
+     */
+    suspend fun requestGroupMembers(groupId: String): String {
+        val subId = "members_${epochMillis()}"
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(39002) }
+                put("#d", buildJsonArray { add(groupId) })
+            })
+        }
+        sendJson(req)
+        return subId
     }
 
     fun parseUserMetadata(message: String): Pair<String, UserMetadata>? {
