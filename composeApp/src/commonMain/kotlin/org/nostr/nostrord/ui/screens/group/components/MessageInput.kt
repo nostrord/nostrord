@@ -66,6 +66,13 @@ fun MessageInput(
     var mentionSelectedIndex by remember { mutableStateOf(0) }
     val focusRequester = remember { FocusRequester() }
 
+    // Auto-focus TextField when entering or switching groups (only if joined)
+    LaunchedEffect(isJoined, groupName) {
+        if (isJoined) {
+            focusRequester.requestFocus()
+        }
+    }
+
     // Local TextFieldValue state for cursor position control
     var textFieldValue by remember { mutableStateOf(TextFieldValue(messageInput)) }
 
