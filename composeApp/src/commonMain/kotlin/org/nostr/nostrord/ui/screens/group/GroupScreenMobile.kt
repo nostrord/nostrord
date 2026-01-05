@@ -28,6 +28,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.ConnectionStatusBanner
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
@@ -66,6 +67,8 @@ fun GroupScreenMobile(
     connectionState: ConnectionManager.ConnectionState,
     isJoined: Boolean,
     userMetadata: Map<String, UserMetadata>,
+    reactions: Map<String, Map<String, GroupManager.ReactionInfo>> = emptyMap(),
+    currentUserPubkey: String? = null,
     messageInput: String,
     onMessageInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
@@ -158,6 +161,8 @@ fun GroupScreenMobile(
                         groupId = groupId,
                         chatItems = chatItems,
                         userMetadata = userMetadata,
+                        reactions = reactions,
+                        currentUserPubkey = currentUserPubkey,
                         isJoined = isJoined,
                         isLoadingMore = isLoadingMore,
                         hasMoreMessages = hasMoreMessages,

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.MessageItem
 import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
@@ -51,6 +52,8 @@ fun MessagesList(
     groupId: String,
     chatItems: List<ChatItem>,
     userMetadata: Map<String, UserMetadata>,
+    reactions: Map<String, Map<String, GroupManager.ReactionInfo>> = emptyMap(),
+    currentUserPubkey: String? = null,
     isJoined: Boolean,
     isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
@@ -58,7 +61,8 @@ fun MessagesList(
     onLoadMore: () -> Unit = {},
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
-    onUsernameClick: (String) -> Unit = {}
+    onUsernameClick: (String) -> Unit = {},
+    onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> }
 ) {
     // Stable callback references
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -207,7 +211,12 @@ fun MessagesList(
                                         metadata = userMetadata[item.message.pubkey],
                                         isFirstInGroup = item.isFirstInGroup,
                                         isLastInGroup = item.isLastInGroup,
-                                        onUsernameClick = currentOnUsernameClick
+                                        reactions = reactions[item.message.id] ?: emptyMap(),
+                                        currentUserPubkey = currentUserPubkey,
+                                        onUsernameClick = currentOnUsernameClick,
+                                        onReactionBadgeClick = { emoji ->
+                                            onReactionBadgeClick(item.message.id, emoji)
+                                        }
                                     )
                                 }
                             }

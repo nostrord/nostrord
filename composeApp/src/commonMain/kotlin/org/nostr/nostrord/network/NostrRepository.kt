@@ -49,6 +49,7 @@ class NostrRepository(
     val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
     val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
+    val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
 
     // Expose auth state
     val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
@@ -447,6 +448,18 @@ class NostrRepository(
             return
         }
 
+        // Handle reactions (kind 7)
+        val reaction = client.parseReaction(msg)
+        if (reaction != null) {
+            val reactorPubkey = groupManager.handleReaction(reaction)
+            if (reactorPubkey != null && !metadataManager.hasMetadata(reactorPubkey)) {
+                scope.launch {
+                    requestUserMetadata(setOf(reactorPubkey))
+                }
+            }
+            return
+        }
+
         // Handle group messages
         val message = client.parseMessage(msg)
         if (message != null) {
@@ -548,6 +561,7 @@ class NostrRepository(
         val joinedGroups get() = instance.joinedGroups
         val isLoadingMore get() = instance.isLoadingMore
         val hasMoreMessages get() = instance.hasMoreMessages
+        val reactions get() = instance.reactions
         val isLoggedIn get() = instance.isLoggedIn
         val isBunkerConnected get() = instance.isBunkerConnected
         val authUrl get() = instance.authUrl

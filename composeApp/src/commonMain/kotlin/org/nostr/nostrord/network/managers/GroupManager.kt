@@ -44,6 +44,18 @@ class GroupManager(
     private val _hasMoreMessages = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val hasMoreMessages: StateFlow<Map<String, Boolean>> = _hasMoreMessages.asStateFlow()
 
+    /**
+     * Info about reactions for a specific emoji on a message.
+     */
+    data class ReactionInfo(
+        val emojiUrl: String?, // URL for custom emoji (NIP-30), null for standard emojis
+        val reactors: List<String> // List of pubkeys who reacted with this emoji
+    )
+
+    // Reactions: messageId -> (emoji -> ReactionInfo)
+    private val _reactions = MutableStateFlow<Map<String, Map<String, ReactionInfo>>>(emptyMap())
+    val reactions: StateFlow<Map<String, Map<String, ReactionInfo>>> = _reactions.asStateFlow()
+
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
@@ -367,6 +379,41 @@ class GroupManager(
     }
 
     /**
+     * Handle incoming reaction (kind 7)
+     * Returns the pubkey of the reactor if metadata should be fetched
+     */
+    fun handleReaction(reaction: NostrGroupClient.NostrReaction): String? {
+        val messageId = reaction.targetEventId
+        if (messageId.isBlank()) return null
+
+        // Deduplicate reactions by id
+        if (!eventDeduplicator.tryAddSync(reaction.id)) {
+            return null
+        }
+
+        val currentReactions = _reactions.value[messageId] ?: emptyMap()
+        val emoji = reaction.emoji
+        val reactorPubkey = reaction.pubkey
+
+        // Get current reaction info for this emoji
+        val currentInfo = currentReactions[emoji]
+        val currentReactors = currentInfo?.reactors ?: emptyList()
+
+        if (reactorPubkey in currentReactors) return null // Already reacted with this emoji
+
+        // Update with new reactor, preserving or updating the emoji URL
+        val updatedInfo = ReactionInfo(
+            emojiUrl = reaction.emojiUrl ?: currentInfo?.emojiUrl, // Keep existing URL if new one is null
+            reactors = currentReactors + reactorPubkey
+        )
+        val updatedEmojiMap = currentReactions + (emoji to updatedInfo)
+
+        _reactions.value = _reactions.value + (messageId to updatedEmojiMap)
+
+        return reactorPubkey
+    }
+
+    /**
      * Extract group ID from a raw message
      */
     private fun extractGroupIdFromMessage(msg: String): String? {
@@ -394,6 +441,7 @@ class GroupManager(
         _joinedGroups.value = emptySet()
         _isLoadingMore.value = emptyMap()
         _hasMoreMessages.value = emptyMap()
+        _reactions.value = emptyMap()
         paginationSubscriptions.clear()
         subscriptionMessageCounts.clear()
         // Cancel all pending timeout jobs

@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordAnimation
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -73,8 +74,11 @@ fun MessageItem(
     isLastInGroup: Boolean = true,
     isAuthor: Boolean = false,
     isAdmin: Boolean = false,
+    reactions: Map<String, GroupManager.ReactionInfo> = emptyMap(),
+    currentUserPubkey: String? = null,
     onReplyClick: () -> Unit = {},
     onReactionClick: () -> Unit = {},
+    onReactionBadgeClick: (emoji: String) -> Unit = {},
     onMoreClick: () -> Unit = {},
     onCopyText: () -> Unit = {},
     onCopyLink: () -> Unit = {},
@@ -198,6 +202,15 @@ fun MessageItem(
                     tags = message.tags,
                     onMentionClick = currentOnUsernameClick
                 )
+
+                // Reaction badges
+                if (reactions.isNotEmpty()) {
+                    ReactionBadges(
+                        reactions = reactions,
+                        currentUserPubkey = currentUserPubkey,
+                        onReactionClick = onReactionBadgeClick
+                    )
+                }
             }
         }
 

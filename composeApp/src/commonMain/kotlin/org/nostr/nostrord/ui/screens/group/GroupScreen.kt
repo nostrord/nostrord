@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
@@ -48,6 +49,8 @@ fun GroupScreen(
     val joinedGroups by NostrRepository.joinedGroups.collectAsState()
     val groups by NostrRepository.groups.collectAsState()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val allReactions by NostrRepository.reactions.collectAsState()
+    val currentUserPubkey = NostrRepository.getPublicKey()
 
     // Get current group metadata
     val currentGroupMetadata = remember(groups, groupId) {
@@ -186,6 +189,8 @@ fun GroupScreen(
                 connectionState = connectionState,
                 isJoined = isJoined,
                 userMetadata = userMetadata,
+                reactions = allReactions,
+                currentUserPubkey = currentUserPubkey,
                 messageInput = messageInput,
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
@@ -229,6 +234,8 @@ fun GroupScreen(
                 connectionState = connectionState,
                 isJoined = isJoined,
                 userMetadata = userMetadata,
+                reactions = allReactions,
+                currentUserPubkey = currentUserPubkey,
                 messageInput = messageInput,
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {

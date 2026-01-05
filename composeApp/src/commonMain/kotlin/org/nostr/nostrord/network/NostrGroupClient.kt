@@ -164,6 +164,7 @@ suspend fun requestGroupMessages(
         add(subId)
         add(buildJsonObject {
             put("kinds", buildJsonArray {
+                add(7)      // Reactions
                 add(9)      // Messages
                 add(9021)   // Joins
                 add(9022)   // Leaves
@@ -263,6 +264,16 @@ suspend fun requestGroupMessages(
         val tags: List<List<String>> = emptyList()
     )
 
+    @Immutable
+    data class NostrReaction(
+        val id: String,
+        val pubkey: String,
+        val emoji: String,
+        val emojiUrl: String? = null, // URL for custom emoji (NIP-30)
+        val targetEventId: String,
+        val createdAt: Long
+    )
+
     fun parseMessage(message: String): NostrMessage? {
         return try {
             val arr = json.parseToJsonElement(message).jsonArray
@@ -281,6 +292,50 @@ suspend fun requestGroupMessages(
                 createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L,
                 kind = event["kind"]?.jsonPrimitive?.int ?: 0,
                 tags = tags  // ADICIONAR ESTA LINHA
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Parse a kind 7 reaction event
+     * Returns NostrReaction if valid, null otherwise
+     */
+    fun parseReaction(message: String): NostrReaction? {
+        return try {
+            val arr = json.parseToJsonElement(message).jsonArray
+            if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
+            val event = arr[2].jsonObject
+
+            // Only parse kind 7 (reaction) events
+            val kind = event["kind"]?.jsonPrimitive?.int ?: return null
+            if (kind != 7) return null
+
+            val tags = event["tags"]?.jsonArray?.map { tag ->
+                tag.jsonArray.map { it.jsonPrimitive.content }
+            } ?: emptyList()
+
+            // Find the "e" tag pointing to the target event
+            val targetEventId = tags.firstOrNull { it.size >= 2 && it[0] == "e" }?.get(1) ?: return null
+
+            // The emoji is in the content field (commonly "+", "-", or an actual emoji like ":LUL:")
+            val emoji = event["content"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: "+"
+
+            // Extract custom emoji URL from NIP-30 emoji tag: ["emoji", "shortcode", "url"]
+            // The shortcode in the tag should match the content without colons
+            val shortcode = emoji.trim(':')
+            val emojiUrl = tags.firstOrNull { tag ->
+                tag.size >= 3 && tag[0] == "emoji" && tag[1] == shortcode
+            }?.getOrNull(2)
+
+            NostrReaction(
+                id = event["id"]?.jsonPrimitive?.content ?: return null,
+                pubkey = event["pubkey"]?.jsonPrimitive?.content ?: return null,
+                emoji = emoji,
+                emojiUrl = emojiUrl,
+                targetEventId = targetEventId,
+                createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L
             )
         } catch (e: Exception) {
             null
