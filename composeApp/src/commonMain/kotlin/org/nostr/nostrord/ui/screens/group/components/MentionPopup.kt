@@ -25,14 +25,12 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
-@Composable
-fun MentionPopup(
-    members: List<MemberInfo>,
-    query: String,
-    onMemberSelect: (MemberInfo) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val filteredMembers = if (query.isEmpty()) {
+/**
+ * Get filtered members based on query for mention popup.
+ * Used by MessageInput to know the count for keyboard navigation.
+ */
+fun getFilteredMembers(members: List<MemberInfo>, query: String): List<MemberInfo> {
+    return if (query.isEmpty()) {
         members.take(8)
     } else {
         members.filter { member ->
@@ -40,10 +38,24 @@ fun MentionPopup(
             member.pubkey.contains(query, ignoreCase = true)
         }.take(8)
     }
+}
+
+@Composable
+fun MentionPopup(
+    members: List<MemberInfo>,
+    query: String,
+    selectedIndex: Int = 0,
+    onMemberSelect: (MemberInfo) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val filteredMembers = getFilteredMembers(members, query)
 
     if (filteredMembers.isEmpty()) {
         return
     }
+
+    // Clamp selected index to valid range
+    val safeSelectedIndex = selectedIndex.coerceIn(0, filteredMembers.size - 1)
 
     Surface(
         modifier = modifier
@@ -80,6 +92,7 @@ fun MentionPopup(
                 itemsIndexed(filteredMembers) { index, member ->
                     MentionItem(
                         member = member,
+                        isSelected = index == safeSelectedIndex,
                         onClick = { onMemberSelect(member) }
                     )
                 }
@@ -91,14 +104,17 @@ fun MentionPopup(
 @Composable
 private fun MentionItem(
     member: MemberInfo,
+    isSelected: Boolean = false,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
 
+    // Keyboard selection (isSelected) takes precedence, hover provides secondary highlight
     val backgroundColor = when {
         isPressed -> NostrordColors.SurfaceVariant
+        isSelected -> NostrordColors.Primary.copy(alpha = 0.2f) // Distinct selection color
         isHovered -> NostrordColors.HoverBackground
         else -> Color.Transparent
     }

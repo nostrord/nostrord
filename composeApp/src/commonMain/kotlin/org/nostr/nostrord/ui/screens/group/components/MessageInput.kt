@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -8,13 +9,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -52,60 +63,106 @@ fun MessageInput(
     var showMentionPopup by remember { mutableStateOf(false) }
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var mentionQuery by remember { mutableStateOf("") }
+    var mentionSelectedIndex by remember { mutableStateOf(0) }
+    val focusRequester = remember { FocusRequester() }
 
-    // Track text changes to detect "@" trigger
-    fun handleTextChange(newText: String) {
-        val oldText = messageInput
+    // Local TextFieldValue state for cursor position control
+    var textFieldValue by remember { mutableStateOf(TextFieldValue(messageInput)) }
 
-        // Detect if "@" was just typed
-        if (newText.length > oldText.length) {
-            val addedChar = newText.getOrNull(newText.length - 1)
-            if (addedChar == '@') {
-                // Check if it's at the start or after a space
-                val prevChar = newText.getOrNull(newText.length - 2)
-                if (prevChar == null || prevChar.isWhitespace()) {
-                    showMentionPopup = true
-                    mentionStartIndex = newText.length - 1
-                    mentionQuery = ""
-                }
-            } else if (showMentionPopup && mentionStartIndex >= 0) {
-                // Update the query as user types after "@"
-                val queryPart = newText.substring(mentionStartIndex + 1)
-                // Stop if space is typed
-                if (queryPart.contains(' ')) {
-                    showMentionPopup = false
-                    mentionStartIndex = -1
-                    mentionQuery = ""
-                } else {
-                    mentionQuery = queryPart
-                }
-            }
-        } else if (newText.length < oldText.length && showMentionPopup) {
-            // Text was deleted
-            if (mentionStartIndex >= newText.length) {
-                // "@" was deleted
-                showMentionPopup = false
-                mentionStartIndex = -1
-                mentionQuery = ""
-            } else {
-                // Update query
-                mentionQuery = newText.substring(mentionStartIndex + 1)
-            }
+    // Sync with external messageInput when it changes (e.g., cleared after send)
+    LaunchedEffect(messageInput) {
+        if (textFieldValue.text != messageInput) {
+            textFieldValue = TextFieldValue(messageInput, TextRange(messageInput.length))
+        }
+    }
+
+    /**
+     * Finds the mention context at the given cursor position.
+     * Returns the start index of '@' if cursor is in a valid mention context, -1 otherwise.
+     * A valid mention context is: cursor is after '@' with no space between '@' and cursor,
+     * and '@' is at start of text or preceded by whitespace.
+     */
+    fun findMentionContext(text: String, cursorPosition: Int): Pair<Int, String> {
+        if (cursorPosition <= 0 || cursorPosition > text.length) {
+            return Pair(-1, "")
         }
 
-        onMessageInputChange(newText)
+        // Search backwards from cursor to find '@'
+        val textBeforeCursor = text.substring(0, cursorPosition)
+        val lastAtIndex = textBeforeCursor.lastIndexOf('@')
+
+        if (lastAtIndex == -1) {
+            return Pair(-1, "")
+        }
+
+        // Check if '@' is at start or after whitespace
+        val charBeforeAt = text.getOrNull(lastAtIndex - 1)
+        if (charBeforeAt != null && !charBeforeAt.isWhitespace()) {
+            return Pair(-1, "")
+        }
+
+        // Get the text between '@' and cursor
+        val queryPart = text.substring(lastAtIndex + 1, cursorPosition)
+
+        // If there's a space in the query, it's not a valid mention context
+        if (queryPart.contains(' ') || queryPart.contains('\n')) {
+            return Pair(-1, "")
+        }
+
+        return Pair(lastAtIndex, queryPart)
+    }
+
+    /**
+     * Updates mention popup state based on current cursor position.
+     * Called on every text/cursor change to handle typing, backspace, clicks, arrow keys, etc.
+     */
+    fun updateMentionState(value: TextFieldValue) {
+        val cursorPosition = value.selection.start
+        val (atIndex, query) = findMentionContext(value.text, cursorPosition)
+
+        if (atIndex >= 0) {
+            val queryChanged = mentionQuery != query
+            showMentionPopup = true
+            mentionStartIndex = atIndex
+            mentionQuery = query
+            if (queryChanged) {
+                mentionSelectedIndex = 0 // Reset selection when query changes
+            }
+        } else {
+            showMentionPopup = false
+            mentionStartIndex = -1
+            mentionQuery = ""
+        }
+    }
+
+    // Handle text field value changes (text or cursor position)
+    fun handleTextFieldValueChange(newValue: TextFieldValue) {
+        textFieldValue = newValue
+        onMessageInputChange(newValue.text)
+        updateMentionState(newValue)
     }
 
     fun handleMemberSelect(member: MemberInfo) {
-        // Replace "@query" with "@displayName "
-        val beforeMention = messageInput.substring(0, mentionStartIndex)
-        val afterMention = if (mentionStartIndex + 1 + mentionQuery.length < messageInput.length) {
-            messageInput.substring(mentionStartIndex + 1 + mentionQuery.length)
+        // Replace "@query" with "@displayName " (exactly one space after)
+        val currentText = textFieldValue.text
+        val beforeMention = currentText.substring(0, mentionStartIndex)
+        val afterMention = if (mentionStartIndex + 1 + mentionQuery.length < currentText.length) {
+            currentText.substring(mentionStartIndex + 1 + mentionQuery.length).trimStart()
         } else {
             ""
         }
-        val newText = "$beforeMention@${member.displayName} $afterMention"
+        val mentionPart = "@${member.displayName} "
+        val newText = if (afterMention.isEmpty()) {
+            "$beforeMention$mentionPart"
+        } else {
+            "$beforeMention$mentionPart$afterMention"
+        }
 
+        // Calculate cursor position: right after the mention and space
+        val cursorPosition = beforeMention.length + mentionPart.length
+
+        // Update with new text and cursor position
+        textFieldValue = TextFieldValue(newText, TextRange(cursorPosition))
         onMessageInputChange(newText)
 
         // Add displayName -> pubkey mapping
@@ -116,6 +173,9 @@ fun MessageInput(
         showMentionPopup = false
         mentionStartIndex = -1
         mentionQuery = ""
+
+        // Focus the input field after selection
+        focusRequester.requestFocus()
     }
 
     if (!isJoined) {
@@ -145,12 +205,12 @@ fun MessageInput(
             }
         }
     } else {
-        val density = LocalDensity.current
         val textFieldInteractionSource = remember { MutableInteractionSource() }
 
         Box(
             modifier = Modifier.fillMaxWidth()
         ) {
+            // Input row
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -159,8 +219,8 @@ fun MessageInput(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextField(
-                    value = messageInput,
-                    onValueChange = { handleTextChange(it) },
+                    value = textFieldValue,
+                    onValueChange = { handleTextFieldValueChange(it) },
                     interactionSource = textFieldInteractionSource,
                     placeholder = {
                         Text(
@@ -172,7 +232,14 @@ fun MessageInput(
                     modifier = Modifier
                         .weight(1f)
                         .clip(NostrordShapes.inputShape)
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { focusState ->
+                            if (!focusState.isFocused) {
+                                showMentionPopup = false
+                            }
+                        }
                         .onPreviewKeyEvent { event ->
+                            val filteredMembers = getFilteredMembers(groupMembers, mentionQuery)
                             when {
                                 // Escape closes the mention popup
                                 event.type == KeyEventType.KeyDown &&
@@ -183,14 +250,50 @@ fun MessageInput(
                                     mentionQuery = ""
                                     true
                                 }
-                                // Enter (without Shift) sends the message
+                                // Arrow Up - navigate up in mention popup
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.DirectionUp &&
+                                showMentionPopup &&
+                                filteredMembers.isNotEmpty() -> {
+                                    mentionSelectedIndex = (mentionSelectedIndex - 1).coerceAtLeast(0)
+                                    true
+                                }
+                                // Arrow Down - navigate down in mention popup
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.DirectionDown &&
+                                showMentionPopup &&
+                                filteredMembers.isNotEmpty() -> {
+                                    mentionSelectedIndex = (mentionSelectedIndex + 1).coerceAtMost(filteredMembers.size - 1)
+                                    true
+                                }
+                                // Enter selects mention if popup is open, otherwise sends message
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.Enter &&
                                 !event.isShiftPressed -> {
-                                    if (messageInput.isNotBlank()) {
+                                    if (showMentionPopup && filteredMembers.isNotEmpty()) {
+                                        // Select the highlighted member
+                                        val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
+                                        if (selectedMember != null) {
+                                            handleMemberSelect(selectedMember)
+                                        }
+                                        true
+                                    } else if (textFieldValue.text.isNotBlank()) {
                                         onSendMessage()
+                                        true
+                                    } else {
+                                        true // Consume event to prevent newline
                                     }
-                                    true // Consume event to prevent newline
+                                }
+                                // Tab also selects mention if popup is open
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.Tab &&
+                                showMentionPopup &&
+                                filteredMembers.isNotEmpty() -> {
+                                    val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
+                                    if (selectedMember != null) {
+                                        handleMemberSelect(selectedMember)
+                                    }
+                                    true
                                 }
                                 // Shift+Enter allows default behavior (newline)
                                 else -> false
@@ -209,7 +312,11 @@ fun MessageInput(
                     textStyle = NostrordTypography.Input,
                     shape = NostrordShapes.inputShape,
                     singleLine = false,
-                    maxLines = 4
+                    maxLines = 4,
+                    visualTransformation = MentionVisualTransformation(
+                        mentionedNames = mentions.keys,
+                        mentionColor = NostrordColors.MentionText
+                    )
                 )
 
                 // Show loading spinner only when sending (Enter to send, no visible button)
@@ -224,30 +331,84 @@ fun MessageInput(
                 }
             }
 
-            // Floating mention popup above the input
+            // Mention popup floating above the input
             if (showMentionPopup && groupMembers.isNotEmpty()) {
-                val popupOffsetY = with(density) { (-Spacing.sm).roundToPx() }
+                val density = LocalDensity.current
+                val filteredCount = getFilteredMembers(groupMembers, mentionQuery).size
+                // Calculate popup height in dp: header (~28dp) + divider + items (each ~36dp), max 8 items
+                val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
+                val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
+                val offsetXPx = with(density) { Spacing.lg.roundToPx() }
 
+                // Fullscreen scrim to capture clicks outside popup and TextField
                 Popup(
-                    alignment = Alignment.BottomStart,
+                    alignment = Alignment.Center,
+                    onDismissRequest = { showMentionPopup = false }
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Transparent)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { showMentionPopup = false }
+                            )
+                    )
+                }
+
+                // The actual mention popup
+                Popup(
+                    alignment = Alignment.TopStart,
                     offset = IntOffset(
-                        x = with(density) { Spacing.inputPadding.roundToPx() },
-                        y = popupOffsetY
+                        x = offsetXPx,
+                        y = -popupHeightPx
                     ),
-                    onDismissRequest = {
-                        showMentionPopup = false
-                        mentionStartIndex = -1
-                        mentionQuery = ""
-                    },
-                    properties = PopupProperties(focusable = false)
+                    onDismissRequest = { showMentionPopup = false },
+                    properties = PopupProperties(
+                        focusable = false,
+                        dismissOnClickOutside = false,
+                        dismissOnBackPress = true
+                    )
                 ) {
                     MentionPopup(
                         members = groupMembers,
                         query = mentionQuery,
+                        selectedIndex = mentionSelectedIndex,
                         onMemberSelect = { handleMemberSelect(it) }
                     )
                 }
             }
         }
+    }
+}
+
+/**
+ * Visual transformation that highlights @mentions with a distinct color.
+ */
+private class MentionVisualTransformation(
+    private val mentionedNames: Set<String>,
+    private val mentionColor: Color
+) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val builder = AnnotatedString.Builder(text)
+
+        // Find and highlight @mentions
+        mentionedNames.forEach { displayName ->
+            val mentionText = "@$displayName"
+            var startIndex = 0
+            while (true) {
+                val index = text.text.indexOf(mentionText, startIndex)
+                if (index == -1) break
+                builder.addStyle(
+                    SpanStyle(color = mentionColor),
+                    index,
+                    index + mentionText.length
+                )
+                startIndex = index + mentionText.length
+            }
+        }
+
+        return TransformedText(builder.toAnnotatedString(), OffsetMapping.Identity)
     }
 }
