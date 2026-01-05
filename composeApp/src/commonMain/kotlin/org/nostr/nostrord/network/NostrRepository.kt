@@ -377,6 +377,18 @@ class NostrRepository(
         }
     }
 
+    /**
+     * Request a quoted event from the primary relay.
+     * Used for q tags in group messages where the quoted event is on the same relay.
+     */
+    suspend fun requestQuotedEvent(eventId: String) {
+        // Skip if already cached
+        if (metadataManager.hasCachedEvent(eventId)) return
+
+        val client = connectionManager.getPrimaryClient() ?: return
+        client.requestEventById(eventId)
+    }
+
     // Outbox operations
     suspend fun requestRelayLists(pubkeys: Set<String>) {
         outboxManager.requestRelayLists(pubkeys) { msg, client ->
@@ -430,6 +442,22 @@ class NostrRepository(
                 val subId = arr[1].jsonPrimitive.content
                 groupManager.handleEose(subId)
                 return
+            }
+
+            // Handle event_* subscriptions (fetched events by ID for quotes)
+            if (arr.size >= 3 && arr[0].jsonPrimitive.content == "EVENT") {
+                val subId = arr[1].jsonPrimitive.content
+                if (subId.startsWith("event_")) {
+                    val event = arr[2].jsonObject
+                    metadataManager.parseAndCacheEvent(event)?.let { cachedEvent ->
+                        if (!metadataManager.hasMetadata(cachedEvent.pubkey)) {
+                            scope.launch {
+                                requestUserMetadata(setOf(cachedEvent.pubkey))
+                            }
+                        }
+                    }
+                    return
+                }
             }
         } catch (_: Exception) {}
 
@@ -608,6 +636,7 @@ class NostrRepository(
         ) = instance.updateProfileMetadata(displayName, name, about, picture, nip05)
         suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null) =
             instance.requestEventById(eventId, relayHints, author)
+        suspend fun requestQuotedEvent(eventId: String) = instance.requestQuotedEvent(eventId)
         suspend fun requestRelayLists(pubkeys: Set<String>) = instance.requestRelayLists(pubkeys)
         fun getRelayListForPubkey(pubkey: String) = instance.getRelayListForPubkey(pubkey)
         fun selectOutboxRelays(authors: List<String> = emptyList(), taggedPubkeys: List<String> = emptyList(), explicitRelays: List<String> = emptyList()) =

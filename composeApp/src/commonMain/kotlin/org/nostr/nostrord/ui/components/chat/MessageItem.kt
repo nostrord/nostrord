@@ -70,6 +70,8 @@ import org.nostr.nostrord.utils.formatTime
 fun MessageItem(
     message: NostrGroupClient.NostrMessage,
     metadata: UserMetadata? = null,
+    allMessages: List<NostrGroupClient.NostrMessage> = emptyList(),
+    allUserMetadata: Map<String, UserMetadata> = emptyMap(),
     isFirstInGroup: Boolean = true,
     isLastInGroup: Boolean = true,
     isAuthor: Boolean = false,
@@ -84,7 +86,8 @@ fun MessageItem(
     onCopyLink: () -> Unit = {},
     onPinMessage: () -> Unit = {},
     onDeleteMessage: () -> Unit = {},
-    onUsernameClick: (String) -> Unit = {}
+    onUsernameClick: (String) -> Unit = {},
+    onScrollToMessage: (String) -> Unit = {}
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -99,6 +102,20 @@ fun MessageItem(
     val displayName = remember(metadata?.displayName, metadata?.name, message.pubkey) {
         metadata?.displayName ?: metadata?.name ?: message.pubkey.take(8) + "..."
     }
+
+    // Check if this message is a reply and find the parent message
+    val replyParentId = remember(message.tags) { getReplyParentId(message) }
+    val parentMessage = remember(replyParentId, allMessages) {
+        if (replyParentId != null) {
+            allMessages.find { it.id == replyParentId }
+        } else null
+    }
+    val parentMetadata = remember(parentMessage?.pubkey, allUserMetadata) {
+        parentMessage?.let { allUserMetadata[it.pubkey] }
+    }
+
+    // Check if this message quotes another event (q tag)
+    val quotedEventRef = remember(message.tags) { getQuotedEventReference(message) }
 
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -194,6 +211,30 @@ fun MessageItem(
                         )
                     }
                     Spacer(modifier = Modifier.height(Spacing.xs))
+                }
+
+                // Reply preview - shown if this message is a reply
+                if (replyParentId != null) {
+                    ReplyPreview(
+                        parentMessage = parentMessage,
+                        parentMetadata = parentMetadata,
+                        onReplyClick = {
+                            replyParentId.let { onScrollToMessage(it) }
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                }
+
+                // Quoted event preview - shown if this message quotes another event (q tag)
+                if (quotedEventRef != null) {
+                    QuotedEventPreview(
+                        reference = quotedEventRef,
+                        onClick = {
+                            // Could navigate to the quoted event
+                            onScrollToMessage(quotedEventRef.eventId)
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.sm))
                 }
 
                 // Message content with NIP-30 custom emoji support

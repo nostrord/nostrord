@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.chat.DateSeparator
@@ -51,6 +52,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 fun MessagesList(
     groupId: String,
     chatItems: List<ChatItem>,
+    messages: List<NostrGroupClient.NostrMessage> = emptyList(),
     userMetadata: Map<String, UserMetadata>,
     reactions: Map<String, Map<String, GroupManager.ReactionInfo>> = emptyMap(),
     currentUserPubkey: String? = null,
@@ -62,7 +64,8 @@ fun MessagesList(
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {},
-    onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> }
+    onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
+    onScrollToMessage: (String) -> Unit = {}
 ) {
     // Stable callback references
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -209,6 +212,8 @@ fun MessagesList(
                                     is ChatItem.Message -> MessageItem(
                                         message = item.message,
                                         metadata = userMetadata[item.message.pubkey],
+                                        allMessages = messages,
+                                        allUserMetadata = userMetadata,
                                         isFirstInGroup = item.isFirstInGroup,
                                         isLastInGroup = item.isLastInGroup,
                                         reactions = reactions[item.message.id] ?: emptyMap(),
@@ -216,7 +221,8 @@ fun MessagesList(
                                         onUsernameClick = currentOnUsernameClick,
                                         onReactionBadgeClick = { emoji ->
                                             onReactionBadgeClick(item.message.id, emoji)
-                                        }
+                                        },
+                                        onScrollToMessage = onScrollToMessage
                                     )
                                 }
                             }

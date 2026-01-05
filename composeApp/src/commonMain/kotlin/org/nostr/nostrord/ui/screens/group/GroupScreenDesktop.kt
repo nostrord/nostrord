@@ -100,6 +100,7 @@ fun GroupScreenDesktop(
                 MessagesList(
                     groupId = groupId,
                     chatItems = chatItems,
+                    messages = messages,
                     userMetadata = userMetadata,
                     reactions = reactions,
                     currentUserPubkey = currentUserPubkey,
