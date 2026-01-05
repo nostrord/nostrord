@@ -45,22 +45,27 @@ data class QuotedEventReference(
 /**
  * Extract quoted event reference from a message's "q" tag.
  * Format: ["q", <event-id>, <relay-url>, <pubkey>]
- * Returns null if no "q" tag is present.
+ * Returns null if no valid "q" tag is present (event ID must be non-empty).
  */
 fun getQuotedEventReference(message: NostrGroupClient.NostrMessage): QuotedEventReference? {
     val qTag = message.tags.firstOrNull { it.size >= 2 && it[0] == "q" } ?: return null
+    val eventId = qTag[1]
+
+    // Validate that event ID is not empty
+    if (eventId.isBlank()) return null
+
     return QuotedEventReference(
-        eventId = qTag[1],
-        relayHint = qTag.getOrNull(2),
-        authorPubkey = qTag.getOrNull(3)
+        eventId = eventId,
+        relayHint = qTag.getOrNull(2)?.takeIf { it.isNotBlank() },
+        authorPubkey = qTag.getOrNull(3)?.takeIf { it.isNotBlank() }
     )
 }
 
 /**
- * Check if a message has a quoted event (q tag).
+ * Check if a message has a valid quoted event (q tag with non-empty event ID).
  */
 fun hasQuotedEvent(message: NostrGroupClient.NostrMessage): Boolean {
-    return message.tags.any { it.size >= 2 && it[0] == "q" }
+    return message.tags.any { it.size >= 2 && it[0] == "q" && it[1].isNotBlank() }
 }
 
 /**
