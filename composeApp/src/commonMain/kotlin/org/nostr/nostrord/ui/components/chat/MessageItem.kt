@@ -114,9 +114,6 @@ fun MessageItem(
         parentMessage?.let { allUserMetadata[it.pubkey] }
     }
 
-    // Check if this message quotes another event (q tag)
-    val quotedEventRef = remember(message.tags) { getQuotedEventReference(message) }
-
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -213,7 +210,8 @@ fun MessageItem(
                     Spacer(modifier = Modifier.height(Spacing.xs))
                 }
 
-                // Reply preview - shown if this message is a reply
+                // Reply preview - shown if this message is a reply (q or e tag)
+                // Note: nostr:nevent quotes in content are handled by MessageContent
                 if (replyParentId != null) {
                     ReplyPreview(
                         parentMessage = parentMessage,
@@ -223,18 +221,6 @@ fun MessageItem(
                         }
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
-                }
-
-                // Quoted event preview - shown if this message quotes another event (q tag)
-                if (quotedEventRef != null) {
-                    QuotedEventPreview(
-                        reference = quotedEventRef,
-                        onClick = {
-                            // Could navigate to the quoted event
-                            onScrollToMessage(quotedEventRef.eventId)
-                        }
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.sm))
                 }
 
                 // Message content with NIP-30 custom emoji support

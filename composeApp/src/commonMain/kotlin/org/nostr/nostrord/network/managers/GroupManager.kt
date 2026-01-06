@@ -312,9 +312,9 @@ class GroupManager(
                 tags.add(listOf("channel", channel))
             }
 
-            // Add reply tag if replying to a message
+            // Add reply tag if replying to a message (NIP-29: use "q" tag)
             if (replyToMessageId != null) {
-                tags.add(listOf("e", replyToMessageId))
+                tags.add(listOf("q", replyToMessageId))
             }
 
             // Replace @displayName with nostr:npub... in content

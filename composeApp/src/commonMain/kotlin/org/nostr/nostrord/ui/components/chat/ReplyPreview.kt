@@ -29,10 +29,23 @@ import org.nostr.nostrord.ui.theme.Spacing
 
 /**
  * Extract the parent event ID from a message's tags.
- * Returns null if this message is not a reply.
+ * A reply is detected by having either a "q" tag or an "e" tag with a non-empty event ID.
+ * Returns the parent event ID or null if not a reply.
  */
 fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
-    return message.tags.firstOrNull { it.size >= 2 && it[0] == "e" }?.getOrNull(1)
+    // Check for "q" tag first: ["q", <event_id>, <relay_hint?>, <author_pubkey?>]
+    val qTag = message.tags.firstOrNull { it.size >= 2 && it[0] == "q" }
+    if (qTag != null) {
+        val eventId = qTag.getOrNull(1)
+        if (!eventId.isNullOrBlank()) {
+            return eventId
+        }
+    }
+
+    // Fall back to "e" tag: ["e", <event_id>]
+    val eTag = message.tags.firstOrNull { it.size >= 2 && it[0] == "e" }
+    val eventId = eTag?.getOrNull(1)
+    return if (!eventId.isNullOrBlank()) eventId else null
 }
 
 /**
