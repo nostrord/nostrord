@@ -300,6 +300,7 @@ class GroupManager(
         pubKey: String,
         channel: String? = null,
         mentions: Map<String, String> = emptyMap(),
+        replyToMessageId: String? = null,
         signEvent: suspend (Event) -> Event
     ): Result<Unit> {
         val currentClient = connectionManager.getPrimaryClient()
@@ -309,6 +310,11 @@ class GroupManager(
             val tags = mutableListOf(listOf("h", groupId))
             if (channel != null && channel != "general") {
                 tags.add(listOf("channel", channel))
+            }
+
+            // Add reply tag if replying to a message
+            if (replyToMessageId != null) {
+                tags.add(listOf("e", replyToMessageId))
             }
 
             // Replace @displayName with nostr:npub... in content

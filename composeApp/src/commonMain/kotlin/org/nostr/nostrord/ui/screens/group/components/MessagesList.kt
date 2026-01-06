@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.chat.DateSeparator
@@ -64,11 +65,13 @@ fun MessagesList(
     isRefreshing: Boolean = false,
     onRefresh: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {},
+    onReplyClick: (NostrMessage) -> Unit = {},
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onScrollToMessage: (String) -> Unit = {}
 ) {
     // Stable callback references
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
+    val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
     val currentOnRefresh by rememberUpdatedState(onRefresh)
 
@@ -219,6 +222,7 @@ fun MessagesList(
                                         reactions = reactions[item.message.id] ?: emptyMap(),
                                         currentUserPubkey = currentUserPubkey,
                                         onUsernameClick = currentOnUsernameClick,
+                                        onReplyClick = { currentOnReplyClick(item.message) },
                                         onReactionBadgeClick = { emoji ->
                                             onReactionBadgeClick(item.message.id, emoji)
                                         },

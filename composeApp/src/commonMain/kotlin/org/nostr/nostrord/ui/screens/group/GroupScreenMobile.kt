@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
@@ -80,6 +81,9 @@ fun GroupScreenMobile(
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
     onMentionsChange: (Map<String, String>) -> Unit = {},
+    replyingToMessage: NostrMessage? = null,
+    onReplyClick: (NostrMessage) -> Unit = {},
+    onCancelReply: () -> Unit = {},
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -168,7 +172,8 @@ fun GroupScreenMobile(
                         isLoadingMore = isLoadingMore,
                         hasMoreMessages = hasMoreMessages,
                         onLoadMore = onLoadMore,
-                        onUsernameClick = onUserClick
+                        onUsernameClick = onUserClick,
+                        onReplyClick = onReplyClick
                     )
                 }
 
@@ -183,7 +188,10 @@ fun GroupScreenMobile(
                     onJoinGroup = onJoinGroup,
                     groupMembers = groupMembers,
                     mentions = mentions,
-                    onMentionsChange = onMentionsChange
+                    onMentionsChange = onMentionsChange,
+                    replyingToMessage = replyingToMessage,
+                    replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
+                    onCancelReply = onCancelReply
                 )
             }
         }

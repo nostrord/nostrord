@@ -269,7 +269,7 @@ class NostrRepository(
         return groupManager.loadMoreMessages(groupId, channel)
     }
 
-    suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()): Result<Unit> {
+    suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.sendMessage(
@@ -278,6 +278,7 @@ class NostrRepository(
             pubKey = pubKey,
             channel = channel,
             mentions = mentions,
+            replyToMessageId = replyToMessageId,
             signEvent = { sessionManager.signEvent(it) }
         )
     }
@@ -648,8 +649,8 @@ class NostrRepository(
         suspend fun requestGroupMessages(groupId: String, channel: String? = null) = instance.requestGroupMessages(groupId, channel)
         suspend fun requestGroupMembers(groupId: String) = instance.requestGroupMembers(groupId)
         suspend fun loadMoreMessages(groupId: String, channel: String? = null) = instance.loadMoreMessages(groupId, channel)
-        suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap()) =
-            instance.sendMessage(groupId, content, channel, mentions)
+        suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null) =
+            instance.sendMessage(groupId, content, channel, mentions, replyToMessageId)
         fun getMessagesForGroup(groupId: String) = instance.getMessagesForGroup(groupId)
         fun markGroupAsRead(groupId: String) = instance.markGroupAsRead(groupId)
         fun getUnreadCount(groupId: String) = instance.getUnreadCount(groupId)

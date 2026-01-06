@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
@@ -57,6 +58,9 @@ fun GroupScreenDesktop(
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
     onMentionsChange: (Map<String, String>) -> Unit = {},
+    replyingToMessage: NostrMessage? = null,
+    onReplyClick: (NostrMessage) -> Unit = {},
+    onCancelReply: () -> Unit = {},
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -108,7 +112,8 @@ fun GroupScreenDesktop(
                     isLoadingMore = isLoadingMore,
                     hasMoreMessages = hasMoreMessages,
                     onLoadMore = onLoadMore,
-                    onUsernameClick = onUserClick
+                    onUsernameClick = onUserClick,
+                    onReplyClick = onReplyClick
                 )
             }
 
@@ -123,7 +128,10 @@ fun GroupScreenDesktop(
                 onJoinGroup = onJoinGroup,
                 groupMembers = groupMembers,
                 mentions = mentions,
-                onMentionsChange = onMentionsChange
+                onMentionsChange = onMentionsChange,
+                replyingToMessage = replyingToMessage,
+                replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
+                onCancelReply = onCancelReply
             )
         }
 

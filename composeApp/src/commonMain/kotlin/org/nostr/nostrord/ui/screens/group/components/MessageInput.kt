@@ -26,6 +26,11 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -58,6 +63,9 @@ fun MessageInput(
     groupMembers: List<MemberInfo> = emptyList(),
     mentions: Map<String, String> = emptyMap(), // displayName -> pubkey
     onMentionsChange: (Map<String, String>) -> Unit = {},
+    replyingToMessage: NostrGroupClient.NostrMessage? = null,
+    replyingToMetadata: UserMetadata? = null,
+    onCancelReply: () -> Unit = {},
     isSending: Boolean = false
 ) {
     var showMentionPopup by remember { mutableStateOf(false) }
@@ -214,11 +222,23 @@ fun MessageInput(
     } else {
         val textFieldInteractionSource = remember { MutableInteractionSource() }
 
-        Box(
+        Column(
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Input row
-            Row(
+            // Reply preview bar (shown when replying to a message)
+            if (replyingToMessage != null) {
+                ReplyingToBar(
+                    message = replyingToMessage,
+                    metadata = replyingToMetadata,
+                    onCancelReply = onCancelReply
+                )
+            }
+
+            Box(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Input row
+                Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(NostrordColors.SurfaceVariant)
@@ -386,6 +406,70 @@ fun MessageInput(
                     )
                 }
             }
+            } // End Box
+        } // End Column
+    }
+}
+
+/**
+ * Compact bar shown above input when replying to a message.
+ */
+@Composable
+private fun ReplyingToBar(
+    message: NostrGroupClient.NostrMessage,
+    metadata: UserMetadata?,
+    onCancelReply: () -> Unit
+) {
+    val authorName = metadata?.displayName
+        ?: metadata?.name
+        ?: message.pubkey.take(8) + "..."
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(NostrordColors.Surface)
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Left accent bar
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .height(24.dp)
+                .background(
+                    color = NostrordColors.Primary,
+                    shape = RoundedCornerShape(1.5.dp)
+                )
+        )
+
+        Spacer(modifier = Modifier.width(Spacing.sm))
+
+        // Reply info
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Replying to $authorName",
+                color = NostrordColors.Primary,
+                style = NostrordTypography.Caption
+            )
+            Text(
+                text = message.content.replace('\n', ' ').take(50) + if (message.content.length > 50) "..." else "",
+                color = NostrordColors.TextSecondary,
+                style = NostrordTypography.Caption,
+                maxLines = 1
+            )
+        }
+
+        // Cancel button
+        IconButton(
+            onClick = onCancelReply,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = "Cancel reply",
+                tint = NostrordColors.TextMuted,
+                modifier = Modifier.size(16.dp)
+            )
         }
     }
 }

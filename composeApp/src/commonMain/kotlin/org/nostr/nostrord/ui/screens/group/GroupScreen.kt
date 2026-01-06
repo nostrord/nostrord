@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.utils.epochSeconds
@@ -69,6 +70,7 @@ fun GroupScreen(
 
     var messageInput by remember { mutableStateOf("") }
     var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) } // displayName -> pubkey
+    var replyingToMessage by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showGroupInfoModal by remember { mutableStateOf(false) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
@@ -204,9 +206,10 @@ fun GroupScreen(
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
                     scope.launch {
-                        NostrRepository.sendMessage(groupId, messageInput, selectedChannel, mentions)
+                        NostrRepository.sendMessage(groupId, messageInput, selectedChannel, mentions, replyingToMessage?.id)
                         messageInput = ""
                         mentions = emptyMap()
+                        replyingToMessage = null
                     }
                 },
                 onJoinGroup = {
@@ -219,6 +222,9 @@ fun GroupScreen(
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
                 onMentionsChange = { mentions = it },
+                replyingToMessage = replyingToMessage,
+                onReplyClick = { message -> replyingToMessage = message },
+                onCancelReply = { replyingToMessage = null },
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
                 onLoadMore = {
@@ -249,9 +255,10 @@ fun GroupScreen(
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
                     scope.launch {
-                        NostrRepository.sendMessage(groupId, messageInput, selectedChannel, mentions)
+                        NostrRepository.sendMessage(groupId, messageInput, selectedChannel, mentions, replyingToMessage?.id)
                         messageInput = ""
                         mentions = emptyMap()
+                        replyingToMessage = null
                     }
                 },
                 onJoinGroup = {
@@ -264,6 +271,9 @@ fun GroupScreen(
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
                 onMentionsChange = { mentions = it },
+                replyingToMessage = replyingToMessage,
+                onReplyClick = { message -> replyingToMessage = message },
+                onCancelReply = { replyingToMessage = null },
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
                 onLoadMore = {
