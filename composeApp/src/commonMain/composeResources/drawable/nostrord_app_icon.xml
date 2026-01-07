@@ -1,0 +1,19 @@
+<vector
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="130dp"
+    android:viewportWidth="320"
+    android:viewportHeight="130">
+  <!-- Central dome (petasos body) -->
+  <path
+      android:pathData="M106.67,99c0,20 20,20 20,20h66.67c0,0 20,0 20,-20v-40c0,-20 -20,-33.33 -20,-33.33l-20,-13.33c-13.33,-6.67 -26.67,0 -26.67,0l-20,13.33c-20,13.33 -20,33.33 -20,33.33z"
+      android:fillColor="#ffffff"/>
+  <!-- Left wing -->
+  <path
+      android:pathData="M106.67,65.67L13.33,12.33c-13.33,-6.67 -13.33,13.33 0,20l53.33,40c13.33,13.33 26.67,13.33 40,13.33z"
+      android:fillColor="#ffffff"/>
+  <!-- Right wing -->
+  <path
+      android:pathData="M213.33,65.67l93.33,-53.33c13.33,-6.67 13.33,13.33 0,20l-53.33,40c-13.33,13.33 -26.67,13.33 -40,13.33z"
+      android:fillColor="#ffffff"/>
+</vector>

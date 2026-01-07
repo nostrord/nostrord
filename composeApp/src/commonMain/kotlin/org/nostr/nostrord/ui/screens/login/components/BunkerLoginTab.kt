@@ -1,16 +1,25 @@
 package org.nostr.nostrord.ui.screens.login.components
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.NostrordShapes
 
 @Composable
 fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
@@ -35,35 +44,76 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
     }
 
     Column {
-        Text(
-            "Connect to a remote signer (bunker) for secure key management.",
-            color = Color.Gray,
-            style = MaterialTheme.typography.bodySmall
-        )
+        // Description
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.shapeSmall,
+            color = NostrordColors.Primary.copy(alpha = 0.1f)
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Security,
+                    contentDescription = null,
+                    tint = NostrordColors.Primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    "Connect to a remote signer for secure key management",
+                    color = NostrordColors.TextSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
+        // Input field
         OutlinedTextField(
             value = bunkerUrl,
-            onValueChange = { bunkerUrl = it },
-            placeholder = { Text("bunker://<pubkey>?relay=wss://...", color = Color.Gray) },
+            onValueChange = { bunkerUrl = it; errorMessage = null },
+            placeholder = {
+                Text(
+                    "bunker://<pubkey>?relay=wss://...",
+                    color = NostrordColors.TextMuted
+                )
+            },
             singleLine = false,
             maxLines = 3,
             modifier = Modifier.fillMaxWidth(),
             textStyle = LocalTextStyle.current.copy(color = Color.White),
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Link,
+                    contentDescription = null,
+                    tint = NostrordColors.TextMuted
+                )
+            },
+            shape = NostrordShapes.inputShape,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = NostrordColors.Primary,
+                unfocusedBorderColor = NostrordColors.SurfaceVariant,
+                cursorColor = NostrordColors.Primary,
+                focusedContainerColor = NostrordColors.InputBackground,
+                unfocusedContainerColor = NostrordColors.InputBackground
+            ),
             enabled = !isConnecting
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            "Paste your bunker URL from nsec.app, Amber, or other NIP-46 signers",
-            color = Color.Gray,
+            "Get your bunker URL from nsec.app, Amber, or other NIP-46 signers",
+            color = NostrordColors.TextMuted,
             style = MaterialTheme.typography.labelSmall
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Connect button
         Button(
             onClick = {
                 scope.launch {
@@ -84,9 +134,17 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
                     }
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
             enabled = bunkerUrl.isNotBlank() && !isConnecting,
-            colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary)
+            shape = NostrordShapes.buttonShape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = NostrordColors.Primary,
+                contentColor = Color.White,
+                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
+                disabledContentColor = Color.White.copy(alpha = 0.7f)
+            )
         ) {
             if (isConnecting) {
                 CircularProgressIndicator(
@@ -95,35 +153,54 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
                     strokeWidth = 2.dp
                 )
                 Spacer(modifier = Modifier.width(8.dp))
+                Text("Connecting...", fontWeight = FontWeight.SemiBold)
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Link,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Connect to Bunker", fontWeight = FontWeight.SemiBold)
             }
-            Text(if (isConnecting) "Connecting..." else "Connect to Bunker", color = Color.White)
         }
 
         // Show auth URL if waiting for approval
         authUrl?.let { url ->
             Spacer(modifier = Modifier.height(16.dp))
-            Card(
+            Surface(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+                shape = NostrordShapes.shapeMedium,
+                color = NostrordColors.WarningOrange.copy(alpha = 0.1f)
             ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        "Approval Required",
-                        color = NostrordColors.WarningOrange,
-                        style = MaterialTheme.typography.titleSmall
-                    )
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = NostrordColors.WarningOrange,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Approval Required",
+                            color = NostrordColors.WarningOrange,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "A browser window should have opened. Please approve the connection there, then wait...",
-                        color = Color.White,
+                        color = NostrordColors.TextContent,
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         url,
-                        color = Color(0xFF7289DA),
+                        color = NostrordColors.TextLink,
                         style = MaterialTheme.typography.labelSmall,
-                        maxLines = 3,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -131,37 +208,92 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
         }
 
         connectionStatus?.let {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(it, color = Color(0xFF7289DA), style = MaterialTheme.typography.bodySmall)
-        }
-
-        errorMessage?.let {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(it, color = NostrordColors.Error)
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (it == "Connected!") {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = NostrordColors.Success,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
                 Text(
-                    "Why use a Bunker?",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleSmall
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "• Your private key never leaves the signer\n" +
-                            "• Approve each signing request\n" +
-                            "• Works with hardware signers\n" +
-                            "• Revoke access anytime",
-                    color = Color.Gray,
+                    it,
+                    color = if (it == "Connected!") NostrordColors.Success else NostrordColors.Primary,
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
+
+        errorMessage?.let {
+            Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = NostrordShapes.shapeSmall,
+                color = NostrordColors.Error.copy(alpha = 0.1f)
+            ) {
+                Text(
+                    text = it,
+                    color = NostrordColors.Error,
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Benefits card
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.shapeMedium,
+            color = NostrordColors.SurfaceVariant.copy(alpha = 0.5f)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = NostrordColors.Success,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Why use a Bunker?",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                BenefitItem("Your private key never leaves the signer")
+                BenefitItem("Approve each signing request")
+                BenefitItem("Works with hardware signers")
+                BenefitItem("Revoke access anytime")
+            }
+        }
+    }
+}
+
+@Composable
+private fun BenefitItem(text: String) {
+    Row(
+        modifier = Modifier.padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.CheckCircle,
+            contentDescription = null,
+            tint = NostrordColors.Success.copy(alpha = 0.7f),
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = text,
+            color = NostrordColors.TextSecondary,
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
