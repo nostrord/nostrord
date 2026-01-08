@@ -480,6 +480,24 @@ suspend fun requestGroupMessages(
         sendJson(req)
     }
 
+    /**
+     * Request an addressable event by its coordinates (kind, pubkey, d-tag).
+     * Addressable events are parameterized replaceable events (kinds 30000-39999).
+     */
+    suspend fun requestAddressableEvent(kind: Int, pubkey: String, identifier: String) {
+        val req = buildJsonArray {
+            add("REQ")
+            add("addr_${kind}_${pubkey}_${identifier}")
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(kind) }
+                putJsonArray("authors") { add(pubkey) }
+                putJsonArray("#d") { add(identifier) }
+                put("limit", 1)
+            })
+        }
+        sendJson(req)
+    }
+
     suspend fun disconnect() {
         // Mark as graceful disconnect to prevent onConnectionLost callback
         isDisconnecting = true

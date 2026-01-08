@@ -392,6 +392,21 @@ class NostrRepository(
     }
 
     /**
+     * Request an addressable event (naddr) by its coordinates.
+     * Addressable events are identified by kind, pubkey, and identifier (d-tag).
+     */
+    suspend fun requestAddressableEvent(
+        kind: Int,
+        pubkey: String,
+        identifier: String,
+        relays: List<String> = emptyList()
+    ) {
+        metadataManager.requestAddressableEvent(kind, pubkey, identifier, relays) { msg, client ->
+            handleRelayMessage(msg, client)
+        }
+    }
+
+    /**
      * Request a quoted event from the primary relay.
      * Used for q tags in group messages where the quoted event is on the same relay.
      */
@@ -569,6 +584,18 @@ class NostrRepository(
                     return
                 }
 
+                // Handle addr_* subscriptions (addressable events)
+                if (subId.startsWith("addr_")) {
+                    metadataManager.parseAndCacheAddressableEvent(event)?.let { cachedEvent ->
+                        if (!metadataManager.hasMetadata(cachedEvent.pubkey)) {
+                            scope.launch {
+                                requestUserMetadata(setOf(cachedEvent.pubkey))
+                            }
+                        }
+                    }
+                    return
+                }
+
                 // Handle kind:10009 (joined groups)
                 if (kind == 10009) {
                     val pubKey = sessionManager.getPublicKey() ?: ""
@@ -666,6 +693,8 @@ class NostrRepository(
         ) = instance.updateProfileMetadata(displayName, name, about, picture, nip05)
         suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null) =
             instance.requestEventById(eventId, relayHints, author)
+        suspend fun requestAddressableEvent(kind: Int, pubkey: String, identifier: String, relays: List<String> = emptyList()) =
+            instance.requestAddressableEvent(kind, pubkey, identifier, relays)
         suspend fun requestQuotedEvent(eventId: String) = instance.requestQuotedEvent(eventId)
         suspend fun requestRelayLists(pubkeys: Set<String>) = instance.requestRelayLists(pubkeys)
         fun getRelayListForPubkey(pubkey: String) = instance.getRelayListForPubkey(pubkey)

@@ -2,7 +2,9 @@ package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
@@ -22,6 +24,8 @@ import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
@@ -35,8 +39,10 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
+import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.utils.getImageUrl
+import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
 import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
@@ -52,6 +58,18 @@ private typealias ImagePart = MessageContentParser.ParsedPart.Image
 private typealias LinkPart = MessageContentParser.ParsedPart.Link
 private typealias MentionPart = MessageContentParser.ParsedPart.Mention
 private typealias CustomEmojiPart = MessageContentParser.ParsedPart.CustomEmoji
+// New type aliases for rich text formatting
+private typealias BoldPart = MessageContentParser.ParsedPart.Bold
+private typealias ItalicPart = MessageContentParser.ParsedPart.Italic
+private typealias MonospacePart = MessageContentParser.ParsedPart.Monospace
+private typealias CodeBlockPart = MessageContentParser.ParsedPart.CodeBlock
+private typealias HashtagPart = MessageContentParser.ParsedPart.Hashtag
+private typealias VideoPart = MessageContentParser.ParsedPart.Video
+private typealias AudioPart = MessageContentParser.ParsedPart.Audio
+// Nostr-specific type aliases
+private typealias RelayPart = MessageContentParser.ParsedPart.Relay
+private typealias CashuPart = MessageContentParser.ParsedPart.Cashu
+private typealias CashuRequestPart = MessageContentParser.ParsedPart.CashuRequest
 
 /**
  * Parses message content into parts using the robust MessageContentParser.
@@ -66,10 +84,16 @@ private fun parseContent(content: String, emojiMap: Map<String, String> = emptyM
 private fun isBlockPart(part: ContentPart): Boolean {
     return when (part) {
         is ImagePart -> true
+        is CodeBlockPart -> true
+        is VideoPart -> true
+        is AudioPart -> true
+        is RelayPart -> true
+        is CashuPart -> true
+        is CashuRequestPart -> true
         is MentionPart -> {
-            // Quoted events (nevent, note) are block elements
+            // Quoted events (nevent, note, naddr) are block elements
             when (part.reference.entity) {
-                is Nip19.Entity.Nevent, is Nip19.Entity.Note -> true
+                is Nip19.Entity.Nevent, is Nip19.Entity.Note, is Nip19.Entity.Naddr -> true
                 else -> false
             }
         }
@@ -110,7 +134,8 @@ fun MessageContent(
     content: String,
     tags: List<List<String>> = emptyList(),
     modifier: Modifier = Modifier,
-    onMentionClick: (String) -> Unit = {}
+    onMentionClick: (String) -> Unit = {},
+    onHashtagClick: (String) -> Unit = {}
 ) {
     // Extract custom emoji map from NIP-30 tags
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
@@ -181,6 +206,39 @@ fun MessageContent(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
+                    is CodeBlockPart -> {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CodeBlockContent(
+                            code = firstPart.code,
+                            language = firstPart.language
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is VideoPart -> {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        VideoContent(
+                            url = firstPart.url,
+                            videoId = firstPart.videoId,
+                            onClick = {
+                                try {
+                                    uriHandler.openUri(firstPart.url)
+                                } catch (_: Exception) {}
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is AudioPart -> {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        AudioContent(
+                            url = firstPart.url,
+                            onClick = {
+                                try {
+                                    uriHandler.openUri(firstPart.url)
+                                } catch (_: Exception) {}
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                     is MentionPart -> {
                         Spacer(modifier = Modifier.height(4.dp))
                         QuotedEventBlock(
@@ -193,6 +251,38 @@ fun MessageContent(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
+                    is RelayPart -> {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        RelayContent(
+                            url = firstPart.url,
+                            onClick = {
+                                // Open relay URL in browser (http version for viewing)
+                                try {
+                                    val httpUrl = firstPart.url
+                                        .replace("wss://", "https://")
+                                        .replace("ws://", "http://")
+                                    uriHandler.openUri(httpUrl)
+                                } catch (_: Exception) {}
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is CashuPart -> {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CashuContent(
+                            token = firstPart.token,
+                            isRequest = false
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is CashuRequestPart -> {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        CashuContent(
+                            token = firstPart.request,
+                            isRequest = true
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                     else -> {}
                 }
             } else {
@@ -200,7 +290,8 @@ fun MessageContent(
                 InlineContentGroup(
                     parts = group,
                     userMetadata = userMetadata,
-                    onMentionClick = onMentionClick
+                    onMentionClick = onMentionClick,
+                    onHashtagClick = onHashtagClick
                 )
             }
         }
@@ -241,7 +332,8 @@ private fun InlineContentGroup(
     parts: List<ContentPart>,
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
     modifier: Modifier = Modifier,
-    onMentionClick: (String) -> Unit = {}
+    onMentionClick: (String) -> Unit = {},
+    onHashtagClick: (String) -> Unit = {}
 ) {
     // Check if this group contains any custom emojis
     val hasCustomEmojis = remember(parts) {
@@ -255,7 +347,8 @@ private fun InlineContentGroup(
                 parts = parts,
                 userMetadata = userMetadata,
                 modifier = modifier,
-                onMentionClick = onMentionClick
+                onMentionClick = onMentionClick,
+                onHashtagClick = onHashtagClick
             )
         }
     } else {
@@ -264,7 +357,8 @@ private fun InlineContentGroup(
             parts = parts,
             userMetadata = userMetadata,
             modifier = modifier,
-            onMentionClick = onMentionClick
+            onMentionClick = onMentionClick,
+            onHashtagClick = onHashtagClick
         )
     }
 }
@@ -278,7 +372,8 @@ private fun InlineContentWithEmojis(
     parts: List<ContentPart>,
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
     modifier: Modifier = Modifier,
-    onMentionClick: (String) -> Unit = {}
+    onMentionClick: (String) -> Unit = {},
+    onHashtagClick: (String) -> Unit = {}
 ) {
     // Build inline content map for custom emojis with unique sequential IDs
     val inlineContentMap = remember(parts) {
@@ -367,6 +462,39 @@ private fun InlineContentWithEmojis(
                             ":${part.shortcode}:"
                         )
                     }
+                    // Text formatting
+                    is BoldPart -> {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(part.content)
+                        }
+                    }
+                    is ItalicPart -> {
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                            append(part.content)
+                        }
+                    }
+                    is MonospacePart -> {
+                        withStyle(SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            background = NostrordColors.CodeBackground.copy(alpha = 0.5f),
+                            color = NostrordColors.CodeText
+                        )) {
+                            append(part.content)
+                        }
+                    }
+                    is HashtagPart -> {
+                        withLink(
+                            LinkAnnotation.Clickable(
+                                tag = "hashtag_${part.tag}",
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(color = NostrordColors.HashtagText)
+                                ),
+                                linkInteractionListener = { onHashtagClick(part.tag) }
+                            )
+                        ) {
+                            append("#${part.tag}")
+                        }
+                    }
                     else -> {}
                 }
             }
@@ -391,7 +519,8 @@ private fun InlineContentTextOnly(
     parts: List<ContentPart>,
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
     modifier: Modifier = Modifier,
-    onMentionClick: (String) -> Unit = {}
+    onMentionClick: (String) -> Unit = {},
+    onHashtagClick: (String) -> Unit = {}
 ) {
     val annotatedString = remember(parts, userMetadata) {
         buildAnnotatedString {
@@ -449,6 +578,39 @@ private fun InlineContentTextOnly(
                             ) {
                                 append(displayText)
                             }
+                        }
+                    }
+                    // Text formatting
+                    is BoldPart -> {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(part.content)
+                        }
+                    }
+                    is ItalicPart -> {
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                            append(part.content)
+                        }
+                    }
+                    is MonospacePart -> {
+                        withStyle(SpanStyle(
+                            fontFamily = FontFamily.Monospace,
+                            background = NostrordColors.CodeBackground.copy(alpha = 0.5f),
+                            color = NostrordColors.CodeText
+                        )) {
+                            append(part.content)
+                        }
+                    }
+                    is HashtagPart -> {
+                        withLink(
+                            LinkAnnotation.Clickable(
+                                tag = "hashtag_${part.tag}",
+                                styles = TextLinkStyles(
+                                    style = SpanStyle(color = NostrordColors.HashtagText)
+                                ),
+                                linkInteractionListener = { onHashtagClick(part.tag) }
+                            )
+                        ) {
+                            append("#${part.tag}")
                         }
                     }
                     else -> {}
@@ -684,6 +846,16 @@ private fun QuotedEventBlock(
                 modifier = modifier
             )
         }
+        is Nip19.Entity.Naddr -> {
+            AddressableEvent(
+                identifier = entity.identifier,
+                pubkey = entity.pubkey,
+                kind = entity.kind,
+                relayHints = entity.relays,
+                onClick = onClick,
+                modifier = modifier
+            )
+        }
         else -> {}
     }
 }
@@ -700,9 +872,24 @@ private fun QuotedEvent(
     val userMetadata by NostrRepository.userMetadata.collectAsState()
     val event = cachedEvents[eventId]
 
+    // Track if event was not found after timeout
+    var eventNotFound by remember { mutableStateOf(false) }
+
     LaunchedEffect(eventId, relayHints, author) {
         if (!cachedEvents.containsKey(eventId)) {
             NostrRepository.requestEventById(eventId, relayHints, author)
+            // Wait 5 seconds before marking as not found
+            kotlinx.coroutines.delay(5000)
+            if (!cachedEvents.containsKey(eventId)) {
+                eventNotFound = true
+            }
+        }
+    }
+
+    // Reset not found state when event arrives
+    LaunchedEffect(event) {
+        if (event != null) {
+            eventNotFound = false
         }
     }
 
@@ -713,6 +900,23 @@ private fun QuotedEvent(
         }
     }
 
+    // Check if this is a kind 30040 (book) event - render as BookCard
+    if (event?.kind == 30040) {
+        val metadata = userMetadata[event.pubkey]
+        val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
+
+        BookCard(
+            event = event,
+            authorName = authorName,
+            authorPicture = metadata?.picture,
+            pubkey = event.pubkey,
+            onClick = onClick,
+            modifier = modifier
+        )
+        return
+    }
+
+    // Default rendering for other event kinds
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -746,9 +950,27 @@ private fun QuotedEvent(
                 }
                 Spacer(modifier = Modifier.height(Spacing.sm))
                 QuotedEventContent(content = event.content)
+            } else if (eventNotFound) {
+                // Event not found after timeout
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                ) {
+                    Text(
+                        text = "⚠",
+                        style = NostrordTypography.MessageBody,
+                        color = NostrordColors.TextMuted
+                    )
+                    Text(
+                        text = "Event not found",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                }
             } else {
+                // Still loading
                 Text(
-                    text = "Loading event ${eventId.take(8)}...",
+                    text = "Loading event...",
                     color = NostrordColors.TextMuted,
                     style = NostrordTypography.Caption
                 )
@@ -969,6 +1191,709 @@ private fun QuotedImage(
                         strokeWidth = 2.dp
                     )
                 }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// BLOCK COMPOSABLES FOR NEW RICH TEXT TYPES
+// ============================================================================
+
+/**
+ * Renders a fenced code block with optional language label.
+ */
+@Composable
+private fun CodeBlockContent(
+    code: String,
+    language: String?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .background(NostrordColors.CodeBackground)
+    ) {
+        // Language badge (if present)
+        if (!language.isNullOrBlank()) {
+            Text(
+                text = language,
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextMuted,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+        }
+        // Code content (horizontally scrollable for long lines)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+        ) {
+            Text(
+                text = code,
+                style = NostrordTypography.MessageBody.copy(fontFamily = FontFamily.Monospace),
+                color = NostrordColors.CodeText,
+                modifier = Modifier.padding(12.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Renders a video thumbnail with play button overlay.
+ * For YouTube, shows the thumbnail; for other videos, shows a placeholder.
+ */
+@Composable
+private fun VideoContent(
+    url: String,
+    videoId: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalPlatformContext.current
+    val thumbnailUrl = videoId?.let { "https://img.youtube.com/vi/$it/hqdefault.jpg" }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(max = 300.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(NostrordColors.SurfaceVariant)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (thumbnailUrl != null) {
+            // YouTube video - show thumbnail
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(thumbnailUrl)
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = "Video thumbnail",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+            )
+        } else {
+            // Generic video - show placeholder with aspect ratio
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(NostrordColors.SurfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = url.substringAfterLast("/").take(50),
+                    style = NostrordTypography.Caption,
+                    color = NostrordColors.TextMuted
+                )
+            }
+        }
+
+        // Play button overlay
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(NostrordColors.Background.copy(alpha = 0.8f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "▶",
+                style = NostrordTypography.MessageBody,
+                color = NostrordColors.TextPrimary
+            )
+        }
+    }
+}
+
+/**
+ * Renders an audio file link with a simple player-style UI.
+ */
+@Composable
+private fun AudioContent(
+    url: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(NostrordColors.SurfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Audio icon
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(NostrordColors.Primary.copy(alpha = 0.2f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "♪",
+                style = NostrordTypography.MessageBody,
+                color = NostrordColors.Primary
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        // File name
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = url.substringAfterLast("/").take(40),
+                style = NostrordTypography.MessageBody,
+                color = NostrordColors.TextContent,
+                maxLines = 1
+            )
+            Text(
+                text = "Tap to open",
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextMuted
+            )
+        }
+    }
+}
+
+/**
+ * Renders a Nostr relay URL with a relay icon.
+ */
+@Composable
+private fun RelayContent(
+    url: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(NostrordColors.SurfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Relay icon
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(NostrordColors.Primary.copy(alpha = 0.2f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "⚡",
+                style = NostrordTypography.MessageBody,
+                color = NostrordColors.Primary
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        // Relay URL
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = url,
+                style = NostrordTypography.MessageBody,
+                color = NostrordColors.TextContent,
+                maxLines = 1
+            )
+            Text(
+                text = "Nostr Relay",
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextMuted
+            )
+        }
+    }
+}
+
+/**
+ * Renders a Cashu ecash token or payment request.
+ */
+@Composable
+private fun CashuContent(
+    token: String,
+    isRequest: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(NostrordColors.SurfaceVariant)
+            .clickable {
+                // Copy token to clipboard
+                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(token))
+            }
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Cashu icon
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    if (isRequest) NostrordColors.MentionText.copy(alpha = 0.2f)
+                    else NostrordColors.Primary.copy(alpha = 0.2f)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "🥜",
+                style = NostrordTypography.MessageBody
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        // Token preview
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = if (isRequest) "Cashu Request" else "Cashu Token",
+                style = NostrordTypography.MessageBody,
+                color = NostrordColors.TextContent,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = token.take(32) + "...",
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextMuted,
+                maxLines = 1
+            )
+            Text(
+                text = "Tap to copy",
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextLink
+            )
+        }
+    }
+}
+
+/**
+ * Renders an addressable event (naddr) as a card.
+ * Addressable events include profiles, articles, live streams, etc.
+ */
+@Composable
+private fun AddressableEvent(
+    identifier: String,
+    pubkey: String,
+    kind: Int,
+    relayHints: List<String> = emptyList(),
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cachedEvents by NostrRepository.cachedEvents.collectAsState()
+    val userMetadata by NostrRepository.userMetadata.collectAsState()
+
+    // Create a composite key for addressable events: kind:pubkey:identifier
+    val addressKey = "$kind:$pubkey:$identifier"
+    val event = cachedEvents[addressKey]
+
+    // Track if event was not found after timeout
+    var eventNotFound by remember { mutableStateOf(false) }
+
+    // Request the addressable event
+    LaunchedEffect(addressKey, relayHints) {
+        if (!cachedEvents.containsKey(addressKey)) {
+            NostrRepository.requestAddressableEvent(
+                kind = kind,
+                pubkey = pubkey,
+                identifier = identifier,
+                relays = relayHints
+            )
+            // Wait 5 seconds before marking as not found
+            kotlinx.coroutines.delay(5000)
+            if (!cachedEvents.containsKey(addressKey)) {
+                eventNotFound = true
+            }
+        }
+    }
+
+    // Reset not found state when event arrives
+    LaunchedEffect(event) {
+        if (event != null) {
+            eventNotFound = false
+        }
+    }
+
+    // Request author metadata
+    LaunchedEffect(pubkey) {
+        if (!userMetadata.containsKey(pubkey)) {
+            NostrRepository.requestUserMetadata(setOf(pubkey))
+        }
+    }
+
+    // If event not found after timeout, show error card
+    if (event == null && eventNotFound) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+                .background(NostrordColors.Surface)
+                .clickable(onClick = onClick)
+                .padding(Spacing.md)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
+                Text(
+                    text = "⚠",
+                    style = NostrordTypography.MessageBody,
+                    color = NostrordColors.TextMuted
+                )
+                Text(
+                    text = "Event not found",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
+                )
+            }
+        }
+        return
+    }
+
+    val metadata = userMetadata[pubkey]
+    val authorName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
+
+    // Render different card styles based on kind
+    when (kind) {
+        0 -> {
+            // Kind 0: User profile metadata
+            ProfileCard(
+                metadata = metadata,
+                pubkey = pubkey,
+                onClick = onClick,
+                modifier = modifier
+            )
+        }
+        30023 -> {
+            // Kind 30023: Long-form content (articles)
+            ArticleCard(
+                event = event,
+                authorName = authorName,
+                authorPicture = metadata?.picture,
+                onClick = onClick,
+                modifier = modifier
+            )
+        }
+        30040 -> {
+            // Kind 30040: Books/publications
+            BookCard(
+                event = event,
+                authorName = authorName,
+                authorPicture = metadata?.picture,
+                pubkey = pubkey,
+                onClick = onClick,
+                modifier = modifier
+            )
+        }
+        else -> {
+            // Generic addressable event card
+            GenericAddressableCard(
+                event = event,
+                authorName = authorName,
+                authorPicture = metadata?.picture,
+                kind = kind,
+                identifier = identifier,
+                onClick = onClick,
+                modifier = modifier
+            )
+        }
+    }
+}
+
+/**
+ * Profile card for kind 0 (user metadata) naddr
+ */
+@Composable
+private fun ProfileCard(
+    metadata: org.nostr.nostrord.network.UserMetadata?,
+    pubkey: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+            .background(NostrordColors.Surface)
+            .clickable(onClick = onClick)
+            .padding(Spacing.md)
+    ) {
+        // Avatar
+        OptimizedUserAvatar(
+            imageUrl = metadata?.picture,
+            pubkey = pubkey,
+            displayName = metadata?.displayName ?: metadata?.name ?: "Unknown",
+            size = 64.dp
+        )
+
+        Spacer(modifier = Modifier.width(Spacing.md))
+
+        // Profile info
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "...",
+                color = NostrordColors.TextPrimary,
+                style = NostrordTypography.MessageBody,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (metadata?.nip05 != null) {
+                Text(
+                    text = metadata.nip05,
+                    color = NostrordColors.TextSecondary,
+                    style = NostrordTypography.Caption
+                )
+            }
+
+            if (metadata?.about != null) {
+                Spacer(modifier = Modifier.height(Spacing.xs))
+                Text(
+                    text = metadata.about,
+                    color = NostrordColors.TextContent,
+                    style = NostrordTypography.Caption,
+                    maxLines = 3
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Article card for kind 30023 (long-form content)
+ */
+@Composable
+private fun ArticleCard(
+    event: CachedEvent?,
+    authorName: String,
+    authorPicture: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+            .background(NostrordColors.Surface)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(Spacing.md)
+        ) {
+            if (event != null) {
+                // Extract title from tags
+                val title = event.tags.find { it.firstOrNull() == "title" }?.getOrNull(1)
+                val summary = event.tags.find { it.firstOrNull() == "summary" }?.getOrNull(1)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OptimizedUserAvatar(
+                        imageUrl = authorPicture,
+                        pubkey = event.pubkey,
+                        displayName = authorName,
+                        size = 20.dp
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(
+                        text = authorName,
+                        color = NostrordColors.TextSecondary,
+                        style = NostrordTypography.Caption,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (title != null) {
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Text(
+                        text = title,
+                        color = NostrordColors.TextPrimary,
+                        style = NostrordTypography.MessageBody,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2
+                    )
+                }
+
+                if (summary != null) {
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Text(
+                        text = summary,
+                        color = NostrordColors.TextContent,
+                        style = NostrordTypography.Caption,
+                        maxLines = 3
+                    )
+                }
+            } else {
+                Text(
+                    text = "Loading article...",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Book card for kind 30040 (books/publications)
+ * Displays title, author credit, and publication metadata.
+ */
+@Composable
+private fun BookCard(
+    event: CachedEvent?,
+    authorName: String,
+    authorPicture: String?,
+    pubkey: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+            .background(NostrordColors.Surface)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(Spacing.md)
+        ) {
+            if (event != null) {
+                // Extract title and author from tags
+                val title = event.tags.find { it.firstOrNull() == "title" }?.getOrNull(1)
+                val bookAuthor = event.tags.find { it.firstOrNull() == "author" }?.getOrNull(1)
+
+                // Header row with avatar, name, and date
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Author info
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OptimizedUserAvatar(
+                            imageUrl = authorPicture,
+                            pubkey = pubkey,
+                            displayName = authorName,
+                            size = 24.dp
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.sm))
+                        Text(
+                            text = authorName,
+                            color = NostrordColors.TextSecondary,
+                            style = NostrordTypography.Caption,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Date
+                    Text(
+                        text = formatTime(event.createdAt),
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                }
+
+                // Book content
+                if (title != null) {
+                    Spacer(modifier = Modifier.height(Spacing.sm))
+                    Text(
+                        text = title,
+                        color = NostrordColors.TextPrimary,
+                        style = NostrordTypography.MessageBody.copy(fontSize = 18.sp),
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2
+                    )
+                }
+
+                if (bookAuthor != null) {
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Text(
+                        text = "by $bookAuthor",
+                        color = NostrordColors.TextSecondary,
+                        style = NostrordTypography.Caption
+                    )
+                }
+            } else {
+                Text(
+                    text = "Loading book...",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Generic card for other addressable event kinds
+ */
+@Composable
+private fun GenericAddressableCard(
+    event: CachedEvent?,
+    authorName: String,
+    authorPicture: String?,
+    kind: Int,
+    identifier: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+            .background(NostrordColors.Surface)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(Spacing.md)
+        ) {
+            if (event != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OptimizedUserAvatar(
+                        imageUrl = authorPicture,
+                        pubkey = event.pubkey,
+                        displayName = authorName,
+                        size = 24.dp
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    Column {
+                        Text(
+                            text = authorName,
+                            color = NostrordColors.TextSecondary,
+                            style = NostrordTypography.Caption,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Kind $kind event",
+                            color = NostrordColors.TextMuted,
+                            style = NostrordTypography.Caption
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                Text(
+                    text = event.content,
+                    color = NostrordColors.TextContent,
+                    style = NostrordTypography.Caption,
+                    maxLines = 6
+                )
+            } else {
+                Text(
+                    text = "Loading event (kind $kind, id: ${identifier.take(12)}...)",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
+                )
             }
         }
     }

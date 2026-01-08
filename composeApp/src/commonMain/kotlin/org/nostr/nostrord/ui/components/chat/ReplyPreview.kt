@@ -29,7 +29,8 @@ import org.nostr.nostrord.ui.theme.Spacing
 
 /**
  * Extract the parent event ID from a message's tags.
- * A reply is detected by having either a "q" tag or an "e" tag with a non-empty event ID.
+ * For kind 9 messages: Only "q" tags indicate a reply (not "e" tags).
+ * For other kinds: Both "q" and "e" tags can indicate a reply.
  * Returns the parent event ID or null if not a reply.
  */
 fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
@@ -42,7 +43,12 @@ fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
         }
     }
 
-    // Fall back to "e" tag: ["e", <event_id>]
+    // For kind 9 messages, ONLY "q" tag indicates a reply, not "e" tag
+    if (message.kind == 9) {
+        return null
+    }
+
+    // For other event kinds, fall back to "e" tag: ["e", <event_id>]
     val eTag = message.tags.firstOrNull { it.size >= 2 && it[0] == "e" }
     val eventId = eTag?.getOrNull(1)
     return if (!eventId.isNullOrBlank()) eventId else null

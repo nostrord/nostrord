@@ -94,6 +94,22 @@ object NostrordColors {
     /** Link text color */
     val TextLink = Color(0xFF00AFF4)
 
+    /** Hashtag text color */
+    val HashtagText = Color(0xFF7289DA)
+
+    // ============================================
+    // CODE COLORS
+    // ============================================
+
+    /** Code block background */
+    val CodeBackground = Color(0xFF2B2D31)
+
+    /** Code block text color */
+    val CodeText = Color(0xFFE3E5E8)
+
+    /** Code language badge color */
+    val CodeLanguageBadge = Color(0xFF5865F2)
+
     // ============================================
     // CHANNEL LIST SPECIFIC
     // ============================================

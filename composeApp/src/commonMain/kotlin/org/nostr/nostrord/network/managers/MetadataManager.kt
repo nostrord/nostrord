@@ -102,6 +102,46 @@ class MetadataManager(
     }
 
     /**
+     * Request an addressable event (naddr) by its coordinates.
+     * Addressable events use kind:pubkey:d-tag as their identifier.
+     */
+    suspend fun requestAddressableEvent(
+        kind: Int,
+        pubkey: String,
+        identifier: String,
+        relayHints: List<String> = emptyList(),
+        messageHandler: (String, NostrGroupClient) -> Unit
+    ) {
+        // Create composite key for caching
+        val addressKey = "$kind:$pubkey:$identifier"
+
+        // Skip if already cached
+        if (_cachedEvents.value.containsKey(addressKey)) {
+            return
+        }
+
+        // Try to get author's relay list first
+        if (outboxManager.getCachedRelayList(pubkey).isEmpty()) {
+            outboxManager.requestRelayLists(setOf(pubkey), messageHandler)
+            kotlinx.coroutines.delay(200)
+        }
+
+        // Use outbox model for relay selection
+        val relaysToTry = outboxManager.selectOutboxRelays(
+            authors = listOf(pubkey),
+            explicitRelays = relayHints
+        )
+
+        // Request from all available relays
+        for (relayUrl in relaysToTry) {
+            try {
+                val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
+                client?.requestAddressableEvent(kind, pubkey, identifier)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
      * Handle incoming metadata message
      */
     fun handleMetadataEvent(pubkey: String, metadata: UserMetadata) {
@@ -153,6 +193,49 @@ class MetadataManager(
             )
 
             eventsCache.put(eventId, cachedEvent)
+            _cachedEvents.value = eventsCache.toMap()
+            cachedEvent
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Parse and cache addressable event from JSON using composite key.
+     * Addressable events are cached with key format: kind:pubkey:d-tag
+     */
+    fun parseAndCacheAddressableEvent(eventJson: JsonObject): CachedEvent? {
+        return try {
+            val eventId = eventJson["id"]?.jsonPrimitive?.content ?: return null
+            val pubkey = eventJson["pubkey"]?.jsonPrimitive?.content ?: return null
+            val content = eventJson["content"]?.jsonPrimitive?.content ?: ""
+            val createdAt = eventJson["created_at"]?.jsonPrimitive?.long ?: 0L
+            val kind = eventJson["kind"]?.jsonPrimitive?.int ?: 1
+            val tags = eventJson["tags"]?.jsonArray?.map { tagArray ->
+                tagArray.jsonArray.map { it.jsonPrimitive.content }
+            } ?: emptyList()
+
+            // Extract d-tag (identifier) for addressable events
+            val identifier = tags.find { it.firstOrNull() == "d" }?.getOrNull(1) ?: ""
+
+            // Create composite key for addressable events
+            val addressKey = "$kind:$pubkey:$identifier"
+
+            // Skip if already cached (check by address key)
+            eventsCache.get(addressKey)?.let { return it }
+
+            val cachedEvent = CachedEvent(
+                id = eventId,
+                pubkey = pubkey,
+                kind = kind,
+                content = content,
+                createdAt = createdAt,
+                tags = tags
+            )
+
+            // Cache with both the event ID and the address key
+            eventsCache.put(eventId, cachedEvent)
+            eventsCache.put(addressKey, cachedEvent)
             _cachedEvents.value = eventsCache.toMap()
             cachedEvent
         } catch (e: Exception) {

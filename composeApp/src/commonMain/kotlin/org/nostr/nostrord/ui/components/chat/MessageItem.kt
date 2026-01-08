@@ -227,7 +227,11 @@ fun MessageItem(
                 MessageContent(
                     content = message.content,
                     tags = message.tags,
-                    onMentionClick = currentOnUsernameClick
+                    onMentionClick = currentOnUsernameClick,
+                    onHashtagClick = { hashtag ->
+                        // TODO: Implement hashtag click handler (e.g., search for hashtag)
+                        println("Clicked hashtag: #$hashtag")
+                    }
                 )
 
                 // Reaction badges
