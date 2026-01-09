@@ -28,12 +28,16 @@ class EventDeduplicator(
     }
 
     // Simple map for seen events (eventId -> timestamp)
+    // Using synchronized access for thread safety
     private val seenEvents = mutableMapOf<String, Long>()
     private val insertionOrder = mutableListOf<String>()
     private val mutex = Mutex()
+    private val syncLock = Any() // For synchronized sync methods
 
-    // Statistics
+    // Statistics (volatile for visibility across threads)
+    @Volatile
     private var totalEvents = 0L
+    @Volatile
     private var duplicateEvents = 0L
 
     /**
@@ -118,38 +122,61 @@ class EventDeduplicator(
 
     /**
      * Non-suspend version for synchronous contexts.
+     * Thread-safe using synchronized block.
      */
     fun clearSync() {
-        seenEvents.clear()
-        insertionOrder.clear()
-        totalEvents = 0
-        duplicateEvents = 0
+        synchronized(syncLock) {
+            seenEvents.clear()
+            insertionOrder.clear()
+            totalEvents = 0
+            duplicateEvents = 0
+        }
     }
 
     /**
      * Non-suspend version for synchronous contexts.
-     * Uses blocking approach - use sparingly.
+     * Thread-safe using synchronized block.
      */
     fun tryAddSync(eventId: String): Boolean {
-        totalEvents++
-        val now = epochMillis()
+        synchronized(syncLock) {
+            totalEvents++
+            val now = epochMillis()
 
-        // Evict expired entries first
-        evictExpired(now)
+            // Evict expired entries first
+            evictExpiredSync(now)
 
-        return if (seenEvents.containsKey(eventId)) {
-            duplicateEvents++
-            false
-        } else {
-            // Evict oldest if at capacity
-            if (seenEvents.size >= maxSize && insertionOrder.isNotEmpty()) {
-                val oldest = insertionOrder.removeAt(0)
-                seenEvents.remove(oldest)
+            return if (seenEvents.containsKey(eventId)) {
+                duplicateEvents++
+                false
+            } else {
+                // Evict oldest if at capacity
+                if (seenEvents.size >= maxSize && insertionOrder.isNotEmpty()) {
+                    val oldest = insertionOrder.removeAt(0)
+                    seenEvents.remove(oldest)
+                }
+
+                seenEvents[eventId] = now
+                insertionOrder.add(eventId)
+                true
             }
+        }
+    }
 
-            seenEvents[eventId] = now
-            insertionOrder.add(eventId)
-            true
+    /**
+     * Thread-safe eviction for sync methods (must be called within synchronized block)
+     */
+    private fun evictExpiredSync(now: Long) {
+        val expiredBefore = now - ttlMs
+        val iterator = insertionOrder.iterator()
+        while (iterator.hasNext()) {
+            val eventId = iterator.next()
+            val timestamp = seenEvents[eventId] ?: continue
+            if (timestamp < expiredBefore) {
+                iterator.remove()
+                seenEvents.remove(eventId)
+            } else {
+                break
+            }
         }
     }
 

@@ -6,7 +6,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.GroupMembers
 import org.nostr.nostrord.network.GroupMetadata
@@ -21,6 +27,11 @@ import org.nostr.nostrord.utils.epochMillis
 /**
  * Manages group operations: join, leave, messages, and group metadata.
  * Handles NIP-29 group protocol operations.
+ *
+ * Uses a formal state machine (GroupLoadingController) for reliable pagination:
+ * - Per-group locks prevent blocking unrelated groups
+ * - Explicit state transitions prevent race conditions
+ * - Immutable cursors prevent pagination corruption
  */
 class GroupManager(
     private val connectionManager: ConnectionManager,
@@ -38,10 +49,20 @@ class GroupManager(
     private val _joinedGroups = MutableStateFlow<Set<String>>(emptySet())
     val joinedGroups: StateFlow<Set<String>> = _joinedGroups.asStateFlow()
 
-    // Pagination state per group
+    // ==========================================================================
+    // STATE MACHINE: Per-group loading controller with formal state transitions
+    // ==========================================================================
+    private val loadingRegistry = GroupLoadingRegistry(scope, PAGE_SIZE, LOADING_TIMEOUT_MS)
+
+    // Track active group states for UI binding
+    private val _groupStates = MutableStateFlow<Map<String, GroupLoadingState>>(emptyMap())
+    val groupStates: StateFlow<Map<String, GroupLoadingState>> = _groupStates.asStateFlow()
+
+    // Legacy API compatibility: derive isLoadingMore from state machine
     private val _isLoadingMore = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val isLoadingMore: StateFlow<Map<String, Boolean>> = _isLoadingMore.asStateFlow()
 
+    // Legacy API compatibility: derive hasMoreMessages from state machine
     private val _hasMoreMessages = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val hasMoreMessages: StateFlow<Map<String, Boolean>> = _hasMoreMessages.asStateFlow()
 
@@ -66,12 +87,12 @@ class GroupManager(
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
     }
 
-    // Track pagination subscriptions: subscriptionId -> groupId
-    private val paginationSubscriptions = mutableMapOf<String, String>()
-    // Track message count per subscription for determining hasMore
-    private val subscriptionMessageCounts = mutableMapOf<String, Int>()
-    // Track timeout jobs for each subscription to cancel if EOSE arrives
-    private val loadingTimeoutJobs = mutableMapOf<String, Job>()
+    // Mutex for message list updates (separate from loading state)
+    private val messageMutex = Mutex()
+
+    // Track which groups have observation jobs to prevent memory leaks
+    private val observedGroups = mutableSetOf<String>()
+    private val observedGroupsLock = Any()
 
     /**
      * Load joined groups from storage
@@ -170,11 +191,20 @@ class GroupManager(
             publishJoinedGroups()
 
             // Clear messages for this group
-            _messages.value = _messages.value - groupId
+            _messages.update { it - groupId }
 
-            // Clear pagination state for this group
-            _isLoadingMore.value = _isLoadingMore.value - groupId
-            _hasMoreMessages.value = _hasMoreMessages.value - groupId
+            // Clear pagination state for this group (use atomic updates)
+            _isLoadingMore.update { it - groupId }
+            _hasMoreMessages.update { it - groupId }
+            _groupStates.update { it - groupId }
+
+            // Remove from observed groups tracking
+            synchronized(observedGroupsLock) {
+                observedGroups.remove(groupId)
+            }
+
+            // Clear state machine for this group
+            loadingRegistry.remove(groupId)
 
             // Clear event deduplicator so messages can be re-fetched on rejoin
             eventDeduplicator.clear()
@@ -193,102 +223,209 @@ class GroupManager(
     }
 
     /**
-     * Request group messages (initial load)
+     * Request group messages (initial load).
+     * Uses the state machine for reliable loading with proper state transitions.
      */
     suspend fun requestGroupMessages(groupId: String, channel: String? = null): Boolean {
         val currentClient = connectionManager.getPrimaryClient() ?: return false
 
-        // Generate subscription ID and set up tracking BEFORE sending request
-        // This avoids race condition where events arrive before tracking is set up
-        val subId = "msg_${epochMillis()}"
-        paginationSubscriptions[subId] = groupId
-        subscriptionMessageCounts[subId] = 0
-        _hasMoreMessages.value = _hasMoreMessages.value + (groupId to true)
+        // Get controller and attempt to start initial load
+        val controller = loadingRegistry.getController(groupId)
+        val subscriptionId = controller.startInitialLoad() ?: return false
 
-        currentClient.requestGroupMessages(groupId, channel, until = null, limit = PAGE_SIZE, subscriptionId = subId)
-        return true
+        // Register subscription for O(1) lookup
+        loadingRegistry.registerSubscription(subscriptionId, controller)
+
+        // Update legacy flags for UI compatibility
+        updateLegacyFlags(groupId, controller.state.value)
+
+        // Observe state changes to update legacy flags (only once per group)
+        observeStateChanges(groupId, controller)
+
+        return try {
+            currentClient.requestGroupMessages(
+                groupId = groupId,
+                channel = channel,
+                until = null,
+                limit = PAGE_SIZE,
+                subscriptionId = subscriptionId
+            )
+            true
+        } catch (e: Exception) {
+            loadingRegistry.unregisterSubscription(subscriptionId)
+            controller.handleSendFailure(subscriptionId)
+            updateLegacyFlags(groupId, controller.state.value)
+            false
+        }
     }
 
     /**
-     * Load older messages for pagination (infinite scroll)
+     * Observe state changes and update legacy flags.
+     * Only creates one observation job per group to prevent memory leaks.
+     */
+    private fun observeStateChanges(groupId: String, controller: GroupLoadingController) {
+        // Check if already observing this group
+        synchronized(observedGroupsLock) {
+            if (groupId in observedGroups) return
+            observedGroups.add(groupId)
+        }
+
+        scope.launch {
+            controller.state.collect { state ->
+                updateLegacyFlags(groupId, state)
+                _groupStates.update { it + (groupId to state) }
+            }
+        }
+    }
+
+    /**
+     * Update legacy boolean flags from state machine state.
+     * Maintains backward compatibility with existing UI code.
+     */
+    private fun updateLegacyFlags(groupId: String, state: GroupLoadingState) {
+        _isLoadingMore.update { it + (groupId to state.isLoading) }
+        _hasMoreMessages.update { it + (groupId to state.hasMore) }
+    }
+
+    /**
+     * Load older messages for pagination (infinite scroll).
+     * Uses the state machine with per-group locks - doesn't block other groups.
      */
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
-        // Don't load if already loading
-        if (_isLoadingMore.value[groupId] == true) return false
-
-        // Don't load if no more messages
-        if (_hasMoreMessages.value[groupId] == false) return false
-
         val currentClient = connectionManager.getPrimaryClient() ?: return false
 
-        val currentMessages = _messages.value[groupId] ?: emptyList()
-        if (currentMessages.isEmpty()) return false
+        // Get controller and attempt to start pagination
+        val controller = loadingRegistry.getController(groupId)
+        val result = controller.startPagination() ?: return false
+        val (subscriptionId, cursor) = result
 
-        // Get the oldest message timestamp
-        val oldestTimestamp = currentMessages.minOfOrNull { it.createdAt } ?: return false
+        // Register subscription for O(1) lookup
+        loadingRegistry.registerSubscription(subscriptionId, controller)
 
-        // Generate subscription ID and set up tracking BEFORE sending request
-        // This avoids race condition where events arrive before tracking is set up
-        val subId = "msg_${epochMillis()}"
-        paginationSubscriptions[subId] = groupId
-        subscriptionMessageCounts[subId] = 0
-        _isLoadingMore.value = _isLoadingMore.value + (groupId to true)
+        // Update legacy flags
+        updateLegacyFlags(groupId, controller.state.value)
 
-        // Set up a timeout to clear loading state if EOSE never arrives
-        loadingTimeoutJobs[subId]?.cancel()
-        loadingTimeoutJobs[subId] = scope.launch {
-            delay(LOADING_TIMEOUT_MS)
-            // If still in paginationSubscriptions after timeout, clean up
-            if (paginationSubscriptions.containsKey(subId)) {
-                paginationSubscriptions.remove(subId)
-                subscriptionMessageCounts.remove(subId)
-                _isLoadingMore.value = _isLoadingMore.value + (groupId to false)
-            }
-            loadingTimeoutJobs.remove(subId)
+        return try {
+            currentClient.requestGroupMessages(
+                groupId = groupId,
+                channel = channel,
+                until = cursor.untilTimestamp,
+                limit = PAGE_SIZE,
+                subscriptionId = subscriptionId
+            )
+            true
+        } catch (e: Exception) {
+            loadingRegistry.unregisterSubscription(subscriptionId)
+            controller.handleSendFailure(subscriptionId)
+            updateLegacyFlags(groupId, controller.state.value)
+            false
         }
-
-        currentClient.requestGroupMessages(
-            groupId = groupId,
-            channel = channel,
-            until = oldestTimestamp,
-            limit = PAGE_SIZE,
-            subscriptionId = subId
-        )
-
-        return true
     }
 
     /**
-     * Called when EOSE is received for a subscription
-     * Returns true if this was a pagination subscription
+     * Called when EOSE is received for a subscription.
+     * Delegates to the state machine for proper state transitions.
+     * CRITICAL: This must be called from a coroutine context to ensure
+     * proper ordering with message tracking.
+     */
+    suspend fun handleEoseSuspend(subscriptionId: String): Boolean {
+        return loadingRegistry.handleEose(subscriptionId)
+    }
+
+    /**
+     * Non-suspend version for backward compatibility.
+     * Launches in scope - use handleEoseSuspend when possible.
      */
     fun handleEose(subscriptionId: String): Boolean {
-        // Cancel timeout job since EOSE arrived
-        loadingTimeoutJobs.remove(subscriptionId)?.cancel()
-
-        val groupId = paginationSubscriptions.remove(subscriptionId) ?: return false
-        val messageCount = subscriptionMessageCounts.remove(subscriptionId) ?: 0
-
-        _isLoadingMore.value = _isLoadingMore.value + (groupId to false)
-        // If we received fewer messages than requested, there are no more
-        if (messageCount < PAGE_SIZE) {
-            _hasMoreMessages.value = _hasMoreMessages.value + (groupId to false)
+        scope.launch {
+            loadingRegistry.handleEose(subscriptionId)
         }
         return true
     }
 
     /**
-     * Track message received for a subscription (for pagination counting)
+     * Track message received for a subscription (for pagination counting).
+     * CRITICAL: This is a suspend function to ensure proper ordering
+     * with EOSE handling - messages must be tracked before EOSE is processed.
      */
-    fun trackMessageForSubscription(subscriptionId: String) {
-        subscriptionMessageCounts[subscriptionId] = (subscriptionMessageCounts[subscriptionId] ?: 0) + 1
+    suspend fun trackMessageForSubscriptionSuspend(subscriptionId: String, timestamp: Long, eventId: String) {
+        loadingRegistry.trackMessage(subscriptionId, timestamp, eventId)
     }
 
     /**
-     * Check if a subscription is a pagination subscription
+     * Non-suspend version for contexts where suspend is not available.
+     * Note: This may cause race conditions if EOSE arrives quickly.
      */
-    fun isPaginationSubscription(subscriptionId: String): Boolean {
-        return paginationSubscriptions.containsKey(subscriptionId)
+    fun trackMessageForSubscription(subscriptionId: String, timestamp: Long, eventId: String) {
+        scope.launch {
+            loadingRegistry.trackMessage(subscriptionId, timestamp, eventId)
+        }
+    }
+
+    /**
+     * Legacy overload for backward compatibility.
+     */
+    fun trackMessageForSubscription(subscriptionId: String) {
+        // This overload can't track timestamp/eventId, but maintains API compatibility
+        // Real tracking happens via the new overload
+    }
+
+    /**
+     * Check if a subscription is managed by the loading registry.
+     */
+    suspend fun isPaginationSubscription(subscriptionId: String): Boolean {
+        return loadingRegistry.findBySubscription(subscriptionId) != null
+    }
+
+    /**
+     * Retry loading after an error.
+     */
+    suspend fun retryLoading(groupId: String, channel: String? = null): Boolean {
+        val currentClient = connectionManager.getPrimaryClient() ?: return false
+        val controller = loadingRegistry.getController(groupId)
+
+        val subscriptionId = controller.retry() ?: return false
+
+        // Register subscription for O(1) lookup
+        loadingRegistry.registerSubscription(subscriptionId, controller)
+
+        updateLegacyFlags(groupId, controller.state.value)
+
+        val state = controller.state.value
+        val cursor = when (state) {
+            is GroupLoadingState.Retrying -> state.cursor
+            else -> null
+        }
+
+        return try {
+            currentClient.requestGroupMessages(
+                groupId = groupId,
+                channel = channel,
+                until = cursor?.untilTimestamp,
+                limit = PAGE_SIZE,
+                subscriptionId = subscriptionId
+            )
+            true
+        } catch (e: Exception) {
+            loadingRegistry.unregisterSubscription(subscriptionId)
+            controller.handleSendFailure(subscriptionId)
+            updateLegacyFlags(groupId, controller.state.value)
+            false
+        }
+    }
+
+    /**
+     * Get the current loading state for a group.
+     */
+    suspend fun getLoadingState(groupId: String): GroupLoadingState {
+        return loadingRegistry.getController(groupId).state.value
+    }
+
+    /**
+     * Handle connection lost - notify all active loaders.
+     */
+    suspend fun handleConnectionLost() {
+        loadingRegistry.handleDisconnectAll()
     }
 
     /**
@@ -383,10 +520,15 @@ class GroupManager(
     }
 
     /**
-     * Handle incoming message
-     * Returns the pubkey of the message sender if metadata should be fetched
+     * Handle incoming message.
+     * Returns the pubkey of the message sender if metadata should be fetched.
+     * Also tracks message for pagination cursor calculation.
      */
-    fun handleMessage(message: NostrGroupClient.NostrMessage, rawMsg: String): String? {
+    fun handleMessage(
+        message: NostrGroupClient.NostrMessage,
+        rawMsg: String,
+        subscriptionId: String? = null
+    ): String? {
         if (message.kind != 9 && message.kind != 9021 && message.kind != 9022) {
             return null
         }
@@ -398,10 +540,19 @@ class GroupManager(
 
         val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
 
-        val currentMessages = _messages.value[groupId] ?: emptyList()
-        // Check if message already exists in the list to prevent duplicate keys in LazyColumn
-        if (currentMessages.none { it.id == message.id }) {
-            _messages.value = _messages.value + (groupId to (currentMessages + message).sortedBy { it.createdAt })
+        // Track message in state machine for cursor calculation
+        if (subscriptionId != null) {
+            trackMessageForSubscription(subscriptionId, message.createdAt, message.id)
+        }
+
+        // Use atomic update for message list
+        _messages.update { currentMap ->
+            val currentMessages = currentMap[groupId] ?: emptyList()
+            if (currentMessages.none { it.id == message.id }) {
+                currentMap + (groupId to (currentMessages + message).sortedBy { it.createdAt })
+            } else {
+                currentMap
+            }
         }
 
         return message.pubkey
@@ -477,13 +628,20 @@ class GroupManager(
         _joinedGroups.value = emptySet()
         _isLoadingMore.value = emptyMap()
         _hasMoreMessages.value = emptyMap()
+        _groupStates.value = emptyMap()
         _reactions.value = emptyMap()
         _groupMembers.value = emptyMap()
-        paginationSubscriptions.clear()
-        subscriptionMessageCounts.clear()
-        // Cancel all pending timeout jobs
-        loadingTimeoutJobs.values.forEach { it.cancel() }
-        loadingTimeoutJobs.clear()
+
+        // Clear observed groups tracking
+        synchronized(observedGroupsLock) {
+            observedGroups.clear()
+        }
+
+        // Clear state machine registry
+        scope.launch {
+            loadingRegistry.clear()
+        }
+
         eventDeduplicator.clearSync()
     }
 

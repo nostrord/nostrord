@@ -349,9 +349,10 @@ suspend fun requestGroupMessages(
                 id = event["id"]?.jsonPrimitive?.content ?: return null,
                 pubkey = event["pubkey"]?.jsonPrimitive?.content ?: return null,
                 content = event["content"]?.jsonPrimitive?.content ?: "",
-                createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L,
+                // Use current time if created_at is missing to avoid sorting issues
+                createdAt = event["created_at"]?.jsonPrimitive?.long ?: (epochMillis() / 1000),
                 kind = event["kind"]?.jsonPrimitive?.int ?: 0,
-                tags = tags  // ADICIONAR ESTA LINHA
+                tags = tags
             )
         } catch (e: Exception) {
             null
@@ -395,7 +396,8 @@ suspend fun requestGroupMessages(
                 emoji = emoji,
                 emojiUrl = emojiUrl,
                 targetEventId = targetEventId,
-                createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L
+                // Use current time if created_at is missing
+                createdAt = event["created_at"]?.jsonPrimitive?.long ?: (epochMillis() / 1000)
             )
         } catch (e: Exception) {
             null

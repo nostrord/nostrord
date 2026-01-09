@@ -175,6 +175,13 @@ class NostrRepository(
         if (connected) {
             val client = connectionManager.getPrimaryClient()
             if (client != null) {
+                // Wire up connection lost handler to notify group manager
+                client.onConnectionLost = {
+                    scope.launch {
+                        groupManager.handleConnectionLost()
+                    }
+                }
+
                 sessionManager.sendAuthIfNeeded(client)
                 client.requestGroups()
             }
@@ -465,11 +472,15 @@ class NostrRepository(
         }
 
         // Handle EOSE for pagination
+        // CRITICAL: EOSE handling must be async to allow pending message tracking to complete
         try {
             val arr = json.parseToJsonElement(msg).jsonArray
             if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
                 val subId = arr[1].jsonPrimitive.content
-                groupManager.handleEose(subId)
+                // Use scope.launch to ensure this runs after any pending message tracking
+                scope.launch {
+                    groupManager.handleEoseSuspend(subId)
+                }
                 return
             }
 
@@ -534,18 +545,26 @@ class NostrRepository(
         // Handle group messages
         val message = client.parseMessage(msg)
         if (message != null) {
-            // Track message for pagination counting
-            try {
+            // Extract subscription ID for state machine tracking
+            val subscriptionId = try {
                 val arr = json.parseToJsonElement(msg).jsonArray
-                if (arr.size >= 2) {
-                    val subId = arr[1].jsonPrimitive.content
-                    if (groupManager.isPaginationSubscription(subId)) {
-                        groupManager.trackMessageForSubscription(subId)
-                    }
-                }
-            } catch (_: Exception) {}
+                if (arr.size >= 2) arr[1].jsonPrimitive.content else null
+            } catch (_: Exception) { null }
 
-            val senderPubkey = groupManager.handleMessage(message, msg)
+            // Track message in state machine BEFORE adding to message list
+            // This ensures cursor calculation includes this message before EOSE processing
+            if (subscriptionId != null) {
+                scope.launch {
+                    groupManager.trackMessageForSubscriptionSuspend(
+                        subscriptionId,
+                        message.createdAt,
+                        message.id
+                    )
+                }
+            }
+
+            // Pass subscription ID to handleMessage for cursor tracking
+            val senderPubkey = groupManager.handleMessage(message, msg, subscriptionId)
             if (senderPubkey != null && !metadataManager.hasMetadata(senderPubkey)) {
                 scope.launch {
                     requestUserMetadata(setOf(senderPubkey))
