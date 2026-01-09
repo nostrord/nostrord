@@ -65,6 +65,7 @@ fun MessageInput(
     onMentionsChange: (Map<String, String>) -> Unit = {},
     replyingToMessage: NostrGroupClient.NostrMessage? = null,
     replyingToMetadata: UserMetadata? = null,
+    userMetadata: Map<String, UserMetadata> = emptyMap(),
     onCancelReply: () -> Unit = {},
     isSending: Boolean = false
 ) {
@@ -230,6 +231,7 @@ fun MessageInput(
                 ReplyingToBar(
                     message = replyingToMessage,
                     metadata = replyingToMetadata,
+                    userMetadata = userMetadata,
                     onCancelReply = onCancelReply
                 )
             }
@@ -418,11 +420,28 @@ fun MessageInput(
 private fun ReplyingToBar(
     message: NostrGroupClient.NostrMessage,
     metadata: UserMetadata?,
+    userMetadata: Map<String, UserMetadata>,
     onCancelReply: () -> Unit
 ) {
     val authorName = metadata?.displayName
         ?: metadata?.name
         ?: message.pubkey.take(8) + "..."
+
+    // Request metadata for any pubkeys mentioned in the content
+    LaunchedEffect(message.content) {
+        val pubkeysToFetch = org.nostr.nostrord.ui.components.chat.extractPubkeysFromContent(message.content)
+            .filter { !userMetadata.containsKey(it) }
+            .toSet()
+        if (pubkeysToFetch.isNotEmpty()) {
+            org.nostr.nostrord.network.NostrRepository.requestUserMetadata(pubkeysToFetch)
+        }
+    }
+
+    // Process mentions in content to show @name instead of nostr:npub...
+    val processedContent = remember(message.content, userMetadata) {
+        org.nostr.nostrord.ui.components.chat.processMentionsInContent(message.content, userMetadata)
+            .replace('\n', ' ')
+    }
 
     Row(
         modifier = Modifier
@@ -452,7 +471,7 @@ private fun ReplyingToBar(
                 style = NostrordTypography.Caption
             )
             Text(
-                text = message.content.replace('\n', ' ').take(50) + if (message.content.length > 50) "..." else "",
+                text = processedContent.take(50) + if (processedContent.length > 50) "..." else "",
                 color = NostrordColors.TextSecondary,
                 style = NostrordTypography.Caption,
                 maxLines = 1

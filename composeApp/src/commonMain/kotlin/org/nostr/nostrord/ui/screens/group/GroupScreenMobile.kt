@@ -204,6 +204,7 @@ fun GroupScreenMobile(
                     onMentionsChange = onMentionsChange,
                     replyingToMessage = replyingToMessage,
                     replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
+                    userMetadata = userMetadata,
                     onCancelReply = onCancelReply
                 )
             }

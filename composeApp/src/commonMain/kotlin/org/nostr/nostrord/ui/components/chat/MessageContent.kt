@@ -1188,7 +1188,7 @@ fun ForwardedEventCard(
 
             // Message content
             Spacer(modifier = Modifier.height(Spacing.sm))
-            QuotedEventContent(content = event.content)
+            QuotedEventContent(content = event.content, tags = event.tags)
         }
     }
 }
@@ -1553,7 +1553,7 @@ private fun QuotedEvent(
                 }
             }
             Spacer(modifier = Modifier.height(Spacing.sm))
-            QuotedEventContent(content = event.content)
+            QuotedEventContent(content = event.content, tags = event.tags)
         }
     }
 }
@@ -1564,9 +1564,12 @@ private fun QuotedEvent(
 @Composable
 private fun QuotedEventContent(
     content: String,
+    tags: List<List<String>> = emptyList(),
     modifier: Modifier = Modifier
 ) {
-    val parts = remember(content) { parseContent(content) }
+    // Extract custom emoji map from NIP-30 tags
+    val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
+    val parts = remember(content, emojiMap) { parseContent(content, emojiMap) }
     val uriHandler = LocalUriHandler.current
     val userMetadata by NostrRepository.userMetadata.collectAsState()
 
@@ -1651,6 +1654,7 @@ private fun QuotedEventContent(
 
 /**
  * Inline content group for quoted events - uses Caption style.
+ * Supports custom emojis via InlineTextContent.
  */
 @Composable
 private fun QuotedInlineContentGroup(
@@ -1659,7 +1663,35 @@ private fun QuotedInlineContentGroup(
     onLinkClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Check if this group contains any custom emojis
+    val hasCustomEmojis = remember(parts) {
+        parts.any { it is CustomEmojiPart }
+    }
+
+    // Build inline content map for custom emojis with unique sequential IDs
+    val inlineContentMap = remember(parts) {
+        if (!hasCustomEmojis) return@remember emptyMap()
+        var emojiIndex = 0
+        parts.filterIsInstance<CustomEmojiPart>()
+            .associate { emoji ->
+                val id = "quoted_emoji_${emojiIndex++}_${emoji.shortcode}"
+                id to InlineTextContent(
+                    placeholder = Placeholder(
+                        width = 18.sp, // Smaller for caption style
+                        height = 18.sp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.Center
+                    )
+                ) {
+                    SafeEmojiImage(
+                        shortcode = emoji.shortcode,
+                        imageUrl = emoji.imageUrl
+                    )
+                }
+            }
+    }
+
     val annotatedString = remember(parts, userMetadata) {
+        var emojiIndex = 0
         buildAnnotatedString {
             parts.forEach { part ->
                 when (part) {
@@ -1694,19 +1726,39 @@ private fun QuotedInlineContentGroup(
                             append(displayText)
                         }
                     }
+                    is CustomEmojiPart -> {
+                        appendInlineContent(
+                            "quoted_emoji_${emojiIndex++}_${part.shortcode}",
+                            ":${part.shortcode}:"
+                        )
+                    }
                     else -> {}
                 }
             }
         }
     }
 
-    Text(
-        text = annotatedString,
-        color = NostrordColors.TextContent,
-        style = NostrordTypography.Caption,
-        maxLines = 6,
-        modifier = modifier
-    )
+    if (hasCustomEmojis) {
+        // Wrap in DisableSelection to prevent crashes with InlineTextContent
+        DisableSelection {
+            Text(
+                text = annotatedString,
+                color = NostrordColors.TextContent,
+                style = NostrordTypography.Caption,
+                inlineContent = inlineContentMap,
+                maxLines = 6,
+                modifier = modifier
+            )
+        }
+    } else {
+        Text(
+            text = annotatedString,
+            color = NostrordColors.TextContent,
+            style = NostrordTypography.Caption,
+            maxLines = 6,
+            modifier = modifier
+        )
+    }
 }
 
 @Composable

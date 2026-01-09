@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -116,6 +117,22 @@ fun QuotedEventPreview(
                     ?: metadata?.name
                     ?: event.pubkey.take(8) + "..."
 
+                // Request metadata for any pubkeys mentioned in the content
+                LaunchedEffect(event.content) {
+                    val pubkeysToFetch = extractPubkeysFromContent(event.content)
+                        .filter { !userMetadata.containsKey(it) }
+                        .toSet()
+                    if (pubkeysToFetch.isNotEmpty()) {
+                        NostrRepository.requestUserMetadata(pubkeysToFetch)
+                    }
+                }
+
+                // Process mentions in content to show @name instead of nostr:npub...
+                val processedContent = remember(event.content, userMetadata) {
+                    processMentionsInContent(event.content, userMetadata)
+                        .replace('\n', ' ')
+                }
+
                 // Author row with avatar
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ProfileAvatar(
@@ -139,7 +156,7 @@ fun QuotedEventPreview(
 
                 // Content preview (truncated)
                 Text(
-                    text = event.content.replace('\n', ' '),
+                    text = processedContent,
                     color = NostrordColors.TextContent,
                     style = NostrordTypography.Quote,
                     maxLines = 3,
