@@ -11,11 +11,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -23,12 +27,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
@@ -43,7 +50,7 @@ import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 /**
- * Enhanced member sidebar with online/offline status, avatars, and role badges.
+ * Enhanced member sidebar with online/offline status, avatars, role badges, and search.
  */
 @Composable
 fun MemberSidebar(
@@ -52,8 +59,23 @@ fun MemberSidebar(
     onMemberClick: (MemberInfo) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val onlineMembers = members.filter { it.pubkey in recentlyActiveMembers }
-    val offlineMembers = members.filter { it.pubkey !in recentlyActiveMembers }
+    var searchQuery by remember { mutableStateOf("") }
+
+    // Filter members based on search query
+    val filteredMembers = remember(members, searchQuery) {
+        if (searchQuery.isBlank()) {
+            members
+        } else {
+            val query = searchQuery.lowercase()
+            members.filter { member ->
+                member.displayName.lowercase().contains(query) ||
+                member.pubkey.lowercase().contains(query)
+            }
+        }
+    }
+
+    val onlineMembers = filteredMembers.filter { it.pubkey in recentlyActiveMembers }
+    val offlineMembers = filteredMembers.filter { it.pubkey !in recentlyActiveMembers }
 
     var onlineExpanded by remember { mutableStateOf(true) }
     var offlineExpanded by remember { mutableStateOf(true) }
@@ -99,6 +121,15 @@ fun MemberSidebar(
                 )
             }
         }
+
+        // Search field
+        MemberSearchField(
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        )
 
         Box(modifier = Modifier.fillMaxSize()) {
             val listState = rememberLazyListState()
@@ -156,21 +187,39 @@ fun MemberSidebar(
                 }
 
                 // If no categorization needed (all shown as active)
-                if (onlineMembers.isEmpty() && offlineMembers.isEmpty() && members.isNotEmpty()) {
+                if (onlineMembers.isEmpty() && offlineMembers.isEmpty() && filteredMembers.isNotEmpty()) {
                     item {
                         MemberSectionHeader(
                             title = "MEMBERS",
-                            count = members.size,
+                            count = filteredMembers.size,
                             expanded = true,
                             onToggle = {}
                         )
                     }
-                    items(members) { member ->
+                    items(filteredMembers) { member ->
                         MemberItem(
                             member = member,
                             isOnline = null,
                             onClick = { onMemberClick(member) }
                         )
+                    }
+                }
+
+                // No results message when search has no matches
+                if (filteredMembers.isEmpty() && searchQuery.isNotBlank()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No members found",
+                                color = NostrordColors.TextMuted,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 }
             }
@@ -314,6 +363,76 @@ private fun MemberAvatar(
                 alpha = alpha,
                 onState = { imageState = it }
             )
+        }
+    }
+}
+
+/**
+ * Search field for filtering members by name or pubkey.
+ */
+@Composable
+private fun MemberSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(NostrordColors.BackgroundDark)
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search",
+                tint = NostrordColors.TextMuted,
+                modifier = Modifier.size(16.dp)
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            Box(modifier = Modifier.weight(1f)) {
+                if (query.isEmpty()) {
+                    Text(
+                        text = "Search members...",
+                        color = NostrordColors.TextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 14.sp
+                    ),
+                    cursorBrush = SolidColor(NostrordColors.Primary),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // Clear button
+            if (query.isNotEmpty()) {
+                IconButton(
+                    onClick = { onQueryChange("") },
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = "Clear search",
+                        tint = NostrordColors.TextMuted,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
         }
     }
 }
