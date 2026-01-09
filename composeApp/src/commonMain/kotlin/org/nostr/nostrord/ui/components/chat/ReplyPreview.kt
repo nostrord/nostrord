@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -69,6 +72,7 @@ fun isReply(message: NostrGroupClient.NostrMessage): Boolean {
 fun ReplyPreview(
     parentMessage: NostrGroupClient.NostrMessage?,
     parentMetadata: UserMetadata?,
+    userMetadata: Map<String, UserMetadata> = emptyMap(),
     onReplyClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -92,6 +96,22 @@ fun ReplyPreview(
         ?: parentMetadata?.name
         ?: parentMessage.pubkey.take(8) + "..."
 
+    // Request metadata for any pubkeys mentioned in the content
+    LaunchedEffect(parentMessage.content) {
+        val pubkeysToFetch = extractPubkeysFromContent(parentMessage.content)
+            .filter { !userMetadata.containsKey(it) }
+            .toSet()
+        if (pubkeysToFetch.isNotEmpty()) {
+            NostrRepository.requestUserMetadata(pubkeysToFetch)
+        }
+    }
+
+    // Process mentions in content to show @name instead of nostr:npub...
+    val processedContent = remember(parentMessage.content, userMetadata) {
+        processMentionsInContent(parentMessage.content, userMetadata)
+            .replace('\n', ' ')
+    }
+
     ReplyPreviewContainer(
         onClick = onReplyClick,
         modifier = modifier
@@ -110,7 +130,7 @@ fun ReplyPreview(
 
         // Content preview (truncated)
         Text(
-            text = parentMessage.content.replace('\n', ' ').take(100),
+            text = processedContent.take(100),
             color = NostrordColors.TextSecondary,
             style = NostrordTypography.Caption,
             maxLines = 1,

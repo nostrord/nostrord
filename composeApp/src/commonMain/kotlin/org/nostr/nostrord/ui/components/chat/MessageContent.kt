@@ -667,6 +667,66 @@ private fun getMentionDisplayText(
     }
 }
 
+/**
+ * Process content to replace nostr: mentions with @name format.
+ * Used for plain text display in embedded events like reply previews.
+ */
+fun processMentionsInContent(
+    content: String,
+    userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>
+): String {
+    // Regex to match nostr: URIs (npub, nprofile, note, nevent, naddr)
+    val nostrUriRegex = Regex("""nostr:(npub1[a-z0-9]+|nprofile1[a-z0-9]+|note1[a-z0-9]+|nevent1[a-z0-9]+|naddr1[a-z0-9]+)""", RegexOption.IGNORE_CASE)
+
+    return nostrUriRegex.replace(content) { matchResult ->
+        val uri = matchResult.value
+        val bech32 = matchResult.groupValues[1]
+
+        try {
+            val entity = Nip19.decode(bech32)
+            when (entity) {
+                is Nip19.Entity.Npub -> {
+                    val metadata = userMetadata[entity.pubkey]
+                    val name = metadata?.displayName ?: metadata?.name
+                    if (name != null) "@$name" else "@${entity.pubkey.take(8)}..."
+                }
+                is Nip19.Entity.Nprofile -> {
+                    val metadata = userMetadata[entity.pubkey]
+                    val name = metadata?.displayName ?: metadata?.name
+                    if (name != null) "@$name" else "@${entity.pubkey.take(8)}..."
+                }
+                is Nip19.Entity.Note -> "[note]"
+                is Nip19.Entity.Nevent -> "[event]"
+                is Nip19.Entity.Naddr -> "[article]"
+                else -> uri
+            }
+        } catch (_: Exception) {
+            uri // Return original if decoding fails
+        }
+    }
+}
+
+/**
+ * Extract all pubkeys from nostr: mentions in content.
+ * Used to request metadata for mentioned users.
+ */
+fun extractPubkeysFromContent(content: String): List<String> {
+    val nostrUriRegex = Regex("""nostr:(npub1[a-z0-9]+|nprofile1[a-z0-9]+)""", RegexOption.IGNORE_CASE)
+
+    return nostrUriRegex.findAll(content).mapNotNull { matchResult ->
+        val bech32 = matchResult.groupValues[1]
+        try {
+            when (val entity = Nip19.decode(bech32)) {
+                is Nip19.Entity.Npub -> entity.pubkey
+                is Nip19.Entity.Nprofile -> entity.pubkey
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }.toList()
+}
+
 // =============================================================================
 // SAFE EMOJI IMAGE RENDERING
 // =============================================================================
@@ -1147,6 +1207,16 @@ private fun ReplyPreview(
         ?: parentAuthorMetadata?.name
         ?: parentEvent.pubkey.take(8) + "..."
 
+    // Request metadata for any pubkeys mentioned in the content
+    LaunchedEffect(parentEvent.content) {
+        val pubkeysToFetch = extractPubkeysFromContent(parentEvent.content)
+            .filter { !userMetadata.containsKey(it) }
+            .toSet()
+        if (pubkeysToFetch.isNotEmpty()) {
+            NostrRepository.requestUserMetadata(pubkeysToFetch)
+        }
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1180,8 +1250,12 @@ private fun ReplyPreview(
                 fontWeight = FontWeight.Medium,
                 maxLines = 1
             )
+            // Process mentions in content to show @name instead of nostr:npub...
+            val processedContent = remember(parentEvent.content, userMetadata) {
+                processMentionsInContent(parentEvent.content, userMetadata)
+            }
             Text(
-                text = parentEvent.content.take(100) + if (parentEvent.content.length > 100) "..." else "",
+                text = processedContent.take(100) + if (processedContent.length > 100) "..." else "",
                 color = NostrordColors.TextMuted,
                 style = NostrordTypography.Caption,
                 maxLines = 2

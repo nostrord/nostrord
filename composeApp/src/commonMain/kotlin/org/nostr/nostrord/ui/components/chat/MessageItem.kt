@@ -221,6 +221,7 @@ fun MessageItem(
                     ReplyPreview(
                         parentMessage = parentMessage,
                         parentMetadata = parentMetadata,
+                        userMetadata = allUserMetadata,
                         onReplyClick = {
                             replyParentId.let { onScrollToMessage(it) }
                         }
