@@ -43,6 +43,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.compose.AsyncImagePainter
 import coil3.request.crossfade
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
@@ -61,7 +62,7 @@ fun MemberSidebar(
 ) {
     var searchQuery by remember { mutableStateOf("") }
 
-    // Filter members based on search query
+    // Filter members based on search query (name, pubkey hex, or npub)
     val filteredMembers = remember(members, searchQuery) {
         if (searchQuery.isBlank()) {
             members
@@ -69,7 +70,8 @@ fun MemberSidebar(
             val query = searchQuery.lowercase()
             members.filter { member ->
                 member.displayName.lowercase().contains(query) ||
-                member.pubkey.lowercase().contains(query)
+                member.pubkey.lowercase().contains(query) ||
+                Nip19.encodeNpub(member.pubkey).lowercase().contains(query)
             }
         }
     }
