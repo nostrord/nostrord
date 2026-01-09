@@ -6,6 +6,7 @@ import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.utils.epochMillis
 
@@ -49,6 +50,21 @@ data class CachedEvent(
     val tags: List<List<String>>
 )
 
+/**
+ * Result of publishing an event to a relay.
+ * Represents the relay's OK response per NIP-01.
+ */
+sealed class PublishResult {
+    /** Event accepted by relay */
+    data class Success(val eventId: String, val message: String?) : PublishResult()
+    /** Event rejected by relay */
+    data class Rejected(val eventId: String, val reason: String) : PublishResult()
+    /** Timeout waiting for OK response */
+    data class Timeout(val eventId: String) : PublishResult()
+    /** Error during publish (network, etc.) */
+    data class Error(val eventId: String, val exception: Exception) : PublishResult()
+}
+
 class NostrGroupClient(
     private val relayUrl: String = "wss://groups.fiatjaf.com"
 ) {
@@ -66,6 +82,13 @@ class NostrGroupClient(
 
     // Connection lost callback - notifies when WebSocket disconnects unexpectedly
     var onConnectionLost: (() -> Unit)? = null
+
+    // OK response callback - notifies when relay sends OK for published event
+    var onOkResponse: ((eventId: String, success: Boolean, message: String?) -> Unit)? = null
+
+    // Pending OK responses - maps event ID to CompletableDeferred for awaiting
+    private val pendingOkResponses = mutableMapOf<String, CompletableDeferred<PublishResult>>()
+    private val pendingOkMutex = kotlinx.coroutines.sync.Mutex()
 
     // Track if this was a graceful disconnect
     private var isDisconnecting = false
@@ -141,6 +164,103 @@ class NostrGroupClient(
             }
             currentSession.send(Frame.Text(message))
         } catch (e: Exception) {
+        }
+    }
+
+    /**
+     * Send an EVENT message and wait for OK response from relay.
+     * @param eventJson The full EVENT message JSON (["EVENT", {...}])
+     * @param eventId The event ID to track for OK response
+     * @param timeoutMs Timeout in milliseconds to wait for OK
+     * @return PublishResult indicating success, rejection, timeout, or error
+     */
+    suspend fun sendAndAwaitOk(
+        eventJson: String,
+        eventId: String,
+        timeoutMs: Long = 10_000
+    ): PublishResult {
+        val deferred = CompletableDeferred<PublishResult>()
+
+        // Register pending response
+        pendingOkMutex.withLock {
+            pendingOkResponses[eventId] = deferred
+        }
+
+        return try {
+            // Send the event
+            val currentSession = session ?: run {
+                pendingOkMutex.withLock { pendingOkResponses.remove(eventId) }
+                return PublishResult.Error(eventId, Exception("Not connected"))
+            }
+            currentSession.send(Frame.Text(eventJson))
+
+            // Wait for OK with timeout
+            withTimeout(timeoutMs) {
+                deferred.await()
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            pendingOkMutex.withLock { pendingOkResponses.remove(eventId) }
+            PublishResult.Timeout(eventId)
+        } catch (e: Exception) {
+            pendingOkMutex.withLock { pendingOkResponses.remove(eventId) }
+            PublishResult.Error(eventId, e)
+        }
+    }
+
+    /**
+     * Parse an OK message from the relay.
+     * Format: ["OK", <event_id>, <success>, <message>]
+     * @return Triple of (eventId, success, message) or null if not an OK message
+     */
+    fun parseOkMessage(message: String): Triple<String, Boolean, String?>? {
+        return try {
+            val arr = json.parseToJsonElement(message).jsonArray
+            if (arr.size >= 3 && arr[0].jsonPrimitive.content == "OK") {
+                val eventId = arr[1].jsonPrimitive.content
+                val success = arr[2].jsonPrimitive.boolean
+                val okMessage = arr.getOrNull(3)?.jsonPrimitive?.contentOrNull
+                Triple(eventId, success, okMessage)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Handle an OK response from the relay.
+     * This should be called when an OK message is received.
+     * Completes any pending deferred for this event ID.
+     */
+    suspend fun handleOkResponse(eventId: String, success: Boolean, message: String?) {
+        // Notify callback
+        onOkResponse?.invoke(eventId, success, message)
+
+        // Complete pending deferred
+        val deferred = pendingOkMutex.withLock {
+            pendingOkResponses.remove(eventId)
+        }
+
+        if (deferred != null) {
+            val result = if (success) {
+                PublishResult.Success(eventId, message)
+            } else {
+                PublishResult.Rejected(eventId, message ?: "Rejected by relay")
+            }
+            deferred.complete(result)
+        }
+    }
+
+    /**
+     * Clear all pending OK responses (called on disconnect).
+     */
+    private suspend fun clearPendingOkResponses() {
+        pendingOkMutex.withLock {
+            pendingOkResponses.values.forEach { deferred ->
+                deferred.complete(PublishResult.Error("", Exception("Disconnected")))
+            }
+            pendingOkResponses.clear()
         }
     }
 
@@ -507,6 +627,8 @@ suspend fun requestGroupMessages(
     suspend fun disconnect() {
         // Mark as graceful disconnect to prevent onConnectionLost callback
         isDisconnecting = true
+        // Clear pending OK responses before disconnect
+        clearPendingOkResponses()
         // Cancel all managed coroutines
         clientScope.coroutineContext.cancelChildren()
         connectionJob?.cancel()

@@ -35,7 +35,8 @@ import org.nostr.nostrord.utils.epochMillis
  */
 class GroupManager(
     private val connectionManager: ConnectionManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val pendingEventManager: PendingEventManager? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val eventDeduplicator = EventDeduplicator()
@@ -429,7 +430,8 @@ class GroupManager(
     }
 
     /**
-     * Send a message to a group
+     * Send a message to a group.
+     * Uses sendAndAwaitOk() to properly wait for relay confirmation.
      */
     suspend fun sendMessage(
         groupId: String,
@@ -478,8 +480,28 @@ class GroupManager(
                 add(eventJson)
             }.toString()
 
-            currentClient.send(message)
-            Result.Success(Unit)
+            // Get event ID for OK tracking
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
+
+            // Send and wait for OK response from relay
+            val publishResult = currentClient.sendAndAwaitOk(message, eventId)
+
+            when (publishResult) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.MessageRejected(groupId, publishResult.reason))
+                is org.nostr.nostrord.network.PublishResult.Timeout -> {
+                    // Queue for retry on timeout
+                    pendingEventManager?.queueEvent(message, eventId, groupId)
+                    Result.Error(AppError.Group.SendTimeout(groupId))
+                }
+                is org.nostr.nostrord.network.PublishResult.Error -> {
+                    // Queue for retry on network error
+                    pendingEventManager?.queueEvent(message, eventId, groupId)
+                    Result.Error(AppError.Group.SendFailed(groupId, publishResult.exception))
+                }
+            }
         } catch (e: Exception) {
             Result.Error(AppError.Group.SendFailed(groupId, e))
         }

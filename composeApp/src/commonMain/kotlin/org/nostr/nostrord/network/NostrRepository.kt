@@ -32,6 +32,7 @@ class NostrRepository(
     private val metadataManager: MetadataManager,
     private val outboxManager: OutboxManager,
     private val unreadManager: UnreadManager,
+    private val pendingEventManager: org.nostr.nostrord.network.managers.PendingEventManager? = null,
     private val scope: CoroutineScope
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -162,6 +163,9 @@ class NostrRepository(
                 if (pubKey.isNotEmpty()) {
                     groupManager.loadJoinedGroupsFromStorage(pubKey, connectionManager.currentRelayUrl.value)
                 }
+
+                // Retry any pending events that were queued while offline
+                pendingEventManager?.onConnectionRestored()
             }
         }
         return connected
@@ -467,6 +471,16 @@ class NostrRepository(
         if (authChallenge != null) {
             scope.launch {
                 sessionManager.handleAuthChallenge(client, authChallenge)
+            }
+            return
+        }
+
+        // Handle OK messages (NIP-01 relay response to published events)
+        val okResponse = client.parseOkMessage(msg)
+        if (okResponse != null) {
+            val (eventId, success, message) = okResponse
+            scope.launch {
+                client.handleOkResponse(eventId, success, message)
             }
             return
         }

@@ -101,6 +101,15 @@ sealed class AppError(
             val groupId: String,
             override val cause: Throwable? = null
         ) : Group("Failed to send message to group: $groupId", cause)
+
+        data class MessageRejected(
+            val groupId: String,
+            val reason: String
+        ) : Group("Message rejected by relay: $reason (group: $groupId)")
+
+        data class SendTimeout(
+            val groupId: String
+        ) : Group("Timed out waiting for relay confirmation (group: $groupId)")
     }
 
     /** Generic/unknown errors */

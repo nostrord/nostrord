@@ -9,6 +9,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
+import org.nostr.nostrord.network.managers.PendingEventManager
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.RelayListManager
@@ -54,10 +55,18 @@ object AppModule {
         )
     }
 
+    val pendingEventManager: PendingEventManager by lazy {
+        PendingEventManager(
+            connectionManager = connectionManager,
+            scope = appScope
+        )
+    }
+
     val groupManager: GroupManager by lazy {
         GroupManager(
             connectionManager = connectionManager,
-            scope = appScope
+            scope = appScope,
+            pendingEventManager = pendingEventManager
         )
     }
 
@@ -81,6 +90,7 @@ object AppModule {
             metadataManager = metadataManager,
             outboxManager = outboxManager,
             unreadManager = unreadManager,
+            pendingEventManager = pendingEventManager,
             scope = appScope
         )
     }
