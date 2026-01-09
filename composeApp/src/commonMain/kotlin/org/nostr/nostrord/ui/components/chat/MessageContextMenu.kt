@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
+import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EmojiEmotions
@@ -63,6 +64,7 @@ sealed class MessageContextAction {
     data object Reply : MessageContextAction()
     data object CopyText : MessageContextAction()
     data object CopyMessageLink : MessageContextAction()
+    data object CopyEventJson : MessageContextAction()
     data object PinMessage : MessageContextAction()
     data object DeleteMessage : MessageContextAction()
 }
@@ -199,6 +201,16 @@ private fun ContextMenuContent(
             label = "Copy Message Link",
             onClick = {
                 onAction(MessageContextAction.CopyMessageLink)
+                onDismiss()
+            }
+        )
+
+        // Copy Event JSON
+        ContextMenuItem(
+            icon = Icons.Outlined.Code,
+            label = "Copy Event JSON",
+            onClick = {
+                onAction(MessageContextAction.CopyEventJson)
                 onDismiss()
             }
         )

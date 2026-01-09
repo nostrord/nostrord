@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
+import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
@@ -161,6 +162,7 @@ fun GroupScreenMobile(
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
+                    val scope = rememberCoroutineScope()
                     MessagesList(
                         groupId = groupId,
                         chatItems = chatItems,
@@ -173,7 +175,18 @@ fun GroupScreenMobile(
                         hasMoreMessages = hasMoreMessages,
                         onLoadMore = onLoadMore,
                         onUsernameClick = onUserClick,
-                        onReplyClick = onReplyClick
+                        onReplyClick = onReplyClick,
+                        onNavigateToGroup = { targetGroupId, targetGroupName, targetRelayUrl ->
+                            scope.launch {
+                                // If target relay is different from current, switch relays first
+                                val currentRelay = NostrRepository.currentRelayUrl.value
+                                if (targetRelayUrl != null && targetRelayUrl != currentRelay) {
+                                    NostrRepository.switchRelay(targetRelayUrl)
+                                }
+                                // Navigate to the group
+                                onNavigateToGroup(targetGroupId, targetGroupName)
+                            }
+                        }
                     )
                 }
 

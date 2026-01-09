@@ -473,10 +473,10 @@ class NostrRepository(
                 return
             }
 
-            // Handle event_* subscriptions (fetched events by ID for quotes)
+            // Handle event subscriptions (event_* or e_*) for quotes
             if (arr.size >= 3 && arr[0].jsonPrimitive.content == "EVENT") {
                 val subId = arr[1].jsonPrimitive.content
-                if (subId.startsWith("event_")) {
+                if (subId.startsWith("event_") || subId.startsWith("e_")) {
                     val event = arr[2].jsonObject
                     metadataManager.parseAndCacheEvent(event)?.let { cachedEvent ->
                         if (!metadataManager.hasMetadata(cachedEvent.pubkey)) {
@@ -572,8 +572,8 @@ class NostrRepository(
                 val event = arr[2].jsonObject
                 val kind = event["kind"]?.jsonPrimitive?.int
 
-                // Handle event_* subscriptions (fetched events by ID)
-                if (subId.startsWith("event_")) {
+                // Handle event subscriptions (event_* or e_*)
+                if (subId.startsWith("event_") || subId.startsWith("e_")) {
                     metadataManager.parseAndCacheEvent(event)?.let { cachedEvent ->
                         if (!metadataManager.hasMetadata(cachedEvent.pubkey)) {
                             scope.launch {
@@ -584,8 +584,8 @@ class NostrRepository(
                     return
                 }
 
-                // Handle addr_* subscriptions (addressable events)
-                if (subId.startsWith("addr_")) {
+                // Handle addressable event subscriptions (addr_* or a_*)
+                if (subId.startsWith("addr_") || subId.startsWith("a_")) {
                     metadataManager.parseAndCacheAddressableEvent(event)?.let { cachedEvent ->
                         if (!metadataManager.hasMetadata(cachedEvent.pubkey)) {
                             scope.launch {

@@ -9,7 +9,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,9 +35,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
@@ -135,7 +147,10 @@ fun MessageContent(
     tags: List<List<String>> = emptyList(),
     modifier: Modifier = Modifier,
     onMentionClick: (String) -> Unit = {},
-    onHashtagClick: (String) -> Unit = {}
+    onHashtagClick: (String) -> Unit = {},
+    currentGroupId: String? = null,
+    currentRelayUrl: String? = null,
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
 ) {
     // Extract custom emoji map from NIP-30 tags
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
@@ -247,7 +262,10 @@ fun MessageContent(
                                 try {
                                     uriHandler.openUri(firstPart.reference.uri)
                                 } catch (_: Exception) {}
-                            }
+                            },
+                            currentGroupId = currentGroupId,
+                            currentRelayUrl = currentRelayUrl,
+                            onNavigateToGroup = onNavigateToGroup
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
@@ -823,7 +841,10 @@ private fun ChatImage(
 private fun QuotedEventBlock(
     mention: MentionPart,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currentGroupId: String? = null,
+    currentRelayUrl: String? = null,
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
 ) {
     val entity = mention.reference.entity
 
@@ -833,8 +854,12 @@ private fun QuotedEventBlock(
                 eventId = entity.eventId,
                 relayHints = entity.relays,
                 author = entity.author,
+                kind = entity.kind,
                 onClick = onClick,
-                modifier = modifier
+                modifier = modifier,
+                currentGroupId = currentGroupId,
+                currentRelayUrl = currentRelayUrl,
+                onNavigateToGroup = onNavigateToGroup
             )
         }
         is Nip19.Entity.Note -> {
@@ -842,8 +867,12 @@ private fun QuotedEventBlock(
                 eventId = entity.eventId,
                 relayHints = emptyList(),
                 author = null,
+                kind = null,
                 onClick = onClick,
-                modifier = modifier
+                modifier = modifier,
+                currentGroupId = currentGroupId,
+                currentRelayUrl = currentRelayUrl,
+                onNavigateToGroup = onNavigateToGroup
             )
         }
         is Nip19.Entity.Naddr -> {
@@ -860,16 +889,322 @@ private fun QuotedEventBlock(
     }
 }
 
+/**
+ * Extracts source group info from an event's h tag.
+ * Returns (groupId, relayUrl) if found, null otherwise.
+ */
+private fun extractGroupFromEvent(event: CachedEvent): Pair<String, String?>? {
+    val hTag = event.tags.find { it.firstOrNull() == "h" } ?: return null
+    val groupId = hTag.getOrNull(1) ?: return null
+    val relayUrl = hTag.getOrNull(2)
+    return groupId to relayUrl
+}
+
+/**
+ * Forwarded event card - displays an event that originated from a different group.
+ * Shows "forwarded from [group name]" header with group info, author info,
+ * optional reply preview (if q tag exists), and the message content.
+ *
+ * Clicking the header navigates to the source group:
+ * - If on same relay: navigates directly to the group
+ * - If on different relay: switches relay first, then navigates to group
+ */
+@Composable
+fun ForwardedEventCard(
+    event: CachedEvent,
+    sourceGroupId: String,
+    sourceGroupName: String?,
+    sourceGroupPicture: String?,
+    sourceRelayUrl: String?,
+    onClick: () -> Unit,
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    modifier: Modifier = Modifier
+) {
+    val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val cachedEvents by NostrRepository.cachedEvents.collectAsState()
+    val clipboardManager = LocalClipboardManager.current
+    var showMenu by remember { mutableStateOf(false) }
+
+    val authorMetadata = userMetadata[event.pubkey]
+    val authorName = authorMetadata?.displayName ?: authorMetadata?.name ?: event.pubkey.take(8) + "..."
+
+    // Check for reply (q tag) - indicates this event is a reply to another
+    val replyEventId = event.tags.find { it.firstOrNull() == "q" }?.getOrNull(1)
+    val replyEvent = replyEventId?.let { cachedEvents[it] }
+
+    // Request reply event if we have a q tag but don't have the event cached
+    LaunchedEffect(replyEventId) {
+        if (replyEventId != null && !cachedEvents.containsKey(replyEventId)) {
+            // Extract relay hint from q tag if available
+            val qTag = event.tags.find { it.firstOrNull() == "q" }
+            val relayHint = qTag?.getOrNull(2)?.let { listOf(it) } ?: emptyList()
+            NostrRepository.requestEventById(replyEventId, relayHint, null)
+        }
+    }
+
+    // Request author metadata
+    LaunchedEffect(event.pubkey) {
+        if (!userMetadata.containsKey(event.pubkey)) {
+            NostrRepository.requestUserMetadata(setOf(event.pubkey))
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+            .background(NostrordColors.Surface)
+            .clickable(onClick = onClick)
+    ) {
+        // Forwarded header - clickable to navigate to source group
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    onNavigateToGroup(sourceGroupId, sourceGroupName, sourceRelayUrl)
+                }
+                .pointerHoverIcon(PointerIcon.Hand)
+                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            // Forward arrow icon
+            Text(
+                text = "↪",
+                color = NostrordColors.TextMuted,
+                style = NostrordTypography.Caption
+            )
+            Text(
+                text = "forwarded from",
+                color = NostrordColors.TextMuted,
+                style = NostrordTypography.Caption
+            )
+            // Group avatar (small)
+            if (sourceGroupPicture != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalPlatformContext.current)
+                        .data(getImageUrl(sourceGroupPicture))
+                        .crossfade(true)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .size(Size(32, 32))
+                        .build(),
+                    contentDescription = "Group avatar",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                )
+            }
+            // Group name (with underline on hover style)
+            Text(
+                text = sourceGroupName ?: sourceGroupId.take(12) + "...",
+                color = NostrordColors.Primary,
+                style = NostrordTypography.Caption,
+                fontWeight = FontWeight.Medium
+            )
+            // Relay indicator if available
+            if (sourceRelayUrl != null) {
+                Text(
+                    text = "@ ${sourceRelayUrl.removePrefix("wss://").removePrefix("ws://").take(20)}",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
+                )
+            }
+        }
+
+        // Divider
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(NostrordColors.Background)
+        )
+
+        // Main content area
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(Spacing.md)
+        ) {
+            // Author row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OptimizedUserAvatar(
+                    imageUrl = authorMetadata?.picture,
+                    pubkey = event.pubkey,
+                    displayName = authorName,
+                    size = 24.dp
+                )
+                Spacer(modifier = Modifier.width(Spacing.sm))
+                Text(
+                    text = authorName,
+                    color = NostrordColors.TextSecondary,
+                    style = NostrordTypography.Caption,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = formatTime(event.createdAt),
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
+                )
+                Spacer(modifier = Modifier.width(Spacing.xs))
+                // 3-dot menu button
+                DisableSelection {
+                    Box {
+                        Icon(
+                            imageVector = Icons.Outlined.MoreVert,
+                            contentDescription = "More options",
+                            tint = NostrordColors.TextMuted,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable { showMenu = true }
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        )
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Copy Event JSON") },
+                                onClick = {
+                                    val json = buildJsonObject {
+                                        put("id", event.id)
+                                        put("pubkey", event.pubkey)
+                                        put("created_at", event.createdAt)
+                                        put("kind", event.kind)
+                                        put("tags", buildJsonArray {
+                                            event.tags.forEach { tag ->
+                                                add(buildJsonArray {
+                                                    tag.forEach { add(JsonPrimitive(it)) }
+                                                })
+                                            }
+                                        })
+                                        put("content", event.content)
+                                    }.toString()
+                                    clipboardManager.setText(AnnotatedString(json))
+                                    showMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Reply preview (if q tag exists and we have the parent event)
+            if (replyEvent != null) {
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                ReplyPreview(
+                    parentEvent = replyEvent,
+                    userMetadata = userMetadata
+                )
+            } else if (replyEventId != null) {
+                // Show loading state for reply
+                Spacer(modifier = Modifier.height(Spacing.sm))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(NostrordShapes.radiusSmall))
+                        .background(NostrordColors.Background)
+                        .padding(Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "↳",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+                    Text(
+                        text = "Loading reply...",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                }
+            }
+
+            // Message content
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            QuotedEventContent(content = event.content)
+        }
+    }
+}
+
+/**
+ * Reply preview bar - shows the parent message being replied to.
+ */
+@Composable
+private fun ReplyPreview(
+    parentEvent: CachedEvent,
+    userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
+    modifier: Modifier = Modifier
+) {
+    val parentAuthorMetadata = userMetadata[parentEvent.pubkey]
+    val parentAuthorName = parentAuthorMetadata?.displayName
+        ?: parentAuthorMetadata?.name
+        ?: parentEvent.pubkey.take(8) + "..."
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(NostrordShapes.radiusSmall))
+            .background(NostrordColors.Background)
+            .padding(Spacing.sm),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Reply arrow
+        Text(
+            text = "↳",
+            color = NostrordColors.TextMuted,
+            style = NostrordTypography.Caption
+        )
+        Spacer(modifier = Modifier.width(Spacing.xs))
+
+        // Small avatar
+        OptimizedUserAvatar(
+            imageUrl = parentAuthorMetadata?.picture,
+            pubkey = parentEvent.pubkey,
+            displayName = parentAuthorName,
+            size = 16.dp
+        )
+        Spacer(modifier = Modifier.width(Spacing.xs))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = parentAuthorName,
+                color = NostrordColors.TextSecondary,
+                style = NostrordTypography.Caption,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
+            )
+            Text(
+                text = parentEvent.content.take(100) + if (parentEvent.content.length > 100) "..." else "",
+                color = NostrordColors.TextMuted,
+                style = NostrordTypography.Caption,
+                maxLines = 2
+            )
+        }
+    }
+}
+
 @Composable
 private fun QuotedEvent(
     eventId: String,
     relayHints: List<String> = emptyList(),
     author: String? = null,
+    kind: Int? = null,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currentGroupId: String? = null,
+    currentRelayUrl: String? = null,
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
 ) {
     val cachedEvents by NostrRepository.cachedEvents.collectAsState()
     val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val groups by NostrRepository.groups.collectAsState()
     val event = cachedEvents[eventId]
 
     // Track if event was not found after timeout
@@ -916,42 +1251,59 @@ private fun QuotedEvent(
         return
     }
 
-    // Default rendering for other event kinds
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
-            .background(NostrordColors.Surface)
-            .clickable(onClick = onClick)
-    ) {
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(Spacing.md)
-        ) {
-            if (event != null) {
-                val metadata = userMetadata[event.pubkey]
-                val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
+    // Check if this event is from a different group (forwarded)
+    if (event != null) {
+        val sourceGroupInfo = extractGroupFromEvent(event)
+        if (sourceGroupInfo != null) {
+            val (sourceGroupId, sourceRelayUrl) = sourceGroupInfo
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OptimizedUserAvatar(
-                        imageUrl = metadata?.picture,
-                        pubkey = event.pubkey,
-                        displayName = authorName,
-                        size = 24.dp
-                    )
-                    Spacer(modifier = Modifier.width(Spacing.sm))
-                    Text(
-                        text = authorName,
-                        color = NostrordColors.TextSecondary,
-                        style = NostrordTypography.Caption,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                Spacer(modifier = Modifier.height(Spacing.sm))
-                QuotedEventContent(content = event.content)
-            } else if (eventNotFound) {
-                // Event not found after timeout
+            // Determine if this is a forwarded event
+            // It's forwarded if: we have a current group context AND the source group is different
+            // OR if the source relay is different from current relay
+            val isFromDifferentGroup = when {
+                currentGroupId != null && sourceGroupId != currentGroupId -> true
+                currentRelayUrl != null && sourceRelayUrl != null &&
+                    sourceRelayUrl != currentRelayUrl -> true
+                // If no current context provided, assume it's a quote from same group (not forwarded)
+                else -> false
+            }
+
+            if (isFromDifferentGroup) {
+                // Look up group metadata for source group
+                val sourceGroup = groups.find { it.id == sourceGroupId }
+
+                ForwardedEventCard(
+                    event = event,
+                    sourceGroupId = sourceGroupId,
+                    sourceGroupName = sourceGroup?.name,
+                    sourceGroupPicture = sourceGroup?.picture,
+                    sourceRelayUrl = sourceRelayUrl,
+                    onClick = onClick,
+                    onNavigateToGroup = onNavigateToGroup,
+                    modifier = modifier
+                )
+                return
+            }
+        }
+    }
+
+    // Event not found - non-clickable with selectable text showing full parsed content
+    if (event == null && eventNotFound) {
+        val clipboardManager = LocalClipboardManager.current
+        var showMenu by remember { mutableStateOf(false) }
+
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+                .background(NostrordColors.Surface)
+                .padding(Spacing.md),
+            verticalAlignment = Alignment.Top
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
@@ -967,14 +1319,167 @@ private fun QuotedEvent(
                         style = NostrordTypography.Caption
                     )
                 }
-            } else {
-                // Still loading
+                // Show full parsed content
+                if (kind != null) {
+                    Text(
+                        text = "kind: $kind",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                }
                 Text(
-                    text = "Loading event...",
+                    text = "id: $eventId",
                     color = NostrordColors.TextMuted,
                     style = NostrordTypography.Caption
                 )
+                if (author != null) {
+                    Text(
+                        text = "author: $author",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                }
+                if (relayHints.isNotEmpty()) {
+                    Text(
+                        text = "relays: ${relayHints.joinToString(", ")}",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                }
             }
+            // 3-dot menu button - wrapped in DisableSelection to avoid hierarchy conflict with parent SelectionContainer
+            DisableSelection {
+                Box {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = "More options",
+                        tint = NostrordColors.TextMuted,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { showMenu = true }
+                            .pointerHoverIcon(PointerIcon.Hand)
+                    )
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Copy Parsed JSON") },
+                            onClick = {
+                                val json = buildJsonObject {
+                                    put("type", if (kind != null) "nevent" else "note")
+                                    put("event_id", eventId)
+                                    if (kind != null) put("kind", kind)
+                                    if (author != null) put("author", author)
+                                    put("relays", buildJsonArray {
+                                        relayHints.forEach { add(JsonPrimitive(it)) }
+                                    })
+                                }.toString()
+                                clipboardManager.setText(AnnotatedString(json))
+                                showMenu = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    // Still loading
+    if (event == null) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+                .background(NostrordColors.Surface)
+                .padding(Spacing.md)
+        ) {
+            Text(
+                text = "Loading event...",
+                color = NostrordColors.TextMuted,
+                style = NostrordTypography.Caption
+            )
+        }
+        return
+    }
+
+    // Default rendering for other event kinds (clickable)
+    val metadata = userMetadata[event.pubkey]
+    val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
+    val clipboardManager = LocalClipboardManager.current
+    var showMenu by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
+            .background(NostrordColors.Surface)
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(Spacing.md)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OptimizedUserAvatar(
+                    imageUrl = metadata?.picture,
+                    pubkey = event.pubkey,
+                    displayName = authorName,
+                    size = 24.dp
+                )
+                Spacer(modifier = Modifier.width(Spacing.sm))
+                Text(
+                    text = authorName,
+                    color = NostrordColors.TextSecondary,
+                    style = NostrordTypography.Caption,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                // 3-dot menu button - wrapped in DisableSelection to avoid hierarchy conflict
+                DisableSelection {
+                    Box {
+                        Icon(
+                            imageVector = Icons.Outlined.MoreVert,
+                            contentDescription = "More options",
+                            tint = NostrordColors.TextMuted,
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clickable { showMenu = true }
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        )
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Copy Event JSON") },
+                                onClick = {
+                                    val json = buildJsonObject {
+                                        put("id", event.id)
+                                        put("pubkey", event.pubkey)
+                                        put("created_at", event.createdAt)
+                                        put("kind", event.kind)
+                                        put("tags", buildJsonArray {
+                                            event.tags.forEach { tag ->
+                                                add(buildJsonArray {
+                                                    tag.forEach { add(JsonPrimitive(it)) }
+                                                })
+                                            }
+                                        })
+                                        put("content", event.content)
+                                    }.toString()
+                                    clipboardManager.setText(AnnotatedString(json))
+                                    showMenu = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(Spacing.sm))
+            QuotedEventContent(content = event.content)
         }
     }
 }
@@ -1529,30 +2034,96 @@ private fun AddressableEvent(
         }
     }
 
-    // If event not found after timeout, show error card
+    // If event not found after timeout, show error card with full parsed content (non-clickable, selectable)
     if (event == null && eventNotFound) {
+        val clipboardManager = LocalClipboardManager.current
+        var showMenu by remember { mutableStateOf(false) }
+
         Row(
             modifier = modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
                 .background(NostrordColors.Surface)
-                .clickable(onClick = onClick)
-                .padding(Spacing.md)
+                .padding(Spacing.md),
+            verticalAlignment = Alignment.Top
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
             ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                ) {
+                    Text(
+                        text = "⚠",
+                        style = NostrordTypography.MessageBody,
+                        color = NostrordColors.TextMuted
+                    )
+                    Text(
+                        text = "Event not found",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                }
+                // Show full parsed naddr content
                 Text(
-                    text = "⚠",
-                    style = NostrordTypography.MessageBody,
-                    color = NostrordColors.TextMuted
-                )
-                Text(
-                    text = "Event not found",
+                    text = "kind: $kind",
                     color = NostrordColors.TextMuted,
                     style = NostrordTypography.Caption
                 )
+                Text(
+                    text = "pubkey: $pubkey",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
+                )
+                Text(
+                    text = "d: $identifier",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Caption
+                )
+                if (relayHints.isNotEmpty()) {
+                    Text(
+                        text = "relays: ${relayHints.joinToString(", ")}",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption
+                    )
+                }
+            }
+            // 3-dot menu button - wrapped in DisableSelection to avoid hierarchy conflict
+            DisableSelection {
+                Box {
+                    Icon(
+                        imageVector = Icons.Outlined.MoreVert,
+                        contentDescription = "More options",
+                        tint = NostrordColors.TextMuted,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { showMenu = true }
+                            .pointerHoverIcon(PointerIcon.Hand)
+                    )
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Copy Parsed JSON") },
+                            onClick = {
+                                val json = buildJsonObject {
+                                    put("type", "naddr")
+                                    put("identifier", identifier)
+                                    put("pubkey", pubkey)
+                                    put("kind", kind)
+                                    put("relays", buildJsonArray {
+                                        relayHints.forEach { add(JsonPrimitive(it)) }
+                                    })
+                                }.toString()
+                                clipboardManager.setText(AnnotatedString(json))
+                                showMenu = false
+                            }
+                        )
+                    }
+                }
             }
         }
         return
@@ -1677,6 +2248,9 @@ private fun ArticleCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1706,8 +2280,49 @@ private fun ArticleCard(
                         text = authorName,
                         color = NostrordColors.TextSecondary,
                         style = NostrordTypography.Caption,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f)
                     )
+                    // 3-dot menu button - wrapped in DisableSelection to avoid hierarchy conflict
+                    DisableSelection {
+                        Box {
+                            Icon(
+                                imageVector = Icons.Outlined.MoreVert,
+                                contentDescription = "More options",
+                                tint = NostrordColors.TextMuted,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable { showMenu = true }
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                            )
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Copy Event JSON") },
+                                    onClick = {
+                                        val json = buildJsonObject {
+                                            put("id", event.id)
+                                            put("pubkey", event.pubkey)
+                                            put("created_at", event.createdAt)
+                                            put("kind", event.kind)
+                                            put("tags", buildJsonArray {
+                                                event.tags.forEach { tag ->
+                                                    add(buildJsonArray {
+                                                        tag.forEach { add(JsonPrimitive(it)) }
+                                                    })
+                                                }
+                                            })
+                                            put("content", event.content)
+                                        }.toString()
+                                        clipboardManager.setText(AnnotatedString(json))
+                                        showMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 if (title != null) {
@@ -1754,6 +2369,9 @@ private fun BookCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1771,14 +2389,17 @@ private fun BookCard(
                 val title = event.tags.find { it.firstOrNull() == "title" }?.getOrNull(1)
                 val bookAuthor = event.tags.find { it.firstOrNull() == "author" }?.getOrNull(1)
 
-                // Header row with avatar, name, and date
+                // Header row with avatar, name, date, and menu
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Author info
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         OptimizedUserAvatar(
                             imageUrl = authorPicture,
                             pubkey = pubkey,
@@ -1800,6 +2421,49 @@ private fun BookCard(
                         color = NostrordColors.TextMuted,
                         style = NostrordTypography.Caption
                     )
+
+                    Spacer(modifier = Modifier.width(Spacing.xs))
+
+                    // 3-dot menu button - wrapped in DisableSelection to avoid hierarchy conflict
+                    DisableSelection {
+                        Box {
+                            Icon(
+                                imageVector = Icons.Outlined.MoreVert,
+                                contentDescription = "More options",
+                                tint = NostrordColors.TextMuted,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable { showMenu = true }
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                            )
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Copy Event JSON") },
+                                    onClick = {
+                                        val json = buildJsonObject {
+                                            put("id", event.id)
+                                            put("pubkey", event.pubkey)
+                                            put("created_at", event.createdAt)
+                                            put("kind", event.kind)
+                                            put("tags", buildJsonArray {
+                                                event.tags.forEach { tag ->
+                                                    add(buildJsonArray {
+                                                        tag.forEach { add(JsonPrimitive(it)) }
+                                                    })
+                                                }
+                                            })
+                                            put("content", event.content)
+                                        }.toString()
+                                        clipboardManager.setText(AnnotatedString(json))
+                                        showMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Book content
@@ -1846,6 +2510,9 @@ private fun GenericAddressableCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1867,7 +2534,7 @@ private fun GenericAddressableCard(
                         size = 24.dp
                     )
                     Spacer(modifier = Modifier.width(Spacing.sm))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = authorName,
                             color = NostrordColors.TextSecondary,
@@ -1879,6 +2546,46 @@ private fun GenericAddressableCard(
                             color = NostrordColors.TextMuted,
                             style = NostrordTypography.Caption
                         )
+                    }
+                    // 3-dot menu button - wrapped in DisableSelection to avoid hierarchy conflict
+                    DisableSelection {
+                        Box {
+                            Icon(
+                                imageVector = Icons.Outlined.MoreVert,
+                                contentDescription = "More options",
+                                tint = NostrordColors.TextMuted,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clickable { showMenu = true }
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                            )
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Copy Event JSON") },
+                                    onClick = {
+                                        val json = buildJsonObject {
+                                            put("id", event.id)
+                                            put("pubkey", event.pubkey)
+                                            put("created_at", event.createdAt)
+                                            put("kind", event.kind)
+                                            put("tags", buildJsonArray {
+                                                event.tags.forEach { tag ->
+                                                    add(buildJsonArray {
+                                                        tag.forEach { add(JsonPrimitive(it)) }
+                                                    })
+                                                }
+                                            })
+                                            put("content", event.content)
+                                        }.toString()
+                                        clipboardManager.setText(AnnotatedString(json))
+                                        showMenu = false
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
                 Spacer(modifier = Modifier.height(Spacing.sm))

@@ -470,9 +470,11 @@ suspend fun requestGroupMessages(
     }
 
     suspend fun requestEventById(eventId: String) {
+        // Use short subscription ID - many relays limit to 64 chars
+        val subId = "e_${epochMillis()}"
         val req = buildJsonArray {
             add("REQ")
-            add("event_$eventId")
+            add(subId)
             add(buildJsonObject {
                 putJsonArray("ids") { add(eventId) }
             })
@@ -485,9 +487,11 @@ suspend fun requestGroupMessages(
      * Addressable events are parameterized replaceable events (kinds 30000-39999).
      */
     suspend fun requestAddressableEvent(kind: Int, pubkey: String, identifier: String) {
+        // Use short subscription ID - many relays limit to 64 chars
+        val subId = "a_${epochMillis()}"
         val req = buildJsonArray {
             add("REQ")
-            add("addr_${kind}_${pubkey}_${identifier}")
+            add(subId)
             add(buildJsonObject {
                 putJsonArray("kinds") { add(kind) }
                 putJsonArray("authors") { add(pubkey) }

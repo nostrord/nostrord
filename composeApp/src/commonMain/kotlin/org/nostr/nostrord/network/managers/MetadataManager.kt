@@ -92,12 +92,20 @@ class MetadataManager(
             explicitRelays = relayHints
         )
 
-        // Request from all available relays
+        // Request from all available relays using fresh connections
+        // (fresh connections ensure message handler is correctly bound)
         for (relayUrl in relaysToTry) {
-            try {
-                val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                client?.requestEventById(eventId)
-            } catch (_: Exception) {}
+            scope.launch {
+                try {
+                    val client = NostrGroupClient(relayUrl)
+                    client.connect { msg -> messageHandler(msg, client) }
+                    if (!client.waitForConnection()) return@launch
+                    client.requestEventById(eventId)
+                    // Keep connection open to receive response
+                    kotlinx.coroutines.delay(5000)
+                    client.disconnect()
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -132,12 +140,20 @@ class MetadataManager(
             explicitRelays = relayHints
         )
 
-        // Request from all available relays
+        // Request from all available relays using fresh connections
+        // (fresh connections ensure message handler is correctly bound)
         for (relayUrl in relaysToTry) {
-            try {
-                val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                client?.requestAddressableEvent(kind, pubkey, identifier)
-            } catch (_: Exception) {}
+            scope.launch {
+                try {
+                    val client = NostrGroupClient(relayUrl)
+                    client.connect { msg -> messageHandler(msg, client) }
+                    if (!client.waitForConnection()) return@launch
+                    client.requestAddressableEvent(kind, pubkey, identifier)
+                    // Keep connection open to receive response
+                    kotlinx.coroutines.delay(5000)
+                    client.disconnect()
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -238,7 +254,7 @@ class MetadataManager(
             eventsCache.put(addressKey, cachedEvent)
             _cachedEvents.value = eventsCache.toMap()
             cachedEvent
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }

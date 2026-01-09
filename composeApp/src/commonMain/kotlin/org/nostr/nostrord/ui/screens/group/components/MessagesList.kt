@@ -17,16 +17,24 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
+import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.chat.DateSeparator
@@ -67,13 +75,20 @@ fun MessagesList(
     onUsernameClick: (String) -> Unit = {},
     onReplyClick: (NostrMessage) -> Unit = {},
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
-    onScrollToMessage: (String) -> Unit = {}
+    onScrollToMessage: (String) -> Unit = {},
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
 ) {
     // Stable callback references
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
     val currentOnRefresh by rememberUpdatedState(onRefresh)
+
+    // Get current relay URL for forwarded message detection
+    val currentRelayUrl by NostrRepository.currentRelayUrl.collectAsState()
+
+    // Clipboard manager for copy operations
+    val clipboardManager = LocalClipboardManager.current
 
     val listState = rememberLazyListState()
 
@@ -221,12 +236,33 @@ fun MessagesList(
                                         isLastInGroup = item.isLastInGroup,
                                         reactions = reactions[item.message.id] ?: emptyMap(),
                                         currentUserPubkey = currentUserPubkey,
+                                        currentGroupId = groupId,
+                                        currentRelayUrl = currentRelayUrl,
                                         onUsernameClick = currentOnUsernameClick,
                                         onReplyClick = { currentOnReplyClick(item.message) },
                                         onReactionBadgeClick = { emoji ->
                                             onReactionBadgeClick(item.message.id, emoji)
                                         },
-                                        onScrollToMessage = onScrollToMessage
+                                        onScrollToMessage = onScrollToMessage,
+                                        onNavigateToGroup = onNavigateToGroup,
+                                        onCopyJson = {
+                                            val msg = item.message
+                                            val json = buildJsonObject {
+                                                put("id", msg.id)
+                                                put("pubkey", msg.pubkey)
+                                                put("created_at", msg.createdAt)
+                                                put("kind", msg.kind)
+                                                put("tags", buildJsonArray {
+                                                    msg.tags.forEach { tag ->
+                                                        add(buildJsonArray {
+                                                            tag.forEach { add(JsonPrimitive(it)) }
+                                                        })
+                                                    }
+                                                })
+                                                put("content", msg.content)
+                                            }.toString()
+                                            clipboardManager.setText(AnnotatedString(json))
+                                        }
                                     )
                                 }
                             }

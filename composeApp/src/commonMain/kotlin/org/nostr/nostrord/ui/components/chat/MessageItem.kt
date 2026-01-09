@@ -78,16 +78,20 @@ fun MessageItem(
     isAdmin: Boolean = false,
     reactions: Map<String, GroupManager.ReactionInfo> = emptyMap(),
     currentUserPubkey: String? = null,
+    currentGroupId: String? = null,
+    currentRelayUrl: String? = null,
     onReplyClick: () -> Unit = {},
     onReactionClick: () -> Unit = {},
     onReactionBadgeClick: (emoji: String) -> Unit = {},
     onMoreClick: () -> Unit = {},
     onCopyText: () -> Unit = {},
     onCopyLink: () -> Unit = {},
+    onCopyJson: () -> Unit = {},
     onPinMessage: () -> Unit = {},
     onDeleteMessage: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {},
-    onScrollToMessage: (String) -> Unit = {}
+    onScrollToMessage: (String) -> Unit = {},
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -95,6 +99,7 @@ fun MessageItem(
     val currentOnReactionClick by rememberUpdatedState(onReactionClick)
     val currentOnCopyText by rememberUpdatedState(onCopyText)
     val currentOnCopyLink by rememberUpdatedState(onCopyLink)
+    val currentOnCopyJson by rememberUpdatedState(onCopyJson)
     val currentOnPinMessage by rememberUpdatedState(onPinMessage)
     val currentOnDeleteMessage by rememberUpdatedState(onDeleteMessage)
 
@@ -231,7 +236,10 @@ fun MessageItem(
                     onHashtagClick = { hashtag ->
                         // TODO: Implement hashtag click handler (e.g., search for hashtag)
                         println("Clicked hashtag: #$hashtag")
-                    }
+                    },
+                    currentGroupId = currentGroupId,
+                    currentRelayUrl = currentRelayUrl,
+                    onNavigateToGroup = onNavigateToGroup
                 )
 
                 // Reaction badges
@@ -281,6 +289,7 @@ fun MessageItem(
                     MessageContextAction.Reply -> currentOnReplyClick()
                     MessageContextAction.CopyText -> currentOnCopyText()
                     MessageContextAction.CopyMessageLink -> currentOnCopyLink()
+                    MessageContextAction.CopyEventJson -> currentOnCopyJson()
                     MessageContextAction.PinMessage -> currentOnPinMessage()
                     MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
                 }
