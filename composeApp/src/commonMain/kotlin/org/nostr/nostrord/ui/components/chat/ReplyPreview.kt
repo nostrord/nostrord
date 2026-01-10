@@ -31,30 +31,46 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
 /**
- * Extract the parent event ID from a message's tags.
- * For kind 9 messages: Only "q" tags indicate a reply (not "e" tags).
- * For other kinds: Both "q" and "e" tags can indicate a reply.
+ * Extract the parent event ID from a message's tags for REPLY threading.
+ *
+ * For NIP-29 group messages (kind 9), replies are detected via:
+ * 1. "q" tag with 64-char hex event ID (quoted reply)
+ * 2. "e" tag with "reply" marker (legacy format)
+ * 3. Plain "e" tag (fallback)
+ *
  * Returns the parent event ID or null if not a reply.
  */
 fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
-    // Check for "q" tag first: ["q", <event_id>, <relay_hint?>, <author_pubkey?>]
-    val qTag = message.tags.firstOrNull { it.size >= 2 && it[0] == "q" }
-    if (qTag != null) {
-        val eventId = qTag.getOrNull(1)
-        if (!eventId.isNullOrBlank()) {
-            return eventId
-        }
-    }
-
-    // For kind 9 messages, ONLY "q" tag indicates a reply, not "e" tag
-    if (message.kind == 9) {
+    // Only kind 9 messages can have replies in group context
+    if (message.kind != 9) {
         return null
     }
 
-    // For other event kinds, fall back to "e" tag: ["e", <event_id>]
-    val eTag = message.tags.firstOrNull { it.size >= 2 && it[0] == "e" }
-    val eventId = eTag?.getOrNull(1)
-    return if (!eventId.isNullOrBlank()) eventId else null
+    // 1. Check for "q" tag with 64-char hex event ID (quoted reply)
+    val qTag = message.tags.find { tag ->
+        tag.size >= 2 && tag[0] == "q" && tag[1].length == 64
+    }
+    if (qTag != null) {
+        return qTag[1]
+    }
+
+    // 2. Check for "e" tag with "reply" marker (legacy format)
+    val replyMarkerTag = message.tags.find { tag ->
+        tag.size >= 4 && tag[0] == "e" && tag[3] == "reply"
+    }
+    if (replyMarkerTag != null) {
+        return replyMarkerTag[1]
+    }
+
+    // 3. Check for plain "e" tag (fallback)
+    val eTag = message.tags.find { tag ->
+        tag.size >= 2 && tag[0] == "e" && tag[1].length == 64
+    }
+    if (eTag != null) {
+        return eTag[1]
+    }
+
+    return null
 }
 
 /**
