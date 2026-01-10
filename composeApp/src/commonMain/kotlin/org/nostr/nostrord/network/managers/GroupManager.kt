@@ -105,7 +105,7 @@ class GroupManager(
 
     // Track which groups have observation jobs to prevent memory leaks
     private val observedGroups = mutableSetOf<String>()
-    private val observedGroupsLock = Any()
+    private val observedGroupsMutex = Mutex()
 
     /**
      * Load joined groups from storage
@@ -212,7 +212,7 @@ class GroupManager(
             _groupStates.update { it - groupId }
 
             // Remove from observed groups tracking
-            synchronized(observedGroupsLock) {
+            observedGroupsMutex.withLock {
                 observedGroups.remove(groupId)
             }
 
@@ -276,12 +276,18 @@ class GroupManager(
      * Observe state changes and update legacy flags.
      * Only creates one observation job per group to prevent memory leaks.
      */
-    private fun observeStateChanges(groupId: String, controller: GroupLoadingController) {
+    private suspend fun observeStateChanges(groupId: String, controller: GroupLoadingController) {
         // Check if already observing this group
-        synchronized(observedGroupsLock) {
-            if (groupId in observedGroups) return
-            observedGroups.add(groupId)
+        val shouldObserve = observedGroupsMutex.withLock {
+            if (groupId in observedGroups) {
+                false
+            } else {
+                observedGroups.add(groupId)
+                true
+            }
         }
+
+        if (!shouldObserve) return
 
         scope.launch {
             controller.state.collect { state ->
@@ -728,17 +734,14 @@ class GroupManager(
         _reactions.value = emptyMap()
         _groupMembers.value = emptyMap()
 
-        // Clear observed groups tracking
-        synchronized(observedGroupsLock) {
-            observedGroups.clear()
-        }
+        // Clear observed groups tracking (direct access is safe in single-threaded JS/Wasm)
+        observedGroups.clear()
 
-        // Clear state machine registry
+        // Clear state machine registry and event deduplicator
         scope.launch {
             loadingRegistry.clear()
+            eventDeduplicator.clear()
         }
-
-        eventDeduplicator.clearSync()
     }
 
     /**

@@ -191,9 +191,20 @@ fun ZapEventItem(
  */
 private fun formatSatsAmount(sats: Long): String {
     return when {
-        sats >= 1_000_000 -> String.format("%.1fM", sats / 1_000_000.0)
-        sats >= 10_000 -> String.format("%.1fk", sats / 1_000.0)
-        sats >= 1_000 -> String.format("%.1fk", sats / 1_000.0)
+        sats >= 1_000_000 -> "${formatOneDecimal(sats / 1_000_000.0)}M"
+        sats >= 1_000 -> "${formatOneDecimal(sats / 1_000.0)}k"
         else -> sats.toString()
+    }
+}
+
+/**
+ * Format a double to one decimal place (multiplatform compatible).
+ */
+private fun formatOneDecimal(value: Double): String {
+    val rounded = (value * 10).toLong() / 10.0
+    return if (rounded == rounded.toLong().toDouble()) {
+        rounded.toLong().toString()
+    } else {
+        rounded.toString()
     }
 }
