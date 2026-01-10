@@ -49,6 +49,18 @@ expect object SecureStorage {
     fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?)
     fun getLastViewedGroup(pubkey: String): Pair<String, String?>?
     fun clearLastViewedGroup(pubkey: String)
+
+    // Message persistence (for offline-first behavior)
+    // Stores recent messages per group to survive app restarts
+    fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String)
+    fun getMessagesForGroup(pubkey: String, groupId: String): String?
+    fun clearMessagesForGroup(pubkey: String, groupId: String)
+    fun clearAllMessagesForAccount(pubkey: String)
+
+    // Pending events persistence (for offline queue)
+    fun savePendingEvents(pubkey: String, eventsJson: String)
+    fun getPendingEvents(pubkey: String): String?
+    fun clearPendingEvents(pubkey: String)
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)

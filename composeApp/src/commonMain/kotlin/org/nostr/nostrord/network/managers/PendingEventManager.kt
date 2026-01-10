@@ -8,8 +8,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.PublishResult
+import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.epochMillis
 
 /**
@@ -58,7 +60,20 @@ class PendingEventManager(
         const val MAX_RETRY_DELAY_MS = 30_000L
     }
 
+    private val json = Json { ignoreUnknownKeys = true }
     private val mutex = Mutex()
+    private var currentPubkey: String? = null
+
+    /**
+     * Set the current user pubkey for storage scoping.
+     */
+    fun setCurrentPubkey(pubkey: String?) {
+        currentPubkey = pubkey
+        // Load persisted events when pubkey is set
+        if (pubkey != null) {
+            loadFromStorage()
+        }
+    }
 
     // In-memory queue of pending events
     private val _pendingEvents = MutableStateFlow<List<PendingEvent>>(emptyList())
@@ -294,5 +309,89 @@ class PendingEventManager(
         // Exponential backoff: 1s, 2s, 4s, 8s, ... up to max
         val delay = BASE_RETRY_DELAY_MS * (1 shl retryCount)
         return delay.coerceAtMost(MAX_RETRY_DELAY_MS)
+    }
+
+    // ==========================================================================
+    // PERSISTENCE
+    // ==========================================================================
+
+    /**
+     * Load pending events from storage.
+     */
+    private fun loadFromStorage() {
+        val pubkey = currentPubkey ?: return
+        val eventsJson = SecureStorage.getPendingEvents(pubkey) ?: return
+
+        try {
+            val eventsArray = json.parseToJsonElement(eventsJson).jsonArray
+            val events = eventsArray.mapNotNull { element ->
+                try {
+                    val obj = element.jsonObject
+                    PendingEvent(
+                        id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                        eventJson = obj["eventJson"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                        eventId = obj["eventId"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                        groupId = obj["groupId"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                        createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: epochMillis(),
+                        retryCount = obj["retryCount"]?.jsonPrimitive?.int ?: 0,
+                        maxRetries = obj["maxRetries"]?.jsonPrimitive?.int ?: 3,
+                        lastError = obj["lastError"]?.jsonPrimitive?.contentOrNull
+                    )
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            if (events.isNotEmpty()) {
+                _pendingEvents.value = events
+                events.forEach { event ->
+                    _eventStatuses.value = _eventStatuses.value + (event.id to PendingEventStatus.Queued)
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore parsing errors
+        }
+    }
+
+    /**
+     * Save pending events to storage.
+     */
+    fun saveToStorage() {
+        val pubkey = currentPubkey ?: return
+        val events = _pendingEvents.value
+
+        if (events.isEmpty()) {
+            SecureStorage.clearPendingEvents(pubkey)
+            return
+        }
+
+        try {
+            val eventsJson = buildJsonArray {
+                events.forEach { event ->
+                    add(buildJsonObject {
+                        put("id", event.id)
+                        put("eventJson", event.eventJson)
+                        put("eventId", event.eventId)
+                        put("groupId", event.groupId)
+                        put("createdAt", event.createdAt)
+                        put("retryCount", event.retryCount)
+                        put("maxRetries", event.maxRetries)
+                        event.lastError?.let { put("lastError", it) }
+                    })
+                }
+            }.toString()
+
+            SecureStorage.savePendingEvents(pubkey, eventsJson)
+        } catch (e: Exception) {
+            // Ignore save errors
+        }
+    }
+
+    /**
+     * Clear persisted pending events.
+     */
+    fun clearStorage() {
+        val pubkey = currentPubkey ?: return
+        SecureStorage.clearPendingEvents(pubkey)
     }
 }

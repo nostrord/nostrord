@@ -22,6 +22,8 @@ actual object SecureStorage {
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
     private const val LAST_READ_PREFIX = "last_read_"
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
+    private const val MESSAGES_PREFIX = "messages_"
+    private const val PENDING_EVENTS_PREFIX = "pending_events_"
 
     init {
         if (prefs.get(ENCRYPTION_KEY_PREF, null) == null) {
@@ -278,6 +280,52 @@ actual object SecureStorage {
 
     actual fun clearLastViewedGroup(pubkey: String) {
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
+        remove(key)
+    }
+
+    // Message persistence
+    actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        saveString(key, messagesJson)
+    }
+
+    actual fun getMessagesForGroup(pubkey: String, groupId: String): String? {
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        return getString(key)
+    }
+
+    actual fun clearMessagesForGroup(pubkey: String, groupId: String) {
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        remove(key)
+    }
+
+    actual fun clearAllMessagesForAccount(pubkey: String) {
+        try {
+            val accountPrefix = MESSAGES_PREFIX + pubkey.hashCode() + "_"
+            prefs.keys().forEach { key ->
+                if (key.startsWith(accountPrefix)) {
+                    prefs.remove(key)
+                }
+            }
+            prefs.flush()
+        } catch (e: Exception) {
+            // Ignore errors
+        }
+    }
+
+    // Pending events persistence
+    actual fun savePendingEvents(pubkey: String, eventsJson: String) {
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        saveString(key, eventsJson)
+    }
+
+    actual fun getPendingEvents(pubkey: String): String? {
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        return getString(key)
+    }
+
+    actual fun clearPendingEvents(pubkey: String) {
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         remove(key)
     }
 }

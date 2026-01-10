@@ -17,6 +17,8 @@ actual object SecureStorage {
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
     private const val LAST_READ_PREFIX = "last_read_"
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
+    private const val MESSAGES_PREFIX = "messages_"
+    private const val PENDING_EVENTS_PREFIX = "pending_events_"
 
     private lateinit var prefs: SharedPreferences
     
@@ -226,6 +228,58 @@ actual object SecureStorage {
     actual fun clearLastViewedGroup(pubkey: String) {
         ensureInitialized()
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
+        prefs.edit().remove(key).apply()
+    }
+
+    // Message persistence
+    actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
+        ensureInitialized()
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        prefs.edit().putString(key, messagesJson).apply()
+    }
+
+    actual fun getMessagesForGroup(pubkey: String, groupId: String): String? {
+        ensureInitialized()
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        return prefs.getString(key, null)
+    }
+
+    actual fun clearMessagesForGroup(pubkey: String, groupId: String) {
+        ensureInitialized()
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        prefs.edit().remove(key).apply()
+    }
+
+    actual fun clearAllMessagesForAccount(pubkey: String) {
+        ensureInitialized()
+        val accountPrefix = MESSAGES_PREFIX + pubkey.hashCode() + "_"
+        try {
+            val editor = prefs.edit()
+            prefs.all.keys.filter { it.startsWith(accountPrefix) }.forEach { key ->
+                editor.remove(key)
+            }
+            editor.apply()
+        } catch (e: Exception) {
+            // Ignore errors
+        }
+    }
+
+    // Pending events persistence
+    actual fun savePendingEvents(pubkey: String, eventsJson: String) {
+        ensureInitialized()
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        prefs.edit().putString(key, eventsJson).apply()
+    }
+
+    actual fun getPendingEvents(pubkey: String): String? {
+        ensureInitialized()
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        return prefs.getString(key, null)
+    }
+
+    actual fun clearPendingEvents(pubkey: String) {
+        ensureInitialized()
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         prefs.edit().remove(key).apply()
     }
 }

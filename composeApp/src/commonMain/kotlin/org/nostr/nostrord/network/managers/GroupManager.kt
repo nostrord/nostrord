@@ -86,6 +86,18 @@ class GroupManager(
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
+        const val MAX_PERSISTED_MESSAGES = 100 // Limit messages per group for storage
+    }
+
+    // Current user pubkey for storage scoping
+    private var currentPubkey: String? = null
+
+    /**
+     * Set the current user pubkey for storage scoping.
+     * Should be called after login.
+     */
+    fun setCurrentPubkey(pubkey: String?) {
+        currentPubkey = pubkey
     }
 
     // Mutex for message list updates (separate from loading state)
@@ -673,5 +685,106 @@ class GroupManager(
     fun clearJoinedGroupsForAccount(pubKey: String) {
         SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
         _joinedGroups.value = emptySet()
+    }
+
+    // ==========================================================================
+    // MESSAGE PERSISTENCE
+    // ==========================================================================
+
+    /**
+     * Load persisted messages for a group from storage.
+     * Called when entering a group to show cached messages while fetching new ones.
+     */
+    fun loadMessagesFromStorage(groupId: String) {
+        val pubkey = currentPubkey ?: return
+        val messagesJson = SecureStorage.getMessagesForGroup(pubkey, groupId) ?: return
+
+        try {
+            val messagesArray = json.parseToJsonElement(messagesJson).jsonArray
+            val messages = messagesArray.mapNotNull { element ->
+                try {
+                    val obj = element.jsonObject
+                    NostrGroupClient.NostrMessage(
+                        id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                        pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                        content = obj["content"]?.jsonPrimitive?.content ?: "",
+                        createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: return@mapNotNull null,
+                        kind = obj["kind"]?.jsonPrimitive?.int ?: 9,
+                        tags = obj["tags"]?.jsonArray?.map { tagArray ->
+                            tagArray.jsonArray.map { it.jsonPrimitive.content }
+                        } ?: emptyList()
+                    )
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            if (messages.isNotEmpty()) {
+                // Add to deduplicator and messages
+                messages.forEach { msg -> eventDeduplicator.tryAddSync(msg.id) }
+                _messages.update { current ->
+                    val existing = current[groupId] ?: emptyList()
+                    val merged = (existing + messages).distinctBy { it.id }.sortedBy { it.createdAt }
+                    current + (groupId to merged)
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore parsing errors - storage may be corrupted
+        }
+    }
+
+    /**
+     * Persist messages for a group to storage.
+     * Called periodically and when leaving a group.
+     */
+    fun saveMessagesToStorage(groupId: String) {
+        val pubkey = currentPubkey ?: return
+        val messages = _messages.value[groupId] ?: return
+        if (messages.isEmpty()) return
+
+        try {
+            // Keep only the most recent messages
+            val toSave = messages.takeLast(MAX_PERSISTED_MESSAGES)
+            val messagesJson = buildJsonArray {
+                toSave.forEach { msg ->
+                    add(buildJsonObject {
+                        put("id", msg.id)
+                        put("pubkey", msg.pubkey)
+                        put("content", msg.content)
+                        put("createdAt", msg.createdAt)
+                        put("kind", msg.kind)
+                        put("tags", buildJsonArray {
+                            msg.tags.forEach { tag ->
+                                add(buildJsonArray {
+                                    tag.forEach { add(it) }
+                                })
+                            }
+                        })
+                    })
+                }
+            }.toString()
+
+            SecureStorage.saveMessagesForGroup(pubkey, groupId, messagesJson)
+        } catch (e: Exception) {
+            // Ignore save errors
+        }
+    }
+
+    /**
+     * Save all messages for all groups.
+     * Called on app backgrounding/closing.
+     */
+    fun saveAllMessagesToStorage() {
+        _messages.value.keys.forEach { groupId ->
+            saveMessagesToStorage(groupId)
+        }
+    }
+
+    /**
+     * Clear persisted messages for a group.
+     */
+    fun clearMessagesFromStorage(groupId: String) {
+        val pubkey = currentPubkey ?: return
+        SecureStorage.clearMessagesForGroup(pubkey, groupId)
     }
 }

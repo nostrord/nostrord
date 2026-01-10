@@ -27,6 +27,8 @@ actual object SecureStorage {
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
     private const val LAST_READ_PREFIX = "last_read_"
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
+    private const val MESSAGES_PREFIX = "messages_"
+    private const val PENDING_EVENTS_PREFIX = "pending_events_"
 
     actual fun savePrivateKey(privateKeyHex: String) {
         jsSetItem(PRIVATE_KEY_PREF, privateKeyHex)
@@ -178,6 +180,46 @@ actual object SecureStorage {
 
     actual fun clearLastViewedGroup(pubkey: String) {
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
+        jsRemoveItem(key)
+    }
+
+    // Message persistence
+    actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        jsSetItem(key, messagesJson)
+    }
+
+    actual fun getMessagesForGroup(pubkey: String, groupId: String): String? {
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        return jsGetItem(key)
+    }
+
+    actual fun clearMessagesForGroup(pubkey: String, groupId: String) {
+        val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
+        jsRemoveItem(key)
+    }
+
+    actual fun clearAllMessagesForAccount(pubkey: String) {
+        val accountPrefix = MESSAGES_PREFIX + pubkey.hashCode() + "_"
+        val keys = jsGetKeysWithPrefix(accountPrefix)
+        for (i in 0 until keys.length) {
+            jsRemoveItem(keys[i].toString())
+        }
+    }
+
+    // Pending events persistence
+    actual fun savePendingEvents(pubkey: String, eventsJson: String) {
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        jsSetItem(key, eventsJson)
+    }
+
+    actual fun getPendingEvents(pubkey: String): String? {
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        return jsGetItem(key)
+    }
+
+    actual fun clearPendingEvents(pubkey: String) {
+        val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         jsRemoveItem(key)
     }
 }
