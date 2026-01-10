@@ -41,6 +41,7 @@ import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.MessageItem
 import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
+import org.nostr.nostrord.ui.components.chat.ZapEventItem
 import org.nostr.nostrord.ui.components.loading.MessagesListSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
@@ -101,6 +102,7 @@ fun MessagesList(
         is ChatItem.NewMessagesDivider -> "new_messages_divider"
         is ChatItem.SystemEvent -> "system_${item.id}"
         is ChatItem.Message -> "msg_${item.message.id}"
+        is ChatItem.ZapEvent -> "zap_${item.id}"
     }
 
     // === SCROLL POSITION MANAGEMENT ===
@@ -213,6 +215,7 @@ fun MessagesList(
                                         is ChatItem.NewMessagesDivider -> "new_messages_divider"
                                         is ChatItem.SystemEvent -> "system_event"
                                         is ChatItem.Message -> "message"
+                                        is ChatItem.ZapEvent -> "zap_event"
                                     }
                                 }
                             ) { _, item ->
@@ -263,6 +266,16 @@ fun MessagesList(
                                             }.toString()
                                             clipboardManager.setText(AnnotatedString(json))
                                         }
+                                    )
+                                    is ChatItem.ZapEvent -> ZapEventItem(
+                                        senderPubkey = item.senderPubkey,
+                                        recipientPubkey = item.recipientPubkey,
+                                        amount = item.amount,
+                                        content = item.content,
+                                        senderMetadata = userMetadata[item.senderPubkey],
+                                        recipientMetadata = userMetadata[item.recipientPubkey],
+                                        onSenderClick = currentOnUsernameClick,
+                                        onRecipientClick = currentOnUsernameClick
                                     )
                                 }
                             }

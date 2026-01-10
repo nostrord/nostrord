@@ -294,10 +294,17 @@ suspend fun requestGroupMessages(
         add(subId)
         add(buildJsonObject {
             put("kinds", buildJsonArray {
+                add(5)      // Deletion requests (NIP-09)
                 add(7)      // Reactions
-                add(9)      // Messages
-                add(9021)   // Joins
-                add(9022)   // Leaves
+                add(9)      // Chat messages (NIP-29)
+                add(9000)   // Group admin: add user (NIP-29)
+                add(9001)   // Group admin: remove user (NIP-29)
+                add(9005)   // Group admin: delete event (NIP-29)
+                add(9008)   // Group admin: edit metadata (NIP-29)
+                add(9021)   // Join request
+                add(9022)   // Leave request
+                add(9321)   // Zap request (NIP-57)
+                add(30382)  // Group list / curated groups (NIP-51)
             })
             put("#h", buildJsonArray {
                 add(groupId)
@@ -548,10 +555,19 @@ suspend fun requestGroupMessages(
                         appendLine("From: $pubkey...")
                         when (kind) {
                             0 -> appendLine("Category: User Profile (metadata)")
-                            9 -> appendLine("Category: Group Message")
+                            5 -> appendLine("Category: Deletion Request (NIP-09)")
+                            7 -> appendLine("Category: Reaction")
+                            9 -> appendLine("Category: Group Message (NIP-29)")
+                            9000 -> appendLine("Category: Admin Add User (NIP-29)")
+                            9001 -> appendLine("Category: Admin Remove User (NIP-29)")
+                            9005 -> appendLine("Category: Admin Delete Event (NIP-29)")
+                            9008 -> appendLine("Category: Admin Edit Metadata (NIP-29)")
                             9021 -> appendLine("Category: Join Group Request")
                             9022 -> appendLine("Category: Leave Group Request")
+                            9321 -> appendLine("Category: Zap Request (NIP-57)")
+                            30382 -> appendLine("Category: Group List (NIP-51)")
                             39000 -> appendLine("Category: Group Metadata")
+                            39002 -> appendLine("Category: Group Members")
                             else -> appendLine("Category: Unknown")
                         }
                         appendLine("Content: ${if (content.length > 50) content.take(50) + "..." else content}")

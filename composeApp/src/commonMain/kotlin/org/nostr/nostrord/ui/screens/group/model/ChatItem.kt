@@ -53,6 +53,20 @@ sealed class ChatItem {
         val isFirstInGroup: Boolean = true,
         val isLastInGroup: Boolean = true
     ) : ChatItem()
+
+    /**
+     * Zap event (kind 9321) - Lightning payment request.
+     * Shows sender avatar, amount, recipient info, and optional emoji/message content.
+     */
+    @Immutable
+    data class ZapEvent(
+        val id: String,
+        val senderPubkey: String,    // Who sent the zap
+        val recipientPubkey: String, // Who received the zap
+        val amount: Long,            // Amount in sats
+        val content: String,         // Emoji or message
+        val createdAt: Long
+    ) : ChatItem()
 }
 
 /**
@@ -126,7 +140,7 @@ fun buildChatItems(
                 val isNextOutsideWindow = nextMessage?.let {
                     it.createdAt - message.createdAt > MESSAGE_GROUP_WINDOW_SECONDS
                 } ?: true
-                val isNextSystemEvent = nextMessage?.kind in listOf(9021, 9022)
+                val isNextSystemEvent = nextMessage?.kind in listOf(9021, 9022, 9321)
                 val isLastInGroup = nextMessage == null || isNextDifferentDate ||
                     isNextDifferentAuthor || isNextOutsideWindow || isNextSystemEvent
 
@@ -138,6 +152,35 @@ fun buildChatItems(
 
                 lastMessagePubkey = message.pubkey
                 lastMessageTime = message.createdAt
+            }
+            9321 -> {
+                // Zap request event (nutzap)
+                flushPendingSystemEvent()
+
+                // Parse amount from tags - "amount" tag contains sats as string
+                val amountSats = message.tags
+                    .find { it.size >= 2 && it[0] == "amount" }
+                    ?.getOrNull(1)
+                    ?.toLongOrNull() ?: 0L
+
+                // Parse recipient from "p" tag
+                val recipientPubkey = message.tags
+                    .find { it.size >= 2 && it[0] == "p" }
+                    ?.getOrNull(1)
+                    ?: message.pubkey // Fallback to sender if no recipient
+
+                items.add(ChatItem.ZapEvent(
+                    id = message.id,
+                    senderPubkey = message.pubkey,
+                    recipientPubkey = recipientPubkey,
+                    amount = amountSats,
+                    content = message.content,
+                    createdAt = message.createdAt
+                ))
+
+                // Reset message grouping after zap event
+                lastMessagePubkey = null
+                lastMessageTime = null
             }
             9021 -> {
                 val action = "joined the group"

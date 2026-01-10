@@ -553,6 +553,23 @@ class GroupManager(
         return _groupMembers.value[groupId] ?: emptyList()
     }
 
+    // Valid message kinds for group events (NIP-29 and related)
+    private val validMessageKinds = setOf(
+        9,      // Chat messages (NIP-29)
+        9000,   // Group admin: add user
+        9001,   // Group admin: remove user
+        9008,   // Group admin: edit metadata
+        9021,   // Join request
+        9022,   // Leave request
+        9321    // Zap request (NIP-57)
+    )
+
+    // Deletion kinds that remove other events
+    private val deletionKinds = setOf(
+        5,      // Deletion request (NIP-09)
+        9005    // Group admin: delete event (NIP-29)
+    )
+
     /**
      * Handle incoming message.
      * Returns the pubkey of the message sender if metadata should be fetched.
@@ -563,7 +580,14 @@ class GroupManager(
         rawMsg: String,
         subscriptionId: String? = null
     ): String? {
-        if (message.kind != 9 && message.kind != 9021 && message.kind != 9022) {
+        // Handle deletion events separately
+        if (message.kind in deletionKinds) {
+            handleDeletion(message, rawMsg)
+            return null
+        }
+
+        // Only process valid message kinds
+        if (message.kind !in validMessageKinds) {
             return null
         }
 
@@ -590,6 +614,44 @@ class GroupManager(
         }
 
         return message.pubkey
+    }
+
+    /**
+     * Handle deletion events (kind 5 and 9005).
+     * Removes the referenced events from the message list.
+     */
+    private fun handleDeletion(deletion: NostrGroupClient.NostrMessage, rawMsg: String) {
+        val groupId = extractGroupIdFromMessage(rawMsg) ?: return
+
+        // Extract event IDs to delete from "e" tags
+        val eventIdsToDelete = deletion.tags
+            .filter { it.size >= 2 && it[0] == "e" }
+            .map { it[1] }
+            .toSet()
+
+        if (eventIdsToDelete.isEmpty()) return
+
+        // Remove deleted messages from the list
+        _messages.update { currentMap ->
+            val currentMessages = currentMap[groupId] ?: return@update currentMap
+            val filteredMessages = currentMessages.filterNot { it.id in eventIdsToDelete }
+            if (filteredMessages.size == currentMessages.size) {
+                currentMap // No changes
+            } else {
+                currentMap + (groupId to filteredMessages)
+            }
+        }
+
+        // Also remove deleted reactions
+        _reactions.update { currentReactions ->
+            var updated = currentReactions
+            eventIdsToDelete.forEach { eventId ->
+                if (eventId in updated) {
+                    updated = updated - eventId
+                }
+            }
+            updated
+        }
     }
 
     /**
