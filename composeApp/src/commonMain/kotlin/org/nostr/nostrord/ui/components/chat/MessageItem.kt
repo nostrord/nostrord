@@ -23,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,7 +37,9 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
@@ -110,13 +113,62 @@ fun MessageItem(
 
     // Check if this message is a reply and find the parent message
     val replyParentId = remember(message.tags) { getReplyParentId(message) }
+
+    // Collect cached events from repository for parent message lookup
+    val cachedEvents by NostrRepository.cachedEvents.collectAsState()
+
+    // Look up parent in allMessages first, then in cachedEvents
     val parentMessage = remember(replyParentId, allMessages) {
         if (replyParentId != null) {
             allMessages.find { it.id == replyParentId }
         } else null
     }
-    val parentMetadata = remember(parentMessage?.pubkey, allUserMetadata) {
-        parentMessage?.let { allUserMetadata[it.pubkey] }
+
+    // If not in allMessages, check cachedEvents and convert to NostrMessage
+    val parentFromCache: NostrGroupClient.NostrMessage? = remember(replyParentId, cachedEvents, parentMessage) {
+        if (replyParentId != null && parentMessage == null) {
+            cachedEvents[replyParentId]?.let { cached ->
+                NostrGroupClient.NostrMessage(
+                    id = cached.id,
+                    pubkey = cached.pubkey,
+                    content = cached.content,
+                    createdAt = cached.createdAt,
+                    kind = cached.kind,
+                    tags = cached.tags
+                )
+            }
+        } else null
+    }
+
+    // Use whichever parent we found
+    val resolvedParentMessage = parentMessage ?: parentFromCache
+
+    // Request parent event from relay if not found locally
+    LaunchedEffect(replyParentId, resolvedParentMessage) {
+        if (replyParentId != null && resolvedParentMessage == null) {
+            // Extract relay hints from q tag if available
+            val qTag = message.tags.find { it.size >= 2 && it[0] == "q" && it[1] == replyParentId }
+            val relayHints = qTag?.getOrNull(2)?.let { listOf(it) } ?: emptyList()
+
+            // Also check e tag for relay hints
+            val eTag = message.tags.find { it.size >= 2 && it[0] == "e" && it[1] == replyParentId }
+            val eRelayHints = eTag?.getOrNull(2)?.let { listOf(it) } ?: emptyList()
+
+            val allRelayHints = (relayHints + eRelayHints).distinct()
+
+            NostrRepository.requestEventById(replyParentId, allRelayHints)
+        }
+    }
+
+    val parentMetadata = remember(resolvedParentMessage?.pubkey, allUserMetadata) {
+        resolvedParentMessage?.let { allUserMetadata[it.pubkey] }
+    }
+
+    // Request metadata for parent message author if not available
+    LaunchedEffect(resolvedParentMessage?.pubkey, parentMetadata) {
+        if (resolvedParentMessage != null && parentMetadata == null) {
+            NostrRepository.requestUserMetadata(setOf(resolvedParentMessage.pubkey))
+        }
     }
 
     val interactionSource = remember { MutableInteractionSource() }
@@ -215,15 +267,15 @@ fun MessageItem(
                     Spacer(modifier = Modifier.height(Spacing.xs))
                 }
 
-                // Reply preview - shown if this message is a reply (q or e tag)
+                // Reply preview - only shown if parent message is found
                 // Note: nostr:nevent quotes in content are handled by MessageContent
-                if (replyParentId != null) {
+                if (resolvedParentMessage != null) {
                     ReplyPreview(
-                        parentMessage = parentMessage,
+                        parentMessage = resolvedParentMessage,
                         parentMetadata = parentMetadata,
                         userMetadata = allUserMetadata,
                         onReplyClick = {
-                            replyParentId.let { onScrollToMessage(it) }
+                            replyParentId?.let { onScrollToMessage(it) }
                         }
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
