@@ -1,5 +1,8 @@
 # Nostrord ProGuard Rules
 
+# Ignore warnings for missing optional dependencies (desktop JVM doesn't need all classes)
+-ignorewarnings
+
 # Keep Kotlin serialization
 -keepattributes *Annotation*, InnerClasses
 -dontnote kotlinx.serialization.AnnotationsKt
@@ -49,3 +52,33 @@
 # Standard Android rules
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# Suppress warnings for missing classes (desktop JVM doesn't have all Android/iOS classes)
+-dontwarn android.**
+-dontwarn org.slf4j.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.conscrypt.**
+-dontwarn org.openjsse.**
+-dontwarn dalvik.**
+-dontwarn java.lang.management.**
+-dontwarn javax.naming.**
+-dontwarn sun.misc.**
+-dontwarn sun.nio.**
+-dontwarn sun.security.**
+-dontwarn java.awt.**
+-dontwarn javax.swing.**
+-dontwarn org.codehaus.**
+-dontwarn reactor.blockhound.**
+-dontwarn io.netty.**
+
+# Keep Skiko (Compose Desktop rendering)
+-keep class org.jetbrains.skia.** { *; }
+-keep class org.jetbrains.skiko.** { *; }
+
+# Keep Coil image loading
+-keep class coil3.** { *; }
+-dontwarn coil3.**
+
+# Don't warn about missing optional dependencies
+-dontwarn kotlin.reflect.jvm.internal.**
+-dontwarn kotlinx.atomicfu.**
