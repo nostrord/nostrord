@@ -37,7 +37,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.platform.LocalClipboardManager
+import org.nostr.nostrord.utils.rememberClipboardWriter
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -982,7 +982,7 @@ fun ForwardedEventCard(
 ) {
     val userMetadata by NostrRepository.userMetadata.collectAsState()
     val cachedEvents by NostrRepository.cachedEvents.collectAsState()
-    val clipboardManager = LocalClipboardManager.current
+    val copyToClipboard = rememberClipboardWriter()
     var showMenu by remember { mutableStateOf(false) }
 
     val authorMetadata = userMetadata[event.pubkey]
@@ -1145,7 +1145,7 @@ fun ForwardedEventCard(
                                         })
                                         put("content", event.content)
                                     }.toString()
-                                    clipboardManager.setText(AnnotatedString(json))
+                                    copyToClipboard(json)
                                     showMenu = false
                                 }
                             )
@@ -1363,7 +1363,7 @@ private fun QuotedEvent(
 
     // Event not found - non-clickable with selectable text showing full parsed content
     if (event == null && eventNotFound) {
-        val clipboardManager = LocalClipboardManager.current
+        val copyToClipboard = rememberClipboardWriter()
         var showMenu by remember { mutableStateOf(false) }
 
         Row(
@@ -1449,7 +1449,7 @@ private fun QuotedEvent(
                                         relayHints.forEach { add(JsonPrimitive(it)) }
                                     })
                                 }.toString()
-                                clipboardManager.setText(AnnotatedString(json))
+                                copyToClipboard(json)
                                 showMenu = false
                             }
                         )
@@ -1481,7 +1481,7 @@ private fun QuotedEvent(
     // Default rendering for other event kinds (clickable)
     val metadata = userMetadata[event.pubkey]
     val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
-    val clipboardManager = LocalClipboardManager.current
+    val copyToClipboard = rememberClipboardWriter()
     var showMenu by remember { mutableStateOf(false) }
 
     Row(
@@ -1544,7 +1544,7 @@ private fun QuotedEvent(
                                         })
                                         put("content", event.content)
                                     }.toString()
-                                    clipboardManager.setText(AnnotatedString(json))
+                                    copyToClipboard(json)
                                     showMenu = false
                                 }
                             )
@@ -2052,7 +2052,7 @@ private fun CashuContent(
     isRequest: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    val copyToClipboard = rememberClipboardWriter()
 
     Row(
         modifier = modifier
@@ -2061,7 +2061,7 @@ private fun CashuContent(
             .background(NostrordColors.SurfaceVariant)
             .clickable {
                 // Copy token to clipboard
-                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(token))
+                copyToClipboard(token)
             }
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -2162,7 +2162,7 @@ private fun AddressableEvent(
 
     // If event not found after timeout, show error card with full parsed content (non-clickable, selectable)
     if (event == null && eventNotFound) {
-        val clipboardManager = LocalClipboardManager.current
+        val copyToClipboard = rememberClipboardWriter()
         var showMenu by remember { mutableStateOf(false) }
 
         Row(
@@ -2244,7 +2244,7 @@ private fun AddressableEvent(
                                         relayHints.forEach { add(JsonPrimitive(it)) }
                                     })
                                 }.toString()
-                                clipboardManager.setText(AnnotatedString(json))
+                                copyToClipboard(json)
                                 showMenu = false
                             }
                         )
@@ -2374,7 +2374,7 @@ private fun ArticleCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    val copyToClipboard = rememberClipboardWriter()
     var showMenu by remember { mutableStateOf(false) }
 
     Row(
@@ -2442,7 +2442,7 @@ private fun ArticleCard(
                                             })
                                             put("content", event.content)
                                         }.toString()
-                                        clipboardManager.setText(AnnotatedString(json))
+                                        copyToClipboard(json)
                                         showMenu = false
                                     }
                                 )
@@ -2495,7 +2495,7 @@ private fun BookCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    val copyToClipboard = rememberClipboardWriter()
     var showMenu by remember { mutableStateOf(false) }
 
     Row(
@@ -2583,7 +2583,7 @@ private fun BookCard(
                                             })
                                             put("content", event.content)
                                         }.toString()
-                                        clipboardManager.setText(AnnotatedString(json))
+                                        copyToClipboard(json)
                                         showMenu = false
                                     }
                                 )
@@ -2636,7 +2636,7 @@ private fun GenericAddressableCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    val copyToClipboard = rememberClipboardWriter()
     var showMenu by remember { mutableStateOf(false) }
 
     Row(
@@ -2706,7 +2706,7 @@ private fun GenericAddressableCard(
                                             })
                                             put("content", event.content)
                                         }.toString()
-                                        clipboardManager.setText(AnnotatedString(json))
+                                        copyToClipboard(json)
                                         showMenu = false
                                     }
                                 )

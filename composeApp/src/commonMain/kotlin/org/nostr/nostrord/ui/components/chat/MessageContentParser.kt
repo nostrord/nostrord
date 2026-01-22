@@ -658,7 +658,8 @@ object MessageContentParser {
      * Case-insensitive for domain, preserves case for video ID
      */
     private val youtubeRegex = Regex(
-        """(?i)(?:youtube\.com/(?:watch\?v=|shorts/|live/|embed/)|youtu\.be/)([\w-]{11})"""
+        """(?:youtube\.com/(?:watch\?v=|shorts/|live/|embed/)|youtu\.be/)([\w-]{11})""",
+        RegexOption.IGNORE_CASE
     )
 
     /**

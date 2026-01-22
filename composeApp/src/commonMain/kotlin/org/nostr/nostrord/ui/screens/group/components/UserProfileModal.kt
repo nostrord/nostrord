@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
@@ -24,8 +22,6 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,6 +40,7 @@ import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /**
  * User profile modal displaying user details and banner image.
@@ -62,7 +59,7 @@ fun UserProfileModal(
     metadata: UserMetadata?,
     onDismiss: () -> Unit
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    val copyToClipboard = rememberClipboardWriter()
     val npub = remember(pubkey) { Nip19.encodeNpub(pubkey) }
     val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
     val username = metadata?.name
@@ -186,7 +183,7 @@ fun UserProfileModal(
 
                             IconButton(
                                 onClick = {
-                                    clipboardManager.setText(AnnotatedString(npub))
+                                    copyToClipboard(npub)
                                 },
                                 modifier = Modifier
                                     .size(32.dp)

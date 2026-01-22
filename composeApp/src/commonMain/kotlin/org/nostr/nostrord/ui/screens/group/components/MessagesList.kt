@@ -23,8 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
+import org.nostr.nostrord.utils.rememberClipboardWriter
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -89,7 +88,7 @@ fun MessagesList(
     val currentRelayUrl by NostrRepository.currentRelayUrl.collectAsState()
 
     // Clipboard manager for copy operations
-    val clipboardManager = LocalClipboardManager.current
+    val copyToClipboard = rememberClipboardWriter()
 
     val listState = rememberLazyListState()
 
@@ -264,7 +263,7 @@ fun MessagesList(
                                                 })
                                                 put("content", msg.content)
                                             }.toString()
-                                            clipboardManager.setText(AnnotatedString(json))
+                                            copyToClipboard(json)
                                         }
                                     )
                                     is ChatItem.ZapEvent -> ZapEventItem(
