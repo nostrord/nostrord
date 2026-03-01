@@ -22,7 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import nostrord.composeapp.generated.resources.Res
-import nostrord.composeapp.generated.resources.nostrord_app_icon
+import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
 import org.nostr.nostrord.ui.screens.login.components.BunkerLoginTab
 import org.nostr.nostrord.ui.screens.login.components.PrivateKeyLoginTab
@@ -63,9 +63,9 @@ fun NostrLoginScreen(onLoginSuccess: () -> Unit) {
 
             // Logo/Brand section
             Image(
-                painter = painterResource(Res.drawable.nostrord_app_icon),
+                painter = painterResource(Res.drawable.nostrord_logo),
                 contentDescription = "Nostrord",
-                modifier = Modifier.width(160.dp)
+                modifier = Modifier.size(100.dp)
             )
 
             Spacer(modifier = Modifier.height(16.dp))
