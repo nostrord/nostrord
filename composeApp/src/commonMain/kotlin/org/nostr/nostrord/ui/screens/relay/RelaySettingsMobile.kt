@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -70,15 +69,6 @@ fun RelaySettingsMobile(
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { onNavigate(Screen.Home) }) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = Color.White
-                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

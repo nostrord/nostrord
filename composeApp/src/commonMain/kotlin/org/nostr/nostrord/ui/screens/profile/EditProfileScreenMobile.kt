@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
@@ -40,8 +39,7 @@ fun EditProfileScreenMobile(
     onAboutChange: (String) -> Unit,
     onPictureUrlChange: (String) -> Unit,
     onNip05Change: (String) -> Unit,
-    onSave: () -> Unit,
-    onBack: () -> Unit
+    onSave: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -52,15 +50,6 @@ fun EditProfileScreenMobile(
                         style = NostrordTypography.ServerHeader,
                         color = Color.White
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = Color.White
-                        )
-                    }
                 },
                 actions = {
                     TextButton(

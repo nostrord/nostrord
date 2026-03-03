@@ -3,6 +3,7 @@ package org.nostr.nostrord
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -11,6 +12,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.network.NostrRepository
@@ -19,6 +27,13 @@ import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.layout.DesktopShell
+import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
+import org.nostr.nostrord.ui.navigation.BrowserNavigationHandler
+import org.nostr.nostrord.ui.navigation.NavigationHistory
+import org.nostr.nostrord.ui.navigation.PlatformBackHandler
+import org.nostr.nostrord.ui.navigation.browserGoBack
+import org.nostr.nostrord.ui.navigation.browserGoForward
+import org.nostr.nostrord.ui.navigation.platformHasBrowserNavigation
 import org.nostr.nostrord.ui.screens.home.HomeScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.relay.RelaySettingsScreen
@@ -117,9 +132,9 @@ private fun LoadingScreen() {
  */
 @Composable
 private fun AuthenticatedApp(initialScreen: Screen) {
-    // Initialize navigation state with the resolved initial screen
-    // This is the KEY fix - we don't start with Screen.Home and then navigate
-    var currentScreen by remember { mutableStateOf(initialScreen) }
+    // Initialize navigation history with the resolved initial screen
+    val navHistory = remember { NavigationHistory(initialScreen) }
+    val currentScreen = navHistory.currentScreen
 
     // Collect state needed for UI
     val groups by NostrRepository.groups.collectAsState()
@@ -138,15 +153,12 @@ private fun AuthenticatedApp(initialScreen: Screen) {
     val homeGridState = rememberLazyGridState()
     val relayListState = rememberLazyListState()
 
-    // Navigation handler that persists group state
-    val onNavigate: (Screen) -> Unit = { newScreen ->
-        currentScreen = newScreen
-
-        // Persist navigation state for next app launch
+    // Persist screen state for next app launch
+    fun persistScreenState(screen: Screen) {
         pubKey?.let { pk ->
-            when (newScreen) {
+            when (screen) {
                 is Screen.Group -> {
-                    SecureStorage.saveLastViewedGroup(pk, newScreen.groupId, newScreen.groupName)
+                    SecureStorage.saveLastViewedGroup(pk, screen.groupId, screen.groupName)
                 }
                 is Screen.Home -> {
                     SecureStorage.clearLastViewedGroup(pk)
@@ -158,13 +170,84 @@ private fun AuthenticatedApp(initialScreen: Screen) {
         }
     }
 
+    // Navigation handler that records history and persists state
+    val onNavigate: (Screen) -> Unit = { newScreen ->
+        navHistory.navigate(newScreen)
+        persistScreenState(newScreen)
+    }
+
+    // Direct history navigation — called by native platforms and by BrowserNavigationHandler
+    val onDirectHistoryBack: () -> Unit = {
+        navHistory.goBack()?.let { screen -> persistScreenState(screen) }
+    }
+
+    val onDirectHistoryForward: () -> Unit = {
+        navHistory.goForward()?.let { screen -> persistScreenState(screen) }
+    }
+
+    // In-app back/forward — used by UI buttons and keyboard shortcuts.
+    // On web: routes through browser history.back()/forward() so browser stays in sync.
+    // The browser then fires popstate → BrowserNavigationHandler → onDirectHistoryBack.
+    // On native: calls navHistory directly.
+    val onHistoryBack: () -> Unit = {
+        if (platformHasBrowserNavigation) {
+            browserGoBack()
+        } else {
+            onDirectHistoryBack()
+        }
+    }
+
+    val onHistoryForward: () -> Unit = {
+        if (platformHasBrowserNavigation) {
+            browserGoForward()
+        } else {
+            onDirectHistoryForward()
+        }
+    }
+
+    // Android system back button
+    PlatformBackHandler(enabled = navHistory.canGoBack) { onHistoryBack() }
+
+    // Browser back/forward buttons (JS/WasmJS only, no-op on other platforms).
+    // Uses onDirect* callbacks to avoid circular routing through browserGoBack/Forward.
+    BrowserNavigationHandler(
+        currentScreen = currentScreen,
+        onBack = onDirectHistoryBack,
+        onForward = onDirectHistoryForward
+    )
+
     // Determine current active group ID for server rail highlighting
     val activeGroupId = when (val screen = currentScreen) {
         is Screen.Group -> screen.groupId
         else -> null
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    // Keyboard shortcuts: Alt+Left/Right, Cmd+[/]
+    // On web, the browser handles these natively (fires popstate → BrowserNavigationHandler).
+    val keyEventModifier = if (!platformHasBrowserNavigation) {
+        Modifier.onPreviewKeyEvent { event ->
+            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            when {
+                // Alt+Left or Cmd+[ → back
+                (event.isAltPressed && event.key == Key.DirectionLeft) ||
+                (event.isMetaPressed && event.key == Key.LeftBracket) -> {
+                    onHistoryBack()
+                    true
+                }
+                // Alt+Right or Cmd+] → forward
+                (event.isAltPressed && event.key == Key.DirectionRight) ||
+                (event.isMetaPressed && event.key == Key.RightBracket) -> {
+                    onHistoryForward()
+                    true
+                }
+                else -> false
+            }
+        }
+    } else {
+        Modifier
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().then(keyEventModifier)) {
         val isDesktop = maxWidth >= 600.dp
 
         if (isDesktop) {
@@ -184,12 +267,22 @@ private fun AuthenticatedApp(initialScreen: Screen) {
                 onUserClick = { onNavigate(Screen.Profile) },
                 isProfileActive = currentScreen is Screen.Profile
             ) {
-                DesktopContent(
-                    currentScreen = currentScreen,
-                    homeGridState = homeGridState,
-                    relayListState = relayListState,
-                    onNavigate = onNavigate
-                )
+                Column {
+                    if (!platformHasBrowserNavigation) {
+                        NavigationToolbar(
+                            canGoBack = navHistory.canGoBack,
+                            canGoForward = navHistory.canGoForward,
+                            onBack = onHistoryBack,
+                            onForward = onHistoryForward
+                        )
+                    }
+                    DesktopContent(
+                        currentScreen = currentScreen,
+                        homeGridState = homeGridState,
+                        relayListState = relayListState,
+                        onNavigate = onNavigate
+                    )
+                }
             }
         } else {
             MobileContent(
@@ -224,7 +317,7 @@ private fun DesktopContent(
             GroupScreen(
                 groupId = screen.groupId,
                 groupName = screen.groupName,
-                onBack = { onNavigate(Screen.Home) },
+                onNavigateHome = { onNavigate(Screen.Home) },
                 onNavigateToGroup = { newGroupId, newGroupName ->
                     onNavigate(Screen.Group(newGroupId, newGroupName))
                 },
@@ -244,7 +337,9 @@ private fun DesktopContent(
             )
         }
         is Screen.EditProfile -> {
-            EditProfileScreen(onNavigate = onNavigate)
+            EditProfileScreen(
+                onNavigate = onNavigate
+            )
         }
         is Screen.PAGE1 -> {
             HomeScreen(
@@ -258,9 +353,7 @@ private fun DesktopContent(
                 onNavigate(Screen.Home)
             }
         }
-        is Screen.BackupPrivateKey -> BackupScreen(
-            onNavigateBack = { onNavigate(Screen.Home) }
-        )
+        is Screen.BackupPrivateKey -> BackupScreen()
     }
 }
 
@@ -285,7 +378,7 @@ private fun MobileContent(
             GroupScreen(
                 groupId = screen.groupId,
                 groupName = screen.groupName,
-                onBack = { onNavigate(Screen.Home) },
+                onNavigateHome = { onNavigate(Screen.Home) },
                 onNavigateToGroup = { newGroupId, newGroupName ->
                     onNavigate(Screen.Group(newGroupId, newGroupName))
                 }
@@ -304,7 +397,9 @@ private fun MobileContent(
             )
         }
         is Screen.EditProfile -> {
-            EditProfileScreen(onNavigate = onNavigate)
+            EditProfileScreen(
+                onNavigate = onNavigate
+            )
         }
         is Screen.PAGE1 -> {
             HomeScreen(
@@ -317,8 +412,6 @@ private fun MobileContent(
                 onNavigate(Screen.Home)
             }
         }
-        is Screen.BackupPrivateKey -> BackupScreen(
-            onNavigateBack = { onNavigate(Screen.Home) }
-        )
+        is Screen.BackupPrivateKey -> BackupScreen()
     }
 }

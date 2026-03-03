@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
@@ -35,7 +34,6 @@ fun GroupHeader(
     groupName: String?,
     groupMetadata: GroupMetadata?,
     isJoined: Boolean,
-    onBackClick: () -> Unit,
     onJoinClick: () -> Unit,
     onLeaveClick: () -> Unit,
     onSettingsClick: () -> Unit = {},
@@ -58,14 +56,6 @@ fun GroupHeader(
             // Navigation icons
             if (navigationIcon != null) {
                 navigationIcon()
-            } else {
-                IconButton(onClick = onBackClick) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White
-                    )
-                }
             }
 
             // Clickable title area (avatar + name + description)

@@ -6,7 +6,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Warning
@@ -30,8 +29,7 @@ fun BackupScreenDesktop(
     publicKey: String?,
     showCopiedMessage: Boolean,
     onCopyPublicKey: () -> Unit,
-    onCopyPrivateKey: () -> Unit,
-    onNavigateBack: () -> Unit
+    onCopyPrivateKey: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -47,25 +45,6 @@ fun BackupScreenDesktop(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-        // Back button
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Start
-        ) {
-            TextButton(onClick = onNavigateBack) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = NostrordColors.Primary,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Back", color = NostrordColors.Primary)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
         // Centered content with max width
         Column(
             modifier = Modifier.widthIn(max = 600.dp),

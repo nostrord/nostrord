@@ -114,8 +114,7 @@ fun EditProfileScreen(
                 onAboutChange = { about = it },
                 onPictureUrlChange = { pictureUrl = it },
                 onNip05Change = { nip05 = it },
-                onSave = onSave,
-                onBack = { onNavigate(Screen.Profile) }
+                onSave = onSave
             )
         } else {
             EditProfileScreenDesktop(
@@ -133,8 +132,7 @@ fun EditProfileScreen(
                 onAboutChange = { about = it },
                 onPictureUrlChange = { pictureUrl = it },
                 onNip05Change = { nip05 = it },
-                onSave = onSave,
-                onBack = { onNavigate(Screen.Profile) }
+                onSave = onSave
             )
         }
     }

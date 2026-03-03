@@ -55,7 +55,6 @@ fun GroupScreenDesktop(
     onSendMessage: () -> Unit,
     onJoinGroup: () -> Unit,
     onLeaveGroup: () -> Unit,
-    onBack: () -> Unit,
     onShowGroupInfo: () -> Unit = {},
     groupMembers: List<MemberInfo> = emptyList(),
     recentlyActiveMembers: Set<String> = emptySet(),
@@ -86,7 +85,6 @@ fun GroupScreenDesktop(
                 groupName = groupName,
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
-                onBackClick = onBack,
                 onJoinClick = onJoinGroup,
                 onLeaveClick = onLeaveGroup,
                 onTitleClick = onShowGroupInfo

@@ -70,8 +70,7 @@ fun ProfileScreen(
                         NostrRepository.logout()
                         onLogout()
                     }
-                },
-                onBack = { onNavigate(Screen.Home) }
+                }
             )
         } else {
             ProfileScreenDesktop(
@@ -96,8 +95,7 @@ fun ProfileScreen(
                         NostrRepository.logout()
                         onLogout()
                     }
-                },
-                onBack = { onNavigate(Screen.Home) }
+                }
             )
         }
     }

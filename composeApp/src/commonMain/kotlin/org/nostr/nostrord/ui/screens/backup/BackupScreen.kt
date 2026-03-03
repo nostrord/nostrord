@@ -9,7 +9,7 @@ import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.utils.rememberClipboardWriter
 
 @Composable
-fun BackupScreen(onNavigateBack: () -> Unit) {
+fun BackupScreen() {
     val privateKey = NostrRepository.getPrivateKey()
     val publicKey = NostrRepository.getPublicKey()
     val copyToClipboard = rememberClipboardWriter()
@@ -42,7 +42,6 @@ fun BackupScreen(onNavigateBack: () -> Unit) {
                         showCopiedMessage = true
                     }
                 },
-                onNavigateBack = onNavigateBack
             )
         } else {
             BackupScreenDesktop(
@@ -61,7 +60,6 @@ fun BackupScreen(onNavigateBack: () -> Unit) {
                         showCopiedMessage = true
                     }
                 },
-                onNavigateBack = onNavigateBack
             )
         }
     }

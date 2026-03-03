@@ -23,7 +23,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 fun GroupScreen(
     groupId: String,
     groupName: String?,
-    onBack: () -> Unit,
+    onNavigateHome: () -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
     showServerRail: Boolean = true // When false, server rail is handled by parent shell
 ) {
@@ -168,7 +168,7 @@ fun GroupScreen(
                         scope.launch {
                             NostrRepository.leaveGroup(groupId)
                             showLeaveDialog = false
-                            onBack()
+                            onNavigateHome()
                         }
                     }
                 ) {
@@ -216,7 +216,6 @@ fun GroupScreen(
                     scope.launch { NostrRepository.joinGroup(groupId) }
                 },
                 onLeaveGroup = { showLeaveDialog = true },
-                onBack = onBack,
                 onShowGroupInfo = { showGroupInfoModal = true },
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
@@ -265,7 +264,6 @@ fun GroupScreen(
                     scope.launch { NostrRepository.joinGroup(groupId) }
                 },
                 onLeaveGroup = { showLeaveDialog = true },
-                onBack = onBack,
                 onShowGroupInfo = { showGroupInfoModal = true },
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,

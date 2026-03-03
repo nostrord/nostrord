@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
@@ -76,7 +75,6 @@ fun GroupScreenMobile(
     onSendMessage: () -> Unit,
     onJoinGroup: () -> Unit,
     onLeaveGroup: () -> Unit,
-    onBack: () -> Unit,
     onShowGroupInfo: () -> Unit = {},
     groupMembers: List<MemberInfo> = emptyList(),
     recentlyActiveMembers: Set<String> = emptySet(),
@@ -108,7 +106,6 @@ fun GroupScreenMobile(
                 groupName = groupName,
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
-                onBackClick = onBack,
                 onTitleClick = onShowGroupInfo,
                 onMembersClick = { showMemberSheet = true },
                 onJoinClick = onJoinGroup,
@@ -243,7 +240,6 @@ private fun MobileGroupTopBar(
     groupName: String?,
     groupMetadata: GroupMetadata?,
     isJoined: Boolean,
-    onBackClick: () -> Unit,
     onTitleClick: () -> Unit,
     onMembersClick: () -> Unit,
     onJoinClick: () -> Unit,
@@ -291,19 +287,6 @@ private fun MobileGroupTopBar(
                         )
                     }
                 }
-            }
-        },
-        navigationIcon = {
-            // Back button (48dp touch target)
-            IconButton(
-                onClick = onBackClick,
-                modifier = Modifier.size(Spacing.touchTargetMin)
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White
-                )
             }
         },
         actions = {
