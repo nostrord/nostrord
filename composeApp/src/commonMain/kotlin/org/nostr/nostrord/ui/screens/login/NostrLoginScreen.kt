@@ -35,12 +35,12 @@ sealed class LoginTab(val title: String, val icon: ImageVector) {
 }
 
 @Composable
-fun NostrLoginScreen(onLoginSuccess: () -> Unit) {
+fun NostrLoginScreen(modifier: Modifier = Modifier, onLoginSuccess: () -> Unit) {
     var selectedTab by remember { mutableStateOf<LoginTab>(LoginTab.PrivateKey) }
     val tabs = listOf(LoginTab.PrivateKey, LoginTab.Bunker)
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(

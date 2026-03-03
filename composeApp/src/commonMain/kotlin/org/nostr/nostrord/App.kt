@@ -27,7 +27,9 @@ import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.layout.DesktopShell
+import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
+import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import org.nostr.nostrord.ui.navigation.BrowserNavigationHandler
 import org.nostr.nostrord.ui.navigation.NavigationHistory
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
@@ -81,17 +83,35 @@ fun App() {
     }
 
     MaterialTheme {
+        val hasWindowControls = LocalDesktopWindowControls.current != null
+
         // Phase 3: Render based on resolved startup state
         when (startupState) {
             is AppStartState.Initializing -> {
                 // Bootstrap not complete - show loading
-                LoadingScreen()
+                if (hasWindowControls) {
+                    Column(Modifier.fillMaxSize()) {
+                        MinimalTitleBar()
+                        LoadingScreen(Modifier.weight(1f))
+                    }
+                } else {
+                    LoadingScreen()
+                }
             }
 
             is AppStartState.Unauthenticated -> {
                 // Not logged in - show login
-                NostrLoginScreen {
-                    // After login, the startupState will recompute due to isLoggedIn change
+                if (hasWindowControls) {
+                    Column(Modifier.fillMaxSize()) {
+                        MinimalTitleBar()
+                        NostrLoginScreen(modifier = Modifier.weight(1f)) {
+                            // After login, the startupState will recompute due to isLoggedIn change
+                        }
+                    }
+                } else {
+                    NostrLoginScreen {
+                        // After login, the startupState will recompute due to isLoggedIn change
+                    }
                 }
             }
 
@@ -110,9 +130,9 @@ fun App() {
  * Loading screen shown during bootstrap.
  */
 @Composable
-private fun LoadingScreen() {
+private fun LoadingScreen(modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .background(NostrordColors.Background),
         contentAlignment = Alignment.Center
@@ -251,31 +271,32 @@ private fun AuthenticatedApp(initialScreen: Screen) {
         val isDesktop = maxWidth >= 600.dp
 
         if (isDesktop) {
-            DesktopShell(
-                joinedGroups = joinedGroups,
-                groups = groups,
-                activeGroupId = activeGroupId,
-                unreadCounts = unreadCounts,
-                onHomeClick = { onNavigate(Screen.Home) },
-                onGroupClick = { groupId, groupName ->
-                    onNavigate(Screen.Group(groupId, groupName))
-                },
-                onAddClick = { onNavigate(Screen.Home) },
-                userAvatarUrl = currentUserMetadata?.picture,
-                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
-                userPubkey = pubKey,
-                onUserClick = { onNavigate(Screen.Profile) },
-                isProfileActive = currentScreen is Screen.Profile
-            ) {
-                Column {
-                    if (!platformHasBrowserNavigation) {
-                        NavigationToolbar(
-                            canGoBack = navHistory.canGoBack,
-                            canGoForward = navHistory.canGoForward,
-                            onBack = onHistoryBack,
-                            onForward = onHistoryForward
-                        )
-                    }
+            Column {
+                if (!platformHasBrowserNavigation) {
+                    NavigationToolbar(
+                        canGoBack = navHistory.canGoBack,
+                        canGoForward = navHistory.canGoForward,
+                        onBack = onHistoryBack,
+                        onForward = onHistoryForward
+                    )
+                }
+                DesktopShell(
+                    joinedGroups = joinedGroups,
+                    groups = groups,
+                    activeGroupId = activeGroupId,
+                    unreadCounts = unreadCounts,
+                    onHomeClick = { onNavigate(Screen.Home) },
+                    onGroupClick = { groupId, groupName ->
+                        onNavigate(Screen.Group(groupId, groupName))
+                    },
+                    onAddClick = { onNavigate(Screen.Home) },
+                    userAvatarUrl = currentUserMetadata?.picture,
+                    userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
+                    userPubkey = pubKey,
+                    onUserClick = { onNavigate(Screen.Profile) },
+                    isProfileActive = currentScreen is Screen.Profile,
+                    modifier = Modifier.weight(1f)
+                ) {
                     DesktopContent(
                         currentScreen = currentScreen,
                         homeGridState = homeGridState,
