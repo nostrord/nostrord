@@ -69,4 +69,15 @@ class NavigationHistory(initialScreen: Screen) {
         cursorIndex++
         return currentScreen
     }
+
+    /**
+     * Prepend Home at the base of the history stack so back navigation
+     * returns to Home instead of closing the app (e.g. after restore).
+     */
+    fun ensureHomeBase() {
+        if (history.firstOrNull() !is Screen.Home) {
+            history.add(0, Screen.Home)
+            cursorIndex++
+        }
+    }
 }

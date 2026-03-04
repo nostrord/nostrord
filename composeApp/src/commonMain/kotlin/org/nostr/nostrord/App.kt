@@ -119,7 +119,8 @@ fun App() {
                 // Authenticated with resolved initial screen
                 // Now we can create the navigation state with the correct initial value
                 AuthenticatedApp(
-                    initialScreen = startupState.initialScreen
+                    initialScreen = startupState.initialScreen,
+                    restoredFromPersistence = startupState.restoredFromPersistence
                 )
             }
         }
@@ -151,9 +152,15 @@ private fun LoadingScreen(modifier: Modifier = Modifier) {
  * @param initialScreen The screen to start with - computed during bootstrap
  */
 @Composable
-private fun AuthenticatedApp(initialScreen: Screen) {
+private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boolean) {
     // Initialize navigation history with the resolved initial screen
-    val navHistory = remember { NavigationHistory(initialScreen) }
+    val navHistory = remember {
+        NavigationHistory(initialScreen).also { history ->
+            if (restoredFromPersistence && initialScreen !is Screen.Home) {
+                history.ensureHomeBase()
+            }
+        }
+    }
     val currentScreen = navHistory.currentScreen
 
     // Collect state needed for UI
