@@ -27,6 +27,26 @@ in your IDE’s toolbar or build it directly from the terminal:
   .\gradlew.bat :composeApp:assembleDebug
   ```
 
+#### Launch an Android Emulator
+
+List available AVDs and start one:
+```shell
+emulator -list-avds
+emulator -avd <avd_name>
+```
+
+#### Install on a Connected Device or Emulator
+
+Build the debug APK and install it in one step:
+```shell
+./gradlew :composeApp:installDebug
+```
+
+Or install a previously built APK manually:
+```shell
+adb install composeApp/build/outputs/apk/debug/composeApp-debug.apk
+```
+
 ### Build and Run Desktop (JVM) Application
 
 To build and run the development version of the desktop app, use the run configuration from the run widget
@@ -39,6 +59,17 @@ in your IDE’s toolbar or run it directly from the terminal:
   ```shell
   .\gradlew.bat :composeApp:run
   ```
+
+#### Package as .deb (Linux)
+
+Build a `.deb` package with correct icons and desktop integration (hicolor theme, `StartupWMClass`):
+```shell
+./gradlew :composeApp:fixDebPackage
+```
+The output is at `composeApp/build/compose/binaries/main/deb/`. Install with:
+```shell
+sudo dpkg -i composeApp/build/compose/binaries/main/deb/nostrord_1.0.0-1_amd64.deb
+```
 
 ### Build and Run Web Application
 
