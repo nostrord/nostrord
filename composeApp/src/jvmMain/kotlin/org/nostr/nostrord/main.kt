@@ -9,6 +9,8 @@ import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.graphics.toPainter
+import javax.imageio.ImageIO
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
@@ -29,6 +31,10 @@ fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
         title = "Nostrord",
+        icon = ImageIO.read(
+            Thread.currentThread().contextClassLoader
+                .getResourceAsStream("icon-512.png")
+        ).toPainter(),
         state = windowState,
         undecorated = true,
         onPreviewKeyEvent = { event ->

@@ -162,10 +162,18 @@ compose.desktop {
     application {
         mainClass = "org.nostr.nostrord.MainKt"
 
+        jvmArgs("-Dsun.java2d.wmClassName=Nostrord")
+
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "org.nostr.nostrord"
+            packageName = "Nostrord"
             packageVersion = "1.0.0"
+
+            linux {
+                iconFile.set(project.file("src/jvmMain/resources/icon-512.png"))
+                debPackageVersion = packageVersion
+                appCategory = "Network"
+            }
         }
 
         buildTypes.release {
@@ -173,6 +181,114 @@ compose.desktop {
                 configurationFiles.from(project.file("proguard-rules.pro"))
             }
         }
+    }
+}
+
+// Post-process .deb to install icons into hicolor theme and fix .desktop metadata.
+// jpackage does NOT do this — it dumps a single PNG into /opt/<app>/lib/ and references
+// it by absolute path, which GNOME on Debian does not reliably resolve.
+tasks.register("fixDebPackage") {
+    description = "Repack .deb with hicolor icons and correct .desktop metadata"
+    dependsOn("packageDeb")
+
+    // Resolve paths at configuration time (configuration-cache safe)
+    val debDir = layout.buildDirectory.dir("compose/binaries/main/deb")
+    val repackDir = layout.buildDirectory.dir("deb-repack")
+    val iconSrcDir = layout.projectDirectory.dir("src/jvmMain/resources/linux-icons")
+
+    doLast {
+        fun run(vararg args: String) {
+            val proc = ProcessBuilder(*args).inheritIO().start()
+            check(proc.waitFor() == 0) { "Command failed: ${args.joinToString(" ")}" }
+        }
+
+        val debFile = debDir.get().asFile.listFiles()!!.first { it.extension == "deb" }
+        val workDir = repackDir.get().asFile
+        workDir.deleteRecursively()
+        workDir.mkdirs()
+
+        val extractDir = File(workDir, "extract")
+        val controlDir = File(workDir, "control")
+        extractDir.mkdirs()
+        controlDir.mkdirs()
+
+        // Extract .deb
+        run("dpkg-deb", "-x", debFile.absolutePath, extractDir.absolutePath)
+        run("dpkg-deb", "-e", debFile.absolutePath, controlDir.absolutePath)
+
+        // Install icons into hicolor
+        val sizes = listOf(16, 32, 48, 64, 128, 256, 512)
+        for (s in sizes) {
+            val hicolorDir = File(extractDir, "usr/share/icons/hicolor/${s}x${s}/apps")
+            hicolorDir.mkdirs()
+            val src = File(iconSrcDir.asFile, "icon-${s}.png")
+            if (src.exists()) {
+                src.copyTo(File(hicolorDir, "nostrord.png"), overwrite = true)
+            }
+        }
+
+        // Patch .desktop file: use icon theme name, add StartupWMClass and proper Categories
+        val desktopFile = extractDir.walkTopDown().first { it.extension == "desktop" }
+        // On Wayland, Java AWT derives app_id from the main class name:
+        // org.nostr.nostrord.MainKt → org-nostr-nostrord-MainKt
+        // StartupWMClass MUST match this for GNOME to associate the window.
+        // On X11, sun.java2d.wmClassName=Nostrord overrides WM_CLASS,
+        // so we list both as a fallback chain via StartupWMClass matching the Wayland value.
+        val patchedDesktop = """
+            |[Desktop Entry]
+            |Name=Nostrord
+            |Comment=Nostrord - NOSTR NIP-29 Client
+            |Exec=/opt/nostrord/bin/Nostrord
+            |Icon=nostrord
+            |Terminal=false
+            |Type=Application
+            |Categories=Network;InstantMessaging;Chat;
+            |StartupWMClass=org-nostr-nostrord-MainKt
+            |MimeType=
+        """.trimMargin() + "\n"
+        desktopFile.writeText(patchedDesktop)
+
+        // Patch postinst to run gtk-update-icon-cache after install
+        val postinst = File(controlDir, "postinst")
+        val postinstText = postinst.readText()
+        val patchedPostinst = postinstText.replace(
+            "xdg-desktop-menu install /opt/nostrord/lib/nostrord-Nostrord.desktop",
+            "xdg-desktop-menu install /opt/nostrord/lib/nostrord-Nostrord.desktop\n" +
+            "    xdg-icon-resource forceupdate --theme hicolor 2>/dev/null || true\n" +
+            "    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true"
+        )
+        postinst.writeText(patchedPostinst)
+
+        // Patch prerm to clean up hicolor icons on uninstall
+        val prerm = File(controlDir, "prerm")
+        val prermText = prerm.readText()
+        val d = '$'
+        val cleanupScript = "xdg-desktop-menu uninstall /opt/nostrord/lib/nostrord-Nostrord.desktop\n" +
+            "    for s in 16 32 48 64 128 256 512; do\n" +
+            "        rm -f \"/usr/share/icons/hicolor/${d}{s}x${d}{s}/apps/nostrord.png\"\n" +
+            "    done\n" +
+            "    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true"
+        val patchedPrerm = prermText.replace(
+            "xdg-desktop-menu uninstall /opt/nostrord/lib/nostrord-Nostrord.desktop",
+            cleanupScript
+        )
+        prerm.writeText(patchedPrerm)
+
+        // Repack .deb — copy control files into DEBIAN dir and set correct permissions
+        val debianDir = File(extractDir, "DEBIAN")
+        debianDir.mkdirs()
+        controlDir.listFiles()?.forEach { file ->
+            val dest = File(debianDir, file.name)
+            file.copyTo(dest, overwrite = true)
+            // Maintainer scripts must be executable (dpkg-deb requires >=0555)
+            if (file.name in listOf("postinst", "prerm", "postrm", "preinst")) {
+                dest.setExecutable(true, false)
+            }
+        }
+
+        run("dpkg-deb", "--build", "--root-owner-group", extractDir.absolutePath, debFile.absolutePath)
+
+        println("Repacked .deb with hicolor icons: ${debFile.name}")
     }
 }
 
