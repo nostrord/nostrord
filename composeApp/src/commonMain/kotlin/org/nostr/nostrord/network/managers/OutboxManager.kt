@@ -34,7 +34,6 @@ class OutboxManager(
     private var kind10009SubId: String? = null
     private var kind10009Received = false
     private var eoseReceived = false
-    private var kind10002Received = false
 
     // All groups across all relays (for kind:10009) - protected by groupsMutex
     private val groupsMutex = Mutex()
@@ -66,7 +65,6 @@ class OutboxManager(
 
         // Load joined groups in background
         scope.launch {
-            delay(300)
             loadJoinedGroupsFromNostr(pubKey, messageHandler)
         }
     }
@@ -90,13 +88,21 @@ class OutboxManager(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit
     ): Set<String> {
+        println("[NIP46-10009] loadJoinedGroupsFromNostr: pubKey=${pubKey.take(16)}...")
         val writeRelays = relayListManager.selectPublishRelays()
         if (writeRelays.isEmpty()) {
+            println("[NIP46-10009] loadJoinedGroupsFromNostr: NO write relays available, returning empty")
             return emptySet()
         }
+        println("[NIP46-10009] loadJoinedGroupsFromNostr: writeRelays=$writeRelays")
 
         val relayUrl = writeRelays.first()
-        val currentClient = connectionManager.getOrConnectRelay(relayUrl, messageHandler) ?: return emptySet()
+        val currentClient = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
+        if (currentClient == null) {
+            println("[NIP46-10009] loadJoinedGroupsFromNostr: FAILED to connect to $relayUrl")
+            return emptySet()
+        }
+        println("[NIP46-10009] loadJoinedGroupsFromNostr: connected to $relayUrl")
 
         try {
             kind10009Received = false
@@ -117,6 +123,7 @@ class OutboxManager(
                 add(filter)
             }.toString()
 
+            println("[NIP46-10009] loadJoinedGroupsFromNostr: sending REQ: $message")
             currentClient.send(message)
 
             var waitTime = 0
@@ -125,16 +132,21 @@ class OutboxManager(
                 waitTime += 100
             }
 
+            println("[NIP46-10009] loadJoinedGroupsFromNostr: wait done. eoseReceived=$eoseReceived, kind10009Received=$kind10009Received, waitTime=$waitTime")
+
             val closeMsg = buildJsonArray {
                 add("CLOSE")
                 add(subId)
             }.toString()
             currentClient.send(closeMsg)
 
-            return groupsMutex.withLock {
+            val result = groupsMutex.withLock {
                 allRelayGroups[connectionManager.currentRelayUrl.value] ?: emptySet()
             }
-        } catch (_: Exception) {
+            println("[NIP46-10009] loadJoinedGroupsFromNostr: returning ${result.size} groups: $result")
+            return result
+        } catch (e: Exception) {
+            println("[NIP46-10009] loadJoinedGroupsFromNostr: EXCEPTION: ${e.message}")
             return emptySet()
         }
     }
@@ -195,17 +207,25 @@ class OutboxManager(
         pubKey: String,
         onGroupsUpdated: (Set<String>) -> Unit
     ) {
+        println("[NIP46-10009] handleKind10009Event: received! currentRelayUrl=$currentRelayUrl")
         kind10009Received = true
-        val tags = event["tags"]?.jsonArray ?: return
+        val tags = event["tags"]?.jsonArray
+        if (tags == null) {
+            println("[NIP46-10009] handleKind10009Event: no tags in event")
+            return
+        }
+        println("[NIP46-10009] handleKind10009Event: ${tags.size} tags")
 
         val currentRelayGroups = mutableSetOf<String>()
         val newRelayGroups = mutableMapOf<String, MutableSet<String>>()
 
         tags.forEach { tag ->
             val tagArray = tag.jsonArray
+            println("[NIP46-10009] handleKind10009Event: raw tag=$tagArray")
             if (tagArray.size >= 2 && tagArray[0].jsonPrimitive.content == "group") {
                 val groupId = tagArray[1].jsonPrimitive.content
                 val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content
+                println("[NIP46-10009] handleKind10009Event: group=$groupId relay=$relayUrl")
 
                 if (relayUrl != null) {
                     newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
@@ -219,6 +239,8 @@ class OutboxManager(
             }
         }
 
+        println("[NIP46-10009] handleKind10009Event: currentRelayGroups=$currentRelayGroups, allRelayGroups=$newRelayGroups")
+
         // Update allRelayGroups atomically
         groupsMutex.withLock {
             allRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
@@ -226,6 +248,7 @@ class OutboxManager(
 
         SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, currentRelayGroups)
         onGroupsUpdated(currentRelayGroups)
+        println("[NIP46-10009] handleKind10009Event: onGroupsUpdated called with ${currentRelayGroups.size} groups")
 
         // Connect to relays from kind:10009
         connectToKind10009Relays { _, _ -> }
@@ -237,10 +260,6 @@ class OutboxManager(
     fun handleKind10002Event(event: JsonObject, currentUserPubkey: String?) {
         val eventPubkey = event["pubkey"]?.jsonPrimitive?.content
         val isCurrentUser = eventPubkey == currentUserPubkey
-
-        if (isCurrentUser) {
-            kind10002Received = true
-        }
 
         val tags = event["tags"]?.jsonArray ?: return
 
@@ -408,25 +427,6 @@ class OutboxManager(
     fun getWriteRelays(): List<String> = relayListManager.selectPublishRelays()
 
     /**
-     * Get all relay groups (for kind:10009)
-     */
-    fun getAllRelayGroups(): Map<String, Set<String>> = allRelayGroups
-
-    /**
-     * Update groups for a specific relay
-     */
-    suspend fun updateRelayGroups(relayUrl: String, groups: Set<String>) {
-        groupsMutex.withLock {
-            allRelayGroups = allRelayGroups + (relayUrl to groups)
-        }
-    }
-
-    /**
-     * Check if kind:10009 was received
-     */
-    fun wasKind10009Received(): Boolean = kind10009Received
-
-    /**
      * Reset kind:10009 state
      */
     fun resetKind10009State() {
@@ -444,6 +444,5 @@ class OutboxManager(
         }
         kind10009Received = false
         eoseReceived = false
-        kind10002Received = false
     }
 }

@@ -29,6 +29,9 @@ object AuthManager {
     private val _authUrl = MutableStateFlow<String?>(null)
     val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
 
+    // Default relays for nostrconnect:// QR code flow
+    val defaultNostrConnectRelays = listOf("wss://relay.damus.io", "wss://nos.lol")
+
     fun clearAuthUrl() {
         _authUrl.value = null
     }
@@ -105,6 +108,61 @@ object AuthManager {
         _isBunkerConnected.value = true
         _authUrl.value = null
 
+
+        return userPubkey
+    }
+
+    /**
+     * Login via nostrconnect:// QR code flow.
+     * Connects to relays and starts listening BEFORE returning the URI,
+     * so no events are missed when the signer scans the QR code.
+     */
+    suspend fun createNostrConnectSession(relays: List<String> = defaultNostrConnectRelays): Pair<String, Nip46Client> {
+        println("[NIP46-Auth] createNostrConnectSession: starting with relays=$relays")
+        val newNip46Client = Nip46Client(null)
+        newNip46Client.onAuthUrl = { url -> _authUrl.value = url }
+        // Connect to relays and subscribe FIRST
+        println("[NIP46-Auth] createNostrConnectSession: calling startListeningForConnection...")
+        newNip46Client.startListeningForConnection(relays, null)
+        println("[NIP46-Auth] createNostrConnectSession: listening started, generating URI...")
+        // Only then generate the URI for QR display
+        val uri = newNip46Client.generateNostrConnectUri(relays)
+        println("[NIP46-Auth] createNostrConnectSession: URI generated, returning")
+        return uri to newNip46Client
+    }
+
+    /**
+     * Complete the nostrconnect:// flow by waiting for the signer and fetching the public key.
+     * The client must already be listening (via createNostrConnectSession).
+     */
+    suspend fun completeNostrConnectLogin(
+        client: Nip46Client,
+        relays: List<String> = defaultNostrConnectRelays
+    ): String {
+        println("[NIP46-Auth] completeNostrConnectLogin: calling awaitIncomingConnection...")
+        val signerPubkey = client.awaitIncomingConnection()
+        println("[NIP46-Auth] completeNostrConnectLogin: signer connected! pubkey=${signerPubkey.take(16)}...")
+
+        println("[NIP46-Auth] completeNostrConnectLogin: calling getPublicKey...")
+        val userPubkey = client.getPublicKey()
+        println("[NIP46-Auth] completeNostrConnectLogin: got user pubkey=${userPubkey.take(16)}...")
+
+        nip46Client = client
+        bunkerUserPubkey = userPubkey
+        isBunkerLogin = true
+        keyPair = null
+
+        // Build a bunker:// URL for session persistence
+        val relayParams = relays.joinToString("&") { "relay=$it" }
+        val bunkerUrl = "bunker://$signerPubkey?$relayParams"
+
+        SecureStorage.saveBunkerUrl(bunkerUrl)
+        SecureStorage.saveBunkerUserPubkey(userPubkey)
+        SecureStorage.saveBunkerClientPrivateKey(client.clientPrivateKey)
+        SecureStorage.clearPrivateKey()
+
+        _isBunkerConnected.value = true
+        _authUrl.value = null
 
         return userPubkey
     }

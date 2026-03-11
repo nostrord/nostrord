@@ -6,6 +6,7 @@ import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.nostr.Event
+import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.utils.epochMillis
 
 /**
@@ -61,6 +62,23 @@ class SessionManager(
      */
     fun clearAuthUrl() {
         authManager.clearAuthUrl()
+    }
+
+    /**
+     * Create a nostrconnect:// session for QR code login
+     */
+    suspend fun createNostrConnectSession(relays: List<String> = authManager.defaultNostrConnectRelays): Pair<String, Nip46Client> {
+        return authManager.createNostrConnectSession(relays)
+    }
+
+    /**
+     * Complete the nostrconnect:// QR code login
+     */
+    suspend fun completeNostrConnectLogin(
+        client: Nip46Client,
+        relays: List<String> = authManager.defaultNostrConnectRelays
+    ): String {
+        return authManager.completeNostrConnectLogin(client, relays)
     }
 
     /**
@@ -150,23 +168,4 @@ class SessionManager(
         }
     }
 
-    /**
-     * Parse a signed event JSON string
-     */
-    fun parseSignedEvent(jsonString: String): Event {
-        val json = Json { ignoreUnknownKeys = true }
-        val obj = json.parseToJsonElement(jsonString).jsonObject
-
-        return Event(
-            id = obj["id"]?.jsonPrimitive?.content,
-            pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: "",
-            createdAt = obj["created_at"]?.jsonPrimitive?.long ?: 0L,
-            kind = obj["kind"]?.jsonPrimitive?.int ?: 0,
-            tags = obj["tags"]?.jsonArray?.map { tagArray ->
-                tagArray.jsonArray.map { it.jsonPrimitive.content }
-            } ?: emptyList(),
-            content = obj["content"]?.jsonPrimitive?.content ?: "",
-            sig = obj["sig"]?.jsonPrimitive?.content
-        )
-    }
 }

@@ -1,47 +1,44 @@
 package org.nostr.nostrord.ui.screens.login.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.ui.components.QrCode
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 
+private enum class BunkerMode { QR, URL }
+
 @Composable
 fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
-    var bunkerUrl by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var isConnecting by remember { mutableStateOf(false) }
-    var connectionStatus by remember { mutableStateOf<String?>(null) }
-    val authUrl by NostrRepository.authUrl.collectAsState()
-    val scope = rememberCoroutineScope()
-
-    val uriHandler = LocalUriHandler.current
-
-    LaunchedEffect(authUrl) {
-        authUrl?.let { url ->
-            connectionStatus = "Opening browser for approval..."
-            try {
-                uriHandler.openUri(url)
-            } catch (e: Exception) {
-                errorMessage = "Could not open browser. Please open this URL manually."
-            }
-        }
-    }
+    var mode by remember { mutableStateOf(BunkerMode.QR) }
 
     Column {
         // Description
@@ -71,6 +68,331 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Mode toggle: QR Code vs Bunker URL
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.shapeMedium,
+            color = NostrordColors.SurfaceVariant
+        ) {
+            Row(modifier = Modifier.padding(4.dp)) {
+                val modes = listOf(BunkerMode.QR to "QR Code" to Icons.Default.QrCode, BunkerMode.URL to "Bunker URL" to Icons.Default.TextFields)
+                for ((pair, icon) in modes) {
+                    val (m, label) = pair
+                    val isSelected = mode == m
+                    val bgColor by animateColorAsState(
+                        if (isSelected) NostrordColors.Primary else Color.Transparent
+                    )
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(NostrordShapes.shapeSmall)
+                            .clickable { mode = m },
+                        shape = NostrordShapes.shapeSmall,
+                        color = bgColor
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = if (isSelected) Color.White else NostrordColors.TextMuted
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isSelected) Color.White else NostrordColors.TextMuted,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        when (mode) {
+            BunkerMode.QR -> QrCodeLoginContent(onLoginSuccess)
+            BunkerMode.URL -> BunkerUrlLoginContent(onLoginSuccess)
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Benefits card
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.shapeMedium,
+            color = NostrordColors.SurfaceVariant.copy(alpha = 0.5f)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = NostrordColors.Success,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Why use a Bunker?",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                BenefitItem("Your private key never leaves the signer")
+                BenefitItem("Approve each signing request")
+                BenefitItem("Works with hardware signers")
+                BenefitItem("Revoke access anytime")
+            }
+        }
+    }
+}
+
+@Composable
+private fun QrCodeLoginContent(onLoginSuccess: () -> Unit) {
+    var nostrConnectUri by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var connectionStatus by remember { mutableStateOf<String?>(null) }
+    // Use a key to trigger regeneration on retry
+    var sessionKey by remember { mutableStateOf(0) }
+
+    // Use a stable scope that survives recomposition/composition changes
+    // LaunchedEffect scope gets cancelled when composable leaves composition,
+    // which breaks the NIP-46 connection flow if the parent recomposes
+    val loginScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+    var loginJob by remember { mutableStateOf<Job?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            loginJob?.cancel()
+        }
+    }
+
+    // Generate QR code AND immediately start listening
+    LaunchedEffect(sessionKey) {
+        // Cancel any previous login attempt
+        loginJob?.cancel()
+        nostrConnectUri = null
+        errorMessage = null
+        connectionStatus = null
+
+        loginJob = loginScope.launch {
+            try {
+                println("[NIP46-UI] Creating nostr connect session...")
+                val (uri, client) = NostrRepository.createNostrConnectSession()
+                println("[NIP46-UI] Session created, URI=${uri.take(80)}...")
+                nostrConnectUri = uri
+                connectionStatus = "Waiting for signer..."
+                println("[NIP46-UI] Waiting for signer to connect...")
+                NostrRepository.completeNostrConnectLogin(client)
+                println("[NIP46-UI] Login complete!")
+                connectionStatus = "Connected!"
+                onLoginSuccess()
+            } catch (e: Exception) {
+                println("[NIP46-UI] ERROR: ${e::class.simpleName}: ${e.message}")
+                e.printStackTrace()
+                errorMessage = when {
+                    e.message?.contains("timed out", ignoreCase = true) == true ||
+                    e.message?.contains("Timed out", ignoreCase = true) == true ->
+                        "Connection timed out. Make sure your signer scanned the QR code."
+                    e.message?.contains("left the composition", ignoreCase = true) == true ||
+                    e.message?.contains("cancelled", ignoreCase = true) == true ->
+                        null // Silently ignore composition cancellation
+                    else -> "Connection failed: ${e.message}"
+                }
+                if (errorMessage == null) connectionStatus = null
+            }
+        }
+    }
+
+    val clipboardManager = LocalClipboardManager.current
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            "Scan with your signer app",
+            color = NostrordColors.TextSecondary,
+            style = MaterialTheme.typography.bodySmall
+        )
+        Text(
+            "(Amber, nsec.app, etc.)",
+            color = NostrordColors.TextMuted,
+            style = MaterialTheme.typography.labelSmall
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // QR Code
+        nostrConnectUri?.let { uri ->
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                QrCode(
+                    data = uri,
+                    size = 220.dp,
+                    quietZone = 12.dp
+                )
+            }
+        } ?: run {
+            if (errorMessage == null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(244.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        color = NostrordColors.Primary,
+                        strokeWidth = 3.dp
+                    )
+                }
+            }
+        }
+
+        // nostrconnect:// URI with copy button
+        nostrConnectUri?.let { uri ->
+            Spacer(modifier = Modifier.height(12.dp))
+            var copied by remember { mutableStateOf(false) }
+            OutlinedTextField(
+                value = uri,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextMuted),
+                trailingIcon = {
+                    IconButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(uri))
+                        copied = true
+                    }) {
+                        Icon(
+                            imageVector = if (copied) Icons.Default.CheckCircle else Icons.Default.ContentCopy,
+                            contentDescription = "Copy URI",
+                            tint = if (copied) NostrordColors.Success else NostrordColors.Primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                },
+                shape = NostrordShapes.inputShape,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = NostrordColors.Primary,
+                    unfocusedBorderColor = NostrordColors.SurfaceVariant,
+                    focusedContainerColor = NostrordColors.InputBackground,
+                    unfocusedContainerColor = NostrordColors.InputBackground
+                )
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Waiting status
+        if (connectionStatus != null && errorMessage == null) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = NostrordShapes.shapeMedium,
+                color = NostrordColors.Primary.copy(alpha = 0.1f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    if (connectionStatus == "Connected!") {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = NostrordColors.Success,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = NostrordColors.Primary,
+                            strokeWidth = 2.dp
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        connectionStatus ?: "",
+                        color = if (connectionStatus == "Connected!") NostrordColors.Success else NostrordColors.Primary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+
+        // Error message with retry
+        errorMessage?.let {
+            Spacer(modifier = Modifier.height(12.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = NostrordShapes.shapeSmall,
+                color = NostrordColors.Error.copy(alpha = 0.1f)
+            ) {
+                Text(
+                    text = it,
+                    color = NostrordColors.Error,
+                    modifier = Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = { sessionKey++ },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = NostrordShapes.buttonShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NostrordColors.Primary,
+                    contentColor = Color.White
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QrCode,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Try Again", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BunkerUrlLoginContent(onLoginSuccess: () -> Unit) {
+    var bunkerUrl by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isConnecting by remember { mutableStateOf(false) }
+    var connectionStatus by remember { mutableStateOf<String?>(null) }
+    val authUrl by NostrRepository.authUrl.collectAsState()
+    val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
+
+    LaunchedEffect(authUrl) {
+        authUrl?.let { url ->
+            connectionStatus = "Opening browser for approval..."
+            try {
+                uriHandler.openUri(url)
+            } catch (e: Exception) {
+                errorMessage = "Could not open browser. Please open this URL manually."
+            }
+        }
+    }
+
+    Column {
         // Input field
         OutlinedTextField(
             value = bunkerUrl,
@@ -240,38 +562,6 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
                     modifier = Modifier.padding(12.dp),
                     style = MaterialTheme.typography.bodySmall
                 )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-
-        // Benefits card
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = NostrordShapes.shapeMedium,
-            color = NostrordColors.SurfaceVariant.copy(alpha = 0.5f)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = NostrordColors.Success,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "Why use a Bunker?",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                BenefitItem("Your private key never leaves the signer")
-                BenefitItem("Approve each signing request")
-                BenefitItem("Works with hardware signers")
-                BenefitItem("Revoke access anytime")
             }
         }
     }

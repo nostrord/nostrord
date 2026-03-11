@@ -108,6 +108,24 @@ class NostrRepository(
         return userPubkey
     }
 
+    suspend fun createNostrConnectSession(relays: List<String> = AuthManager.defaultNostrConnectRelays): Pair<String, org.nostr.nostrord.nostr.Nip46Client> {
+        return sessionManager.createNostrConnectSession(relays)
+    }
+
+    suspend fun completeNostrConnectLogin(
+        client: org.nostr.nostrord.nostr.Nip46Client,
+        relays: List<String> = AuthManager.defaultNostrConnectRelays
+    ): String {
+        val userPubkey = sessionManager.completeNostrConnectLogin(client, relays)
+        unreadManager.initialize(userPubkey)
+        // Connect to NIP-29 relay first (what the user sees), outbox model in background
+        scope.launch { initializeOutboxModel() }
+        connect()
+        sessionManager.setLoggedIn(true)
+        scope.launch { requestUserMetadata(setOf(userPubkey)) }
+        return userPubkey
+    }
+
     suspend fun loginSuspend(privKey: String, pubKey: String) {
         sessionManager.loginWithPrivateKey(privKey, pubKey)
         unreadManager.initialize(pubKey)
@@ -138,7 +156,9 @@ class NostrRepository(
     }
 
     private suspend fun initializeOutboxModel() {
-        val pubKey = sessionManager.getPublicKey() ?: return
+        val pubKey = sessionManager.getPublicKey()
+        println("[NIP46-10009] initializeOutboxModel: pubKey=${pubKey?.take(16)}...")
+        if (pubKey == null) return
         outboxManager.initialize(pubKey) { msg, client -> handleRelayMessage(msg, client) }
     }
 
@@ -172,12 +192,15 @@ class NostrRepository(
     }
 
     private suspend fun connect(relayUrl: String) {
+        println("[NIP46-Repo] connect: connecting to relay $relayUrl...")
         val connected = connectionManager.connectPrimary(relayUrl) { msg, client ->
             handleMessage(msg, client)
         }
 
+        println("[NIP46-Repo] connect: connected=$connected")
         if (connected) {
             val client = connectionManager.getPrimaryClient()
+            println("[NIP46-Repo] connect: client=${if (client != null) "ok" else "NULL"}")
             if (client != null) {
                 // Wire up connection lost handler to notify group manager
                 client.onConnectionLost = {
@@ -187,8 +210,12 @@ class NostrRepository(
                 }
 
                 sessionManager.sendAuthIfNeeded(client)
+                println("[NIP46-Repo] connect: requesting groups...")
                 client.requestGroups()
+                println("[NIP46-Repo] connect: groups requested")
             }
+        } else {
+            println("[NIP46-Repo] connect: FAILED to connect to relay")
         }
     }
 
@@ -631,6 +658,7 @@ class NostrRepository(
 
                 // Handle kind:10009 (joined groups)
                 if (kind == 10009) {
+                    println("[NIP46-10009] handleRelayMessage: received kind:10009 event!")
                     val pubKey = sessionManager.getPublicKey() ?: ""
                     scope.launch {
                         outboxManager.handleKind10009Event(
@@ -691,6 +719,8 @@ class NostrRepository(
         suspend fun initialize() = instance.initialize()
         fun clearAuthUrl() = instance.clearAuthUrl()
         suspend fun loginWithBunker(bunkerUrl: String) = instance.loginWithBunker(bunkerUrl)
+        suspend fun createNostrConnectSession(relays: List<String> = AuthManager.defaultNostrConnectRelays) = instance.createNostrConnectSession(relays)
+        suspend fun completeNostrConnectLogin(client: org.nostr.nostrord.nostr.Nip46Client, relays: List<String> = AuthManager.defaultNostrConnectRelays) = instance.completeNostrConnectLogin(client, relays)
         suspend fun loginSuspend(privKey: String, pubKey: String) = instance.loginSuspend(privKey, pubKey)
         suspend fun logout() = instance.logout()
         fun forgetBunkerConnection() = instance.forgetBunkerConnection()
