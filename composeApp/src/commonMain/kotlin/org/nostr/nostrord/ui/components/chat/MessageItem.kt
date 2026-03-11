@@ -288,7 +288,6 @@ fun MessageItem(
                     onMentionClick = currentOnUsernameClick,
                     onHashtagClick = { hashtag ->
                         // TODO: Implement hashtag click handler (e.g., search for hashtag)
-                        println("Clicked hashtag: #$hashtag")
                     },
                     currentGroupId = currentGroupId,
                     currentRelayUrl = currentRelayUrl,

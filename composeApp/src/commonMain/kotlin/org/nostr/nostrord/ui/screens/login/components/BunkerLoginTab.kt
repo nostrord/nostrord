@@ -185,18 +185,13 @@ private fun QrCodeLoginContent(onLoginSuccess: () -> Unit) {
 
         loginJob = loginScope.launch {
             try {
-                println("[NIP46-UI] Creating nostr connect session...")
                 val (uri, client) = NostrRepository.createNostrConnectSession()
-                println("[NIP46-UI] Session created, URI=${uri.take(80)}...")
                 nostrConnectUri = uri
                 connectionStatus = "Waiting for signer..."
-                println("[NIP46-UI] Waiting for signer to connect...")
                 NostrRepository.completeNostrConnectLogin(client)
-                println("[NIP46-UI] Login complete!")
                 connectionStatus = "Connected!"
                 onLoginSuccess()
             } catch (e: Exception) {
-                println("[NIP46-UI] ERROR: ${e::class.simpleName}: ${e.message}")
                 e.printStackTrace()
                 errorMessage = when {
                     e.message?.contains("timed out", ignoreCase = true) == true ||

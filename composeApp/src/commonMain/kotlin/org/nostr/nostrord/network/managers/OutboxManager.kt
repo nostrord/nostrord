@@ -88,21 +88,16 @@ class OutboxManager(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit
     ): Set<String> {
-        println("[NIP46-10009] loadJoinedGroupsFromNostr: pubKey=${pubKey.take(16)}...")
         val writeRelays = relayListManager.selectPublishRelays()
         if (writeRelays.isEmpty()) {
-            println("[NIP46-10009] loadJoinedGroupsFromNostr: NO write relays available, returning empty")
             return emptySet()
         }
-        println("[NIP46-10009] loadJoinedGroupsFromNostr: writeRelays=$writeRelays")
 
         val relayUrl = writeRelays.first()
         val currentClient = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
         if (currentClient == null) {
-            println("[NIP46-10009] loadJoinedGroupsFromNostr: FAILED to connect to $relayUrl")
             return emptySet()
         }
-        println("[NIP46-10009] loadJoinedGroupsFromNostr: connected to $relayUrl")
 
         try {
             kind10009Received = false
@@ -123,7 +118,6 @@ class OutboxManager(
                 add(filter)
             }.toString()
 
-            println("[NIP46-10009] loadJoinedGroupsFromNostr: sending REQ: $message")
             currentClient.send(message)
 
             var waitTime = 0
@@ -131,8 +125,6 @@ class OutboxManager(
                 delay(100)
                 waitTime += 100
             }
-
-            println("[NIP46-10009] loadJoinedGroupsFromNostr: wait done. eoseReceived=$eoseReceived, kind10009Received=$kind10009Received, waitTime=$waitTime")
 
             val closeMsg = buildJsonArray {
                 add("CLOSE")
@@ -143,10 +135,8 @@ class OutboxManager(
             val result = groupsMutex.withLock {
                 allRelayGroups[connectionManager.currentRelayUrl.value] ?: emptySet()
             }
-            println("[NIP46-10009] loadJoinedGroupsFromNostr: returning ${result.size} groups: $result")
             return result
         } catch (e: Exception) {
-            println("[NIP46-10009] loadJoinedGroupsFromNostr: EXCEPTION: ${e.message}")
             return emptySet()
         }
     }
@@ -207,25 +197,20 @@ class OutboxManager(
         pubKey: String,
         onGroupsUpdated: (Set<String>) -> Unit
     ) {
-        println("[NIP46-10009] handleKind10009Event: received! currentRelayUrl=$currentRelayUrl")
         kind10009Received = true
         val tags = event["tags"]?.jsonArray
         if (tags == null) {
-            println("[NIP46-10009] handleKind10009Event: no tags in event")
             return
         }
-        println("[NIP46-10009] handleKind10009Event: ${tags.size} tags")
 
         val currentRelayGroups = mutableSetOf<String>()
         val newRelayGroups = mutableMapOf<String, MutableSet<String>>()
 
         tags.forEach { tag ->
             val tagArray = tag.jsonArray
-            println("[NIP46-10009] handleKind10009Event: raw tag=$tagArray")
             if (tagArray.size >= 2 && tagArray[0].jsonPrimitive.content == "group") {
                 val groupId = tagArray[1].jsonPrimitive.content
                 val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content
-                println("[NIP46-10009] handleKind10009Event: group=$groupId relay=$relayUrl")
 
                 if (relayUrl != null) {
                     newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
@@ -239,8 +224,6 @@ class OutboxManager(
             }
         }
 
-        println("[NIP46-10009] handleKind10009Event: currentRelayGroups=$currentRelayGroups, allRelayGroups=$newRelayGroups")
-
         // Update allRelayGroups atomically
         groupsMutex.withLock {
             allRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
@@ -248,7 +231,6 @@ class OutboxManager(
 
         SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, currentRelayGroups)
         onGroupsUpdated(currentRelayGroups)
-        println("[NIP46-10009] handleKind10009Event: onGroupsUpdated called with ${currentRelayGroups.size} groups")
 
         // Connect to relays from kind:10009
         connectToKind10009Relays { _, _ -> }

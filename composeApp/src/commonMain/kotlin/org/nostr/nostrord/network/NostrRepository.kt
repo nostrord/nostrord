@@ -157,7 +157,6 @@ class NostrRepository(
 
     private suspend fun initializeOutboxModel() {
         val pubKey = sessionManager.getPublicKey()
-        println("[NIP46-10009] initializeOutboxModel: pubKey=${pubKey?.take(16)}...")
         if (pubKey == null) return
         outboxManager.initialize(pubKey) { msg, client -> handleRelayMessage(msg, client) }
     }
@@ -192,15 +191,12 @@ class NostrRepository(
     }
 
     private suspend fun connect(relayUrl: String) {
-        println("[NIP46-Repo] connect: connecting to relay $relayUrl...")
         val connected = connectionManager.connectPrimary(relayUrl) { msg, client ->
             handleMessage(msg, client)
         }
 
-        println("[NIP46-Repo] connect: connected=$connected")
         if (connected) {
             val client = connectionManager.getPrimaryClient()
-            println("[NIP46-Repo] connect: client=${if (client != null) "ok" else "NULL"}")
             if (client != null) {
                 // Wire up connection lost handler to notify group manager
                 client.onConnectionLost = {
@@ -210,12 +206,9 @@ class NostrRepository(
                 }
 
                 sessionManager.sendAuthIfNeeded(client)
-                println("[NIP46-Repo] connect: requesting groups...")
                 client.requestGroups()
-                println("[NIP46-Repo] connect: groups requested")
             }
         } else {
-            println("[NIP46-Repo] connect: FAILED to connect to relay")
         }
     }
 
@@ -658,7 +651,6 @@ class NostrRepository(
 
                 // Handle kind:10009 (joined groups)
                 if (kind == 10009) {
-                    println("[NIP46-10009] handleRelayMessage: received kind:10009 event!")
                     val pubKey = sessionManager.getPublicKey() ?: ""
                     scope.launch {
                         outboxManager.handleKind10009Event(

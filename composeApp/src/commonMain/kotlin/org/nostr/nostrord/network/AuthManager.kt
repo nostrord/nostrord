@@ -108,7 +108,6 @@ object AuthManager {
         _isBunkerConnected.value = true
         _authUrl.value = null
 
-
         return userPubkey
     }
 
@@ -118,16 +117,12 @@ object AuthManager {
      * so no events are missed when the signer scans the QR code.
      */
     suspend fun createNostrConnectSession(relays: List<String> = defaultNostrConnectRelays): Pair<String, Nip46Client> {
-        println("[NIP46-Auth] createNostrConnectSession: starting with relays=$relays")
         val newNip46Client = Nip46Client(null)
         newNip46Client.onAuthUrl = { url -> _authUrl.value = url }
         // Connect to relays and subscribe FIRST
-        println("[NIP46-Auth] createNostrConnectSession: calling startListeningForConnection...")
         newNip46Client.startListeningForConnection(relays, null)
-        println("[NIP46-Auth] createNostrConnectSession: listening started, generating URI...")
         // Only then generate the URI for QR display
         val uri = newNip46Client.generateNostrConnectUri(relays)
-        println("[NIP46-Auth] createNostrConnectSession: URI generated, returning")
         return uri to newNip46Client
     }
 
@@ -139,13 +134,9 @@ object AuthManager {
         client: Nip46Client,
         relays: List<String> = defaultNostrConnectRelays
     ): String {
-        println("[NIP46-Auth] completeNostrConnectLogin: calling awaitIncomingConnection...")
         val signerPubkey = client.awaitIncomingConnection()
-        println("[NIP46-Auth] completeNostrConnectLogin: signer connected! pubkey=${signerPubkey.take(16)}...")
 
-        println("[NIP46-Auth] completeNostrConnectLogin: calling getPublicKey...")
         val userPubkey = client.getPublicKey()
-        println("[NIP46-Auth] completeNostrConnectLogin: got user pubkey=${userPubkey.take(16)}...")
 
         nip46Client = client
         bunkerUserPubkey = userPubkey
