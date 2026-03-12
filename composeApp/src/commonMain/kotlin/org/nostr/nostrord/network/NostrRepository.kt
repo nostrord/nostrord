@@ -136,6 +136,15 @@ class NostrRepository(
         requestUserMetadata(setOf(pubKey))
     }
 
+    suspend fun loginWithNip07(pubkey: String) {
+        sessionManager.loginWithNip07(pubkey)
+        unreadManager.initialize(pubkey)
+        initializeOutboxModel()
+        connect()
+        sessionManager.setLoggedIn(true)
+        requestUserMetadata(setOf(pubkey))
+    }
+
     suspend fun logout() {
         scope.coroutineContext.cancelChildren()
 
@@ -714,6 +723,7 @@ class NostrRepository(
         suspend fun createNostrConnectSession(relays: List<String> = AuthManager.defaultNostrConnectRelays) = instance.createNostrConnectSession(relays)
         suspend fun completeNostrConnectLogin(client: org.nostr.nostrord.nostr.Nip46Client, relays: List<String> = AuthManager.defaultNostrConnectRelays) = instance.completeNostrConnectLogin(client, relays)
         suspend fun loginSuspend(privKey: String, pubKey: String) = instance.loginSuspend(privKey, pubKey)
+        suspend fun loginWithNip07(pubkey: String) = instance.loginWithNip07(pubkey)
         suspend fun logout() = instance.logout()
         fun forgetBunkerConnection() = instance.forgetBunkerConnection()
         suspend fun connect() = instance.connect()

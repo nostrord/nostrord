@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Event
+import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.storage.SecureStorage
 
@@ -19,6 +20,8 @@ object AuthManager {
     private var nip46Client: Nip46Client? = null
     private var isBunkerLogin = false
     private var bunkerUserPubkey: String? = null
+    private var isNip07Login = false
+    private var nip07UserPubkey: String? = null
 
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
@@ -42,6 +45,7 @@ object AuthManager {
     fun getPublicKey(): String? {
         return when {
             isBunkerLogin -> bunkerUserPubkey
+            isNip07Login -> nip07UserPubkey
             keyPair != null -> keyPair?.publicKeyHex
             else -> null
         }
@@ -51,7 +55,7 @@ object AuthManager {
      * Get the current user's private key (hex) - only for local login
      */
     fun getPrivateKey(): String? {
-        return if (isBunkerLogin) null else keyPair?.privateKeyHex
+        return if (isBunkerLogin || isNip07Login) null else keyPair?.privateKeyHex
     }
 
     fun isUsingBunker(): Boolean = isBunkerLogin
@@ -159,19 +163,39 @@ object AuthManager {
     }
 
     /**
+     * Login via NIP-07 browser extension.
+     * The public key has already been obtained from window.nostr.getPublicKey().
+     */
+    fun loginWithNip07(pubkey: String) {
+        nip07UserPubkey = pubkey
+        isNip07Login = true
+        isBunkerLogin = false
+        keyPair = null
+        nip46Client = null
+
+        SecureStorage.saveNip07UserPubkey(pubkey)
+        SecureStorage.clearPrivateKey()
+        SecureStorage.clearBunkerUrl()
+        SecureStorage.clearBunkerUserPubkey()
+        SecureStorage.clearBunkerClientPrivateKey()
+    }
+
+    /**
      * Login with local private key
      */
     fun loginWithPrivateKey(privateKeyHex: String, publicKeyHex: String) {
         keyPair = KeyPair.fromPrivateKeyHex(privateKeyHex)
         isBunkerLogin = false
         bunkerUserPubkey = null
+        isNip07Login = false
+        nip07UserPubkey = null
         nip46Client = null
 
         SecureStorage.savePrivateKey(privateKeyHex)
         SecureStorage.clearBunkerUrl()
         SecureStorage.clearBunkerUserPubkey()
         SecureStorage.clearBunkerClientPrivateKey()
-
+        SecureStorage.clearNip07UserPubkey()
     }
 
     /**
@@ -179,7 +203,16 @@ object AuthManager {
      * Returns true if session was restored
      */
     suspend fun restoreSession(): Boolean {
-        // Try bunker first
+        // Try NIP-07 first (if available and previously used)
+        val savedNip07Pubkey = SecureStorage.getNip07UserPubkey()
+        if (savedNip07Pubkey != null && Nip07.isAvailable()) {
+            isNip07Login = true
+            nip07UserPubkey = savedNip07Pubkey
+            _isLoggedIn.value = true
+            return true
+        }
+
+        // Try bunker
         val savedBunkerUrl = SecureStorage.getBunkerUrl()
         val savedUserPubkey = SecureStorage.getBunkerUserPubkey()
 
@@ -319,14 +352,20 @@ object AuthManager {
     }
 
     /**
-     * Sign an event using bunker or local keypair
+     * Sign an event using the active auth method (NIP-07, bunker, or local keypair)
      */
     suspend fun signEvent(event: Event): Event {
-        return if (isBunkerLogin) {
-            signWithBunker(event)
-        } else {
-            signWithKeyPair(event)
+        return when {
+            isNip07Login -> signWithNip07(event)
+            isBunkerLogin -> signWithBunker(event)
+            else -> signWithKeyPair(event)
         }
+    }
+
+    private suspend fun signWithNip07(event: Event): Event {
+        val eventJson = event.toJsonString()
+        val signedJson = Nip07.signEvent(eventJson)
+        return parseSignedEvent(signedJson)
     }
 
     private suspend fun signWithBunker(event: Event): Event {
@@ -399,6 +438,8 @@ object AuthManager {
         nip46Client = null
         isBunkerLogin = false
         bunkerUserPubkey = null
+        isNip07Login = false
+        nip07UserPubkey = null
         keyPair = null
 
         _isLoggedIn.value = false
@@ -407,6 +448,7 @@ object AuthManager {
         SecureStorage.clearPrivateKey()
         SecureStorage.clearBunkerUrl()
         SecureStorage.clearBunkerUserPubkey()
+        SecureStorage.clearNip07UserPubkey()
         // Keep client key for re-login
     }
 

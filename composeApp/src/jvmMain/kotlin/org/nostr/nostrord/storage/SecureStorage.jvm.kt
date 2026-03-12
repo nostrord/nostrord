@@ -182,7 +182,7 @@ actual object SecureStorage {
         prefs.put(BUNKER_CLIENT_PRIVATE_KEY_PREF, encrypted)
         prefs.flush()
     }
-    
+
     actual fun getBunkerClientPrivateKey(): String? {
         val encrypted = prefs.get(BUNKER_CLIENT_PRIVATE_KEY_PREF, null) ?: return null
         return try {
@@ -191,12 +191,17 @@ actual object SecureStorage {
             null
         }
     }
-    
+
     actual fun clearBunkerClientPrivateKey() {
         prefs.remove(BUNKER_CLIENT_PRIVATE_KEY_PREF)
         prefs.flush()
     }
-    
+
+    // NIP-07 Browser Extension (not used on JVM, but required by expect)
+    actual fun saveNip07UserPubkey(pubkey: String) {}
+    actual fun getNip07UserPubkey(): String? = null
+    actual fun clearNip07UserPubkey() {}
+
     actual fun clearAll() {
         prefs.clear()
         prefs.flush()

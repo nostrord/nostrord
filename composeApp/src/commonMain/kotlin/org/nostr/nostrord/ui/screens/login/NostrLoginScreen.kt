@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.*
@@ -24,7 +25,9 @@ import androidx.compose.ui.unit.dp
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
+import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.ui.screens.login.components.BunkerLoginTab
+import org.nostr.nostrord.ui.screens.login.components.ExtensionLoginTab
 import org.nostr.nostrord.ui.screens.login.components.PrivateKeyLoginTab
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -32,12 +35,19 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 sealed class LoginTab(val title: String, val icon: ImageVector) {
     object PrivateKey : LoginTab("Private Key", Icons.Default.Key)
     object Bunker : LoginTab("Bunker", Icons.Default.Shield)
+    object Extension : LoginTab("Extension", Icons.Default.Extension)
 }
 
 @Composable
 fun NostrLoginScreen(modifier: Modifier = Modifier, onLoginSuccess: () -> Unit) {
     var selectedTab by remember { mutableStateOf<LoginTab>(LoginTab.PrivateKey) }
-    val tabs = listOf(LoginTab.PrivateKey, LoginTab.Bunker)
+    val tabs = remember {
+        buildList {
+            add(LoginTab.PrivateKey)
+            add(LoginTab.Bunker)
+            if (Nip07.isAvailable()) add(LoginTab.Extension)
+        }
+    }
 
     Box(
         modifier = modifier
@@ -86,10 +96,11 @@ fun NostrLoginScreen(modifier: Modifier = Modifier, onLoginSuccess: () -> Unit) 
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // Main login card
+            // Main login card — wider when 3 tabs are shown to prevent label cramming
+            val cardMaxWidth = if (tabs.size >= 3) 500.dp else 400.dp
             Card(
                 modifier = Modifier
-                    .widthIn(max = 400.dp)
+                    .widthIn(max = cardMaxWidth)
                     .fillMaxWidth(),
                 shape = NostrordShapes.shapeLarge,
                 colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
@@ -98,6 +109,7 @@ fun NostrLoginScreen(modifier: Modifier = Modifier, onLoginSuccess: () -> Unit) 
                     modifier = Modifier.padding(20.dp)
                 ) {
                     // Tab selector
+                    val tabHPad = if (tabs.size >= 3) 8.dp else 12.dp
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = NostrordShapes.shapeMedium,
@@ -121,7 +133,7 @@ fun NostrLoginScreen(modifier: Modifier = Modifier, onLoginSuccess: () -> Unit) 
                                     color = backgroundColor
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
+                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = tabHPad),
                                         horizontalArrangement = Arrangement.Center,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -134,9 +146,10 @@ fun NostrLoginScreen(modifier: Modifier = Modifier, onLoginSuccess: () -> Unit) 
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = tab.title,
-                                            style = MaterialTheme.typography.labelLarge,
+                                            style = MaterialTheme.typography.labelMedium,
                                             color = if (isSelected) Color.White else NostrordColors.TextMuted,
-                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                            maxLines = 1
                                         )
                                     }
                                 }
@@ -150,6 +163,7 @@ fun NostrLoginScreen(modifier: Modifier = Modifier, onLoginSuccess: () -> Unit) 
                     when (selectedTab) {
                         LoginTab.PrivateKey -> PrivateKeyLoginTab(onLoginSuccess)
                         LoginTab.Bunker -> BunkerLoginTab(onLoginSuccess)
+                        LoginTab.Extension -> ExtensionLoginTab(onLoginSuccess)
                     }
                 }
             }
@@ -162,7 +176,7 @@ fun NostrLoginScreen(modifier: Modifier = Modifier, onLoginSuccess: () -> Unit) 
                 style = MaterialTheme.typography.bodySmall,
                 color = NostrordColors.TextMuted,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 300.dp)
+                modifier = Modifier.widthIn(max = cardMaxWidth)
             )
 
             Spacer(modifier = Modifier.height(40.dp))

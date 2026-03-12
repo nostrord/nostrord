@@ -156,17 +156,22 @@ actual object SecureStorage {
         ensureInitialized()
         prefs.edit().putString(BUNKER_CLIENT_PRIVATE_KEY_PREF, privateKey).apply()
     }
-    
+
     actual fun getBunkerClientPrivateKey(): String? {
         ensureInitialized()
         return prefs.getString(BUNKER_CLIENT_PRIVATE_KEY_PREF, null)
     }
-    
+
     actual fun clearBunkerClientPrivateKey() {
         ensureInitialized()
         prefs.edit().remove(BUNKER_CLIENT_PRIVATE_KEY_PREF).apply()
     }
-    
+
+    // NIP-07 Browser Extension (not used on Android, but required by expect)
+    actual fun saveNip07UserPubkey(pubkey: String) {}
+    actual fun getNip07UserPubkey(): String? = null
+    actual fun clearNip07UserPubkey() {}
+
     actual fun clearAll() {
         ensureInitialized()
         prefs.edit().clear().apply()

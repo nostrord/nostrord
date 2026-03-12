@@ -9,6 +9,7 @@ actual object SecureStorage {
     private const val BUNKER_URL_PREF = "nostr_bunker_url"
     private const val BUNKER_USER_PUBKEY_PREF = "nostr_bunker_user_pubkey"
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
+    private const val NIP07_USER_PUBKEY_PREF = "nostr_nip07_user_pubkey"
     private const val LAST_READ_PREFIX = "last_read_"
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
     private const val MESSAGES_PREFIX = "messages_"
@@ -105,15 +106,28 @@ actual object SecureStorage {
     actual fun saveBunkerClientPrivateKey(privateKey: String) {
         localStorage.setItem(BUNKER_CLIENT_PRIVATE_KEY_PREF, privateKey)
     }
-    
+
     actual fun getBunkerClientPrivateKey(): String? {
         return localStorage.getItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
     }
-    
+
     actual fun clearBunkerClientPrivateKey() {
         localStorage.removeItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
     }
-    
+
+    // NIP-07 Browser Extension
+    actual fun saveNip07UserPubkey(pubkey: String) {
+        localStorage.setItem(NIP07_USER_PUBKEY_PREF, pubkey)
+    }
+
+    actual fun getNip07UserPubkey(): String? {
+        return localStorage.getItem(NIP07_USER_PUBKEY_PREF)
+    }
+
+    actual fun clearNip07UserPubkey() {
+        localStorage.removeItem(NIP07_USER_PUBKEY_PREF)
+    }
+
     actual fun clearAll() {
         localStorage.clear()
     }

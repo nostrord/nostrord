@@ -17,6 +17,10 @@ class SessionManager(
     private val authManager: AuthManager,
     private val scope: CoroutineScope
 ) {
+    // Tracks relay URLs for which an AUTH challenge is already being processed,
+    // to prevent double-signing when the relay sends a second challenge because
+    // a REQ arrived before the first AUTH completed.
+    private val authInProgress = mutableSetOf<String>()
     // Delegate auth state to AuthManager
     val isLoggedIn: StateFlow<Boolean> = authManager.isLoggedIn
     val isBunkerConnected: StateFlow<Boolean> = authManager.isBunkerConnected
@@ -41,6 +45,13 @@ class SessionManager(
      */
     suspend fun loginWithPrivateKey(privKey: String, pubKey: String) {
         authManager.loginWithPrivateKey(privKey, pubKey)
+    }
+
+    /**
+     * Login via NIP-07 browser extension
+     */
+    fun loginWithNip07(pubkey: String) {
+        authManager.loginWithNip07(pubkey)
     }
 
     /**
@@ -123,19 +134,22 @@ class SessionManager(
     }
 
     /**
-     * Handle NIP-42 AUTH challenge from relay
+     * Handle NIP-42 AUTH challenge from relay.
+     * Deduplicates: if we're already processing a challenge for this relay, the new one is ignored.
      */
     suspend fun handleAuthChallenge(client: NostrGroupClient, challenge: String) {
-        val pubKey = getPublicKey() ?: return
+        val relayUrl = client.getRelayUrl()
+        if (!authInProgress.add(relayUrl)) return  // already in progress for this relay
+
+        val pubKey = getPublicKey() ?: run { authInProgress.remove(relayUrl); return }
 
         try {
-            // Create AUTH event (kind 22242)
             val authEvent = Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
                 kind = 22242,
                 tags = listOf(
-                    listOf("relay", client.getRelayUrl()),
+                    listOf("relay", relayUrl),
                     listOf("challenge", challenge)
                 ),
                 content = ""
@@ -143,7 +157,6 @@ class SessionManager(
 
             val signedEvent = signEvent(authEvent)
 
-            // Send AUTH response
             val message = buildJsonArray {
                 add("AUTH")
                 add(signedEvent.toJsonObject())
@@ -154,7 +167,10 @@ class SessionManager(
             // Re-request groups after authentication
             kotlinx.coroutines.delay(500)
             client.requestGroups()
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        } finally {
+            authInProgress.remove(relayUrl)
+        }
     }
 
     /**

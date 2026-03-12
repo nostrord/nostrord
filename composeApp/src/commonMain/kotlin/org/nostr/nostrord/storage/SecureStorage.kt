@@ -35,7 +35,12 @@ expect object SecureStorage {
     fun saveBunkerClientPrivateKey(privateKey: String)
     fun getBunkerClientPrivateKey(): String?
     fun clearBunkerClientPrivateKey()
-    
+
+    // NIP-07 Browser Extension (for session persistence)
+    fun saveNip07UserPubkey(pubkey: String)
+    fun getNip07UserPubkey(): String?
+    fun clearNip07UserPubkey()
+
     fun clearAll()
 
     // Last read timestamp tracking (account-scoped, per group)
