@@ -17,6 +17,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     private var relayClients: MutableList<NostrGroupClient> = mutableListOf()
     private var pendingRequests: MutableMap<String, CompletableDeferred<String>> = mutableMapOf()
     private var listenSubscriptionId: String? = null
+    private var nostrConnectSecret: String? = null
 
     private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -27,11 +28,13 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     actual fun generateNostrConnectUri(relays: List<String>, name: String): String {
         val relayParams = relays.joinToString("&") { "relay=${it.encodeForUri()}" }
         val metadata = """{"name":"$name"}"""
-        val uri = "nostrconnect://${clientKeyPair.publicKeyHex}?$relayParams&metadata=${metadata.encodeForUri()}"
+        val secretParam = nostrConnectSecret?.let { "&secret=${it.encodeForUri()}" } ?: ""
+        val uri = "nostrconnect://${clientKeyPair.publicKeyHex}?$relayParams$secretParam&metadata=${metadata.encodeForUri()}"
         return uri
     }
 
     actual suspend fun startListeningForConnection(relays: List<String>, secret: String?) {
+        nostrConnectSecret = secret ?: generateRequestId().take(16)
 
         for (relayUrl in relays) {
             try {
@@ -248,7 +251,6 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                         privateKeyHex = clientKeyPair.privateKeyHex,
                         pubKeyHex = eventPubkey
                     )
-
                     val responseObj = json.parseToJsonElement(decrypted).jsonObject
                     val responseId = responseObj["id"]?.jsonPrimitive?.content
                     val method = responseObj["method"]?.jsonPrimitive?.contentOrNull
@@ -257,9 +259,14 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
 
                     // Handle incoming connect request (nostrconnect:// flow)
                     if (method == "connect") {
-                        remoteSignerPubkey = eventPubkey
-
                         val params = responseObj["params"]?.jsonArray
+                        val incomingSecret = params?.getOrNull(1)?.jsonPrimitive?.contentOrNull
+                        val expectedSec = nostrConnectSecret
+                        if (expectedSec != null && incomingSecret != null && incomingSecret != expectedSec) {
+                            return // reject: secret mismatch
+                        }
+
+                        remoteSignerPubkey = eventPubkey
 
                         clientScope.launch {
                             try {
@@ -289,9 +296,11 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                         return
                     }
 
-                    // Handle signer ack response (some signers like Amber send ack directly
-                    // without method:"connect", just {"id":..., "result":"ack"})
-                    if (result == "ack" && pendingRequests.containsKey("_incoming_connect")) {
+                    // Handle signer connect response in nostrconnect:// flow.
+                    // Result must equal the secret we generated (per NIP-46 spec).
+                    val isConnectResponse = pendingRequests.containsKey("_incoming_connect") &&
+                        nostrConnectSecret != null && result == nostrConnectSecret
+                    if (isConnectResponse) {
                         remoteSignerPubkey = eventPubkey
                         pendingRequests["_incoming_connect"]?.complete(eventPubkey)
                         return
