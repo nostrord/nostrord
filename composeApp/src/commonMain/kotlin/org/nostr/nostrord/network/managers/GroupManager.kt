@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.network.GroupAdmins
 import org.nostr.nostrord.network.GroupMembers
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
@@ -82,6 +83,10 @@ class GroupManager(
     // Group members from kind 39002: groupId -> list of member pubkeys
     private val _groupMembers = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val groupMembers: StateFlow<Map<String, List<String>>> = _groupMembers.asStateFlow()
+
+    // Group admins from kind 39001: groupId -> list of admin pubkeys
+    private val _groupAdmins = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val groupAdmins: StateFlow<Map<String, List<String>>> = _groupAdmins.asStateFlow()
 
     companion object {
         const val PAGE_SIZE = 50
@@ -161,8 +166,188 @@ class GroupManager(
             currentClient.requestGroupMessages(groupId)
 
             Result.Success(Unit)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.Error(AppError.Group.JoinFailed(groupId, e))
+        }
+    }
+
+    /**
+     * Create a new NIP-29 group
+     */
+    suspend fun createGroup(
+        name: String,
+        about: String?,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event,
+        publishJoinedGroups: suspend () -> Unit
+    ): Result<String> {
+        val currentClient = connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
+
+        return try {
+            // Generate a suggested group ID
+            val suggestedId = buildString {
+                repeat(32) { append("0123456789abcdef"[kotlin.random.Random.nextInt(16)]) }
+            }
+
+            // kind 9007: create-group — sign and build the full message first so
+            // awaitGroupCreated can send it and track the OK response.
+            // NIP-29 relays expect ["h", groupId] (the group tag), not ["d", groupId].
+            val createEvent = Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9007,
+                tags = listOf(listOf("h", suggestedId)),
+                content = ""
+            )
+            val signedCreate = signEvent(createEvent)
+            val create9007Json = buildJsonArray {
+                add("EVENT")
+                add(signedCreate.toJsonObject())
+            }.toString()
+
+            // Send 9007, await relay OK, then subscribe for kind:39000 to get the
+            // relay-confirmed group ID (relay may have used a different ID than suggested)
+            val confirmedGroupId = currentClient.awaitGroupCreated(
+                create9007EventJson = create9007Json,
+                create9007EventId = signedCreate.id ?: suggestedId,
+                suggestedGroupId = suggestedId
+            )
+
+            // kind 9002: edit-metadata — sets name, about, and access in one event
+            val metaTags = mutableListOf(
+                listOf("h", confirmedGroupId),
+                listOf("name", name),
+                if (isPrivate) listOf("private") else listOf("public"),
+                if (isClosed) listOf("closed") else listOf("open")
+            )
+            if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
+            val signedMeta = signEvent(Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9002,
+                tags = metaTags,
+                content = ""
+            ))
+            currentClient.send(buildJsonArray {
+                add("EVENT")
+                add(signedMeta.toJsonObject())
+            }.toString())
+
+            // Auto-join with the confirmed ID
+            _joinedGroups.value = _joinedGroups.value + confirmedGroupId
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, _joinedGroups.value)
+            publishJoinedGroups()
+            currentClient.requestGroupMessages(confirmedGroupId)
+
+            Result.Success(confirmedGroupId)
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.CreateFailed(e))
+        }
+    }
+
+    /**
+     * Edit a group's metadata and/or status (admin only).
+     * Sends kind:9004 (edit-metadata) and kind:9008 (edit-status).
+     */
+    suspend fun editGroup(
+        groupId: String,
+        name: String,
+        about: String?,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<Unit> {
+        val currentClient = connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
+
+        return try {
+            // kind 9002: edit-metadata — name, about, visibility, access all in one event
+            val metaTags = mutableListOf(
+                listOf("h", groupId),
+                listOf("name", name),
+                if (isPrivate) listOf("private") else listOf("public"),
+                if (isClosed) listOf("closed") else listOf("open")
+            )
+            if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
+            val signedMeta = signEvent(Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9002,
+                tags = metaTags,
+                content = ""
+            ))
+            val eventJson = buildJsonArray {
+                add("EVENT")
+                add(signedMeta.toJsonObject())
+            }.toString()
+            val eventId = signedMeta.id
+                ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
+
+            when (val result = currentClient.sendAndAwaitOk(eventJson, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.CreateFailed(Exception(result.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.CreateFailed(Exception("Relay did not respond in time")))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.CreateFailed(result.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.CreateFailed(e))
+        }
+    }
+
+    /**
+     * Delete a group (admin only).
+     * Sends kind:9006 (delete-group).
+     */
+    suspend fun deleteGroup(
+        groupId: String,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event,
+        publishJoinedGroups: suspend () -> Unit
+    ): Result<Unit> {
+        val currentClient = connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
+
+        return try {
+            val event = Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9008, // delete-group (NIP-29)
+                tags = listOf(listOf("h", groupId)),
+                content = ""
+            )
+            val signedEvent = signEvent(event)
+            currentClient.send(buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString())
+
+            // Remove from joined groups
+            _joinedGroups.value = _joinedGroups.value - groupId
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, _joinedGroups.value)
+            publishJoinedGroups()
+
+            // Remove group from list
+            _groups.value = _groups.value.filter { it.id != groupId }
+            _messages.update { it - groupId }
+            _isLoadingMore.update { it - groupId }
+            _hasMoreMessages.update { it - groupId }
+            _groupStates.update { it - groupId }
+            _groupAdmins.value = _groupAdmins.value - groupId
+            loadingRegistry.remove(groupId)
+
+            Result.Success(Unit)
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.LeaveFailed(groupId, e))
         }
     }
 
@@ -223,7 +408,7 @@ class GroupManager(
             eventDeduplicator.clear()
 
             Result.Success(Unit)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.Error(AppError.Group.LeaveFailed(groupId, e))
         }
     }
@@ -264,7 +449,7 @@ class GroupManager(
                 subscriptionId = subscriptionId
             )
             true
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             loadingRegistry.unregisterSubscription(subscriptionId)
             controller.handleSendFailure(subscriptionId)
             updateLegacyFlags(groupId, controller.state.value)
@@ -333,7 +518,7 @@ class GroupManager(
                 subscriptionId = subscriptionId
             )
             true
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             loadingRegistry.unregisterSubscription(subscriptionId)
             controller.handleSendFailure(subscriptionId)
             updateLegacyFlags(groupId, controller.state.value)
@@ -425,7 +610,7 @@ class GroupManager(
                 subscriptionId = subscriptionId
             )
             true
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             loadingRegistry.unregisterSubscription(subscriptionId)
             controller.handleSendFailure(subscriptionId)
             updateLegacyFlags(groupId, controller.state.value)
@@ -520,7 +705,7 @@ class GroupManager(
                     Result.Error(AppError.Group.SendFailed(groupId, publishResult.exception))
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Result.Error(AppError.Group.SendFailed(groupId, e))
         }
     }
@@ -530,7 +715,13 @@ class GroupManager(
      */
     fun handleGroupMetadata(metadata: GroupMetadata) {
         if (metadata.name != null) {
-            _groups.value = (_groups.value + metadata).distinctBy { it.id }
+            val existing = _groups.value
+            val idx = existing.indexOfFirst { it.id == metadata.id }
+            _groups.value = if (idx >= 0) {
+                existing.toMutableList().also { it[idx] = metadata }
+            } else {
+                existing + metadata
+            }
         }
     }
 
@@ -553,6 +744,29 @@ class GroupManager(
     }
 
     /**
+     * Handle incoming group admins (kind 39001)
+     */
+    fun handleGroupAdmins(admins: GroupAdmins) {
+        _groupAdmins.value = _groupAdmins.value + (admins.groupId to admins.admins)
+    }
+
+    /**
+     * Request group admins (kind 39001)
+     */
+    suspend fun requestGroupAdmins(groupId: String): Boolean {
+        val currentClient = connectionManager.getPrimaryClient() ?: return false
+        currentClient.requestGroupAdmins(groupId)
+        return true
+    }
+
+    /**
+     * Check if a pubkey is an admin of a group
+     */
+    fun isGroupAdmin(groupId: String, pubkey: String): Boolean {
+        return pubkey in (_groupAdmins.value[groupId] ?: emptyList())
+    }
+
+    /**
      * Get members for a specific group
      */
     fun getMembersForGroup(groupId: String): List<String> {
@@ -564,7 +778,7 @@ class GroupManager(
         9,      // Chat messages (NIP-29)
         9000,   // Group admin: add user
         9001,   // Group admin: remove user
-        9008,   // Group admin: edit metadata
+        9002,   // Group admin: edit metadata (NIP-29)
         9021,   // Join request
         9022,   // Leave request
         9321    // Zap request (NIP-57)
@@ -573,7 +787,7 @@ class GroupManager(
     // Deletion kinds that remove other events
     private val deletionKinds = setOf(
         5,      // Deletion request (NIP-09)
-        9005    // Group admin: delete event (NIP-29)
+        9003    // Group admin: delete event (NIP-29)
     )
 
     /**
@@ -716,7 +930,7 @@ class GroupManager(
                 val tagArray = tag.jsonArray
                 tagArray.size >= 2 && tagArray[0].jsonPrimitive.content == "h"
             }?.jsonArray?.get(1)?.jsonPrimitive?.content
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             null
         }
     }
@@ -779,7 +993,7 @@ class GroupManager(
                             tagArray.jsonArray.map { it.jsonPrimitive.content }
                         } ?: emptyList()
                     )
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     null
                 }
             }
@@ -793,7 +1007,7 @@ class GroupManager(
                     current + (groupId to merged)
                 }
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // Ignore parsing errors - storage may be corrupted
         }
     }
@@ -830,7 +1044,7 @@ class GroupManager(
             }.toString()
 
             SecureStorage.saveMessagesForGroup(pubkey, groupId, messagesJson)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // Ignore save errors
         }
     }

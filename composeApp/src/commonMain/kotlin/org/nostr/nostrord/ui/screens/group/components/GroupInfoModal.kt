@@ -113,7 +113,7 @@ fun GroupInfoModal(
 
                         // Group name
                         Text(
-                            text = groupName ?: "Unknown Group",
+                            text = groupMetadata?.name ?: groupName ?: "Unknown Group",
                             style = NostrordTypography.ServerHeader,
                             color = Color.White,
                             fontWeight = FontWeight.Bold

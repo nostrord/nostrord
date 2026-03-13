@@ -10,7 +10,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,6 +60,7 @@ fun GroupQuickSwitchBar(
     onHomeClick: () -> Unit,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onExploreClick: () -> Unit,
+    onCreateGroupClick: () -> Unit,
     modifier: Modifier = Modifier,
     avatarSize: Dp = 44.dp,
     unreadCounts: Map<String, Int> = emptyMap()
@@ -121,25 +124,80 @@ fun GroupQuickSwitchBar(
             }
         }
 
-        // Add/Explore button
-        QuickSwitchItem(
-            isActive = false,
-            onClick = onExploreClick,
-            size = avatarSize,
-            tooltip = "Explore Groups",
-            showActiveRing = false
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(avatarSize - 4.dp)
-                    .background(NostrordColors.SurfaceVariant, CircleShape),
-                contentAlignment = Alignment.Center
+        // Add/Explore + Create button with dropdown menu
+        var addMenuExpanded by remember { mutableStateOf(false) }
+        Box {
+            QuickSwitchItem(
+                isActive = false,
+                onClick = { addMenuExpanded = true },
+                size = avatarSize,
+                tooltip = "Add Group",
+                showActiveRing = false
             ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Explore Groups",
-                    tint = NostrordColors.TextSecondary,
-                    modifier = Modifier.size(24.dp)
+                Box(
+                    modifier = Modifier
+                        .size(avatarSize - 4.dp)
+                        .background(NostrordColors.SurfaceVariant, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add Group",
+                        tint = NostrordColors.TextSecondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+            DropdownMenu(
+                expanded = addMenuExpanded,
+                onDismissRequest = { addMenuExpanded = false },
+                containerColor = NostrordColors.SurfaceVariant
+            ) {
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = NostrordColors.TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Explore Groups",
+                                color = NostrordColors.TextPrimary
+                            )
+                        }
+                    },
+                    onClick = {
+                        addMenuExpanded = false
+                        onExploreClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Create,
+                                contentDescription = null,
+                                tint = NostrordColors.Primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Create Group",
+                                color = NostrordColors.Primary
+                            )
+                        }
+                    },
+                    onClick = {
+                        addMenuExpanded = false
+                        onCreateGroupClick()
+                    }
                 )
             }
         }

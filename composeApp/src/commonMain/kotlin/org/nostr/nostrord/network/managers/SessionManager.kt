@@ -167,7 +167,7 @@ class SessionManager(
             // Re-request groups after authentication
             kotlinx.coroutines.delay(500)
             client.requestGroups()
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
         } finally {
             authInProgress.remove(relayUrl)
         }

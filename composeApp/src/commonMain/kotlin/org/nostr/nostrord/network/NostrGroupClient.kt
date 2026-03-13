@@ -6,6 +6,7 @@ import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.utils.epochMillis
@@ -28,6 +29,16 @@ data class GroupMetadata(
 data class GroupMembers(
     val groupId: String,
     val members: List<String> // List of pubkeys
+)
+
+/**
+ * Group admins list from kind 39001 event.
+ * Contains pubkeys of group administrators.
+ */
+@Immutable
+data class GroupAdmins(
+    val groupId: String,
+    val admins: List<String> // List of admin pubkeys
 )
 
 @Immutable
@@ -88,7 +99,11 @@ class NostrGroupClient(
 
     // Pending OK responses - maps event ID to CompletableDeferred for awaiting
     private val pendingOkResponses = mutableMapOf<String, CompletableDeferred<PublishResult>>()
-    private val pendingOkMutex = kotlinx.coroutines.sync.Mutex()
+    private val pendingOkMutex = Mutex()
+
+    // Pending group creation confirmations - maps subscription ID to deferred GroupMetadata
+    private val pendingGroupCreation = mutableMapOf<String, CompletableDeferred<GroupMetadata>>()
+    private val pendingGroupCreationMutex = Mutex()
 
     // Track if this was a graceful disconnect
     private var isDisconnecting = false
@@ -253,6 +268,93 @@ class NostrGroupClient(
     }
 
     /**
+     * Parse a kind:39000 message and return (subscriptionId, GroupMetadata).
+     * Used so the subscription ID is available alongside the metadata.
+     */
+    fun parseGroupMetadataWithSubId(message: String): Pair<String, GroupMetadata>? {
+        return try {
+            val arr = json.parseToJsonElement(message).jsonArray
+            if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
+            val subId = arr[1].jsonPrimitive.content
+            val metadata = parseGroupMetadata(message) ?: return null
+            Pair(subId, metadata)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Complete a pending group creation deferred when kind:39000 arrives
+     * for the matching subscription ID.
+     */
+    suspend fun handleGroupCreationEvent(subId: String, metadata: GroupMetadata) {
+        val deferred = pendingGroupCreationMutex.withLock {
+            pendingGroupCreation[subId]
+        }
+        deferred?.complete(metadata)
+    }
+
+    /**
+     * Send kind:9007 (create-group), await relay OK, then subscribe for kind:39000
+     * to discover the relay-confirmed group ID before returning.
+     *
+     * @param create9007EventJson Full ["EVENT", {...}] JSON for the 9007 event
+     * @param create9007EventId   The 9007 event ID (for tracking the OK response)
+     * @param suggestedGroupId    The `d` tag value we suggested in the 9007 event
+     * @param timeoutMs           Total timeout split: half for OK, half for 39000
+     * @return The relay-confirmed group ID, or [suggestedGroupId] as fallback
+     */
+    suspend fun awaitGroupCreated(
+        create9007EventJson: String,
+        create9007EventId: String,
+        suggestedGroupId: String,
+        timeoutMs: Long = 15_000
+    ): String {
+        val halfTimeout = timeoutMs / 2
+
+        // Step 1: send 9007 and wait for relay OK
+        val okResult = sendAndAwaitOk(create9007EventJson, create9007EventId, halfTimeout)
+        when (okResult) {
+            is PublishResult.Rejected -> throw Exception("Group creation rejected: ${okResult.reason}")
+            is PublishResult.Timeout -> throw Exception("Relay did not respond in time. Try again.")
+            is PublishResult.Error -> throw Exception("Relay error: ${okResult.exception.message}")
+            else -> Unit // Success — continue
+        }
+
+        // Step 2: subscribe for kind:39000 with #d = suggestedGroupId
+        val subId = "gc_${epochMillis()}"
+        val deferred = CompletableDeferred<GroupMetadata>()
+        pendingGroupCreationMutex.withLock {
+            pendingGroupCreation[subId] = deferred
+        }
+
+        return try {
+            send(buildJsonArray {
+                add("REQ")
+                add(subId)
+                add(buildJsonObject {
+                    putJsonArray("kinds") { add(39000) }
+                    putJsonArray("#d") { add(suggestedGroupId) }
+                })
+            }.toString())
+
+            // Step 3: wait for the 39000 event, fall back to suggestedGroupId on timeout
+            val confirmedId = withTimeoutOrNull(halfTimeout) {
+                deferred.await().id
+            } ?: suggestedGroupId
+
+            // Close the temporary subscription
+            send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+
+            confirmedId
+        } finally {
+            pendingGroupCreationMutex.withLock {
+                pendingGroupCreation.remove(subId)
+            }
+        }
+    }
+
+    /**
      * Clear all pending OK responses (called on disconnect).
      */
     private suspend fun clearPendingOkResponses() {
@@ -281,6 +383,22 @@ class NostrGroupClient(
         sendJson(req)
     }
 
+    /**
+     * Subscribe for kind:39000 metadata for a specific group.
+     * Called when entering a group screen to ensure metadata is fresh.
+     */
+    suspend fun requestGroupMetadata(groupId: String) {
+        val req = buildJsonArray {
+            add("REQ")
+            add("meta_${groupId}")
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(39000) }
+                put("#d", buildJsonArray { add(groupId) })
+            })
+        }
+        sendJson(req)
+    }
+
 suspend fun requestGroupMessages(
     groupId: String,
     channel: String? = null,
@@ -299,12 +417,11 @@ suspend fun requestGroupMessages(
                 add(9)      // Chat messages (NIP-29)
                 add(9000)   // Group admin: add user (NIP-29)
                 add(9001)   // Group admin: remove user (NIP-29)
-                add(9005)   // Group admin: delete event (NIP-29)
-                add(9008)   // Group admin: edit metadata (NIP-29)
+                add(9002)   // Group admin: edit metadata (NIP-29)
+                add(9003)   // Group admin: delete event (NIP-29)
                 add(9021)   // Join request
                 add(9022)   // Leave request
                 add(9321)   // Zap request (NIP-57)
-                add(30382)  // Group list / curated groups (NIP-51)
             })
             put("#h", buildJsonArray {
                 add(groupId)
@@ -396,6 +513,51 @@ suspend fun requestGroupMessages(
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Parse kind 39001 group admins event.
+     * Returns GroupAdmins containing all admin pubkeys from "p" tags.
+     */
+    fun parseGroupAdmins(message: String): GroupAdmins? {
+        return try {
+            val arr = json.parseToJsonElement(message).jsonArray
+            if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
+            val event = arr[2].jsonObject
+            if (event["kind"]?.jsonPrimitive?.int != 39001) return null
+
+            val tags = event["tags"]?.jsonArray ?: return null
+
+            val groupId = tags
+                .firstOrNull { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "d" }
+                ?.jsonArray?.get(1)?.jsonPrimitive?.content
+                ?: return null
+
+            val admins = tags
+                .filter { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "p" }
+                .map { it.jsonArray[1].jsonPrimitive.content }
+
+            GroupAdmins(groupId = groupId, admins = admins)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Request group admins (kind 39001) for a specific group.
+     */
+    suspend fun requestGroupAdmins(groupId: String): String {
+        val subId = "admins_${epochMillis()}"
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(39001) }
+                put("#d", buildJsonArray { add(groupId) })
+            })
+        }
+        sendJson(req)
+        return subId
     }
 
     /**

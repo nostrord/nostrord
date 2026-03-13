@@ -36,6 +36,7 @@ import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.navigation.browserGoBack
 import org.nostr.nostrord.ui.navigation.browserGoForward
 import org.nostr.nostrord.ui.navigation.platformHasBrowserNavigation
+import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.home.HomeScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.relay.RelaySettingsScreen
@@ -180,6 +181,9 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     val homeGridState = rememberLazyGridState()
     val relayListState = rememberLazyListState()
 
+    val currentRelayUrl by NostrRepository.currentRelayUrl.collectAsState()
+    var showCreateGroupModal by remember { mutableStateOf(false) }
+
     // Persist screen state for next app launch
     fun persistScreenState(screen: Screen) {
         pubKey?.let { pk ->
@@ -274,6 +278,17 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
         Modifier
     }
 
+    if (showCreateGroupModal) {
+        CreateGroupModal(
+            currentRelayUrl = currentRelayUrl,
+            onDismiss = { showCreateGroupModal = false },
+            onGroupCreated = { groupId, groupName ->
+                showCreateGroupModal = false
+                onNavigate(Screen.Group(groupId, groupName))
+            }
+        )
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize().then(keyEventModifier)) {
         val isDesktop = maxWidth >= 600.dp
 
@@ -296,7 +311,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                     onGroupClick = { groupId, groupName ->
                         onNavigate(Screen.Group(groupId, groupName))
                     },
-                    onAddClick = { onNavigate(Screen.Home) },
+                    onAddClick = { showCreateGroupModal = true },
                     userAvatarUrl = currentUserMetadata?.picture,
                     userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
                     userPubkey = pubKey,
@@ -317,7 +332,8 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                 currentScreen = currentScreen,
                 homeGridState = homeGridState,
                 relayListState = relayListState,
-                onNavigate = onNavigate
+                onNavigate = onNavigate,
+                onCreateGroupClick = { showCreateGroupModal = true }
             )
         }
     }
@@ -393,13 +409,15 @@ private fun MobileContent(
     currentScreen: Screen,
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     relayListState: androidx.compose.foundation.lazy.LazyListState,
-    onNavigate: (Screen) -> Unit
+    onNavigate: (Screen) -> Unit,
+    onCreateGroupClick: () -> Unit = {}
 ) {
     when (val screen = currentScreen) {
         is Screen.Home -> {
             HomeScreen(
                 gridState = homeGridState,
-                onNavigate = onNavigate
+                onNavigate = onNavigate,
+                onCreateGroupClick = onCreateGroupClick
             )
         }
         is Screen.Group -> {

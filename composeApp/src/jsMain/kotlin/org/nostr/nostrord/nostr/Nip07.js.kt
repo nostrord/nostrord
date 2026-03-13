@@ -30,10 +30,30 @@ actual object Nip07 {
     }
 
     actual suspend fun signEvent(eventJson: String): String = suspendCoroutine { cont ->
-        val promise = jsSignEventPromise(eventJson)
+        val promise = try {
+            jsSignEventPromise(eventJson)
+        } catch (e: Throwable) {
+            cont.resumeWithException(Exception("Signing request failed: ${e.message}"))
+            return@suspendCoroutine
+        }
         promise.then(
-            { signedEvent: dynamic -> cont.resume(jsStringify(signedEvent)); null },
-            { err: dynamic -> cont.resumeWithException(Exception(err.toString())); null }
+            { signedEvent: dynamic ->
+                if (signedEvent == null) {
+                    cont.resumeWithException(Exception("Signing request was rejected"))
+                } else {
+                    cont.resume(jsStringify(signedEvent))
+                }
+                null
+            },
+            { err: dynamic ->
+                val message = if (err != null && err != undefined) {
+                    try { err.message?.toString() ?: err.toString() } catch (_: Throwable) { "Signing request was rejected" }
+                } else {
+                    "Signing request was rejected"
+                }
+                cont.resumeWithException(Exception(message))
+                null
+            }
         )
     }
 }

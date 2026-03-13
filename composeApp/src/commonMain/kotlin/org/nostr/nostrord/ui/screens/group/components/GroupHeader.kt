@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -38,6 +40,9 @@ fun GroupHeader(
     onLeaveClick: () -> Unit,
     onSettingsClick: () -> Unit = {},
     onTitleClick: () -> Unit = {},
+    onEditClick: () -> Unit = {},
+    onDeleteClick: () -> Unit = {},
+    isAdmin: Boolean = false,
     modifier: Modifier = Modifier,
     navigationIcon: @Composable (() -> Unit)? = null
 ) {
@@ -80,7 +85,7 @@ fun GroupHeader(
                 // Group name and description
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = groupName ?: "Unknown Group",
+                        text = groupMetadata?.name ?: groupName ?: "Unknown Group",
                         color = Color.White,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
@@ -152,6 +157,38 @@ fun GroupHeader(
                                     )
                                 }
                             )
+                            if (isAdmin) {
+                                DropdownMenuItem(
+                                    text = { Text("Edit Group", color = NostrordColors.TextPrimary) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onEditClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Edit,
+                                            contentDescription = null,
+                                            tint = NostrordColors.TextSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete Group", color = NostrordColors.Error) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onDeleteClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = null,
+                                            tint = NostrordColors.Error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = {
                                     Text(

@@ -6,6 +6,8 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
@@ -67,6 +69,7 @@ fun GroupScreenMobile(
     connectionStatus: String,
     connectionState: ConnectionManager.ConnectionState,
     isJoined: Boolean,
+    isAdmin: Boolean = false,
     userMetadata: Map<String, UserMetadata>,
     reactions: Map<String, Map<String, GroupManager.ReactionInfo>> = emptyMap(),
     currentUserPubkey: String? = null,
@@ -76,6 +79,8 @@ fun GroupScreenMobile(
     onJoinGroup: () -> Unit,
     onLeaveGroup: () -> Unit,
     onShowGroupInfo: () -> Unit = {},
+    onEditGroup: () -> Unit = {},
+    onDeleteGroup: () -> Unit = {},
     groupMembers: List<MemberInfo> = emptyList(),
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
@@ -106,10 +111,13 @@ fun GroupScreenMobile(
                 groupName = groupName,
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
+                isAdmin = isAdmin,
                 onTitleClick = onShowGroupInfo,
                 onMembersClick = { showMemberSheet = true },
                 onJoinClick = onJoinGroup,
-                onLeaveClick = onLeaveGroup
+                onLeaveClick = onLeaveGroup,
+                onEditClick = onEditGroup,
+                onDeleteClick = onDeleteGroup
             )
         },
         containerColor = NostrordColors.Background
@@ -240,10 +248,13 @@ private fun MobileGroupTopBar(
     groupName: String?,
     groupMetadata: GroupMetadata?,
     isJoined: Boolean,
+    isAdmin: Boolean = false,
     onTitleClick: () -> Unit,
     onMembersClick: () -> Unit,
     onJoinClick: () -> Unit,
-    onLeaveClick: () -> Unit
+    onLeaveClick: () -> Unit,
+    onEditClick: () -> Unit = {},
+    onDeleteClick: () -> Unit = {}
 ) {
     TopAppBar(
         title = {
@@ -269,7 +280,7 @@ private fun MobileGroupTopBar(
                 ) {
                     // Group name
                     Text(
-                        text = groupName ?: "Unknown Group",
+                        text = groupMetadata?.name ?: groupName ?: "Unknown Group",
                         style = NostrordTypography.ServerHeader,
                         color = Color.White,
                         maxLines = 1,
@@ -351,6 +362,38 @@ private fun MobileGroupTopBar(
                                 )
                             }
                         )
+                        if (isAdmin) {
+                            DropdownMenuItem(
+                                text = { Text("Edit Group", color = NostrordColors.TextPrimary) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onEditClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = null,
+                                        tint = NostrordColors.TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete Group", color = NostrordColors.Error) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDeleteClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = null,
+                                        tint = NostrordColors.Error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = {
                                 Text(
