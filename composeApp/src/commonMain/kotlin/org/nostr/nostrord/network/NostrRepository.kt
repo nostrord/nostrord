@@ -222,19 +222,31 @@ class NostrRepository(
     }
 
     suspend fun switchRelay(newRelayUrl: String) {
-        disconnect()
+        // Clears messages/state but NOT the group metadata cache (_groupsByRelay).
+        groupManager.clearForRelaySwitch()
 
         connectionManager.switchRelay(newRelayUrl) { msg, client ->
             handleMessage(msg, client)
         }
 
         val pubKey = sessionManager.getPublicKey() ?: ""
-        groupManager.loadJoinedGroupsFromStorage(pubKey, newRelayUrl)
+
+        groupManager.restoreGroupsForRelay(newRelayUrl)
+
+        val cachedJoined = outboxManager.getJoinedGroupsForRelay(newRelayUrl)
+        if (cachedJoined.isNotEmpty()) {
+            groupManager.setJoinedGroups(cachedJoined)
+        } else {
+            groupManager.loadJoinedGroupsFromStorage(pubKey, newRelayUrl)
+        }
 
         val client = connectionManager.getPrimaryClient()
         if (client != null) {
             sessionManager.sendAuthIfNeeded(client)
-            client.requestGroups()
+            // Skip re-fetch if cached; re-fetching races against restored state.
+            if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
+                client.requestGroups()
+            }
         }
 
         outboxManager.resetKind10009State()
@@ -243,7 +255,12 @@ class NostrRepository(
             initializeOutboxModel()
         }
 
-        outboxManager.loadJoinedGroupsFromNostr(pubKey) { msg, c -> handleRelayMessage(msg, c) }
+        // Fetch only on first load; in-memory cache is source of truth after that.
+        if (!outboxManager.hasJoinedGroupsData()) {
+            scope.launch {
+                outboxManager.loadJoinedGroupsFromNostr(pubKey) { msg, c -> handleRelayMessage(msg, c) }
+            }
+        }
     }
 
     suspend fun disconnect() {
@@ -544,10 +561,10 @@ class NostrRepository(
             }
         } catch (_: Exception) {}
 
-        // Handle group metadata
+        // Handle group metadata — store under the source relay for per-relay caching.
         val groupMetadata = client.parseGroupMetadata(msg)
         if (groupMetadata != null) {
-            groupManager.handleGroupMetadata(groupMetadata)
+            groupManager.handleGroupMetadata(groupMetadata, client.getRelayUrl())
             return
         }
 
