@@ -7,8 +7,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +68,7 @@ fun App() {
     // Collect reactive state from repository
     val isInitialized by NostrRepository.isInitialized.collectAsState()
     val isLoggedIn by NostrRepository.isLoggedIn.collectAsState()
+    val isBunkerVerifying by NostrRepository.isBunkerVerifying.collectAsState()
 
     // Phase 1: Trigger initialization (runs once)
     LaunchedEffect(Unit) {
@@ -76,10 +80,11 @@ fun App() {
     }
 
     // Phase 2: Compute startup state synchronously from current values
-    // This is recomputed when dependencies change, but the key insight is
-    // that we don't render content UI until state is fully resolved
-    val startupState: AppStartState = remember(isInitialized, isLoggedIn) {
-        StartupResolver.resolve(isInitialized, isLoggedIn)
+    // isBunkerVerifying keeps the app in Initializing (loading) while the signer
+    // confirms the restored session — avoids showing main UI before auth is confirmed.
+    val startupState: AppStartState = remember(isInitialized, isLoggedIn, isBunkerVerifying) {
+        if (isBunkerVerifying) AppStartState.Initializing
+        else StartupResolver.resolve(isInitialized, isLoggedIn)
     }
 
     MaterialTheme {
@@ -88,14 +93,18 @@ fun App() {
         // Phase 3: Render based on resolved startup state
         when (startupState) {
             is AppStartState.Initializing -> {
-                // Bootstrap not complete - show loading
+                val loadingMessage = when {
+                    isBunkerVerifying && !isLoggedIn -> "Logging out..."
+                    isBunkerVerifying -> "Reconnecting to signer..."
+                    else -> null
+                }
                 if (hasWindowControls) {
                     Column(Modifier.fillMaxSize()) {
                         MinimalTitleBar()
-                        LoadingScreen(Modifier.weight(1f))
+                        LoadingScreen(Modifier.weight(1f), message = loadingMessage)
                     }
                 } else {
-                    LoadingScreen()
+                    LoadingScreen(message = loadingMessage)
                 }
             }
 
@@ -131,14 +140,24 @@ fun App() {
  * Loading screen shown during bootstrap.
  */
 @Composable
-private fun LoadingScreen(modifier: Modifier = Modifier) {
+private fun LoadingScreen(modifier: Modifier = Modifier, message: String? = null) {
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(NostrordColors.Background),
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator(color = NostrordColors.Primary)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = NostrordColors.Primary)
+            if (message != null) {
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = message,
+                    color = NostrordColors.TextSecondary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
     }
 }
 

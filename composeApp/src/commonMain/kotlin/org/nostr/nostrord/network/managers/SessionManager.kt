@@ -24,6 +24,7 @@ class SessionManager(
     // Delegate auth state to AuthManager
     val isLoggedIn: StateFlow<Boolean> = authManager.isLoggedIn
     val isBunkerConnected: StateFlow<Boolean> = authManager.isBunkerConnected
+    val isBunkerVerifying: StateFlow<Boolean> = authManager.isBunkerVerifying
     val authUrl: StateFlow<String?> = authManager.authUrl
 
     /**

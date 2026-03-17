@@ -33,19 +33,31 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         return uri
     }
 
+    private suspend fun connectRelaysParallel(relays: List<String>): List<NostrGroupClient> =
+        coroutineScope {
+            relays.map { relayUrl ->
+                async {
+                    try {
+                        val cleanUrl = relayUrl.trimEnd('/')
+                        val client = NostrGroupClient(cleanUrl)
+                        client.connect { msg -> handleMessage(msg) }
+                        client.waitForConnection()
+                        client
+                    } catch (e: Exception) { null }
+                }
+            }.awaitAll().filterNotNull()
+        }
+
+    actual suspend fun connectRelaysOnly(remoteSignerPubkey: String, relays: List<String>) {
+        this.remoteSignerPubkey = remoteSignerPubkey
+        relayClients.addAll(connectRelaysParallel(relays))
+        if (relayClients.isEmpty()) throw Exception("Failed to connect to any bunker relay")
+    }
+
     actual suspend fun startListeningForConnection(relays: List<String>, secret: String?) {
         nostrConnectSecret = secret ?: generateRequestId().take(16)
 
-        for (relayUrl in relays) {
-            try {
-                val cleanUrl = relayUrl.trimEnd('/')
-                val client = NostrGroupClient(cleanUrl)
-                client.connect { msg -> handleMessage(msg) }
-                client.waitForConnection()
-                relayClients.add(client)
-            } catch (e: Exception) {
-            }
-        }
+        relayClients.addAll(connectRelaysParallel(relays))
 
         if (relayClients.isEmpty()) {
             throw Exception("Failed to connect to any relay")
@@ -97,15 +109,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     ): String {
         this.remoteSignerPubkey = remoteSignerPubkey
 
-        for (relayUrl in relays) {
-            try {
-                val cleanUrl = relayUrl.trimEnd('/')
-                val client = NostrGroupClient(cleanUrl)
-                client.connect { msg -> handleMessage(msg) }
-                client.waitForConnection()
-                relayClients.add(client)
-            } catch (e: Exception) {}
-        }
+        relayClients.addAll(connectRelaysParallel(relays))
 
         if (relayClients.isEmpty()) {
             throw Exception("Failed to connect to any bunker relay")
@@ -217,19 +221,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             val arr = json.parseToJsonElement(msg).jsonArray
             val msgType = arr.getOrNull(0)?.jsonPrimitive?.contentOrNull ?: return
 
-            if (msgType == "EOSE") {
-                return
-            }
-
-            if (msgType == "OK") {
-                val eventId = arr.getOrNull(1)?.jsonPrimitive?.contentOrNull ?: "?"
-                val accepted = arr.getOrNull(2)?.jsonPrimitive?.booleanOrNull ?: false
-                val reason = arr.getOrNull(3)?.jsonPrimitive?.contentOrNull ?: ""
-                return
-            }
-
-            if (msgType == "NOTICE") {
-                val notice = arr.getOrNull(1)?.jsonPrimitive?.contentOrNull ?: ""
+            if (msgType == "EOSE" || msgType == "OK" || msgType == "NOTICE") {
                 return
             }
 
@@ -347,6 +339,26 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     private fun generateRequestId(): String {
         return Random.nextBytes(16).joinToString("") {
             it.toUByte().toString(16).padStart(2, '0')
+        }
+    }
+
+    actual fun backgroundConnect(secret: String?, onSuccess: (() -> Unit)?, onRevoked: (() -> Unit)?) {
+        val signerPubkey = remoteSignerPubkey ?: return
+        clientScope.launch {
+            try {
+                val requestId = generateRequestId()
+                val params = buildList {
+                    add(signerPubkey)
+                    secret?.let { add(it) }
+                }
+                withTimeout(10_000) {
+                    sendRequest(requestId, "connect", params)
+                }
+                onSuccess?.invoke()
+            } catch (_: Exception) {
+                // Timeout or explicit rejection → treat as revoked.
+                onRevoked?.invoke()
+            }
         }
     }
 

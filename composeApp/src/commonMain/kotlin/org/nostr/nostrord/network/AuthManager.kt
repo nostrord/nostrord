@@ -1,5 +1,10 @@
 package org.nostr.nostrord.network
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +21,8 @@ import org.nostr.nostrord.storage.SecureStorage
  */
 object AuthManager {
 
+    private val authScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     private var keyPair: KeyPair? = null
     private var nip46Client: Nip46Client? = null
     private var isBunkerLogin = false
@@ -28,6 +35,9 @@ object AuthManager {
 
     private val _isBunkerConnected = MutableStateFlow(false)
     val isBunkerConnected: StateFlow<Boolean> = _isBunkerConnected.asStateFlow()
+
+    private val _isBunkerVerifying = MutableStateFlow(false)
+    val isBunkerVerifying: StateFlow<Boolean> = _isBunkerVerifying.asStateFlow()
 
     private val _authUrl = MutableStateFlow<String?>(null)
     val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
@@ -247,18 +257,25 @@ object AuthManager {
                 _authUrl.value = url
             }
 
-            try {
-                newNip46Client.connect(
-                    remoteSignerPubkey = bunkerInfo.pubkey,
-                    relays = bunkerInfo.relays,
-                    secret = bunkerInfo.secret
-                )
-            } catch (e: Exception) {
-                if (e.message?.contains("already connected", ignoreCase = true) == true) {
-                } else {
-                    throw e
+            // Set logged-in and verifying states BEFORE the slow relay connection so the UI
+            // immediately shows "Reconnecting to signer..." instead of a blank spinner.
+            _isLoggedIn.value = true
+            _isBunkerVerifying.value = true
+
+            newNip46Client.connectRelaysOnly(bunkerInfo.pubkey, bunkerInfo.relays)
+            newNip46Client.backgroundConnect(
+                secret = bunkerInfo.secret,
+                onSuccess = { _isBunkerVerifying.value = false },
+                onRevoked = {
+                    // Set isLoggedIn=false FIRST (keeps loading screen visible, prevents auth flash),
+                    // then delay briefly to show "Logging out..." before releasing the loading screen.
+                    handlePermissionDenied()
+                    authScope.launch {
+                        delay(1500)
+                        _isBunkerVerifying.value = false
+                    }
                 }
-            }
+            )
 
             nip46Client = newNip46Client
             _isBunkerConnected.value = true
@@ -267,20 +284,11 @@ object AuthManager {
                 SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
             }
 
-            // Verify pubkey
-            try {
-                val actualPubkey = newNip46Client.getPublicKey()
-                if (actualPubkey != savedUserPubkey) {
-                    bunkerUserPubkey = actualPubkey
-                    SecureStorage.saveBunkerUserPubkey(actualPubkey)
-                }
-            } catch (e: Exception) {
-            }
-
-            _isLoggedIn.value = true
             return true
 
         } catch (e: Exception) {
+            _isLoggedIn.value = false
+            _isBunkerVerifying.value = false
             clearBunkerCredentials()
             return false
         }

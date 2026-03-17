@@ -56,6 +56,7 @@ class NostrRepository(
     // Expose auth state
     val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
     val isBunkerConnected: StateFlow<Boolean> = sessionManager.isBunkerConnected
+    val isBunkerVerifying: StateFlow<Boolean> = sessionManager.isBunkerVerifying
     val authUrl: StateFlow<String?> = sessionManager.authUrl
 
     // Expose metadata state
@@ -727,6 +728,7 @@ class NostrRepository(
         val groupMembers get() = instance.groupMembers
         val isLoggedIn get() = instance.isLoggedIn
         val isBunkerConnected get() = instance.isBunkerConnected
+        val isBunkerVerifying get() = instance.isBunkerVerifying
         val authUrl get() = instance.authUrl
         val userMetadata get() = instance.userMetadata
         val cachedEvents get() = instance.cachedEvents
