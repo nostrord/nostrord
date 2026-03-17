@@ -48,6 +48,11 @@ class GroupManager(
     private val _groupsByRelay = MutableStateFlow<Map<String, List<GroupMetadata>>>(emptyMap())
     val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = _groupsByRelay.asStateFlow()
 
+    // Tracks which relay is currently active and which relays have fully loaded
+    // (i.e. received EOSE for the "group-list" subscription).
+    private var currentRelayUrl: String? = null
+    private val completeGroupLoadRelays = mutableSetOf<String>()
+
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages.asStateFlow()
 
@@ -352,6 +357,10 @@ class GroupManager(
      * proper ordering with message tracking.
      */
     suspend fun handleEoseSuspend(subscriptionId: String): Boolean {
+        if (subscriptionId == "group-list") {
+            currentRelayUrl?.let { completeGroupLoadRelays.add(it) }
+            return true
+        }
         return loadingRegistry.handleEose(subscriptionId)
     }
 
@@ -535,7 +544,11 @@ class GroupManager(
      * so returning to this relay later is instant without a network re-fetch.
      */
     fun handleGroupMetadata(metadata: GroupMetadata, relayUrl: String) {
-        _groups.value = (_groups.value + metadata).distinctBy { it.id }
+        // Only update the live list if the event is from the currently active relay.
+        // Stragglers from a previous relay only go to the cache, not the visible list.
+        if (relayUrl == currentRelayUrl) {
+            _groups.value = (_groups.value + metadata).distinctBy { it.id }
+        }
         _groupsByRelay.update { current ->
             val relayGroups = current[relayUrl] ?: emptyList()
             val updated = (relayGroups + metadata).distinctBy { it.id }
@@ -548,6 +561,7 @@ class GroupManager(
      * Called on relay switch to show previously loaded groups instantly.
      */
     fun restoreGroupsForRelay(relayUrl: String) {
+        currentRelayUrl = relayUrl
         _groups.value = _groupsByRelay.value[relayUrl] ?: emptyList()
     }
 
@@ -555,7 +569,9 @@ class GroupManager(
      * Returns true if we have a non-empty cached group list for the given relay.
      */
     fun hasCachedGroupsForRelay(relayUrl: String): Boolean {
-        return _groupsByRelay.value[relayUrl]?.isNotEmpty() == true
+        // Only treat as cached if the initial load finished (EOSE received).
+        // A partial cache from an interrupted load must trigger a re-fetch.
+        return relayUrl in completeGroupLoadRelays && _groupsByRelay.value[relayUrl]?.isNotEmpty() == true
     }
 
     /**
@@ -753,6 +769,9 @@ class GroupManager(
      * Use this on relay switch. Use [clear] only on logout.
      */
     fun clearForRelaySwitch() {
+        // Null out current relay so stragglers arriving before restoreGroupsForRelay()
+        // only update the per-relay cache, not the live _groups list.
+        currentRelayUrl = null
         _groups.value = emptyList()
         _messages.value = emptyMap()
         _joinedGroups.value = emptySet()
@@ -777,6 +796,7 @@ class GroupManager(
      * Use on logout or full account reset.
      */
     fun clear() {
+        completeGroupLoadRelays.clear()
         _groupsByRelay.value = emptyMap()
         clearForRelaySwitch()
     }

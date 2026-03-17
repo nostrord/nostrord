@@ -185,6 +185,7 @@ class NostrRepository(
             val client = connectionManager.getPrimaryClient()
             if (client != null) {
                 sessionManager.sendAuthIfNeeded(client)
+                groupManager.restoreGroupsForRelay(connectionManager.currentRelayUrl.value)
                 client.requestGroups()
 
                 // Re-request messages for current group if any
@@ -216,7 +217,10 @@ class NostrRepository(
                 }
 
                 sessionManager.sendAuthIfNeeded(client)
-                client.requestGroups()
+                groupManager.restoreGroupsForRelay(relayUrl)
+                if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
+                    client.requestGroups()
+                }
             }
         } else {
         }
