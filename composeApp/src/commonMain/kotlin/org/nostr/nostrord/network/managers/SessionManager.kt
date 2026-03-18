@@ -21,6 +21,7 @@ class SessionManager(
     // to prevent double-signing when the relay sends a second challenge because
     // a REQ arrived before the first AUTH completed.
     private val authInProgress = mutableSetOf<String>()
+
     // Delegate auth state to AuthManager
     val isLoggedIn: StateFlow<Boolean> = authManager.isLoggedIn
     val isBunkerConnected: StateFlow<Boolean> = authManager.isBunkerConnected

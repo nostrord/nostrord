@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,10 +22,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -48,12 +53,14 @@ fun CreateGroupModal(
     onGroupCreated: (groupId: String, groupName: String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
 
     var name by remember { mutableStateOf("") }
     var about by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
     var isClosed by remember { mutableStateOf(false) }
     var isCreating by remember { mutableStateOf(false) }
+    var creatingJob by remember { mutableStateOf<Job?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val relayOptions = remember(currentRelayUrl) {
@@ -63,10 +70,21 @@ fun CreateGroupModal(
     var selectedRelay by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
     var relayDropdownExpanded by remember { mutableStateOf(false) }
 
+    val relayWebUrl = selectedRelay.replace("wss://", "https://").replace("ws://", "http://")
+
+    fun cancelCreation() {
+        creatingJob?.cancel()
+        creatingJob = null
+        isCreating = false
+    }
+
     Dialog(
-        onDismissRequest = { if (!isCreating) onDismiss() },
+        onDismissRequest = {
+            if (isCreating) cancelCreation()
+            onDismiss()
+        },
         properties = DialogProperties(
-            dismissOnBackPress = !isCreating,
+            dismissOnBackPress = true,
             dismissOnClickOutside = !isCreating,
             usePlatformDefaultWidth = false
         )
@@ -119,7 +137,10 @@ fun CreateGroupModal(
                         }
                         Spacer(modifier = Modifier.width(Spacing.sm))
                         IconButton(
-                            onClick = { if (!isCreating) onDismiss() },
+                            onClick = {
+                                if (isCreating) cancelCreation()
+                                onDismiss()
+                            },
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
@@ -162,7 +183,7 @@ fun CreateGroupModal(
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     ExposedDropdownMenuBox(
                         expanded = relayDropdownExpanded,
-                        onExpandedChange = { relayDropdownExpanded = it }
+                        onExpandedChange = { if (!isCreating) relayDropdownExpanded = it }
                     ) {
                         OutlinedTextField(
                             value = selectedRelay.removePrefix("wss://"),
@@ -196,11 +217,35 @@ fun CreateGroupModal(
                                     },
                                     onClick = {
                                         selectedRelay = relay
+                                        errorMessage = null
                                         relayDropdownExpanded = false
                                     }
                                 )
                             }
                         }
+                    }
+
+                    // Always show a direct link to create the group on the relay's website.
+                    // Most NIP-29 relays require web-based creation; this sets the right expectation upfront.
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                    ) {
+                        Text(
+                            text = "Some relays require creating groups via their website.",
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.TextMuted
+                        )
+                        Text(
+                            text = "Open →",
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.Primary,
+                            textDecoration = TextDecoration.Underline,
+                            modifier = Modifier
+                                .pointerHoverIcon(PointerIcon.Hand)
+                                .clickable { uriHandler.openUri(relayWebUrl) }
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
@@ -253,13 +298,38 @@ fun CreateGroupModal(
                         onCheckedChange = { isClosed = it }
                     )
 
+                    // Error message
                     if (errorMessage != null) {
                         Spacer(modifier = Modifier.height(Spacing.md))
-                        Text(
-                            text = errorMessage!!,
-                            style = NostrordTypography.Caption,
-                            color = NostrordColors.Error
-                        )
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                        ) {
+                            Text(
+                                text = errorMessage!!,
+                                style = NostrordTypography.Caption,
+                                color = NostrordColors.Error,
+                                modifier = Modifier.weight(1f)
+                            )
+                            // If the error is a restriction, offer a link
+                            val showLink = errorMessage!!.contains("not allowed", ignoreCase = true) ||
+                                errorMessage!!.contains("restricted", ignoreCase = true) ||
+                                errorMessage!!.contains("authorization", ignoreCase = true) ||
+                                errorMessage!!.contains("auth-required", ignoreCase = true) ||
+                                errorMessage!!.contains("blocked", ignoreCase = true)
+                            if (showLink) {
+                                Spacer(modifier = Modifier.width(Spacing.xs))
+                                Text(
+                                    text = "Visit relay →",
+                                    style = NostrordTypography.Caption,
+                                    color = NostrordColors.Error,
+                                    textDecoration = TextDecoration.Underline,
+                                    modifier = Modifier
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .clickable { uriHandler.openUri(relayWebUrl) }
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(Spacing.xxl))
@@ -271,10 +341,15 @@ fun CreateGroupModal(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         TextButton(
-                            onClick = onDismiss,
-                            enabled = !isCreating
+                            onClick = {
+                                cancelCreation()
+                                onDismiss()
+                            }
                         ) {
-                            Text("Cancel", color = NostrordColors.TextSecondary)
+                            Text(
+                                "Cancel",
+                                color = if (isCreating) NostrordColors.Error else NostrordColors.TextSecondary
+                            )
                         }
                         Button(
                             onClick = {
@@ -282,20 +357,30 @@ fun CreateGroupModal(
                                     errorMessage = "Group name is required."
                                     return@Button
                                 }
+                                errorMessage = null
                                 isCreating = true
-                                scope.launch {
-                                    val result = NostrRepository.createGroup(
-                                        name = name.trim(),
-                                        about = about.trim().ifBlank { null },
-                                        relayUrl = selectedRelay,
-                                        isPrivate = isPrivate,
-                                        isClosed = isClosed
-                                    )
-                                    isCreating = false
-                                    when (result) {
-                                        is Result.Success -> onGroupCreated(result.data, name.trim())
-                                        is Result.Error -> errorMessage = result.error.cause?.message
-                                            ?: result.error.message
+                                creatingJob = scope.launch {
+                                    try {
+                                        val result = NostrRepository.createGroup(
+                                            name = name.trim(),
+                                            about = about.trim().ifBlank { null },
+                                            relayUrl = selectedRelay,
+                                            isPrivate = isPrivate,
+                                            isClosed = isClosed
+                                        )
+                                        isCreating = false
+                                        creatingJob = null
+                                        when (result) {
+                                            is Result.Success -> onGroupCreated(result.data, name.trim())
+                                            is Result.Error -> {
+                                                val raw = result.error.cause?.message ?: result.error.message
+                                                errorMessage = friendlyError(raw)
+                                            }
+                                        }
+                                    } catch (_: CancellationException) {
+                                        // user cancelled — no error shown
+                                        isCreating = false
+                                        creatingJob = null
                                     }
                                 }
                             },
@@ -325,6 +410,24 @@ fun CreateGroupModal(
         }
     }
 }
+
+private fun friendlyError(raw: String?): String = when {
+    raw == null -> "Something went wrong. Try again."
+    // "blocked: to create groups open https://... in your web browser"
+    raw.contains("blocked:", ignoreCase = true) ->
+        "Group creation on this relay must be done via the relay's website."
+    raw.contains("auth-required", ignoreCase = true) ||
+    raw.contains("not allowed", ignoreCase = true) ||
+    raw.contains("restricted", ignoreCase = true) ->
+        "This relay requires authorization to create groups."
+    raw.contains("did not respond", ignoreCase = true) ||
+    raw.contains("timeout", ignoreCase = true) ->
+        "Relay did not respond. Try again."
+    raw.contains("Not connected", ignoreCase = true) ->
+        "Not connected to relay. Try again."
+    else -> raw
+}
+
 
 @Composable
 private fun FieldLabel(text: String) {

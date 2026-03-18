@@ -341,12 +341,12 @@ class NostrGroupClient(
             // Step 3: wait for the 39000 event, fall back to suggestedGroupId on timeout
             val confirmedId = withTimeoutOrNull(halfTimeout) {
                 deferred.await().id
-            } ?: suggestedGroupId
+            }
 
             // Close the temporary subscription
             send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
 
-            confirmedId
+            confirmedId ?: suggestedGroupId
         } finally {
             pendingGroupCreationMutex.withLock {
                 pendingGroupCreation.remove(subId)
