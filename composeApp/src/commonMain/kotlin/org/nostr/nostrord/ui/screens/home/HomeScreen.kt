@@ -7,8 +7,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.Screen
 
@@ -19,14 +19,14 @@ fun HomeScreen(
     showServerRail: Boolean = true, // When false, server rail is handled by parent shell
     onCreateGroupClick: () -> Unit = {}
 ) {
-    val scope = rememberCoroutineScope()
+    val vm = viewModel { HomeViewModel(AppModule.nostrRepository) }
 
-    val groups by NostrRepository.groups.collectAsState()
-    val connectionState by NostrRepository.connectionState.collectAsState()
-    val currentRelayUrl by NostrRepository.currentRelayUrl.collectAsState()
-    val joinedGroups by NostrRepository.joinedGroups.collectAsState()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
-    val unreadCounts by NostrRepository.unreadCounts.collectAsState()
+    val groups by vm.groups.collectAsState()
+    val connectionState by vm.connectionState.collectAsState()
+    val currentRelayUrl by vm.currentRelayUrl.collectAsState()
+    val joinedGroups by vm.joinedGroups.collectAsState()
+    val userMetadata by vm.userMetadata.collectAsState()
+    val unreadCounts by vm.unreadCounts.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
 
@@ -38,13 +38,11 @@ fun HomeScreen(
         }
     }
 
-    val pubKey = NostrRepository.getPublicKey()
+    val pubKey = vm.getPublicKey()
     val currentUserMetadata = pubKey?.let { userMetadata[it] }
 
     LaunchedEffect(Unit) {
-        scope.launch {
-            NostrRepository.connect()
-        }
+        vm.connect()
     }
 
     // Detect screen width
@@ -68,7 +66,7 @@ fun HomeScreen(
                 currentRelayUrl = currentRelayUrl,
                 isLoading = isLoading,
                 hasError = hasError,
-                onRetry = { scope.launch { NostrRepository.connect() } },
+                onRetry = { vm.connect() },
                 userAvatarUrl = currentUserMetadata?.picture,
                 userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
                 userPubkey = pubKey,
@@ -93,7 +91,7 @@ fun HomeScreen(
                 gridColumns = if (isMedium) 2 else 3,
                 isLoading = isLoading,
                 hasError = hasError,
-                onRetry = { scope.launch { NostrRepository.connect() } }
+                onRetry = { vm.connect() }
             )
         }
     }

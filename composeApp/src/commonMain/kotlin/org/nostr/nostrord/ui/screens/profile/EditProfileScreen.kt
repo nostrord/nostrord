@@ -5,8 +5,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.Screen
 
 /**
@@ -24,9 +24,10 @@ import org.nostr.nostrord.ui.Screen
 fun EditProfileScreen(
     onNavigate: (Screen) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
-    val publicKey = NostrRepository.getPublicKey()
+    val vm = viewModel { EditProfileViewModel(AppModule.nostrRepository) }
+
+    val userMetadata by vm.userMetadata.collectAsState()
+    val publicKey = vm.getPublicKey()
     val currentUserMetadata = publicKey?.let { userMetadata[it] }
 
     // Form state - initialize with current values
@@ -51,11 +52,11 @@ fun EditProfileScreen(
     var showSuccessMessage by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Auto-hide success message
+    // Auto-hide success message and navigate back
     LaunchedEffect(showSuccessMessage) {
         if (showSuccessMessage) {
-            kotlinx.coroutines.delay(2000)
-            showSuccessMessage = false
+            kotlinx.coroutines.delay(1000)
+            onNavigate(Screen.Profile)
         }
     }
 
@@ -68,29 +69,20 @@ fun EditProfileScreen(
     }
 
     val onSave: () -> Unit = {
-        scope.launch {
-            isSaving = true
-            errorMessage = null
-            try {
-                val result = NostrRepository.updateProfileMetadata(
-                    displayName = displayName.ifBlank { null },
-                    name = username.ifBlank { null },
-                    about = about.ifBlank { null },
-                    picture = pictureUrl.ifBlank { null },
-                    nip05 = nip05.ifBlank { null }
-                )
-                if (result.isSuccess) {
-                    showSuccessMessage = true
-                    // Navigate back after short delay
-                    kotlinx.coroutines.delay(1000)
-                    onNavigate(Screen.Profile)
-                } else {
-                    errorMessage = result.exceptionOrNull()?.message ?: "Failed to update profile"
-                }
-            } catch (e: Exception) {
-                errorMessage = e.message ?: "Failed to update profile"
-            } finally {
-                isSaving = false
+        isSaving = true
+        errorMessage = null
+        vm.saveProfile(
+            displayName = displayName.ifBlank { null },
+            name = username.ifBlank { null },
+            about = about.ifBlank { null },
+            picture = pictureUrl.ifBlank { null },
+            nip05 = nip05.ifBlank { null }
+        ) { result ->
+            isSaving = false
+            if (result.isSuccess) {
+                showSuccessMessage = true
+            } else {
+                errorMessage = result.exceptionOrNull()?.message ?: "Failed to update profile"
             }
         }
     }

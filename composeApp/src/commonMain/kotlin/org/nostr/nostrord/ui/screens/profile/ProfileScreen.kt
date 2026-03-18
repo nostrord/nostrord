@@ -5,11 +5,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.nostr.nostrord.utils.rememberClipboardWriter
-import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /**
  * Profile screen - user settings and account management.
@@ -28,9 +28,10 @@ fun ProfileScreen(
     onNavigate: (Screen) -> Unit,
     onLogout: () -> Unit = {}
 ) {
-    val scope = rememberCoroutineScope()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
-    val publicKey = NostrRepository.getPublicKey()
+    val vm = viewModel { ProfileViewModel(AppModule.nostrRepository) }
+
+    val userMetadata by vm.userMetadata.collectAsState()
+    val publicKey = vm.getPublicKey()
     val npub = remember(publicKey) { publicKey?.let { Nip19.encodeNpub(it) } }
     val currentUserMetadata = publicKey?.let { userMetadata[it] }
 
@@ -65,12 +66,7 @@ fun ProfileScreen(
                 onEditProfile = { onNavigate(Screen.EditProfile) },
                 onBackupKeys = { onNavigate(Screen.BackupPrivateKey) },
                 onRelaySettings = { onNavigate(Screen.RelaySettings) },
-                onLogout = {
-                    scope.launch {
-                        NostrRepository.logout()
-                        onLogout()
-                    }
-                }
+                onLogout = { vm.logout(onLogout) }
             )
         } else {
             ProfileScreenDesktop(
@@ -90,12 +86,7 @@ fun ProfileScreen(
                 onEditProfile = { onNavigate(Screen.EditProfile) },
                 onBackupKeys = { onNavigate(Screen.BackupPrivateKey) },
                 onRelaySettings = { onNavigate(Screen.RelaySettings) },
-                onLogout = {
-                    scope.launch {
-                        NostrRepository.logout()
-                        onLogout()
-                    }
-                }
+                onLogout = { vm.logout(onLogout) }
             )
         }
     }

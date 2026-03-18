@@ -7,12 +7,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
-import org.nostr.nostrord.network.NostrRepository
-import org.nostr.nostrord.network.managers.GroupManager
-import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
@@ -28,11 +27,11 @@ fun GroupScreen(
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
     showServerRail: Boolean = true // When false, server rail is handled by parent shell
 ) {
-    val scope = rememberCoroutineScope()
+    val vm = viewModel(key = groupId) { GroupViewModel(AppModule.nostrRepository, groupId) }
 
     var selectedChannel by remember { mutableStateOf("general") }
 
-    val allMessages by NostrRepository.messages.collectAsState()
+    val allMessages by vm.messages.collectAsState()
     val allGroupMessages = allMessages[groupId] ?: emptyList()
 
     val messages = remember(allGroupMessages, selectedChannel) {
@@ -47,14 +46,14 @@ fun GroupScreen(
         }
     }
 
-    val connectionState by NostrRepository.connectionState.collectAsState()
-    val joinedGroups by NostrRepository.joinedGroups.collectAsState()
-    val groups by NostrRepository.groups.collectAsState()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
-    val allReactions by NostrRepository.reactions.collectAsState()
-    val allGroupMembers by NostrRepository.groupMembers.collectAsState()
-    val allGroupAdmins by NostrRepository.groupAdmins.collectAsState()
-    val currentUserPubkey = NostrRepository.getPublicKey()
+    val connectionState by vm.connectionState.collectAsState()
+    val joinedGroups by vm.joinedGroups.collectAsState()
+    val groups by vm.groups.collectAsState()
+    val userMetadata by vm.userMetadata.collectAsState()
+    val allReactions by vm.reactions.collectAsState()
+    val allGroupMembers by vm.groupMembers.collectAsState()
+    val allGroupAdmins by vm.groupAdmins.collectAsState()
+    val currentUserPubkey = vm.getPublicKey()
 
     // Get current group metadata
     val currentGroupMetadata = remember(groups, groupId) {
@@ -70,8 +69,8 @@ fun GroupScreen(
     val kind39002Members = allGroupMembers[groupId] ?: emptyList()
 
     // Pagination state
-    val isLoadingMoreMap by NostrRepository.isLoadingMore.collectAsState()
-    val hasMoreMessagesMap by NostrRepository.hasMoreMessages.collectAsState()
+    val isLoadingMoreMap by vm.isLoadingMore.collectAsState()
+    val hasMoreMessagesMap by vm.hasMoreMessages.collectAsState()
     val isLoadingMore = isLoadingMoreMap[groupId] ?: false
     val hasMoreMessages = hasMoreMessagesMap[groupId] ?: true
 
@@ -87,7 +86,6 @@ fun GroupScreen(
 
     // Use kind 39002 members if available, otherwise fall back to message-based members
     val groupMembers = remember(kind39002Members, allGroupMessages, userMetadata) {
-        // Prefer kind 39002 members, fall back to message pubkeys
         val memberPubkeys = if (kind39002Members.isNotEmpty()) {
             kind39002Members
         } else {
@@ -133,15 +131,11 @@ fun GroupScreen(
     }
 
     LaunchedEffect(groupId) {
-        scope.launch {
-            NostrRepository.requestGroupMessages(groupId, selectedChannel)
-        }
+        vm.requestGroupMessages(selectedChannel)
     }
 
     LaunchedEffect(selectedChannel) {
-        scope.launch {
-            NostrRepository.requestGroupMessages(groupId, selectedChannel)
-        }
+        vm.requestGroupMessages(selectedChannel)
     }
 
     // Group info modal
@@ -176,8 +170,7 @@ fun GroupScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        scope.launch {
-                            NostrRepository.deleteGroup(groupId)
+                        vm.deleteGroup {
                             showDeleteGroupDialog = false
                             onNavigateHome()
                         }
@@ -214,8 +207,7 @@ fun GroupScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        scope.launch {
-                            NostrRepository.leaveGroup(groupId)
+                        vm.leaveGroup {
                             showLeaveDialog = false
                             onNavigateHome()
                         }
@@ -255,16 +247,12 @@ fun GroupScreen(
                 messageInput = messageInput,
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
-                    scope.launch {
-                        NostrRepository.sendMessage(groupId, messageInput, selectedChannel, mentions, replyingToMessage?.id)
-                        messageInput = ""
-                        mentions = emptyMap()
-                        replyingToMessage = null
-                    }
+                    vm.sendMessage(messageInput, selectedChannel, mentions, replyingToMessage?.id)
+                    messageInput = ""
+                    mentions = emptyMap()
+                    replyingToMessage = null
                 },
-                onJoinGroup = {
-                    scope.launch { NostrRepository.joinGroup(groupId) }
-                },
+                onJoinGroup = { vm.joinGroup() },
                 onLeaveGroup = { showLeaveDialog = true },
                 onShowGroupInfo = { showGroupInfoModal = true },
                 onEditGroup = { showEditGroupModal = true },
@@ -278,14 +266,13 @@ fun GroupScreen(
                 onCancelReply = { replyingToMessage = null },
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
-                onLoadMore = {
-                    scope.launch { NostrRepository.loadMoreMessages(groupId, selectedChannel) }
-                },
+                onLoadMore = { vm.loadMoreMessages(selectedChannel) },
                 joinedGroups = joinedGroups,
                 groups = groups,
                 onNavigateToGroup = onNavigateToGroup,
+                onSwitchRelay = { vm.switchRelay(it) },
                 onUserClick = { pubkey -> selectedUserPubkey = pubkey },
-                onReconnect = { scope.launch { NostrRepository.reconnect() } }
+                onReconnect = { vm.reconnect() }
             )
         } else {
             GroupScreenDesktop(
@@ -306,16 +293,12 @@ fun GroupScreen(
                 messageInput = messageInput,
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
-                    scope.launch {
-                        NostrRepository.sendMessage(groupId, messageInput, selectedChannel, mentions, replyingToMessage?.id)
-                        messageInput = ""
-                        mentions = emptyMap()
-                        replyingToMessage = null
-                    }
+                    vm.sendMessage(messageInput, selectedChannel, mentions, replyingToMessage?.id)
+                    messageInput = ""
+                    mentions = emptyMap()
+                    replyingToMessage = null
                 },
-                onJoinGroup = {
-                    scope.launch { NostrRepository.joinGroup(groupId) }
-                },
+                onJoinGroup = { vm.joinGroup() },
                 onLeaveGroup = { showLeaveDialog = true },
                 onShowGroupInfo = { showGroupInfoModal = true },
                 onEditGroup = { showEditGroupModal = true },
@@ -329,14 +312,13 @@ fun GroupScreen(
                 onCancelReply = { replyingToMessage = null },
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
-                onLoadMore = {
-                    scope.launch { NostrRepository.loadMoreMessages(groupId, selectedChannel) }
-                },
+                onLoadMore = { vm.loadMoreMessages(selectedChannel) },
                 joinedGroups = joinedGroups,
                 groups = groups,
                 onNavigateToGroup = onNavigateToGroup,
+                onSwitchRelay = { vm.switchRelay(it) },
                 onUserClick = { pubkey -> selectedUserPubkey = pubkey },
-                onReconnect = { scope.launch { NostrRepository.reconnect() } }
+                onReconnect = { vm.reconnect() }
             )
         }
     }

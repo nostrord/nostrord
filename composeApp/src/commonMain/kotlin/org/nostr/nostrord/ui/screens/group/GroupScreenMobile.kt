@@ -94,6 +94,7 @@ fun GroupScreenMobile(
     joinedGroups: Set<String> = emptySet(),
     groups: List<GroupMetadata> = emptyList(),
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
+    onSwitchRelay: (String) -> Unit = {},
     onUserClick: (String) -> Unit = {},
     onReconnect: () -> Unit = {}
 ) {
@@ -182,15 +183,8 @@ fun GroupScreenMobile(
                         onUsernameClick = onUserClick,
                         onReplyClick = onReplyClick,
                         onNavigateToGroup = { targetGroupId, targetGroupName, targetRelayUrl ->
-                            scope.launch {
-                                // If target relay is different from current, switch relays first
-                                val currentRelay = NostrRepository.currentRelayUrl.value
-                                if (targetRelayUrl != null && targetRelayUrl != currentRelay) {
-                                    NostrRepository.switchRelay(targetRelayUrl)
-                                }
-                                // Navigate to the group
-                                onNavigateToGroup(targetGroupId, targetGroupName)
-                            }
+                            if (targetRelayUrl != null) onSwitchRelay(targetRelayUrl)
+                            onNavigateToGroup(targetGroupId, targetGroupName)
                         }
                     )
                 }
