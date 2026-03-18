@@ -23,8 +23,8 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.withTimeoutOrNull
-import org.nostr.nostrord.network.NostrRepository
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.AppStartState
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
@@ -66,19 +66,10 @@ import org.nostr.nostrord.ui.theme.NostrordColors
  */
 @Composable
 fun App() {
-    // Collect reactive state from repository
-    val isInitialized by NostrRepository.isInitialized.collectAsState()
-    val isLoggedIn by NostrRepository.isLoggedIn.collectAsState()
-    val isBunkerVerifying by NostrRepository.isBunkerVerifying.collectAsState()
-
-    // Phase 1: Trigger initialization (runs once)
-    LaunchedEffect(Unit) {
-        withTimeoutOrNull(30000) {
-            NostrRepository.initialize()
-        } ?: run {
-            NostrRepository.forceInitialized()
-        }
-    }
+    val vm = viewModel { AppViewModel(AppModule.nostrRepository) }
+    val isInitialized by vm.isInitialized.collectAsState()
+    val isLoggedIn by vm.isLoggedIn.collectAsState()
+    val isBunkerVerifying by vm.isBunkerVerifying.collectAsState()
 
     // Phase 2: Compute startup state synchronously from current values
     // isBunkerVerifying keeps the app in Initializing (loading) while the signer
@@ -184,14 +175,14 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     val currentScreen = navHistory.currentScreen
 
     // Collect state needed for UI
-    val groups by NostrRepository.groups.collectAsState()
-    val joinedGroups by NostrRepository.joinedGroups.collectAsState()
-    val unreadCounts by NostrRepository.unreadCounts.collectAsState()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
-    val isLoggedIn by NostrRepository.isLoggedIn.collectAsState()
+    val groups by AppModule.nostrRepository.groups.collectAsState()
+    val joinedGroups by AppModule.nostrRepository.joinedGroups.collectAsState()
+    val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val isLoggedIn by AppModule.nostrRepository.isLoggedIn.collectAsState()
 
     // Get pubKey reactively
-    val pubKey = remember(isLoggedIn) { NostrRepository.getPublicKey() }
+    val pubKey = remember(isLoggedIn) { AppModule.nostrRepository.getPublicKey() }
     val currentUserMetadata = remember(pubKey, userMetadata) {
         pubKey?.let { userMetadata[it] }
     }
@@ -200,7 +191,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     val homeGridState = rememberLazyGridState()
     val relayListState = rememberLazyListState()
 
-    val currentRelayUrl by NostrRepository.currentRelayUrl.collectAsState()
+    val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
     var showCreateGroupModal by remember { mutableStateOf(false) }
 
     // Persist screen state for next app launch

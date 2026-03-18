@@ -1,6 +1,6 @@
 package org.nostr.nostrord.startup
 
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.Screen
 
@@ -107,7 +107,7 @@ object StartupResolver {
         }
 
         // Authenticated - resolve initial screen
-        val pubkey = NostrRepository.getPublicKey()
+        val pubkey = AppModule.nostrRepository.getPublicKey()
         if (pubkey == null) {
             // Edge case: logged in but no pubkey (shouldn't happen, but handle gracefully)
             return AppStartState.Authenticated(
