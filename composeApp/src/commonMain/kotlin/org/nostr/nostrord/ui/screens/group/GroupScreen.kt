@@ -13,6 +13,7 @@ import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.buildChatItems
@@ -52,11 +53,17 @@ fun GroupScreen(
     val userMetadata by NostrRepository.userMetadata.collectAsState()
     val allReactions by NostrRepository.reactions.collectAsState()
     val allGroupMembers by NostrRepository.groupMembers.collectAsState()
+    val allGroupAdmins by NostrRepository.groupAdmins.collectAsState()
     val currentUserPubkey = NostrRepository.getPublicKey()
 
     // Get current group metadata
     val currentGroupMetadata = remember(groups, groupId) {
         groups.find { it.id == groupId }
+    }
+
+    // Admin detection: check if current user is in kind:39001 admins list
+    val isAdmin = remember(allGroupAdmins, groupId, currentUserPubkey) {
+        currentUserPubkey != null && currentUserPubkey in (allGroupAdmins[groupId] ?: emptyList())
     }
 
     // Get members from kind 39002 for this group
@@ -73,6 +80,8 @@ fun GroupScreen(
     var replyingToMessage by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showGroupInfoModal by remember { mutableStateOf(false) }
+    var showEditGroupModal by remember { mutableStateOf(false) }
+    var showDeleteGroupDialog by remember { mutableStateOf(false) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     val isJoined = joinedGroups.contains(groupId)
 
@@ -145,6 +154,46 @@ fun GroupScreen(
         )
     }
 
+    // Edit group modal (admin only)
+    if (showEditGroupModal) {
+        EditGroupModal(
+            groupId = groupId,
+            currentMetadata = currentGroupMetadata,
+            onDismiss = { showEditGroupModal = false },
+            onGroupUpdated = { showEditGroupModal = false }
+        )
+    }
+
+    // Delete group confirmation dialog (admin only)
+    if (showDeleteGroupDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteGroupDialog = false },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Delete Group") },
+            text = { Text("Are you sure you want to permanently delete \"${currentGroupMetadata?.name ?: groupName ?: "this group"}\"? This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            NostrRepository.deleteGroup(groupId)
+                            showDeleteGroupDialog = false
+                            onNavigateHome()
+                        }
+                    }
+                ) {
+                    Text("Delete", color = NostrordColors.Error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteGroupDialog = false }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            }
+        )
+    }
+
     // User profile modal
     selectedUserPubkey?.let { pubkey ->
         UserProfileModal(
@@ -199,6 +248,7 @@ fun GroupScreen(
                 connectionStatus = connectionStatus,
                 connectionState = connectionState,
                 isJoined = isJoined,
+                isAdmin = isAdmin,
                 userMetadata = userMetadata,
                 reactions = allReactions,
                 currentUserPubkey = currentUserPubkey,
@@ -217,6 +267,8 @@ fun GroupScreen(
                 },
                 onLeaveGroup = { showLeaveDialog = true },
                 onShowGroupInfo = { showGroupInfoModal = true },
+                onEditGroup = { showEditGroupModal = true },
+                onDeleteGroup = { showDeleteGroupDialog = true },
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
@@ -247,6 +299,7 @@ fun GroupScreen(
                 connectionStatus = connectionStatus,
                 connectionState = connectionState,
                 isJoined = isJoined,
+                isAdmin = isAdmin,
                 userMetadata = userMetadata,
                 reactions = allReactions,
                 currentUserPubkey = currentUserPubkey,
@@ -265,6 +318,8 @@ fun GroupScreen(
                 },
                 onLeaveGroup = { showLeaveDialog = true },
                 onShowGroupInfo = { showGroupInfoModal = true },
+                onEditGroup = { showEditGroupModal = true },
+                onDeleteGroup = { showDeleteGroupDialog = true },
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,

@@ -53,7 +53,8 @@ fun HomeScreenMobile(
     unreadCounts: Map<String, Int> = emptyMap(),
     onGroupClick: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
     onUserClick: () -> Unit = {},
-    showServerRail: Boolean = true // When false, server rail is handled by parent shell
+    showServerRail: Boolean = true, // When false, server rail is handled by parent shell
+    onCreateGroupClick: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -98,7 +99,7 @@ fun HomeScreenMobile(
                     unreadCounts = unreadCounts,
                     onHomeClick = { /* Already on home */ },
                     onGroupClick = onGroupClick,
-                    onAddClick = { /* Scroll to explore or show join dialog */ },
+                    onAddClick = onCreateGroupClick,
                     userAvatarUrl = userAvatarUrl,
                     userDisplayName = userDisplayName,
                     userPubkey = userPubkey,

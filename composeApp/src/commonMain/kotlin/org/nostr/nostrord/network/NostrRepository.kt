@@ -52,6 +52,7 @@ class NostrRepository(
     val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
     val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
+    val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
 
     // Expose auth state
     val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
@@ -293,6 +294,30 @@ class NostrRepository(
         )
     }
 
+    suspend fun createGroup(
+        name: String,
+        about: String?,
+        relayUrl: String,
+        isPrivate: Boolean,
+        isClosed: Boolean
+    ): Result<String> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        if (relayUrl != connectionManager.currentRelayUrl.value) {
+            switchRelay(relayUrl)
+        }
+        return groupManager.createGroup(
+            name = name,
+            about = about,
+            isPrivate = isPrivate,
+            isClosed = isClosed,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) },
+            publishJoinedGroups = { publishJoinedGroupsList() }
+        )
+    }
+
     suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -313,8 +338,10 @@ class NostrRepository(
             connect()
         }
         groupManager.requestGroupMessages(groupId, channel)
-        // Also request group members (kind 39002) when loading a group
+        // Also request group metadata (kind 39000), members (kind 39002) and admins (kind 39001)
+        connectionManager.getPrimaryClient()?.requestGroupMetadata(groupId)
         groupManager.requestGroupMembers(groupId)
+        groupManager.requestGroupAdmins(groupId)
     }
 
     /**
@@ -325,6 +352,55 @@ class NostrRepository(
             connect()
         }
         groupManager.requestGroupMembers(groupId)
+    }
+
+    /**
+     * Request group admins (kind 39001) for a specific group.
+     */
+    suspend fun requestGroupAdmins(groupId: String) {
+        if (connectionManager.getPrimaryClient() == null) {
+            connect()
+        }
+        groupManager.requestGroupAdmins(groupId)
+    }
+
+    suspend fun refreshGroupMetadata(groupId: String) {
+        val client = connectionManager.getPrimaryClient() ?: return
+        client.requestGroupMetadata(groupId)
+        client.requestGroupAdmins(groupId)
+    }
+
+    suspend fun editGroup(
+        groupId: String,
+        name: String,
+        about: String?,
+        isPrivate: Boolean,
+        isClosed: Boolean
+    ): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.editGroup(
+            groupId = groupId,
+            name = name,
+            about = about,
+            isPrivate = isPrivate,
+            isClosed = isClosed,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
+    suspend fun deleteGroup(groupId: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.deleteGroup(
+            groupId = groupId,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) },
+            publishJoinedGroups = { publishJoinedGroupsList() }
+        )
     }
 
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
@@ -516,12 +592,17 @@ class NostrRepository(
     }
 
     // Message handling
+    // Groups whose subscriptions were closed by the relay (e.g. auth-required)
+    private val closedGroupSubscriptions = mutableSetOf<String>()
+
     private fun handleMessage(msg: String, client: NostrGroupClient) {
         // Handle NIP-42 AUTH challenge first
         val authChallenge = client.parseAuthChallenge(msg)
         if (authChallenge != null) {
             scope.launch {
                 sessionManager.handleAuthChallenge(client, authChallenge)
+                // After AUTH, re-subscribe for any groups that were blocked or are loaded
+                resubscribeAfterAuth(client)
             }
             return
         }
@@ -549,6 +630,21 @@ class NostrRepository(
                 return
             }
 
+            // Handle CLOSED (relay closed the subscription, e.g. auth-required for private group)
+            if (arr.size >= 2 && arr[0].jsonPrimitive.content == "CLOSED") {
+                val subId = arr[1].jsonPrimitive.content
+                val reason = if (arr.size >= 3) arr[2].jsonPrimitive.contentOrNull ?: "" else ""
+                if (reason.contains("auth-required") || reason.contains("restricted")) {
+                    // Extract groupId from subId if it's a message subscription, otherwise
+                    // mark all currently loaded groups for re-subscription after auth
+                    val activeGroupIds = groupManager.messages.value.keys +
+                        groupManager.joinedGroups.value
+                    closedGroupSubscriptions.addAll(activeGroupIds)
+                }
+                scope.launch { groupManager.handleEoseSuspend(subId) } // unblock any pending load
+                return
+            }
+
             // Handle event subscriptions (event_* or e_*) for quotes
             if (arr.size >= 3 && arr[0].jsonPrimitive.content == "EVENT") {
                 val subId = arr[1].jsonPrimitive.content
@@ -566,10 +662,13 @@ class NostrRepository(
             }
         } catch (_: Exception) {}
 
-        // Handle group metadata — store under the source relay for per-relay caching.
-        val groupMetadata = client.parseGroupMetadata(msg)
-        if (groupMetadata != null) {
+        // Handle group metadata (kind:39000) — store under the source relay for per-relay caching.
+        val groupMetadataWithSub = client.parseGroupMetadataWithSubId(msg)
+        if (groupMetadataWithSub != null) {
+            val (subId, groupMetadata) = groupMetadataWithSub
             groupManager.handleGroupMetadata(groupMetadata, client.getRelayUrl())
+            // Notify any pending group creation waiting for this subscription
+            scope.launch { client.handleGroupCreationEvent(subId, groupMetadata) }
             return
         }
 
@@ -584,6 +683,13 @@ class NostrRepository(
                     requestUserMetadata(pubkeysNeedingMetadata.toSet())
                 }
             }
+            return
+        }
+
+        // Handle group admins (kind 39001)
+        val groupAdmins = client.parseGroupAdmins(msg)
+        if (groupAdmins != null) {
+            groupManager.handleGroupAdmins(groupAdmins)
             return
         }
 
@@ -710,6 +816,28 @@ class NostrRepository(
         }
     }
 
+    /**
+     * Re-subscribe for group messages after a successful NIP-42 AUTH.
+     * Covers groups whose subscriptions were closed with auth-required,
+     * as well as all currently loaded groups.
+     */
+    private suspend fun resubscribeAfterAuth(client: NostrGroupClient) {
+        // Re-fetch the full group list (includes private groups now that we're authed)
+        client.requestGroups()
+
+        // Re-subscribe for all active/joined groups
+        val groupIds = closedGroupSubscriptions +
+            groupManager.messages.value.keys +
+            groupManager.joinedGroups.value
+        closedGroupSubscriptions.clear()
+        for (groupId in groupIds) {
+            client.requestGroupMessages(groupId)
+            client.requestGroupMetadata(groupId)
+            client.requestGroupAdmins(groupId)
+            client.requestGroupMembers(groupId)
+        }
+    }
+
     companion object {
         /**
          * Default singleton instance using AppModule.
@@ -730,6 +858,7 @@ class NostrRepository(
         val hasMoreMessages get() = instance.hasMoreMessages
         val reactions get() = instance.reactions
         val groupMembers get() = instance.groupMembers
+        val groupAdmins get() = instance.groupAdmins
         val isLoggedIn get() = instance.isLoggedIn
         val isBunkerConnected get() = instance.isBunkerConnected
         val isBunkerVerifying get() = instance.isBunkerVerifying
@@ -758,11 +887,18 @@ class NostrRepository(
         fun isUsingBunker() = instance.isUsingBunker()
         fun isBunkerReady() = instance.isBunkerReady()
         suspend fun ensureBunkerConnected() = instance.ensureBunkerConnected()
+        suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean) =
+            instance.createGroup(name, about, relayUrl, isPrivate, isClosed)
         suspend fun joinGroup(groupId: String) = instance.joinGroup(groupId)
         suspend fun leaveGroup(groupId: String, reason: String? = null) = instance.leaveGroup(groupId, reason)
+        suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean) =
+            instance.editGroup(groupId, name, about, isPrivate, isClosed)
+        suspend fun deleteGroup(groupId: String) = instance.deleteGroup(groupId)
         fun isGroupJoined(groupId: String) = instance.isGroupJoined(groupId)
         suspend fun requestGroupMessages(groupId: String, channel: String? = null) = instance.requestGroupMessages(groupId, channel)
         suspend fun requestGroupMembers(groupId: String) = instance.requestGroupMembers(groupId)
+        suspend fun requestGroupAdmins(groupId: String) = instance.requestGroupAdmins(groupId)
+        suspend fun refreshGroupMetadata(groupId: String) = instance.refreshGroupMetadata(groupId)
         suspend fun loadMoreMessages(groupId: String, channel: String? = null) = instance.loadMoreMessages(groupId, channel)
         suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null) =
             instance.sendMessage(groupId, content, channel, mentions, replyToMessageId)

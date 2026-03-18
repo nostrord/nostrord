@@ -47,6 +47,7 @@ fun GroupScreenDesktop(
     connectionStatus: String,
     connectionState: ConnectionManager.ConnectionState,
     isJoined: Boolean,
+    isAdmin: Boolean = false,
     userMetadata: Map<String, UserMetadata>,
     reactions: Map<String, Map<String, GroupManager.ReactionInfo>> = emptyMap(),
     currentUserPubkey: String? = null,
@@ -56,6 +57,8 @@ fun GroupScreenDesktop(
     onJoinGroup: () -> Unit,
     onLeaveGroup: () -> Unit,
     onShowGroupInfo: () -> Unit = {},
+    onEditGroup: () -> Unit = {},
+    onDeleteGroup: () -> Unit = {},
     groupMembers: List<MemberInfo> = emptyList(),
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
@@ -85,9 +88,12 @@ fun GroupScreenDesktop(
                 groupName = groupName,
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
+                isAdmin = isAdmin,
                 onJoinClick = onJoinGroup,
                 onLeaveClick = onLeaveGroup,
-                onTitleClick = onShowGroupInfo
+                onTitleClick = onShowGroupInfo,
+                onEditClick = onEditGroup,
+                onDeleteClick = onDeleteGroup
             )
 
             // Connection status banner (shown when disconnected/reconnecting)

@@ -16,7 +16,8 @@ import org.nostr.nostrord.ui.Screen
 fun HomeScreen(
     gridState: LazyGridState = rememberLazyGridState(),
     onNavigate: (Screen) -> Unit,
-    showServerRail: Boolean = true // When false, server rail is handled by parent shell
+    showServerRail: Boolean = true, // When false, server rail is handled by parent shell
+    onCreateGroupClick: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
 
@@ -76,7 +77,8 @@ fun HomeScreen(
                     onNavigate(Screen.Group(groupId, groupName))
                 },
                 onUserClick = { onNavigate(Screen.Profile) },
-                showServerRail = showServerRail
+                showServerRail = showServerRail,
+                onCreateGroupClick = onCreateGroupClick
             )
         } else {
             HomeScreenDesktop(

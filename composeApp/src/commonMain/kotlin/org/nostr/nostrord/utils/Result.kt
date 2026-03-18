@@ -110,6 +110,10 @@ sealed class AppError(
         data class SendTimeout(
             val groupId: String
         ) : Group("Timed out waiting for relay confirmation (group: $groupId)")
+
+        data class CreateFailed(
+            override val cause: Throwable? = null
+        ) : Group("Failed to create group", cause)
     }
 
     /** Generic/unknown errors */
