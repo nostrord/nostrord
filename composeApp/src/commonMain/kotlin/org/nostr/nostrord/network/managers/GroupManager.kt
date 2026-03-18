@@ -45,6 +45,15 @@ class GroupManager(
     private val _groups = MutableStateFlow<List<GroupMetadata>>(emptyList())
     val groups: StateFlow<List<GroupMetadata>> = _groups.asStateFlow()
 
+    // Per-relay group cache — persists across relay switches.
+    private val _groupsByRelay = MutableStateFlow<Map<String, List<GroupMetadata>>>(emptyMap())
+    val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = _groupsByRelay.asStateFlow()
+
+    // Tracks which relay is currently active and which relays have fully loaded
+    // (i.e. received EOSE for the "group-list" subscription).
+    private var currentRelayUrl: String? = null
+    private val completeGroupLoadRelays = mutableSetOf<String>()
+
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages.asStateFlow()
 
@@ -533,6 +542,10 @@ class GroupManager(
      * proper ordering with message tracking.
      */
     suspend fun handleEoseSuspend(subscriptionId: String): Boolean {
+        if (subscriptionId == "group-list") {
+            currentRelayUrl?.let { completeGroupLoadRelays.add(it) }
+            return true
+        }
         return loadingRegistry.handleEose(subscriptionId)
     }
 
@@ -711,18 +724,39 @@ class GroupManager(
     }
 
     /**
-     * Handle incoming group metadata
+     * Handle incoming group metadata.
+     * Updates the live flow for the current relay AND stores in the per-relay cache
+     * so returning to this relay later is instant without a network re-fetch.
      */
-    fun handleGroupMetadata(metadata: GroupMetadata) {
-        if (metadata.name != null) {
-            val existing = _groups.value
-            val idx = existing.indexOfFirst { it.id == metadata.id }
-            _groups.value = if (idx >= 0) {
-                existing.toMutableList().also { it[idx] = metadata }
-            } else {
-                existing + metadata
-            }
+    fun handleGroupMetadata(metadata: GroupMetadata, relayUrl: String) {
+        // Only update the live list if the event is from the currently active relay.
+        // Stragglers from a previous relay only go to the cache, not the visible list.
+        if (relayUrl == currentRelayUrl) {
+            _groups.value = (_groups.value + metadata).distinctBy { it.id }
         }
+        _groupsByRelay.update { current ->
+            val relayGroups = current[relayUrl] ?: emptyList()
+            val updated = (relayGroups + metadata).distinctBy { it.id }
+            current + (relayUrl to updated)
+        }
+    }
+
+    /**
+     * Restore the groups list from the per-relay cache.
+     * Called on relay switch to show previously loaded groups instantly.
+     */
+    fun restoreGroupsForRelay(relayUrl: String) {
+        currentRelayUrl = relayUrl
+        _groups.value = _groupsByRelay.value[relayUrl] ?: emptyList()
+    }
+
+    /**
+     * Returns true if we have a non-empty cached group list for the given relay.
+     */
+    fun hasCachedGroupsForRelay(relayUrl: String): Boolean {
+        // Only treat as cached if the initial load finished (EOSE received).
+        // A partial cache from an interrupted load must trigger a re-fetch.
+        return relayUrl in completeGroupLoadRelays && _groupsByRelay.value[relayUrl]?.isNotEmpty() == true
     }
 
     /**
@@ -936,9 +970,16 @@ class GroupManager(
     }
 
     /**
-     * Clear all state
+     * Clear session state only — messages, joined groups, loading state, reactions.
+     * Does NOT clear the per-relay group metadata cache so switching back to a relay
+     * that was previously visited shows groups immediately without a network re-fetch.
+     *
+     * Use this on relay switch. Use [clear] only on logout.
      */
-    fun clear() {
+    fun clearForRelaySwitch() {
+        // Null out current relay so stragglers arriving before restoreGroupsForRelay()
+        // only update the per-relay cache, not the live _groups list.
+        currentRelayUrl = null
         _groups.value = emptyList()
         _messages.value = emptyMap()
         _joinedGroups.value = emptySet()
@@ -948,14 +989,24 @@ class GroupManager(
         _reactions.value = emptyMap()
         _groupMembers.value = emptyMap()
 
-        // Clear observed groups tracking (direct access is safe in single-threaded JS/Wasm)
+        // Safe for single-threaded JS/Wasm; best-effort on JVM.
         observedGroups.clear()
 
-        // Clear state machine registry and event deduplicator
         scope.launch {
             loadingRegistry.clear()
             eventDeduplicator.clear()
         }
+        // _groupsByRelay is intentionally preserved.
+    }
+
+    /**
+     * Clear all state including the per-relay group metadata cache.
+     * Use on logout or full account reset.
+     */
+    fun clear() {
+        completeGroupLoadRelays.clear()
+        _groupsByRelay.value = emptyMap()
+        clearForRelaySwitch()
     }
 
     /**

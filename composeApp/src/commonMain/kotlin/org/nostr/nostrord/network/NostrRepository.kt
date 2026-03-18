@@ -57,6 +57,7 @@ class NostrRepository(
     // Expose auth state
     val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
     val isBunkerConnected: StateFlow<Boolean> = sessionManager.isBunkerConnected
+    val isBunkerVerifying: StateFlow<Boolean> = sessionManager.isBunkerVerifying
     val authUrl: StateFlow<String?> = sessionManager.authUrl
 
     // Expose metadata state
@@ -185,6 +186,7 @@ class NostrRepository(
             val client = connectionManager.getPrimaryClient()
             if (client != null) {
                 sessionManager.sendAuthIfNeeded(client)
+                groupManager.restoreGroupsForRelay(connectionManager.currentRelayUrl.value)
                 client.requestGroups()
 
                 // Re-request messages for current group if any
@@ -216,26 +218,41 @@ class NostrRepository(
                 }
 
                 sessionManager.sendAuthIfNeeded(client)
-                client.requestGroups()
+                groupManager.restoreGroupsForRelay(relayUrl)
+                if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
+                    client.requestGroups()
+                }
             }
         } else {
         }
     }
 
     suspend fun switchRelay(newRelayUrl: String) {
-        disconnect()
+        // Clears messages/state but NOT the group metadata cache (_groupsByRelay).
+        groupManager.clearForRelaySwitch()
 
         connectionManager.switchRelay(newRelayUrl) { msg, client ->
             handleMessage(msg, client)
         }
 
         val pubKey = sessionManager.getPublicKey() ?: ""
-        groupManager.loadJoinedGroupsFromStorage(pubKey, newRelayUrl)
+
+        groupManager.restoreGroupsForRelay(newRelayUrl)
+
+        val cachedJoined = outboxManager.getJoinedGroupsForRelay(newRelayUrl)
+        if (cachedJoined.isNotEmpty()) {
+            groupManager.setJoinedGroups(cachedJoined)
+        } else {
+            groupManager.loadJoinedGroupsFromStorage(pubKey, newRelayUrl)
+        }
 
         val client = connectionManager.getPrimaryClient()
         if (client != null) {
             sessionManager.sendAuthIfNeeded(client)
-            client.requestGroups()
+            // Skip re-fetch if cached; re-fetching races against restored state.
+            if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
+                client.requestGroups()
+            }
         }
 
         outboxManager.resetKind10009State()
@@ -244,7 +261,12 @@ class NostrRepository(
             initializeOutboxModel()
         }
 
-        outboxManager.loadJoinedGroupsFromNostr(pubKey) { msg, c -> handleRelayMessage(msg, c) }
+        // Fetch only on first load; in-memory cache is source of truth after that.
+        if (!outboxManager.hasJoinedGroupsData()) {
+            scope.launch {
+                outboxManager.loadJoinedGroupsFromNostr(pubKey) { msg, c -> handleRelayMessage(msg, c) }
+            }
+        }
     }
 
     suspend fun disconnect() {
@@ -640,11 +662,11 @@ class NostrRepository(
             }
         } catch (_: Exception) {}
 
-        // Handle group metadata (kind:39000)
+        // Handle group metadata (kind:39000) — store under the source relay for per-relay caching.
         val groupMetadataWithSub = client.parseGroupMetadataWithSubId(msg)
         if (groupMetadataWithSub != null) {
             val (subId, groupMetadata) = groupMetadataWithSub
-            groupManager.handleGroupMetadata(groupMetadata)
+            groupManager.handleGroupMetadata(groupMetadata, client.getRelayUrl())
             // Notify any pending group creation waiting for this subscription
             scope.launch { client.handleGroupCreationEvent(subId, groupMetadata) }
             return
@@ -839,6 +861,7 @@ class NostrRepository(
         val groupAdmins get() = instance.groupAdmins
         val isLoggedIn get() = instance.isLoggedIn
         val isBunkerConnected get() = instance.isBunkerConnected
+        val isBunkerVerifying get() = instance.isBunkerVerifying
         val authUrl get() = instance.authUrl
         val userMetadata get() = instance.userMetadata
         val cachedEvents get() = instance.cachedEvents

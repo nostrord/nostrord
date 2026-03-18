@@ -225,7 +225,11 @@ class ConnectionManager(
             newClient.connect { msg ->
                 onMessage(msg, newClient)
             }
-            newClient.waitForConnection()
+            val connected = newClient.waitForConnection()
+            if (!connected) {
+                newClient.disconnect()
+                return null
+            }
 
             // Add to pool with lock, but check again in case another coroutine added it
             poolMutex.withLock {

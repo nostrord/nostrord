@@ -38,6 +38,8 @@ class OutboxManager(
     // All groups across all relays (for kind:10009) - protected by groupsMutex
     private val groupsMutex = Mutex()
     private var allRelayGroups: Map<String, Set<String>> = emptyMap()
+    // Timestamp of the last accepted kind:10009; older arrivals are discarded.
+    private var latestKind10009CreatedAt: Long = 0
 
     init {
         // Share relay pool with RelayListManager
@@ -82,46 +84,49 @@ class OutboxManager(
     }
 
     /**
-     * Load joined groups from Nostr (kind:10009)
+     * Load joined groups from Nostr (kind:10009).
+     *
+     * Queries all write relays AND all bootstrap relays in parallel so that
+     * kind:10009 events published to any of them (e.g. purplepag.es as a
+     * fallback write relay) are discovered correctly.
      */
     suspend fun loadJoinedGroupsFromNostr(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit
     ): Set<String> {
-        val writeRelays = relayListManager.selectPublishRelays()
-        if (writeRelays.isEmpty()) {
-            return emptySet()
-        }
+        val relaysToQuery = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
 
-        val relayUrl = writeRelays.first()
-        val currentClient = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-        if (currentClient == null) {
-            return emptySet()
-        }
+        kind10009Received = false
+        eoseReceived = false
 
-        try {
-            kind10009Received = false
-            eoseReceived = false
+        val subId = "joined-groups-${epochMillis()}"
+        kind10009SubId = subId
 
-            val filter = buildJsonObject {
+        val reqMessage = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(buildJsonObject {
                 putJsonArray("kinds") { add(10009) }
                 putJsonArray("authors") { add(pubKey) }
                 put("limit", 1)
-            }
+            })
+        }.toString()
 
-            val subId = "joined-groups-${epochMillis()}"
-            kind10009SubId = subId
+        val connectedClients = mutableListOf<NostrGroupClient>()
+        for (relayUrl in relaysToQuery) {
+            try {
+                val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
+                if (client != null) {
+                    client.send(reqMessage)
+                    connectedClients.add(client)
+                }
+            } catch (_: Exception) {}
+        }
 
-            val message = buildJsonArray {
-                add("REQ")
-                add(subId)
-                add(filter)
-            }.toString()
-
-            currentClient.send(message)
-
+        if (connectedClients.isNotEmpty()) {
+            // Exit as soon as event arrives; 5s timeout for accounts with no kind:10009.
             var waitTime = 0
-            while (!eoseReceived && waitTime < 3000) {
+            while (!kind10009Received && waitTime < 5000) {
                 delay(100)
                 waitTime += 100
             }
@@ -130,14 +135,13 @@ class OutboxManager(
                 add("CLOSE")
                 add(subId)
             }.toString()
-            currentClient.send(closeMsg)
-
-            val result = groupsMutex.withLock {
-                allRelayGroups[connectionManager.currentRelayUrl.value] ?: emptySet()
+            connectedClients.forEach { client ->
+                try { client.send(closeMsg) } catch (_: Exception) {}
             }
-            return result
-        } catch (e: Exception) {
-            return emptySet()
+        }
+
+        return groupsMutex.withLock {
+            allRelayGroups.values.flatten().toSet()
         }
     }
 
@@ -173,15 +177,24 @@ class OutboxManager(
             )
 
             val signedEvent = signEvent(event)
+            val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
 
             val message = buildJsonArray {
                 add("EVENT")
                 add(signedEvent.toJsonObject())
             }.toString()
 
-            // Publish to user's WRITE relays
-            val writeRelays = relayListManager.selectPublishRelays()
-            connectionManager.sendToRelays(writeRelays, message, messageHandler)
+            val targets = relayListManager.selectPublishRelays()
+            targets.forEach { relayUrl ->
+                scope.launch {
+                    try {
+                        val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
+                            ?: return@launch
+                        client.sendAndAwaitOk(message, eventId)
+                    } catch (_: Exception) {}
+                }
+            }
+
             Result.Success(Unit)
         } catch (e: Exception) {
             Result.Error(AppError.Unknown("Failed to publish joined groups", e))
@@ -198,38 +211,34 @@ class OutboxManager(
         onGroupsUpdated: (Set<String>) -> Unit
     ) {
         kind10009Received = true
-        val tags = event["tags"]?.jsonArray
-        if (tags == null) {
-            return
+        val tags = event["tags"]?.jsonArray ?: return
+
+        // Discard if older than the last accepted event (stale relay response).
+        val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
+        groupsMutex.withLock {
+            if (createdAt < latestKind10009CreatedAt) return
+            latestKind10009CreatedAt = createdAt
         }
 
-        val currentRelayGroups = mutableSetOf<String>()
         val newRelayGroups = mutableMapOf<String, MutableSet<String>>()
 
         tags.forEach { tag ->
             val tagArray = tag.jsonArray
             if (tagArray.size >= 2 && tagArray[0].jsonPrimitive.content == "group") {
                 val groupId = tagArray[1].jsonPrimitive.content
-                val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content
-
-                if (relayUrl != null) {
-                    newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
-                    if (relayUrl == currentRelayUrl) {
-                        currentRelayGroups.add(groupId)
-                    }
-                } else {
-                    currentRelayGroups.add(groupId)
-                    newRelayGroups.getOrPut(currentRelayUrl) { mutableSetOf() }.add(groupId)
-                }
+                val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content ?: currentRelayUrl
+                newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
             }
         }
 
-        // Update allRelayGroups atomically
         groupsMutex.withLock {
             allRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
         }
 
+        val currentRelayGroups = newRelayGroups[currentRelayUrl] ?: emptySet()
         SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, currentRelayGroups)
+
+        // Surface only current-relay groups to the UI; full map lives in allRelayGroups.
         onGroupsUpdated(currentRelayGroups)
 
         // Connect to relays from kind:10009
@@ -409,6 +418,25 @@ class OutboxManager(
     fun getWriteRelays(): List<String> = relayListManager.selectPublishRelays()
 
     /**
+     * Get joined groups for a specific relay from the in-memory cache.
+     * Used when switching relays to instantly restore membership state without
+     * waiting for a new kind:10009 network fetch.
+     */
+    suspend fun getJoinedGroupsForRelay(relayUrl: String): Set<String> {
+        return groupsMutex.withLock {
+            allRelayGroups[relayUrl] ?: emptySet()
+        }
+    }
+
+    /**
+     * Returns true if kind:10009 data has already been loaded from the network.
+     * Used to skip redundant re-fetches on relay switch.
+     */
+    suspend fun hasJoinedGroupsData(): Boolean {
+        return groupsMutex.withLock { allRelayGroups.isNotEmpty() }
+    }
+
+    /**
      * Reset kind:10009 state
      */
     fun resetKind10009State() {
@@ -423,6 +451,7 @@ class OutboxManager(
         relayListManager.clear()
         groupsMutex.withLock {
             allRelayGroups = emptyMap()
+            latestKind10009CreatedAt = 0
         }
         kind10009Received = false
         eoseReceived = false

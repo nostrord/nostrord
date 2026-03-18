@@ -17,6 +17,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     private var relayClients: MutableList<NostrGroupClient> = mutableListOf()
     private var pendingRequests: MutableMap<String, CompletableDeferred<String>> = mutableMapOf()
     private var listenSubscriptionId: String? = null
+    private var nostrConnectSecret: String? = null
 
     private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -27,19 +28,35 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     actual fun generateNostrConnectUri(relays: List<String>, name: String): String {
         val relayParams = relays.joinToString("&") { "relay=${it.encodeForUri()}" }
         val metadata = """{"name":"$name"}"""
-        return "nostrconnect://${clientKeyPair.publicKeyHex}?$relayParams&metadata=${metadata.encodeForUri()}"
+        val secretParam = nostrConnectSecret?.let { "&secret=${it.encodeForUri()}" } ?: ""
+        return "nostrconnect://${clientKeyPair.publicKeyHex}?$relayParams$secretParam&metadata=${metadata.encodeForUri()}"
+    }
+
+    private suspend fun connectRelaysParallel(relays: List<String>): List<NostrGroupClient> =
+        coroutineScope {
+            relays.map { relayUrl ->
+                async {
+                    try {
+                        val cleanUrl = relayUrl.trimEnd('/')
+                        val client = NostrGroupClient(cleanUrl)
+                        client.connect { msg -> handleMessage(msg) }
+                        client.waitForConnection()
+                        client
+                    } catch (_: Exception) { null }
+                }
+            }.awaitAll().filterNotNull()
+        }
+
+    actual suspend fun connectRelaysOnly(remoteSignerPubkey: String, relays: List<String>) {
+        this.remoteSignerPubkey = remoteSignerPubkey
+        relayClients.addAll(connectRelaysParallel(relays))
+        if (relayClients.isEmpty()) throw Exception("Failed to connect to any bunker relay")
     }
 
     actual suspend fun startListeningForConnection(relays: List<String>, secret: String?) {
-        for (relayUrl in relays) {
-            try {
-                val cleanUrl = relayUrl.trimEnd('/')
-                val client = NostrGroupClient(cleanUrl)
-                client.connect { msg -> handleMessage(msg) }
-                client.waitForConnection()
-                relayClients.add(client)
-            } catch (_: Exception) {}
-        }
+        nostrConnectSecret = secret ?: generateRequestId().take(16)
+
+        relayClients.addAll(connectRelaysParallel(relays))
 
         if (relayClients.isEmpty()) {
             throw Exception("Failed to connect to any relay")
@@ -87,15 +104,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     ): String {
         this.remoteSignerPubkey = remoteSignerPubkey
 
-        for (relayUrl in relays) {
-            try {
-                val cleanUrl = relayUrl.trimEnd('/')
-                val client = NostrGroupClient(cleanUrl)
-                client.connect { msg -> handleMessage(msg) }
-                client.waitForConnection()
-                relayClients.add(client)
-            } catch (e: Exception) {}
-        }
+        relayClients.addAll(connectRelaysParallel(relays))
 
         if (relayClients.isEmpty()) {
             throw Exception("Failed to connect to any bunker relay")
@@ -221,6 +230,13 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
 
                     // Handle incoming connect request (nostrconnect:// flow)
                     if (method == "connect") {
+                        val params = responseObj["params"]?.jsonArray
+                        val incomingSecret = params?.getOrNull(1)?.jsonPrimitive?.contentOrNull
+                        val expectedSec = nostrConnectSecret
+                        if (expectedSec != null && incomingSecret != null && incomingSecret != expectedSec) {
+                            return // reject: secret mismatch
+                        }
+
                         remoteSignerPubkey = eventPubkey
                         clientScope.launch {
                             try {
@@ -247,8 +263,10 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                         return
                     }
 
-                    // Handle signer ack response (some signers send ack directly without method:"connect")
-                    if (result == "ack" && pendingRequests.containsKey("_incoming_connect")) {
+                    // Handle signer connect response: result must equal the secret (per NIP-46 spec)
+                    val isConnectResponse = pendingRequests.containsKey("_incoming_connect") &&
+                        nostrConnectSecret != null && result == nostrConnectSecret
+                    if (isConnectResponse) {
                         remoteSignerPubkey = eventPubkey
                         pendingRequests["_incoming_connect"]?.complete(eventPubkey)
                         return
@@ -290,6 +308,26 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     private fun generateRequestId(): String {
         return Random.nextBytes(16).joinToString("") {
             it.toUByte().toString(16).padStart(2, '0')
+        }
+    }
+
+    actual fun backgroundConnect(secret: String?, onSuccess: (() -> Unit)?, onRevoked: (() -> Unit)?) {
+        val signerPubkey = remoteSignerPubkey ?: return
+        clientScope.launch {
+            try {
+                val requestId = generateRequestId()
+                val params = buildList {
+                    add(signerPubkey)
+                    secret?.let { add(it) }
+                }
+                withTimeout(10_000) {
+                    sendRequest(requestId, "connect", params)
+                }
+                onSuccess?.invoke()
+            } catch (_: Exception) {
+                // Timeout or explicit rejection → treat as revoked.
+                onRevoked?.invoke()
+            }
         }
     }
 
