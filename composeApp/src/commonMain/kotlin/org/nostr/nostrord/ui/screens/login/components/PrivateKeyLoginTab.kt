@@ -20,21 +20,23 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.KeyPair
+import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import kotlin.random.Random
 
 @Composable
 fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
+    val vm = viewModel { LoginViewModel(AppModule.nostrRepository) }
+
     var privateKey by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showGeneratedKey by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var showKey by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
     fun generatePrivateKey(): String {
         val bytes = Random.Default.nextBytes(32)
@@ -44,19 +46,19 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     }
 
     fun login() {
-        scope.launch {
-            isLoading = true
-            errorMessage = null
-            try {
-                val keyPair = KeyPair.fromPrivateKeyHex(privateKey)
-                val pubKey = keyPair.publicKeyHex
-                NostrRepository.loginSuspend(privateKey, pubKey)
-                onLoginSuccess()
-            } catch (e: Exception) {
-                errorMessage = "Invalid private key or login failed"
-            } finally {
-                isLoading = false
-            }
+        isLoading = true
+        errorMessage = null
+        val keyPair = try {
+            KeyPair.fromPrivateKeyHex(privateKey)
+        } catch (e: Exception) {
+            errorMessage = "Invalid private key or login failed"
+            isLoading = false
+            return
+        }
+        vm.loginWithPrivateKey(privateKey, keyPair.publicKeyHex) { result ->
+            isLoading = false
+            if (result.isSuccess) onLoginSuccess()
+            else errorMessage = "Invalid private key or login failed"
         }
     }
 
@@ -167,23 +169,16 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         // Generate new key button
         OutlinedButton(
             onClick = {
-                scope.launch {
-                    isLoading = true
-                    errorMessage = null
-                    try {
-                        val newPrivateKey = generatePrivateKey()
-                        privateKey = newPrivateKey
-                        showGeneratedKey = true
-
-                        val keyPair = KeyPair.fromPrivateKeyHex(newPrivateKey)
-                        val pubKey = keyPair.publicKeyHex
-                        NostrRepository.loginSuspend(newPrivateKey, pubKey)
-                        onLoginSuccess()
-                    } catch (e: Exception) {
-                        errorMessage = "Failed to generate key"
-                    } finally {
-                        isLoading = false
-                    }
+                isLoading = true
+                errorMessage = null
+                val newPrivateKey = generatePrivateKey()
+                privateKey = newPrivateKey
+                showGeneratedKey = true
+                val keyPair = KeyPair.fromPrivateKeyHex(newPrivateKey)
+                vm.loginWithPrivateKey(newPrivateKey, keyPair.publicKeyHex) { result ->
+                    isLoading = false
+                    if (result.isSuccess) onLoginSuccess()
+                    else errorMessage = "Failed to generate key"
                 }
             },
             modifier = Modifier

@@ -10,14 +10,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
-import org.nostr.nostrord.nostr.Nip07
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 @Composable
 fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
-    val scope = rememberCoroutineScope()
+    val vm = viewModel { LoginViewModel(AppModule.nostrRepository) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -58,18 +58,12 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
 
         Button(
             onClick = {
-                scope.launch {
-                    isLoading = true
-                    errorMessage = null
-                    try {
-                        val pubkey = Nip07.getPublicKey()
-                        NostrRepository.loginWithNip07(pubkey)
-                        onLoginSuccess()
-                    } catch (e: Exception) {
-                        errorMessage = e.message ?: "Failed to connect to extension"
-                    } finally {
-                        isLoading = false
-                    }
+                isLoading = true
+                errorMessage = null
+                vm.loginWithNip07Extension { result ->
+                    isLoading = false
+                    if (result.isSuccess) onLoginSuccess()
+                    else errorMessage = result.exceptionOrNull()?.message ?: "Failed to connect to extension"
                 }
             },
             enabled = !isLoading,

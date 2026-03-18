@@ -31,7 +31,7 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -361,7 +361,7 @@ fun CreateGroupModal(
                                 isCreating = true
                                 creatingJob = scope.launch {
                                     try {
-                                        val result = NostrRepository.createGroup(
+                                        val result = AppModule.nostrRepository.createGroup(
                                             name = name.trim(),
                                             about = about.trim().ifBlank { null },
                                             relayUrl = selectedRelay,

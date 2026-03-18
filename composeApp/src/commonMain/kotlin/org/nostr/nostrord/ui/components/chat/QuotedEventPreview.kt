@@ -26,7 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.NostrGroupClient
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -79,14 +79,14 @@ fun QuotedEventPreview(
     onClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val cachedEvents by NostrRepository.cachedEvents.collectAsState()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val event = cachedEvents[reference.eventId]
 
     // Fetch event if not cached - use primary relay directly since quoted events are from same group
     LaunchedEffect(reference.eventId) {
         if (!cachedEvents.containsKey(reference.eventId)) {
-            NostrRepository.requestQuotedEvent(reference.eventId)
+            AppModule.nostrRepository.requestQuotedEvent(reference.eventId)
         }
     }
 
@@ -94,7 +94,7 @@ fun QuotedEventPreview(
     LaunchedEffect(event?.pubkey) {
         val pubkey = event?.pubkey
         if (pubkey != null && !userMetadata.containsKey(pubkey)) {
-            NostrRepository.requestUserMetadata(setOf(pubkey))
+            AppModule.nostrRepository.requestUserMetadata(setOf(pubkey))
         }
     }
 
@@ -123,7 +123,7 @@ fun QuotedEventPreview(
                         .filter { !userMetadata.containsKey(it) }
                         .toSet()
                     if (pubkeysToFetch.isNotEmpty()) {
-                        NostrRepository.requestUserMetadata(pubkeysToFetch)
+                        AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
                     }
                 }
 

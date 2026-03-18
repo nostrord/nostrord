@@ -5,13 +5,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.rememberClipboardWriter
 
 @Composable
 fun BackupScreen() {
-    val privateKey = NostrRepository.getPrivateKey()
-    val publicKey = NostrRepository.getPublicKey()
+    val privateKey = AppModule.nostrRepository.getPrivateKey()
+    val publicKey = AppModule.nostrRepository.getPublicKey()
     val copyToClipboard = rememberClipboardWriter()
     var showCopiedMessage by remember { mutableStateOf(false) }
 

@@ -52,7 +52,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
 import org.nostr.nostrord.network.CachedEvent
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.nostr.Nip19
@@ -161,7 +161,7 @@ fun MessageContent(
     var selectedImageUrl by remember { mutableStateOf<String?>(null) }
 
     // Collect user metadata for mention display names
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
 
     // Group parts into inline sequences and block elements
     val groups = remember(parts) {
@@ -202,7 +202,7 @@ fun MessageContent(
             .toSet()
 
         if (pubkeysToFetch.isNotEmpty()) {
-            NostrRepository.requestUserMetadata(pubkeysToFetch)
+            AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
         }
     }
 
@@ -980,8 +980,8 @@ fun ForwardedEventCard(
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
-    val cachedEvents by NostrRepository.cachedEvents.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
     val copyToClipboard = rememberClipboardWriter()
     var showMenu by remember { mutableStateOf(false) }
 
@@ -998,14 +998,14 @@ fun ForwardedEventCard(
             // Extract relay hint from q tag if available
             val qTag = event.tags.find { it.firstOrNull() == "q" }
             val relayHint = qTag?.getOrNull(2)?.let { listOf(it) } ?: emptyList()
-            NostrRepository.requestEventById(replyEventId, relayHint, null)
+            AppModule.nostrRepository.requestEventById(replyEventId, relayHint, null)
         }
     }
 
     // Request author metadata
     LaunchedEffect(event.pubkey) {
         if (!userMetadata.containsKey(event.pubkey)) {
-            NostrRepository.requestUserMetadata(setOf(event.pubkey))
+            AppModule.nostrRepository.requestUserMetadata(setOf(event.pubkey))
         }
     }
 
@@ -1213,7 +1213,7 @@ private fun ReplyPreview(
             .filter { !userMetadata.containsKey(it) }
             .toSet()
         if (pubkeysToFetch.isNotEmpty()) {
-            NostrRepository.requestUserMetadata(pubkeysToFetch)
+            AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
         }
     }
 
@@ -1276,9 +1276,9 @@ private fun QuotedEvent(
     currentRelayUrl: String? = null,
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
 ) {
-    val cachedEvents by NostrRepository.cachedEvents.collectAsState()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
-    val groups by NostrRepository.groups.collectAsState()
+    val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val groups by AppModule.nostrRepository.groups.collectAsState()
     val event = cachedEvents[eventId]
 
     // Track if event was not found after timeout
@@ -1286,7 +1286,7 @@ private fun QuotedEvent(
 
     LaunchedEffect(eventId, relayHints, author) {
         if (!cachedEvents.containsKey(eventId)) {
-            NostrRepository.requestEventById(eventId, relayHints, author)
+            AppModule.nostrRepository.requestEventById(eventId, relayHints, author)
             // Wait 5 seconds before marking as not found
             kotlinx.coroutines.delay(5000)
             if (!cachedEvents.containsKey(eventId)) {
@@ -1305,7 +1305,7 @@ private fun QuotedEvent(
     LaunchedEffect(event?.pubkey) {
         val pubkey = event?.pubkey
         if (pubkey != null && !userMetadata.containsKey(pubkey)) {
-            NostrRepository.requestUserMetadata(setOf(pubkey))
+            AppModule.nostrRepository.requestUserMetadata(setOf(pubkey))
         }
     }
 
@@ -1571,7 +1571,7 @@ private fun QuotedEventContent(
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
     val parts = remember(content, emojiMap) { parseContent(content, emojiMap) }
     val uriHandler = LocalUriHandler.current
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
 
     // Image viewer modal state
     var selectedImageUrl by remember { mutableStateOf<String?>(null) }
@@ -2119,8 +2119,8 @@ private fun AddressableEvent(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val cachedEvents by NostrRepository.cachedEvents.collectAsState()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
 
     // Create a composite key for addressable events: kind:pubkey:identifier
     val addressKey = "$kind:$pubkey:$identifier"
@@ -2132,7 +2132,7 @@ private fun AddressableEvent(
     // Request the addressable event
     LaunchedEffect(addressKey, relayHints) {
         if (!cachedEvents.containsKey(addressKey)) {
-            NostrRepository.requestAddressableEvent(
+            AppModule.nostrRepository.requestAddressableEvent(
                 kind = kind,
                 pubkey = pubkey,
                 identifier = identifier,
@@ -2156,7 +2156,7 @@ private fun AddressableEvent(
     // Request author metadata
     LaunchedEffect(pubkey) {
         if (!userMetadata.containsKey(pubkey)) {
-            NostrRepository.requestUserMetadata(setOf(pubkey))
+            AppModule.nostrRepository.requestUserMetadata(setOf(pubkey))
         }
     }
 

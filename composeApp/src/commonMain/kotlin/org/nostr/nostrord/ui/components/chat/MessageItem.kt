@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
@@ -115,7 +115,7 @@ fun MessageItem(
     val replyParentId = remember(message.tags) { getReplyParentId(message) }
 
     // Collect cached events from repository for parent message lookup
-    val cachedEvents by NostrRepository.cachedEvents.collectAsState()
+    val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
 
     // Look up parent in allMessages first, then in cachedEvents
     val parentMessage = remember(replyParentId, allMessages) {
@@ -156,7 +156,7 @@ fun MessageItem(
 
             val allRelayHints = (relayHints + eRelayHints).distinct()
 
-            NostrRepository.requestEventById(replyParentId, allRelayHints)
+            AppModule.nostrRepository.requestEventById(replyParentId, allRelayHints)
         }
     }
 
@@ -167,7 +167,7 @@ fun MessageItem(
     // Request metadata for parent message author if not available
     LaunchedEffect(resolvedParentMessage?.pubkey, parentMetadata) {
         if (resolvedParentMessage != null && parentMetadata == null) {
-            NostrRepository.requestUserMetadata(setOf(resolvedParentMessage.pubkey))
+            AppModule.nostrRepository.requestUserMetadata(setOf(resolvedParentMessage.pubkey))
         }
     }
 

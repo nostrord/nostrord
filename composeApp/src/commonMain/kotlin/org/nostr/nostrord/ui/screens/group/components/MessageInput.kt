@@ -433,7 +433,7 @@ private fun ReplyingToBar(
             .filter { !userMetadata.containsKey(it) }
             .toSet()
         if (pubkeysToFetch.isNotEmpty()) {
-            org.nostr.nostrord.network.NostrRepository.requestUserMetadata(pubkeysToFetch)
+            org.nostr.nostrord.di.AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
         }
     }
 

@@ -24,7 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.NostrGroupClient
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -173,7 +173,7 @@ fun ReplyPreview(
             .filter { !userMetadata.containsKey(it) }
             .toSet()
         if (pubkeysToFetch.isNotEmpty()) {
-            NostrRepository.requestUserMetadata(pubkeysToFetch)
+            AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
         }
     }
 

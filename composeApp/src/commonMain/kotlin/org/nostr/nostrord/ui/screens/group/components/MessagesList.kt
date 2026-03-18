@@ -31,9 +31,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
-import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.chat.DateSeparator
@@ -85,7 +85,7 @@ fun MessagesList(
     val currentOnRefresh by rememberUpdatedState(onRefresh)
 
     // Get current relay URL for forwarded message detection
-    val currentRelayUrl by NostrRepository.currentRelayUrl.collectAsState()
+    val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
 
     // Clipboard manager for copy operations
     val copyToClipboard = rememberClipboardWriter()

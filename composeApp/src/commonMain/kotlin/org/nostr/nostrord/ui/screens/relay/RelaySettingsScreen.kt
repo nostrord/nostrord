@@ -7,8 +7,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.screens.relay.model.RelayInfo
 import org.nostr.nostrord.ui.screens.relay.model.RelayStatus
@@ -19,8 +19,8 @@ fun RelaySettingsScreen(
     listState: LazyListState = rememberLazyListState(),
     onNavigate: (Screen) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val currentRelay by NostrRepository.currentRelayUrl.collectAsState()
+    val vm = viewModel { RelayViewModel(AppModule.nostrRepository) }
+    val currentRelay by vm.currentRelayUrl.collectAsState()
 
     var relays by remember {
         mutableStateOf(
@@ -113,9 +113,7 @@ fun RelaySettingsScreen(
                 onNavigate = onNavigate,
                 onSelectRelay = { relayUrl ->
                     onNavigate(Screen.Home)
-                    scope.launch {
-                        NostrRepository.switchRelay(relayUrl)
-                    }
+                    vm.switchRelay(relayUrl)
                 },
                 onAddRelay = { showAddDialog = true }
             )
@@ -127,9 +125,7 @@ fun RelaySettingsScreen(
                 onNavigate = onNavigate,
                 onSelectRelay = { relayUrl ->
                     onNavigate(Screen.Home)
-                    scope.launch {
-                        NostrRepository.switchRelay(relayUrl)
-                    }
+                    vm.switchRelay(relayUrl)
                 },
                 onAddRelay = { showAddDialog = true }
             )

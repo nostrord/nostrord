@@ -24,13 +24,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.QrCode
+import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 
@@ -38,6 +35,7 @@ private enum class BunkerMode { QR, URL }
 
 @Composable
 fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
+    val vm = viewModel { LoginViewModel(AppModule.nostrRepository) }
     var mode by remember { mutableStateOf(BunkerMode.QR) }
 
     Column {
@@ -117,8 +115,8 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
 
         when (mode) {
-            BunkerMode.QR -> QrCodeLoginContent(onLoginSuccess)
-            BunkerMode.URL -> BunkerUrlLoginContent(onLoginSuccess)
+            BunkerMode.QR -> QrCodeLoginContent(vm, onLoginSuccess)
+            BunkerMode.URL -> BunkerUrlLoginContent(vm, onLoginSuccess)
         }
 
         Spacer(modifier = Modifier.height(20.dp))
@@ -156,54 +154,34 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
 }
 
 @Composable
-private fun QrCodeLoginContent(onLoginSuccess: () -> Unit) {
-    var nostrConnectUri by remember { mutableStateOf<String?>(null) }
+private fun QrCodeLoginContent(vm: LoginViewModel, onLoginSuccess: () -> Unit) {
+    val nostrConnectUri by vm.qrUri.collectAsState()
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var connectionStatus by remember { mutableStateOf<String?>(null) }
-    // Use a key to trigger regeneration on retry
     var sessionKey by remember { mutableStateOf(0) }
 
-    // Use a stable scope that survives recomposition/composition changes
-    // LaunchedEffect scope gets cancelled when composable leaves composition,
-    // which breaks the NIP-46 connection flow if the parent recomposes
-    val loginScope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
-    var loginJob by remember { mutableStateOf<Job?>(null) }
-
     DisposableEffect(Unit) {
-        onDispose {
-            loginJob?.cancel()
-        }
+        onDispose { vm.cancelQrSession() }
     }
 
-    // Generate QR code AND immediately start listening
     LaunchedEffect(sessionKey) {
-        // Cancel any previous login attempt
-        loginJob?.cancel()
-        nostrConnectUri = null
         errorMessage = null
         connectionStatus = null
-
-        loginJob = loginScope.launch {
-            try {
-                val (uri, client) = NostrRepository.createNostrConnectSession()
-                nostrConnectUri = uri
-                connectionStatus = "Waiting for signer..."
-                NostrRepository.completeNostrConnectLogin(client)
+        vm.startQrSession(
+            onConnected = {
                 connectionStatus = "Connected!"
                 onLoginSuccess()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                errorMessage = when {
-                    e.message?.contains("timed out", ignoreCase = true) == true ||
-                    e.message?.contains("Timed out", ignoreCase = true) == true ->
-                        "Connection timed out. Make sure your signer scanned the QR code."
-                    e.message?.contains("left the composition", ignoreCase = true) == true ||
-                    e.message?.contains("cancelled", ignoreCase = true) == true ->
-                        null // Silently ignore composition cancellation
-                    else -> "Connection failed: ${e.message}"
-                }
-                if (errorMessage == null) connectionStatus = null
+            },
+            onError = { msg ->
+                errorMessage = msg
+                if (msg == null) connectionStatus = null
             }
+        )
+    }
+
+    LaunchedEffect(nostrConnectUri) {
+        if (nostrConnectUri != null && connectionStatus == null) {
+            connectionStatus = "Waiting for signer..."
         }
     }
 
@@ -367,13 +345,12 @@ private fun QrCodeLoginContent(onLoginSuccess: () -> Unit) {
 }
 
 @Composable
-private fun BunkerUrlLoginContent(onLoginSuccess: () -> Unit) {
+private fun BunkerUrlLoginContent(vm: LoginViewModel, onLoginSuccess: () -> Unit) {
     var bunkerUrl by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isConnecting by remember { mutableStateOf(false) }
     var connectionStatus by remember { mutableStateOf<String?>(null) }
-    val authUrl by NostrRepository.authUrl.collectAsState()
-    val scope = rememberCoroutineScope()
+    val authUrl by vm.authUrl.collectAsState()
     val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(authUrl) {
@@ -433,21 +410,18 @@ private fun BunkerUrlLoginContent(onLoginSuccess: () -> Unit) {
         // Connect button
         Button(
             onClick = {
-                scope.launch {
-                    isConnecting = true
-                    errorMessage = null
-                    connectionStatus = "Connecting..."
-                    NostrRepository.clearAuthUrl()
-
-                    try {
-                        NostrRepository.loginWithBunker(bunkerUrl)
+                isConnecting = true
+                errorMessage = null
+                connectionStatus = "Connecting..."
+                vm.clearAuthUrl()
+                vm.loginWithBunker(bunkerUrl) { result ->
+                    isConnecting = false
+                    if (result.isSuccess) {
                         connectionStatus = "Connected!"
                         onLoginSuccess()
-                    } catch (e: Exception) {
-                        errorMessage = "Connection failed: ${e.message}"
+                    } else {
+                        errorMessage = "Connection failed: ${result.exceptionOrNull()?.message}"
                         connectionStatus = null
-                    } finally {
-                        isConnecting = false
                     }
                 }
             },

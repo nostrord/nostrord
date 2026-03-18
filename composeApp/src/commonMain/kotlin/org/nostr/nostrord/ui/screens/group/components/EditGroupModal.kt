@@ -25,8 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.network.NostrRepository
 import androidx.compose.runtime.LaunchedEffect
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -52,7 +52,7 @@ fun EditGroupModal(
 
     // Refresh metadata when the modal opens so fields show current relay state
     LaunchedEffect(groupId) {
-        NostrRepository.refreshGroupMetadata(groupId)
+        AppModule.nostrRepository.refreshGroupMetadata(groupId)
     }
 
     Dialog(
@@ -228,7 +228,7 @@ fun EditGroupModal(
                                 }
                                 isSaving = true
                                 scope.launch {
-                                    val result = NostrRepository.editGroup(
+                                    val result = AppModule.nostrRepository.editGroup(
                                         groupId = groupId,
                                         name = name.trim(),
                                         about = about.trim().ifBlank { null },
@@ -238,7 +238,7 @@ fun EditGroupModal(
                                     isSaving = false
                                     when (result) {
                                         is Result.Success -> {
-                                            NostrRepository.refreshGroupMetadata(groupId)
+                                            AppModule.nostrRepository.refreshGroupMetadata(groupId)
                                             onGroupUpdated()
                                         }
                                         is Result.Error -> errorMessage = result.error.cause?.message

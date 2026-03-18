@@ -21,7 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
@@ -40,13 +40,13 @@ fun Sidebar(
     unreadCounts: Map<String, Int> = emptyMap()
 ) {
     val scope = rememberCoroutineScope()
-    val userMetadata by NostrRepository.userMetadata.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val currentUserMetadata: UserMetadata? = pubKey?.let { userMetadata[it] }
 
     // Request user metadata if not loaded
     LaunchedEffect(pubKey) {
         if (pubKey != null && !userMetadata.containsKey(pubKey)) {
-            NostrRepository.requestUserMetadata(setOf(pubKey))
+            AppModule.nostrRepository.requestUserMetadata(setOf(pubKey))
         }
     }
 
@@ -135,7 +135,7 @@ fun Sidebar(
             Button(
                 onClick = {
                     scope.launch {
-                        NostrRepository.logout()
+                        AppModule.nostrRepository.logout()
                     }
                 },
                 modifier = Modifier
