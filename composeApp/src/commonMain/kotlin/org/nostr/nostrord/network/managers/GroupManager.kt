@@ -724,6 +724,51 @@ class GroupManager(
     }
 
     /**
+     * Delete a message from a group (NIP-09: kind 5 deletion event).
+     * Sends the deletion event to the relay; the relay will broadcast it and
+     * handleDeletion() will remove it from local state when received back.
+     */
+    suspend fun deleteMessage(
+        groupId: String,
+        messageId: String,
+        pubKey: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<Unit> {
+        val currentClient = connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(""))
+        return try {
+            val event = Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 5,
+                tags = listOf(
+                    listOf("e", messageId),
+                    listOf("h", groupId)
+                ),
+                content = ""
+            )
+            val signedEvent = signEvent(event)
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
+            val message = buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString()
+            when (val result = currentClient.sendAndAwaitOk(message, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.SendFailed(groupId, Exception(result.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.SendTimeout(groupId))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.SendFailed(groupId, result.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.SendFailed(groupId, e))
+        }
+    }
+
+    /**
      * Handle incoming group metadata.
      * Updates the live flow for the current relay AND stores in the per-relay cache
      * so returning to this relay later is instant without a network re-fetch.

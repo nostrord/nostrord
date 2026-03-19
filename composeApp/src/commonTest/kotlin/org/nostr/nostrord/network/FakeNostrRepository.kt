@@ -135,6 +135,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?): Result<Unit> =
         sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
 
+    override suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit> = Result.Success(Unit)
+
     override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> =
         messages.value[groupId] ?: emptyList()
 

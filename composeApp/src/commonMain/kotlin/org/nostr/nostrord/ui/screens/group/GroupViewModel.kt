@@ -49,6 +49,10 @@ class GroupViewModel(
         }
     }
 
+    fun deleteMessage(messageId: String) {
+        viewModelScope.launch { repo.deleteMessage(groupId, messageId) }
+    }
+
     fun loadMoreMessages(channel: String?) {
         viewModelScope.launch { repo.loadMoreMessages(groupId, channel) }
     }

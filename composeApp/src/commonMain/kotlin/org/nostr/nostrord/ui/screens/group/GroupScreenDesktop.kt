@@ -62,6 +62,7 @@ fun GroupScreenDesktop(
     onMentionsChange: (Map<String, String>) -> Unit = {},
     replyingToMessage: NostrMessage? = null,
     onReplyClick: (NostrMessage) -> Unit = {},
+    onDeleteMessage: (NostrMessage) -> Unit = {},
     onCancelReply: () -> Unit = {},
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
@@ -119,6 +120,7 @@ fun GroupScreenDesktop(
                     onLoadMore = onLoadMore,
                     onUsernameClick = onUserClick,
                     onReplyClick = onReplyClick,
+                    onDeleteMessage = onDeleteMessage,
                     onNavigateToGroup = { targetGroupId, targetGroupName, targetRelayUrl ->
                         if (targetRelayUrl != null) onSwitchRelay(targetRelayUrl)
                         onNavigateToGroup(targetGroupId, targetGroupName)

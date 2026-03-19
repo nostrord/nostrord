@@ -81,6 +81,7 @@ fun GroupScreen(
     var showGroupInfoModal by remember { mutableStateOf(false) }
     var showEditGroupModal by remember { mutableStateOf(false) }
     var showDeleteGroupDialog by remember { mutableStateOf(false) }
+    var messageToDelete by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     val isJoined = joinedGroups.contains(groupId)
 
@@ -187,6 +188,31 @@ fun GroupScreen(
         )
     }
 
+    // Delete message confirmation dialog
+    messageToDelete?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { messageToDelete = null },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Delete Message") },
+            text = { Text("Are you sure you want to delete this message? This action cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteMessage(msg.id)
+                    messageToDelete = null
+                }) {
+                    Text("Delete", color = NostrordColors.Error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { messageToDelete = null }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            }
+        )
+    }
+
     // User profile modal
     selectedUserPubkey?.let { pubkey ->
         UserProfileModal(
@@ -263,6 +289,7 @@ fun GroupScreen(
                 onMentionsChange = { mentions = it },
                 replyingToMessage = replyingToMessage,
                 onReplyClick = { message -> replyingToMessage = message },
+                onDeleteMessage = { message -> messageToDelete = message },
                 onCancelReply = { replyingToMessage = null },
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
@@ -309,6 +336,7 @@ fun GroupScreen(
                 onMentionsChange = { mentions = it },
                 replyingToMessage = replyingToMessage,
                 onReplyClick = { message -> replyingToMessage = message },
+                onDeleteMessage = { message -> messageToDelete = message },
                 onCancelReply = { replyingToMessage = null },
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,

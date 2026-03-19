@@ -74,6 +74,7 @@ fun MessagesList(
     onRefresh: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {},
     onReplyClick: (NostrMessage) -> Unit = {},
+    onDeleteMessage: (NostrMessage) -> Unit = {},
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onScrollToMessage: (String) -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
@@ -237,11 +238,13 @@ fun MessagesList(
                                         isFirstInGroup = item.isFirstInGroup,
                                         isLastInGroup = item.isLastInGroup,
                                         reactions = reactions[item.message.id] ?: emptyMap(),
+                                        isAuthor = currentUserPubkey != null && item.message.pubkey == currentUserPubkey,
                                         currentUserPubkey = currentUserPubkey,
                                         currentGroupId = groupId,
                                         currentRelayUrl = currentRelayUrl,
                                         onUsernameClick = currentOnUsernameClick,
                                         onReplyClick = { currentOnReplyClick(item.message) },
+                                        onDeleteMessage = { onDeleteMessage(item.message) },
                                         onReactionBadgeClick = { emoji ->
                                             onReactionBadgeClick(item.message.id, emoji)
                                         },

@@ -433,6 +433,17 @@ class NostrRepository(
         )
     }
 
+    override suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.deleteMessage(
+            groupId = groupId,
+            messageId = messageId,
+            pubKey = pubKey,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
     override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> {
         return groupManager.getMessagesForGroup(groupId)
     }
