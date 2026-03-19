@@ -7,11 +7,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip46Client
 
-class LoginViewModel(private val repo: NostrRepository) : ViewModel() {
+class LoginViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
 
     val authUrl: StateFlow<String?> = repo.authUrl
 
@@ -85,9 +85,9 @@ class LoginViewModel(private val repo: NostrRepository) : ViewModel() {
         _qrUri.value = null
         qrJob = viewModelScope.launch {
             try {
-                val (uri, client) = repo.createNostrConnectSession()
+                val (uri, client) = repo.createNostrConnectSession(emptyList())
                 _qrUri.value = uri
-                repo.completeNostrConnectLogin(client)
+                repo.completeNostrConnectLogin(client, emptyList())
                 onConnected()
             } catch (e: Exception) {
                 val message = when {

@@ -1,0 +1,98 @@
+package org.nostr.nostrord.network
+
+import kotlinx.coroutines.flow.StateFlow
+import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.nostr.Nip46Client
+import org.nostr.nostrord.utils.Result
+
+/**
+ * Public contract for NostrRepository.
+ * Allows ViewModels to be tested with a fake implementation.
+ */
+interface NostrRepositoryApi {
+
+    // --- Auth state ---
+    val isInitialized: StateFlow<Boolean>
+    val isLoggedIn: StateFlow<Boolean>
+    val isBunkerVerifying: StateFlow<Boolean>
+    val isBunkerConnected: StateFlow<Boolean>
+    val authUrl: StateFlow<String?>
+
+    // --- Connection state ---
+    val currentRelayUrl: StateFlow<String>
+    val connectionState: StateFlow<ConnectionManager.ConnectionState>
+
+    // --- Group state ---
+    val groups: StateFlow<List<GroupMetadata>>
+    val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
+    val joinedGroups: StateFlow<Set<String>>
+    val isLoadingMore: StateFlow<Map<String, Boolean>>
+    val hasMoreMessages: StateFlow<Map<String, Boolean>>
+    val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>
+    val groupMembers: StateFlow<Map<String, List<String>>>
+    val groupAdmins: StateFlow<Map<String, List<String>>>
+
+    // --- Metadata state ---
+    val userMetadata: StateFlow<Map<String, UserMetadata>>
+    val cachedEvents: StateFlow<Map<String, CachedEvent>>
+    val unreadCounts: StateFlow<Map<String, Int>>
+    val userRelayList: StateFlow<List<Nip65Relay>>
+
+    // --- Initialization ---
+    fun forceInitialized()
+    suspend fun initialize()
+
+    // --- Auth operations ---
+    fun clearAuthUrl()
+    fun getPublicKey(): String?
+    fun getPrivateKey(): String?
+    fun isUsingBunker(): Boolean
+    fun isBunkerReady(): Boolean
+    suspend fun ensureBunkerConnected(): Boolean
+    fun forgetBunkerConnection()
+    suspend fun loginSuspend(privKey: String, pubKey: String)
+    suspend fun loginWithNip07(pubkey: String)
+    suspend fun loginWithBunker(bunkerUrl: String): String
+    suspend fun createNostrConnectSession(relays: List<String>): Pair<String, Nip46Client>
+    suspend fun completeNostrConnectLogin(client: Nip46Client, relays: List<String>): String
+    suspend fun logout()
+
+    // --- Connection operations ---
+    suspend fun connect()
+    suspend fun reconnect(): Boolean
+    suspend fun switchRelay(newRelayUrl: String)
+    suspend fun disconnect()
+
+    // --- Group operations ---
+    suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean): Result<String>
+    suspend fun joinGroup(groupId: String): Result<Unit>
+    suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit>
+    suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean): Result<Unit>
+    suspend fun deleteGroup(groupId: String): Result<Unit>
+    fun isGroupJoined(groupId: String): Boolean
+    suspend fun requestGroupMessages(groupId: String, channel: String? = null)
+    suspend fun requestGroupMembers(groupId: String)
+    suspend fun requestGroupAdmins(groupId: String)
+    suspend fun refreshGroupMetadata(groupId: String)
+    suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean
+    suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null): Result<Unit>
+    fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage>
+    fun markGroupAsRead(groupId: String)
+    fun getUnreadCount(groupId: String): Int
+    fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>)
+    fun getLastReadTimestamp(groupId: String): Long?
+
+    // --- Metadata operations ---
+    suspend fun requestUserMetadata(pubkeys: Set<String>)
+    suspend fun updateProfileMetadata(displayName: String? = null, name: String? = null, about: String? = null, picture: String? = null, nip05: String? = null): kotlin.Result<Unit>
+
+    // --- Event operations ---
+    suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null)
+    suspend fun requestAddressableEvent(kind: Int, pubkey: String, identifier: String, relays: List<String> = emptyList())
+    suspend fun requestQuotedEvent(eventId: String)
+    suspend fun requestRelayLists(pubkeys: Set<String>)
+    fun getRelayListForPubkey(pubkey: String): List<Nip65Relay>?
+    fun selectOutboxRelays(authors: List<String> = emptyList(), taggedPubkeys: List<String> = emptyList(), explicitRelays: List<String> = emptyList()): List<String>
+}

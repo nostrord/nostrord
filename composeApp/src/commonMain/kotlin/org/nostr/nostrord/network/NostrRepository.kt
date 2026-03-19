@@ -34,47 +34,47 @@ class NostrRepository(
     private val unreadManager: UnreadManager,
     private val pendingEventManager: org.nostr.nostrord.network.managers.PendingEventManager? = null,
     private val scope: CoroutineScope
-) {
+) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _isInitialized = MutableStateFlow(false)
-    val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
+    override val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
 
     // Expose connection state
-    val currentRelayUrl: StateFlow<String> = connectionManager.currentRelayUrl
-    val connectionState: StateFlow<ConnectionManager.ConnectionState> = connectionManager.connectionState
+    override val currentRelayUrl: StateFlow<String> = connectionManager.currentRelayUrl
+    override val connectionState: StateFlow<ConnectionManager.ConnectionState> = connectionManager.connectionState
 
     // Expose group state
-    val groups: StateFlow<List<GroupMetadata>> = groupManager.groups
-    val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.messages
-    val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
-    val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
-    val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
-    val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
-    val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
-    val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
+    override val groups: StateFlow<List<GroupMetadata>> = groupManager.groups
+    override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.messages
+    override val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
+    override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
+    override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
+    override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
+    override val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
+    override val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
 
     // Expose auth state
-    val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
-    val isBunkerConnected: StateFlow<Boolean> = sessionManager.isBunkerConnected
-    val isBunkerVerifying: StateFlow<Boolean> = sessionManager.isBunkerVerifying
-    val authUrl: StateFlow<String?> = sessionManager.authUrl
+    override val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
+    override val isBunkerConnected: StateFlow<Boolean> = sessionManager.isBunkerConnected
+    override val isBunkerVerifying: StateFlow<Boolean> = sessionManager.isBunkerVerifying
+    override val authUrl: StateFlow<String?> = sessionManager.authUrl
 
     // Expose metadata state
-    val userMetadata: StateFlow<Map<String, UserMetadata>> = metadataManager.userMetadata
-    val cachedEvents: StateFlow<Map<String, CachedEvent>> = metadataManager.cachedEvents
+    override val userMetadata: StateFlow<Map<String, UserMetadata>> = metadataManager.userMetadata
+    override val cachedEvents: StateFlow<Map<String, CachedEvent>> = metadataManager.cachedEvents
 
     // Expose NIP-65 state
-    val userRelayList: StateFlow<List<Nip65Relay>> = outboxManager.userRelayList
+    override val userRelayList: StateFlow<List<Nip65Relay>> = outboxManager.userRelayList
 
     // Expose unread state
-    val unreadCounts: StateFlow<Map<String, Int>> = unreadManager.unreadCounts
+    override val unreadCounts: StateFlow<Map<String, Int>> = unreadManager.unreadCounts
 
-    fun forceInitialized() {
+    override fun forceInitialized() {
         _isInitialized.value = true
     }
 
-    suspend fun initialize() {
+    override suspend fun initialize() {
         connectionManager.loadSavedRelay()
 
         val restored = sessionManager.restoreSession()
@@ -95,11 +95,11 @@ class NostrRepository(
         _isInitialized.value = true
     }
 
-    fun clearAuthUrl() {
+    override fun clearAuthUrl() {
         sessionManager.clearAuthUrl()
     }
 
-    suspend fun loginWithBunker(bunkerUrl: String): String {
+    override suspend fun loginWithBunker(bunkerUrl: String): String {
         val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
         unreadManager.initialize(userPubkey)
         initializeOutboxModel()
@@ -110,13 +110,13 @@ class NostrRepository(
         return userPubkey
     }
 
-    suspend fun createNostrConnectSession(relays: List<String> = AuthManager.defaultNostrConnectRelays): Pair<String, org.nostr.nostrord.nostr.Nip46Client> {
+    override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, org.nostr.nostrord.nostr.Nip46Client> {
         return sessionManager.createNostrConnectSession(relays)
     }
 
-    suspend fun completeNostrConnectLogin(
+    override suspend fun completeNostrConnectLogin(
         client: org.nostr.nostrord.nostr.Nip46Client,
-        relays: List<String> = AuthManager.defaultNostrConnectRelays
+        relays: List<String>
     ): String {
         val userPubkey = sessionManager.completeNostrConnectLogin(client, relays)
         unreadManager.initialize(userPubkey)
@@ -128,7 +128,7 @@ class NostrRepository(
         return userPubkey
     }
 
-    suspend fun loginSuspend(privKey: String, pubKey: String) {
+    override suspend fun loginSuspend(privKey: String, pubKey: String) {
         sessionManager.loginWithPrivateKey(privKey, pubKey)
         unreadManager.initialize(pubKey)
         initializeOutboxModel()
@@ -138,7 +138,7 @@ class NostrRepository(
         requestUserMetadata(setOf(pubKey))
     }
 
-    suspend fun loginWithNip07(pubkey: String) {
+    override suspend fun loginWithNip07(pubkey: String) {
         sessionManager.loginWithNip07(pubkey)
         unreadManager.initialize(pubkey)
         initializeOutboxModel()
@@ -147,7 +147,7 @@ class NostrRepository(
         requestUserMetadata(setOf(pubkey))
     }
 
-    suspend fun logout() {
+    override suspend fun logout() {
         scope.coroutineContext.cancelChildren()
 
         sessionManager.getPublicKey()?.let { pubKey ->
@@ -162,7 +162,7 @@ class NostrRepository(
         unreadManager.clear()
     }
 
-    fun forgetBunkerConnection() {
+    override fun forgetBunkerConnection() {
         sessionManager.forgetBunkerConnection()
     }
 
@@ -172,7 +172,7 @@ class NostrRepository(
         outboxManager.initialize(pubKey) { msg, client -> handleRelayMessage(msg, client) }
     }
 
-    suspend fun connect() {
+    override suspend fun connect() {
         connect(connectionManager.currentRelayUrl.value)
     }
 
@@ -180,7 +180,7 @@ class NostrRepository(
      * Manually trigger reconnection to the relay.
      * Use this when auto-reconnection fails or user wants to retry.
      */
-    suspend fun reconnect(): Boolean {
+    override suspend fun reconnect(): Boolean {
         val connected = connectionManager.reconnect()
         if (connected) {
             val client = connectionManager.getPrimaryClient()
@@ -227,7 +227,7 @@ class NostrRepository(
         }
     }
 
-    suspend fun switchRelay(newRelayUrl: String) {
+    override suspend fun switchRelay(newRelayUrl: String) {
         // Clears messages/state but NOT the group metadata cache (_groupsByRelay).
         groupManager.clearForRelaySwitch()
 
@@ -269,20 +269,20 @@ class NostrRepository(
         }
     }
 
-    suspend fun disconnect() {
+    override suspend fun disconnect() {
         connectionManager.disconnectPrimary()
         groupManager.clear()
     }
 
     // Auth delegation
-    fun getPublicKey(): String? = sessionManager.getPublicKey()
-    fun getPrivateKey(): String? = sessionManager.getPrivateKey()
-    fun isUsingBunker(): Boolean = sessionManager.isUsingBunker()
-    fun isBunkerReady(): Boolean = sessionManager.isBunkerReady()
-    suspend fun ensureBunkerConnected(): Boolean = sessionManager.ensureBunkerConnected()
+    override fun getPublicKey(): String? = sessionManager.getPublicKey()
+    override fun getPrivateKey(): String? = sessionManager.getPrivateKey()
+    override fun isUsingBunker(): Boolean = sessionManager.isUsingBunker()
+    override fun isBunkerReady(): Boolean = sessionManager.isBunkerReady()
+    override suspend fun ensureBunkerConnected(): Boolean = sessionManager.ensureBunkerConnected()
 
     // Group operations
-    suspend fun joinGroup(groupId: String): Result<Unit> {
+    override suspend fun joinGroup(groupId: String): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.joinGroup(
@@ -294,7 +294,7 @@ class NostrRepository(
         )
     }
 
-    suspend fun createGroup(
+    override suspend fun createGroup(
         name: String,
         about: String?,
         relayUrl: String,
@@ -318,7 +318,7 @@ class NostrRepository(
         )
     }
 
-    suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit> {
+    override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.leaveGroup(
@@ -331,9 +331,9 @@ class NostrRepository(
         )
     }
 
-    fun isGroupJoined(groupId: String): Boolean = groupManager.isGroupJoined(groupId)
+    override fun isGroupJoined(groupId: String): Boolean = groupManager.isGroupJoined(groupId)
 
-    suspend fun requestGroupMessages(groupId: String, channel: String? = null) {
+    override suspend fun requestGroupMessages(groupId: String, channel: String?) {
         if (connectionManager.getPrimaryClient() == null) {
             connect()
         }
@@ -347,7 +347,7 @@ class NostrRepository(
     /**
      * Request group members (kind 39002) for a specific group.
      */
-    suspend fun requestGroupMembers(groupId: String) {
+    override suspend fun requestGroupMembers(groupId: String) {
         if (connectionManager.getPrimaryClient() == null) {
             connect()
         }
@@ -357,20 +357,20 @@ class NostrRepository(
     /**
      * Request group admins (kind 39001) for a specific group.
      */
-    suspend fun requestGroupAdmins(groupId: String) {
+    override suspend fun requestGroupAdmins(groupId: String) {
         if (connectionManager.getPrimaryClient() == null) {
             connect()
         }
         groupManager.requestGroupAdmins(groupId)
     }
 
-    suspend fun refreshGroupMetadata(groupId: String) {
+    override suspend fun refreshGroupMetadata(groupId: String) {
         val client = connectionManager.getPrimaryClient() ?: return
         client.requestGroupMetadata(groupId)
         client.requestGroupAdmins(groupId)
     }
 
-    suspend fun editGroup(
+    override suspend fun editGroup(
         groupId: String,
         name: String,
         about: String?,
@@ -391,7 +391,7 @@ class NostrRepository(
         )
     }
 
-    suspend fun deleteGroup(groupId: String): Result<Unit> {
+    override suspend fun deleteGroup(groupId: String): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.deleteGroup(
@@ -403,11 +403,11 @@ class NostrRepository(
         )
     }
 
-    suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
+    override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean {
         return groupManager.loadMoreMessages(groupId, channel)
     }
 
-    suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null): Result<Unit> {
+    override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.sendMessage(
@@ -421,29 +421,29 @@ class NostrRepository(
         )
     }
 
-    fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> {
+    override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> {
         return groupManager.getMessagesForGroup(groupId)
     }
 
     // Unread message operations
-    fun markGroupAsRead(groupId: String) {
+    override fun markGroupAsRead(groupId: String) {
         unreadManager.markAsRead(groupId)
     }
 
-    fun getUnreadCount(groupId: String): Int {
+    override fun getUnreadCount(groupId: String): Int {
         return unreadManager.getUnreadCount(groupId)
     }
 
-    fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
+    override fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
         unreadManager.updateUnreadCount(groupId, messages)
     }
 
-    fun getLastReadTimestamp(groupId: String): Long? {
+    override fun getLastReadTimestamp(groupId: String): Long? {
         return unreadManager.getLastReadTimestamp(groupId)
     }
 
     // Metadata operations
-    suspend fun requestUserMetadata(pubkeys: Set<String>) {
+    override suspend fun requestUserMetadata(pubkeys: Set<String>) {
         metadataManager.requestUserMetadata(pubkeys) { msg, client ->
             handleRelayMessage(msg, client)
         }
@@ -452,12 +452,12 @@ class NostrRepository(
     /**
      * Update the current user's profile metadata (kind 0 event).
      */
-    suspend fun updateProfileMetadata(
-        displayName: String? = null,
-        name: String? = null,
-        about: String? = null,
-        picture: String? = null,
-        nip05: String? = null
+    override suspend fun updateProfileMetadata(
+        displayName: String?,
+        name: String?,
+        about: String?,
+        picture: String?,
+        nip05: String?
     ): kotlin.Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return kotlin.Result.failure(Exception("Not logged in"))
@@ -523,7 +523,7 @@ class NostrRepository(
         }
     }
 
-    suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null) {
+    override suspend fun requestEventById(eventId: String, relayHints: List<String>, author: String?) {
         metadataManager.requestEventById(eventId, relayHints, author) { msg, client ->
             handleRelayMessage(msg, client)
         }
@@ -533,11 +533,11 @@ class NostrRepository(
      * Request an addressable event (naddr) by its coordinates.
      * Addressable events are identified by kind, pubkey, and identifier (d-tag).
      */
-    suspend fun requestAddressableEvent(
+    override suspend fun requestAddressableEvent(
         kind: Int,
         pubkey: String,
         identifier: String,
-        relays: List<String> = emptyList()
+        relays: List<String>
     ) {
         metadataManager.requestAddressableEvent(kind, pubkey, identifier, relays) { msg, client ->
             handleRelayMessage(msg, client)
@@ -548,7 +548,7 @@ class NostrRepository(
      * Request a quoted event from the primary relay.
      * Used for q tags in group messages where the quoted event is on the same relay.
      */
-    suspend fun requestQuotedEvent(eventId: String) {
+    override suspend fun requestQuotedEvent(eventId: String) {
         // Skip if already cached
         if (metadataManager.hasCachedEvent(eventId)) return
 
@@ -557,20 +557,20 @@ class NostrRepository(
     }
 
     // Outbox operations
-    suspend fun requestRelayLists(pubkeys: Set<String>) {
+    override suspend fun requestRelayLists(pubkeys: Set<String>) {
         outboxManager.requestRelayLists(pubkeys) { msg, client ->
             handleRelayMessage(msg, client)
         }
     }
 
-    fun getRelayListForPubkey(pubkey: String): List<Nip65Relay> {
+    override fun getRelayListForPubkey(pubkey: String): List<Nip65Relay> {
         return outboxManager.getCachedRelayList(pubkey)
     }
 
-    fun selectOutboxRelays(
-        authors: List<String> = emptyList(),
-        taggedPubkeys: List<String> = emptyList(),
-        explicitRelays: List<String> = emptyList()
+    override fun selectOutboxRelays(
+        authors: List<String>,
+        taggedPubkeys: List<String>,
+        explicitRelays: List<String>
     ): List<String> {
         return outboxManager.selectOutboxRelays(
             authors = authors,

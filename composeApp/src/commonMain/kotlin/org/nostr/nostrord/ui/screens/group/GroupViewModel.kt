@@ -3,10 +3,10 @@ package org.nostr.nostrord.ui.screens.group
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
-import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.network.NostrRepositoryApi
 
 class GroupViewModel(
-    private val repo: NostrRepository,
+    private val repo: NostrRepositoryApi,
     val groupId: String
 ) : ViewModel() {
 
