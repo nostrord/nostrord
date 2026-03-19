@@ -28,6 +28,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
@@ -38,18 +39,19 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 
 /**
- * Message input field with standard keyboard behavior.
+ * Message input field with Discord-style keyboard behavior.
  *
  * Keyboard behavior:
- * - Enter: Send message
- * - Shift+Enter: Insert newline
+ * - Enter: Send message (or select mention if popup open)
+ * - Shift+Enter: Insert newline at cursor (manually handled for reliability)
  * - Escape: Close mention popup
+ * - Tab: Select highlighted mention
  *
  * Features:
+ * - Send button (disabled when empty, shows spinner when sending)
  * - @mention autocomplete popup
  * - Multi-line text input (up to 4 lines visible)
  * - Join prompt when not a group member
- * - Loading spinner when sending message
  */
 @Composable
 fun MessageInput(
@@ -295,12 +297,25 @@ fun MessageInput(
                                     mentionSelectedIndex = (mentionSelectedIndex + 1).coerceAtMost(filteredMembers.size - 1)
                                     true
                                 }
+                                // Shift+Enter: manually insert newline at cursor (Discord-style)
+                                // Returning false here is unreliable in Compose Desktop — insert explicitly.
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.Enter &&
+                                event.isShiftPressed -> {
+                                    val sel = textFieldValue.selection
+                                    val text = textFieldValue.text
+                                    val newText = text.substring(0, sel.start) + "\n" + text.substring(sel.end)
+                                    val newValue = TextFieldValue(newText, TextRange(sel.start + 1))
+                                    textFieldValue = newValue
+                                    onMessageInputChange(newText)
+                                    updateMentionState(newValue)
+                                    true
+                                }
                                 // Enter selects mention if popup is open, otherwise sends message
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.Enter &&
                                 !event.isShiftPressed -> {
                                     if (showMentionPopup && filteredMembers.isNotEmpty()) {
-                                        // Select the highlighted member
                                         val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
                                         if (selectedMember != null) {
                                             handleMemberSelect(selectedMember)
@@ -310,7 +325,7 @@ fun MessageInput(
                                         onSendMessage()
                                         true
                                     } else {
-                                        true // Consume event to prevent newline
+                                        true // Consume to prevent accidental newline on empty field
                                     }
                                 }
                                 // Tab also selects mention if popup is open
@@ -324,7 +339,6 @@ fun MessageInput(
                                     }
                                     true
                                 }
-                                // Shift+Enter allows default behavior (newline)
                                 else -> false
                             }
                         },
@@ -348,15 +362,27 @@ fun MessageInput(
                     )
                 )
 
-                // Show loading spinner only when sending (Enter to send, no visible button)
-                if (isSending) {
-                    CircularProgressIndicator(
-                        modifier = Modifier
-                            .padding(start = Spacing.sm)
-                            .size(Spacing.iconMd),
-                        color = NostrordColors.Primary,
-                        strokeWidth = 2.dp
-                    )
+                // Send button — disabled when empty, shows spinner while sending
+                IconButton(
+                    onClick = { if (textFieldValue.text.isNotBlank() && !isSending) onSendMessage() },
+                    enabled = textFieldValue.text.isNotBlank() && !isSending,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    if (isSending) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(Spacing.iconMd),
+                            color = NostrordColors.Primary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send message",
+                            tint = if (textFieldValue.text.isNotBlank()) NostrordColors.Primary
+                                   else NostrordColors.TextMuted,
+                            modifier = Modifier.size(Spacing.iconMd)
+                        )
+                    }
                 }
             }
 
