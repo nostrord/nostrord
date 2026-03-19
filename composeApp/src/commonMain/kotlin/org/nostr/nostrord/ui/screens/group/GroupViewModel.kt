@@ -2,8 +2,11 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.utils.Result
 
 class GroupViewModel(
     private val repo: NostrRepositoryApi,
@@ -20,6 +23,11 @@ class GroupViewModel(
     val groupAdmins = repo.groupAdmins
     val isLoadingMore = repo.isLoadingMore
     val hasMoreMessages = repo.hasMoreMessages
+
+    private val _deleteMessageError = MutableStateFlow<String?>(null)
+    val deleteMessageError: StateFlow<String?> = _deleteMessageError
+
+    fun clearDeleteMessageError() { _deleteMessageError.value = null }
 
     fun getPublicKey() = repo.getPublicKey()
 
@@ -50,7 +58,17 @@ class GroupViewModel(
     }
 
     fun deleteMessage(messageId: String) {
-        viewModelScope.launch { repo.deleteMessage(groupId, messageId) }
+        viewModelScope.launch {
+            when (val result = repo.deleteMessage(groupId, messageId)) {
+                is Result.Error -> {
+                    val raw = result.error.cause?.message ?: result.error.toString()
+                    val friendly = raw.removePrefix("blocked: ").removePrefix("error: ")
+                        .replaceFirstChar { it.uppercaseChar() }
+                    _deleteMessageError.value = friendly
+                }
+                is Result.Success -> Unit
+            }
+        }
     }
 
     fun loadMoreMessages(channel: String?) {

@@ -46,6 +46,7 @@ fun GroupScreen(
         }
     }
 
+    val deleteMessageError by vm.deleteMessageError.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
     val joinedGroups by vm.joinedGroups.collectAsState()
     val groups by vm.groups.collectAsState()
@@ -208,6 +209,23 @@ fun GroupScreen(
             dismissButton = {
                 TextButton(onClick = { messageToDelete = null }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            }
+        )
+    }
+
+    // Delete message error dialog (relay rejected the deletion)
+    deleteMessageError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { vm.clearDeleteMessageError() },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Could Not Delete Message") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = { vm.clearDeleteMessageError() }) {
+                    Text("OK", color = NostrordColors.Primary)
                 }
             }
         )
