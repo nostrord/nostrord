@@ -72,6 +72,11 @@ object AuthManager {
 
     fun isBunkerReady(): Boolean = isBunkerLogin && nip46Client != null
 
+    private fun zeroAndClearKeyPair() {
+        keyPair?.privateKey?.fill(0)
+        keyPair = null
+    }
+
     /**
      * Login with NIP-46 bunker URL
      * Returns the user's public key on success
@@ -111,7 +116,7 @@ object AuthManager {
         nip46Client = newNip46Client
         bunkerUserPubkey = userPubkey
         isBunkerLogin = true
-        keyPair = null
+        zeroAndClearKeyPair()
 
         // Save bunker credentials for session persistence
         SecureStorage.saveBunkerUrl(bunkerUrl)
@@ -155,7 +160,7 @@ object AuthManager {
         nip46Client = client
         bunkerUserPubkey = userPubkey
         isBunkerLogin = true
-        keyPair = null
+        zeroAndClearKeyPair()
 
         // Build a bunker:// URL for session persistence
         val relayParams = relays.joinToString("&") { "relay=$it" }
@@ -180,7 +185,7 @@ object AuthManager {
         nip07UserPubkey = pubkey
         isNip07Login = true
         isBunkerLogin = false
-        keyPair = null
+        zeroAndClearKeyPair()
         nip46Client = null
 
         SecureStorage.saveNip07UserPubkey(pubkey)
@@ -194,6 +199,7 @@ object AuthManager {
      * Login with local private key
      */
     fun loginWithPrivateKey(privateKeyHex: String, publicKeyHex: String) {
+        zeroAndClearKeyPair()
         keyPair = KeyPair.fromPrivateKeyHex(privateKeyHex)
         isBunkerLogin = false
         bunkerUserPubkey = null
@@ -448,7 +454,7 @@ object AuthManager {
         bunkerUserPubkey = null
         isNip07Login = false
         nip07UserPubkey = null
-        keyPair = null
+        zeroAndClearKeyPair()
 
         _isLoggedIn.value = false
         _isBunkerConnected.value = false
@@ -468,6 +474,7 @@ object AuthManager {
         nip46Client = null
         isBunkerLogin = false
         bunkerUserPubkey = null
+        zeroAndClearKeyPair()
         _isBunkerConnected.value = false
         clearBunkerCredentials()
         SecureStorage.clearBunkerClientPrivateKey()
