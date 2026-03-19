@@ -45,6 +45,11 @@ class FakeNostrRepository : NostrRepositoryApi {
     var loginSuspendAction: suspend (String, String) -> Unit = { _, _ -> _isLoggedIn.value = true }
     var loginWithNip07Action: suspend (String) -> Unit = { _isLoggedIn.value = true }
     var loginWithBunkerAction: suspend (String) -> String = { "pubkey" }
+    var leaveGroupAction: suspend (String, String?) -> Result<Unit> = { _, _ -> Result.Success(Unit) }
+    var sendMessageAction: suspend (String, String, String?, Map<String, String>, String?) -> Result<Unit> =
+        { _, _, _, _, _ -> Result.Success(Unit) }
+    var updateProfileMetadataAction: suspend (String?, String?, String?, String?, String?) -> kotlin.Result<Unit> =
+        { _, _, _, _, _ -> kotlin.Result.success(Unit) }
     var fakePublicKey: String? = null
     var fakePrivateKey: String? = null
 
@@ -118,7 +123,7 @@ class FakeNostrRepository : NostrRepositoryApi {
         Result.Success("fake-group-id")
 
     override suspend fun joinGroup(groupId: String): Result<Unit> = Result.Success(Unit)
-    override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> = Result.Success(Unit)
+    override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> = leaveGroupAction(groupId, reason)
     override suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean): Result<Unit> = Result.Success(Unit)
     override suspend fun deleteGroup(groupId: String): Result<Unit> = Result.Success(Unit)
     override fun isGroupJoined(groupId: String): Boolean = joinedGroups.value.contains(groupId)
@@ -128,7 +133,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun refreshGroupMetadata(groupId: String) {}
     override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean = false
     override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?): Result<Unit> =
-        Result.Success(Unit)
+        sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
 
     override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> =
         messages.value[groupId] ?: emptyList()
@@ -140,7 +145,7 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun requestUserMetadata(pubkeys: Set<String>) {}
     override suspend fun updateProfileMetadata(displayName: String?, name: String?, about: String?, picture: String?, nip05: String?): kotlin.Result<Unit> =
-        kotlin.Result.success(Unit)
+        updateProfileMetadataAction(displayName, name, about, picture, nip05)
 
     override suspend fun requestEventById(eventId: String, relayHints: List<String>, author: String?) {}
     override suspend fun requestAddressableEvent(kind: Int, pubkey: String, identifier: String, relays: List<String>) {}
