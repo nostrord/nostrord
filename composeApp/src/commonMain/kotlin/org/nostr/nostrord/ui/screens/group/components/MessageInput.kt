@@ -30,6 +30,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import org.nostr.nostrord.getPlatform
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -77,9 +78,9 @@ fun MessageInput(
     var mentionSelectedIndex by remember { mutableStateOf(0) }
     val focusRequester = remember { FocusRequester() }
 
-    // Auto-focus TextField when entering or switching groups (only if joined)
+    // Auto-focus on desktop only — on Android this would open the keyboard immediately
     LaunchedEffect(isJoined, groupName) {
-        if (isJoined) {
+        if (isJoined && !getPlatform().name.startsWith("Android")) {
             focusRequester.requestFocus()
         }
     }
