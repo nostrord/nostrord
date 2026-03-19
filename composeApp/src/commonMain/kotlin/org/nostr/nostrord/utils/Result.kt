@@ -124,6 +124,14 @@ sealed class AppError(
 }
 
 /**
+ * Convert to kotlin.Result for use in ViewModel callbacks and UI-facing APIs.
+ */
+fun <T> Result<T>.toKotlinResult(): kotlin.Result<T> = when (this) {
+    is Result.Success -> kotlin.Result.success(data)
+    is Result.Error -> kotlin.Result.failure(Exception(error.message))
+}
+
+/**
  * Execute a block and wrap the result in Result.Success or Result.Error
  */
 inline fun <T> runCatching(block: () -> T): Result<T> {

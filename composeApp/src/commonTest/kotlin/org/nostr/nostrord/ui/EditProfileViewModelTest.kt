@@ -8,6 +8,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.nostr.nostrord.network.FakeNostrRepository
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
+import org.nostr.nostrord.utils.AppError
+import org.nostr.nostrord.utils.Result
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -48,7 +50,7 @@ class EditProfileViewModelTest {
     fun `saveProfile failure calls onResult with failure`() = runTest {
         val fake = FakeNostrRepository()
         fake.updateProfileMetadataAction = { _, _, _, _, _ ->
-            kotlin.Result.failure(Exception("server error"))
+            Result.Error(AppError.Unknown("server error"))
         }
         val vm = EditProfileViewModel(fake)
 

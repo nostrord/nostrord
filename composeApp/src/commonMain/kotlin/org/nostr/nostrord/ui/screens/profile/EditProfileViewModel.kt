@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.utils.toKotlinResult
 
 class EditProfileViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
 
@@ -20,8 +21,7 @@ class EditProfileViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
         onResult: (kotlin.Result<Unit>) -> Unit
     ) {
         viewModelScope.launch {
-            val result = repo.updateProfileMetadata(displayName, name, about, picture, nip05)
-            onResult(result)
+            onResult(repo.updateProfileMetadata(displayName, name, about, picture, nip05).toKotlinResult())
         }
     }
 }

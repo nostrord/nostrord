@@ -8,6 +8,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.nostr.nostrord.network.FakeNostrRepository
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
+import org.nostr.nostrord.utils.AppError
+import org.nostr.nostrord.utils.Result
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -52,7 +54,7 @@ class LoginViewModelTest {
     @Test
     fun `loginWithPrivateKey failure calls onResult with failure`() = runTest {
         val fake = FakeNostrRepository()
-        fake.loginSuspendAction = { _, _ -> throw Exception("bad key") }
+        fake.loginSuspendAction = { _, _ -> Result.Error(AppError.Unknown("bad key")) }
         val vm = LoginViewModel(fake)
 
         var result: kotlin.Result<Unit>? = null
@@ -85,7 +87,7 @@ class LoginViewModelTest {
     @Test
     fun `loginWithNip07 failure propagates exception`() = runTest {
         val fake = FakeNostrRepository()
-        fake.loginWithNip07Action = { throw Exception("nip07 failed") }
+        fake.loginWithNip07Action = { Result.Error(AppError.Unknown("nip07 failed")) }
         val vm = LoginViewModel(fake)
 
         var result: kotlin.Result<Unit>? = null

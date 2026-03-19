@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip46Client
+import org.nostr.nostrord.utils.toKotlinResult
 
 class LoginViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
 
@@ -28,12 +29,7 @@ class LoginViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
         onResult: (Result<Unit>) -> Unit
     ) {
         viewModelScope.launch {
-            try {
-                repo.loginSuspend(privKey, pubKey)
-                onResult(Result.success(Unit))
-            } catch (e: Exception) {
-                onResult(Result.failure(e))
-            }
+            onResult(repo.loginSuspend(privKey, pubKey).toKotlinResult())
         }
     }
 
@@ -42,21 +38,15 @@ class LoginViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
         onResult: (Result<Unit>) -> Unit
     ) {
         viewModelScope.launch {
-            try {
-                repo.loginWithNip07(pubkey)
-                onResult(Result.success(Unit))
-            } catch (e: Exception) {
-                onResult(Result.failure(e))
-            }
+            onResult(repo.loginWithNip07(pubkey).toKotlinResult())
         }
     }
 
     fun loginWithNip07Extension(onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
             try {
-                val pubkey = Nip07.getPublicKey()
-                repo.loginWithNip07(pubkey)
-                onResult(Result.success(Unit))
+                val pubkey = Nip07.getPublicKey()  // platform call — can throw if extension unavailable
+                onResult(repo.loginWithNip07(pubkey).toKotlinResult())
             } catch (e: Exception) {
                 onResult(Result.failure(e))
             }
@@ -68,12 +58,7 @@ class LoginViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
         onResult: (Result<Unit>) -> Unit
     ) {
         viewModelScope.launch {
-            try {
-                repo.loginWithBunker(url)
-                onResult(Result.success(Unit))
-            } catch (e: Exception) {
-                onResult(Result.failure(e))
-            }
+            onResult(repo.loginWithBunker(url).map { }.toKotlinResult())
         }
     }
 

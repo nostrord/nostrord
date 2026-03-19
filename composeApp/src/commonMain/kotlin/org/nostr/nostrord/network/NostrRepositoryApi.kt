@@ -52,9 +52,9 @@ interface NostrRepositoryApi {
     fun isBunkerReady(): Boolean
     suspend fun ensureBunkerConnected(): Boolean
     fun forgetBunkerConnection()
-    suspend fun loginSuspend(privKey: String, pubKey: String)
-    suspend fun loginWithNip07(pubkey: String)
-    suspend fun loginWithBunker(bunkerUrl: String): String
+    suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit>
+    suspend fun loginWithNip07(pubkey: String): Result<Unit>
+    suspend fun loginWithBunker(bunkerUrl: String): Result<String>
     suspend fun createNostrConnectSession(relays: List<String>): Pair<String, Nip46Client>
     suspend fun completeNostrConnectLogin(client: Nip46Client, relays: List<String>): String
     suspend fun logout()
@@ -86,7 +86,7 @@ interface NostrRepositoryApi {
 
     // --- Metadata operations ---
     suspend fun requestUserMetadata(pubkeys: Set<String>)
-    suspend fun updateProfileMetadata(displayName: String? = null, name: String? = null, about: String? = null, picture: String? = null, nip05: String? = null): kotlin.Result<Unit>
+    suspend fun updateProfileMetadata(displayName: String? = null, name: String? = null, about: String? = null, picture: String? = null, nip05: String? = null): Result<Unit>
 
     // --- Event operations ---
     suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null)

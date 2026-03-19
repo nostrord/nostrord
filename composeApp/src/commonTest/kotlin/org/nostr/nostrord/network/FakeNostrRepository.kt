@@ -42,14 +42,14 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     // Configurable behaviour
     var initializeAction: suspend () -> Unit = { _isInitialized.value = true }
-    var loginSuspendAction: suspend (String, String) -> Unit = { _, _ -> _isLoggedIn.value = true }
-    var loginWithNip07Action: suspend (String) -> Unit = { _isLoggedIn.value = true }
-    var loginWithBunkerAction: suspend (String) -> String = { "pubkey" }
+    var loginSuspendAction: suspend (String, String) -> Result<Unit> = { _, _ -> _isLoggedIn.value = true; Result.Success(Unit) }
+    var loginWithNip07Action: suspend (String) -> Result<Unit> = { _isLoggedIn.value = true; Result.Success(Unit) }
+    var loginWithBunkerAction: suspend (String) -> Result<String> = { Result.Success("pubkey") }
     var leaveGroupAction: suspend (String, String?) -> Result<Unit> = { _, _ -> Result.Success(Unit) }
     var sendMessageAction: suspend (String, String, String?, Map<String, String>, String?) -> Result<Unit> =
         { _, _, _, _, _ -> Result.Success(Unit) }
-    var updateProfileMetadataAction: suspend (String?, String?, String?, String?, String?) -> kotlin.Result<Unit> =
-        { _, _, _, _, _ -> kotlin.Result.success(Unit) }
+    var updateProfileMetadataAction: suspend (String?, String?, String?, String?, String?) -> Result<Unit> =
+        { _, _, _, _, _ -> Result.Success(Unit) }
     var fakePublicKey: String? = null
     var fakePrivateKey: String? = null
 
@@ -91,17 +91,17 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun ensureBunkerConnected(): Boolean = true
     override fun forgetBunkerConnection() {}
 
-    override suspend fun loginSuspend(privKey: String, pubKey: String) {
+    override suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit> {
         calls += "loginSuspend"
-        loginSuspendAction(privKey, pubKey)
+        return loginSuspendAction(privKey, pubKey)
     }
 
-    override suspend fun loginWithNip07(pubkey: String) {
+    override suspend fun loginWithNip07(pubkey: String): Result<Unit> {
         calls += "loginWithNip07"
-        loginWithNip07Action(pubkey)
+        return loginWithNip07Action(pubkey)
     }
 
-    override suspend fun loginWithBunker(bunkerUrl: String): String {
+    override suspend fun loginWithBunker(bunkerUrl: String): Result<String> {
         calls += "loginWithBunker"
         return loginWithBunkerAction(bunkerUrl)
     }
@@ -144,7 +144,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     override fun getLastReadTimestamp(groupId: String): Long? = null
 
     override suspend fun requestUserMetadata(pubkeys: Set<String>) {}
-    override suspend fun updateProfileMetadata(displayName: String?, name: String?, about: String?, picture: String?, nip05: String?): kotlin.Result<Unit> =
+    override suspend fun updateProfileMetadata(displayName: String?, name: String?, about: String?, picture: String?, nip05: String?): Result<Unit> =
         updateProfileMetadataAction(displayName, name, about, picture, nip05)
 
     override suspend fun requestEventById(eventId: String, relayHints: List<String>, author: String?) {}

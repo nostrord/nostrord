@@ -99,15 +99,18 @@ class NostrRepository(
         sessionManager.clearAuthUrl()
     }
 
-    override suspend fun loginWithBunker(bunkerUrl: String): String {
-        val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
-        unreadManager.initialize(userPubkey)
-        initializeOutboxModel()
-        connect()
-        sessionManager.setLoggedIn(true)
-        // Fetch current user's metadata after login
-        requestUserMetadata(setOf(userPubkey))
-        return userPubkey
+    override suspend fun loginWithBunker(bunkerUrl: String): Result<String> {
+        return try {
+            val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
+            unreadManager.initialize(userPubkey)
+            initializeOutboxModel()
+            connect()
+            sessionManager.setLoggedIn(true)
+            requestUserMetadata(setOf(userPubkey))
+            Result.Success(userPubkey)
+        } catch (e: Exception) {
+            Result.Error(AppError.Auth.BunkerError(e.message ?: "Bunker connection failed", e))
+        }
     }
 
     override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, org.nostr.nostrord.nostr.Nip46Client> {
@@ -128,23 +131,32 @@ class NostrRepository(
         return userPubkey
     }
 
-    override suspend fun loginSuspend(privKey: String, pubKey: String) {
-        sessionManager.loginWithPrivateKey(privKey, pubKey)
-        unreadManager.initialize(pubKey)
-        initializeOutboxModel()
-        connect()
-        sessionManager.setLoggedIn(true)
-        // Fetch current user's metadata after login
-        requestUserMetadata(setOf(pubKey))
+    override suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit> {
+        return try {
+            sessionManager.loginWithPrivateKey(privKey, pubKey)
+            unreadManager.initialize(pubKey)
+            initializeOutboxModel()
+            connect()
+            sessionManager.setLoggedIn(true)
+            requestUserMetadata(setOf(pubKey))
+            Result.Success(Unit)
+        } catch (e: Exception) {
+            Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
+        }
     }
 
-    override suspend fun loginWithNip07(pubkey: String) {
-        sessionManager.loginWithNip07(pubkey)
-        unreadManager.initialize(pubkey)
-        initializeOutboxModel()
-        connect()
-        sessionManager.setLoggedIn(true)
-        requestUserMetadata(setOf(pubkey))
+    override suspend fun loginWithNip07(pubkey: String): Result<Unit> {
+        return try {
+            sessionManager.loginWithNip07(pubkey)
+            unreadManager.initialize(pubkey)
+            initializeOutboxModel()
+            connect()
+            sessionManager.setLoggedIn(true)
+            requestUserMetadata(setOf(pubkey))
+            Result.Success(Unit)
+        } catch (e: Exception) {
+            Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
+        }
     }
 
     override suspend fun logout() {
@@ -458,9 +470,9 @@ class NostrRepository(
         about: String?,
         picture: String?,
         nip05: String?
-    ): kotlin.Result<Unit> {
+    ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
-            ?: return kotlin.Result.failure(Exception("Not logged in"))
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
 
         return try {
             // Build metadata content JSON
@@ -499,7 +511,7 @@ class NostrRepository(
                 if (client != null) {
                     client.send(message)
                 } else {
-                    return kotlin.Result.failure(Exception("No relay connection"))
+                    return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
                 }
             } else {
                 // Publish to all write relays using connection manager
@@ -517,9 +529,9 @@ class NostrRepository(
             )
             metadataManager.updateLocalMetadata(pubKey, newMetadata)
 
-            kotlin.Result.success(Unit)
+            Result.Success(Unit)
         } catch (e: Exception) {
-            kotlin.Result.failure(e)
+            Result.Error(AppError.Unknown(e.message ?: "Failed to update profile", e))
         }
     }
 
