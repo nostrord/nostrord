@@ -4,14 +4,20 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +30,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.AppStartState
 import org.nostr.nostrord.startup.StartupResolver
@@ -32,6 +39,8 @@ import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.layout.DesktopShell
 import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
+import org.nostr.nostrord.ui.components.navigation.ServerRail
+import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import org.nostr.nostrord.ui.navigation.BrowserNavigationHandler
 import org.nostr.nostrord.ui.navigation.NavigationHistory
@@ -176,9 +185,12 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 
     // Collect state needed for UI
     val groups by AppModule.nostrRepository.groups.collectAsState()
+    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val joinedGroups by AppModule.nostrRepository.joinedGroups.collectAsState()
+    val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val isLoggedIn by AppModule.nostrRepository.isLoggedIn.collectAsState()
 
     // Get pubKey reactively
@@ -192,7 +204,33 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     val relayListState = rememberLazyListState()
 
     val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
+
+    // selectedRelayUrl tracks which relay is browsed in the sidebar.
+    // Resets when the actual active relay changes (e.g. after adding a relay in settings).
+    var selectedRelayUrl by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
+
     var showCreateGroupModal by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    // Relay list — stable insertion order. The active relay does NOT jump to the top when
+    // switching. New relays are appended at the end; all others keep their position.
+    // currentRelayUrl is appended last only as a fallback for when it isn't in the map yet
+    // (e.g. briefly after switchRelay before the first kind:39000 events arrive).
+    val relayList = remember(currentRelayUrl, groupsByRelay) {
+        (groupsByRelay.keys.toList() + currentRelayUrl).distinct()
+    }
+
+    // All groups for the relay selected in the rail (not just joined ones)
+    val groupsForSelectedRelay = remember(selectedRelayUrl, groupsByRelay) {
+        groupsByRelay[selectedRelayUrl] ?: emptyList()
+    }
+
+    // Joined groups for the selected relay (from persistent per-relay cache)
+    val joinedGroupIdsForSelectedRelay = remember(selectedRelayUrl, joinedGroupsByRelay) {
+        joinedGroupsByRelay[selectedRelayUrl] ?: emptySet()
+    }
 
     // Persist screen state for next app launch
     fun persistScreenState(screen: Screen) {
@@ -313,15 +351,25 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                     )
                 }
                 DesktopShell(
-                    joinedGroups = joinedGroups,
-                    groups = groups,
+                    relays = relayList,
+                    activeRelayUrl = selectedRelayUrl,
+                    groupsForRelay = groupsForSelectedRelay,
+                    joinedGroupIds = joinedGroupIdsForSelectedRelay,
                     activeGroupId = activeGroupId,
                     unreadCounts = unreadCounts,
-                    onHomeClick = { onNavigate(Screen.Home) },
+                    relayMetadata = relayMetadata,
+                    onRelayClick = { url ->
+                        selectedRelayUrl = url
+                        onNavigate(Screen.Home)
+                    },
+                    onAddRelayClick = { onNavigate(Screen.RelaySettings) },
                     onGroupClick = { groupId, groupName ->
+                        if (selectedRelayUrl != currentRelayUrl) {
+                            scope.launch { AppModule.nostrRepository.switchRelay(selectedRelayUrl) }
+                        }
                         onNavigate(Screen.Group(groupId, groupName))
                     },
-                    onAddClick = { showCreateGroupModal = true },
+                    onCreateGroupClick = { showCreateGroupModal = true },
                     userAvatarUrl = currentUserMetadata?.picture,
                     userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
                     userPubkey = pubKey,
@@ -331,6 +379,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                 ) {
                     DesktopContent(
                         currentScreen = currentScreen,
+                        selectedRelayUrl = selectedRelayUrl,
                         homeGridState = homeGridState,
                         relayListState = relayListState,
                         onNavigate = onNavigate
@@ -338,13 +387,70 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                 }
             }
         } else {
-            MobileContent(
-                currentScreen = currentScreen,
-                homeGridState = homeGridState,
-                relayListState = relayListState,
-                onNavigate = onNavigate,
-                onCreateGroupClick = { showCreateGroupModal = true }
-            )
+            val onOpenDrawer: () -> Unit = { scope.launch { drawerState.open() } }
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    // Relay rail (72dp) + Groups sidebar fill the drawer sheet
+                    ModalDrawerSheet(
+                        modifier = Modifier.width(312.dp),
+                        drawerContainerColor = NostrordColors.BackgroundDark
+                    ) {
+                        Row(Modifier.fillMaxSize()) {
+                            ServerRail(
+                                relays = relayList,
+                                activeRelayUrl = selectedRelayUrl,
+                                onRelayClick = { url ->
+                                    selectedRelayUrl = url
+                                    scope.launch { drawerState.close() }
+                                    onNavigate(Screen.Home)
+                                },
+                                onAddRelayClick = {
+                                    scope.launch { drawerState.close() }
+                                    onNavigate(Screen.RelaySettings)
+                                },
+                                relayMetadata = relayMetadata,
+                                userAvatarUrl = currentUserMetadata?.picture,
+                                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
+                                userPubkey = pubKey,
+                                onUserClick = {
+                                    scope.launch { drawerState.close() }
+                                    onNavigate(Screen.Profile)
+                                },
+                                isProfileActive = currentScreen is Screen.Profile
+                            )
+                            GroupsNavSidebar(
+                                relayUrl = selectedRelayUrl,
+                                groups = groupsForSelectedRelay,
+                                joinedGroupIds = joinedGroupIdsForSelectedRelay,
+                                activeGroupId = activeGroupId,
+                                unreadCounts = unreadCounts,
+                                onGroupClick = { groupId, groupName ->
+                                    scope.launch { drawerState.close() }
+                                    if (selectedRelayUrl != currentRelayUrl) {
+                                        scope.launch { AppModule.nostrRepository.switchRelay(selectedRelayUrl) }
+                                    }
+                                    onNavigate(Screen.Group(groupId, groupName))
+                                },
+                                onCreateGroupClick = {
+                                    scope.launch { drawerState.close() }
+                                    showCreateGroupModal = true
+                                }
+                            )
+                        }
+                    }
+                }
+            ) {
+                MobileContent(
+                    currentScreen = currentScreen,
+                    selectedRelayUrl = selectedRelayUrl,
+                    homeGridState = homeGridState,
+                    relayListState = relayListState,
+                    onNavigate = onNavigate,
+                    onCreateGroupClick = { showCreateGroupModal = true },
+                    onOpenDrawer = onOpenDrawer
+                )
+            }
         }
     }
 }
@@ -355,6 +461,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 @Composable
 private fun DesktopContent(
     currentScreen: Screen,
+    selectedRelayUrl: String,
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     relayListState: androidx.compose.foundation.lazy.LazyListState,
     onNavigate: (Screen) -> Unit
@@ -362,9 +469,9 @@ private fun DesktopContent(
     when (val screen = currentScreen) {
         is Screen.Home -> {
             HomeScreen(
+                relayUrl = selectedRelayUrl,
                 gridState = homeGridState,
-                onNavigate = onNavigate,
-                showServerRail = false
+                onNavigate = onNavigate
             )
         }
         is Screen.Group -> {
@@ -395,13 +502,6 @@ private fun DesktopContent(
                 onNavigate = onNavigate
             )
         }
-        is Screen.PAGE1 -> {
-            HomeScreen(
-                gridState = homeGridState,
-                onNavigate = onNavigate,
-                showServerRail = false
-            )
-        }
         is Screen.NostrLogin -> {
             NostrLoginScreen {
                 onNavigate(Screen.Home)
@@ -417,17 +517,21 @@ private fun DesktopContent(
 @Composable
 private fun MobileContent(
     currentScreen: Screen,
+    selectedRelayUrl: String,
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     relayListState: androidx.compose.foundation.lazy.LazyListState,
     onNavigate: (Screen) -> Unit,
-    onCreateGroupClick: () -> Unit = {}
+    onCreateGroupClick: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {}
 ) {
     when (val screen = currentScreen) {
         is Screen.Home -> {
             HomeScreen(
+                relayUrl = selectedRelayUrl,
                 gridState = homeGridState,
                 onNavigate = onNavigate,
-                onCreateGroupClick = onCreateGroupClick
+                onCreateGroupClick = onCreateGroupClick,
+                onOpenDrawer = onOpenDrawer
             )
         }
         is Screen.Group -> {
@@ -437,7 +541,8 @@ private fun MobileContent(
                 onNavigateHome = { onNavigate(Screen.Home) },
                 onNavigateToGroup = { newGroupId, newGroupName ->
                     onNavigate(Screen.Group(newGroupId, newGroupName))
-                }
+                },
+                onOpenDrawer = onOpenDrawer
             )
         }
         is Screen.RelaySettings -> {
@@ -454,12 +559,6 @@ private fun MobileContent(
         }
         is Screen.EditProfile -> {
             EditProfileScreen(
-                onNavigate = onNavigate
-            )
-        }
-        is Screen.PAGE1 -> {
-            HomeScreen(
-                gridState = homeGridState,
                 onNavigate = onNavigate
             )
         }

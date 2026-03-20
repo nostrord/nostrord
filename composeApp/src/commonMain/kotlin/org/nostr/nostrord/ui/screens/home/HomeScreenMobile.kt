@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,7 +18,6 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
-import org.nostr.nostrord.ui.components.navigation.ServerRail
 import org.nostr.nostrord.ui.screens.home.components.GroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -28,7 +28,6 @@ import org.nostr.nostrord.ui.theme.Spacing
  * Mobile home screen - group discovery/explore view.
  *
  * Mobile-first layout:
- * - Server rail on left (when showServerRail=true)
  * - Full-width search
  * - Single-column group cards
  * - Thumb-reachable actions at bottom
@@ -39,7 +38,6 @@ fun HomeScreenMobile(
     gridState: LazyGridState,
     onNavigate: (Screen) -> Unit,
     joinedGroups: Set<String>,
-    groups: List<GroupMetadata>,
     filteredGroups: List<GroupMetadata>,
     searchQuery: String,
     onSearchChange: (String) -> Unit,
@@ -47,14 +45,8 @@ fun HomeScreenMobile(
     isLoading: Boolean = false,
     hasError: Boolean = false,
     onRetry: () -> Unit = {},
-    userAvatarUrl: String? = null,
-    userDisplayName: String? = null,
-    userPubkey: String? = null,
-    unreadCounts: Map<String, Int> = emptyMap(),
-    onGroupClick: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
-    onUserClick: () -> Unit = {},
-    showServerRail: Boolean = true, // When false, server rail is handled by parent shell
-    onCreateGroupClick: () -> Unit = {}
+    onCreateGroupClick: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -65,6 +57,18 @@ fun HomeScreenMobile(
                         style = NostrordTypography.ServerHeader,
                         color = Color.White
                     )
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick = onOpenDrawer,
+                        modifier = Modifier.size(Spacing.touchTargetMin)
+                    ) {
+                        Icon(
+                            Icons.Default.Menu,
+                            contentDescription = "Open sidebar",
+                            tint = NostrordColors.TextSecondary
+                        )
+                    }
                 },
                 actions = {
                     IconButton(
@@ -85,34 +89,12 @@ fun HomeScreenMobile(
         },
         containerColor = NostrordColors.Background
     ) { paddingValues ->
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .background(NostrordColors.Background)
         ) {
-            // Server rail on the left - only show when not handled by parent shell
-            if (showServerRail) {
-                ServerRail(
-                    joinedGroups = joinedGroups,
-                    groups = groups,
-                    activeGroupId = null, // No active group on home screen
-                    unreadCounts = unreadCounts,
-                    onHomeClick = { /* Already on home */ },
-                    onGroupClick = onGroupClick,
-                    onAddClick = onCreateGroupClick,
-                    userAvatarUrl = userAvatarUrl,
-                    userDisplayName = userDisplayName,
-                    userPubkey = userPubkey,
-                    onUserClick = onUserClick
-                )
-            }
-
-            // Main content area
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(NostrordColors.Background)
-            ) {
                 // Search and header section
                 Column(
                     modifier = Modifier
@@ -220,7 +202,6 @@ fun HomeScreenMobile(
                         }
                     }
                 }
-            }
         }
     }
 }

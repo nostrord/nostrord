@@ -8,11 +8,13 @@ import org.nostr.nostrord.network.NostrRepositoryApi
 class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
 
     val groups = repo.groups
+    val groupsByRelay = repo.groupsByRelay
     val connectionState = repo.connectionState
     val currentRelayUrl = repo.currentRelayUrl
     val joinedGroups = repo.joinedGroups
     val userMetadata = repo.userMetadata
     val unreadCounts = repo.unreadCounts
+    val relayMetadata = repo.relayMetadata
 
     fun getPublicKey() = repo.getPublicKey()
 

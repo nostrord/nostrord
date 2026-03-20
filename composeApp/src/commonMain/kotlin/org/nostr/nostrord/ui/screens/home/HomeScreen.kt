@@ -14,19 +14,25 @@ import org.nostr.nostrord.ui.Screen
 
 @Composable
 fun HomeScreen(
+    relayUrl: String? = null,
     gridState: LazyGridState = rememberLazyGridState(),
     onNavigate: (Screen) -> Unit,
-    showServerRail: Boolean = true, // When false, server rail is handled by parent shell
-    onCreateGroupClick: () -> Unit = {}
+    onCreateGroupClick: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {}
 ) {
     val vm = viewModel { HomeViewModel(AppModule.nostrRepository) }
 
-    val groups by vm.groups.collectAsState()
+    val allGroups by vm.groups.collectAsState()
+    val groupsByRelay by vm.groupsByRelay.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val joinedGroups by vm.joinedGroups.collectAsState()
-    val userMetadata by vm.userMetadata.collectAsState()
-    val unreadCounts by vm.unreadCounts.collectAsState()
+
+    // Use groups for the selected relay; fall back to the active relay's groups
+    val displayRelayUrl = relayUrl ?: currentRelayUrl
+    val groups = remember(displayRelayUrl, groupsByRelay, allGroups) {
+        groupsByRelay[displayRelayUrl] ?: if (displayRelayUrl == currentRelayUrl) allGroups else emptyList()
+    }
 
     var searchQuery by remember { mutableStateOf("") }
 
@@ -37,9 +43,6 @@ fun HomeScreen(
                     it.id.contains(searchQuery, ignoreCase = true)
         }
     }
-
-    val pubKey = vm.getPublicKey()
-    val currentUserMetadata = pubKey?.let { userMetadata[it] }
 
     LaunchedEffect(Unit) {
         vm.connect()
@@ -59,24 +62,15 @@ fun HomeScreen(
                 gridState = gridState,
                 onNavigate = onNavigate,
                 joinedGroups = joinedGroups,
-                groups = groups,
                 filteredGroups = filteredGroups,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
-                currentRelayUrl = currentRelayUrl,
+                currentRelayUrl = displayRelayUrl,
                 isLoading = isLoading,
                 hasError = hasError,
                 onRetry = { vm.connect() },
-                userAvatarUrl = currentUserMetadata?.picture,
-                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
-                userPubkey = pubKey,
-                unreadCounts = unreadCounts,
-                onGroupClick = { groupId, groupName ->
-                    onNavigate(Screen.Group(groupId, groupName))
-                },
-                onUserClick = { onNavigate(Screen.Profile) },
-                showServerRail = showServerRail,
-                onCreateGroupClick = onCreateGroupClick
+                onCreateGroupClick = onCreateGroupClick,
+                onOpenDrawer = onOpenDrawer
             )
         } else {
             HomeScreenDesktop(
@@ -87,7 +81,7 @@ fun HomeScreen(
                 filteredGroups = filteredGroups,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
-                currentRelayUrl = currentRelayUrl,
+                currentRelayUrl = displayRelayUrl,
                 gridColumns = if (isMedium) 2 else 3,
                 isLoading = isLoading,
                 hasError = hasError,
