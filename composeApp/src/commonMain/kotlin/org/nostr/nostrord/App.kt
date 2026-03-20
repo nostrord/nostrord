@@ -342,7 +342,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 
     if (showCreateGroupModal) {
         CreateGroupModal(
-            currentRelayUrl = currentRelayUrl,
+            currentRelayUrl = selectedRelayUrl,
             onDismiss = { showCreateGroupModal = false },
             onGroupCreated = { groupId, groupName ->
                 showCreateGroupModal = false

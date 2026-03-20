@@ -515,7 +515,7 @@ class NostrRepository(
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
-        return groupManager.editGroup(
+        val result = groupManager.editGroup(
             groupId = groupId,
             name = name,
             about = about,
@@ -525,6 +525,8 @@ class NostrRepository(
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) }
         )
+        if (result is Result.Success) refreshGroupMetadata(groupId)
+        return result
     }
 
     override suspend fun deleteGroup(groupId: String): Result<Unit> {

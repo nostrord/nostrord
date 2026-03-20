@@ -907,10 +907,21 @@ class GroupManager(
         // ALL relays contribute to the unified group list regardless of which relay
         // is currently active. _groupsByRelay handles per-relay filtering for the UI.
         val wasNew = _groups.value.none { it.id == metadata.id }
-        _groups.value = (_groups.value + metadata).distinctBy { it.id }
+        // Replace existing entry (update) or append if new — distinctBy keeps the first,
+        // so we must map-replace instead to propagate edits in realtime.
+        _groups.value = if (wasNew) {
+            _groups.value + metadata
+        } else {
+            _groups.value.map { if (it.id == metadata.id) metadata else it }
+        }
         _groupsByRelay.update { current ->
             val relayGroups = current[relayUrl] ?: emptyList()
-            val updated = (relayGroups + metadata).distinctBy { it.id }
+            val isNewForRelay = relayGroups.none { it.id == metadata.id }
+            val updated = if (isNewForRelay) {
+                relayGroups + metadata
+            } else {
+                relayGroups.map { if (it.id == metadata.id) metadata else it }
+            }
             current + (relayUrl to updated)
         }
         if (wasNew) {
