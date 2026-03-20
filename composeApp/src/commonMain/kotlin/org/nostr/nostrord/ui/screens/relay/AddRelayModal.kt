@@ -285,20 +285,6 @@ private fun SuggestedRelayCard(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(NostrordColors.Success.copy(alpha = 0.15f))
-                    .padding(horizontal = 7.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "NIP-29 ✓",
-                    color = NostrordColors.Success,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
         }
 
         Spacer(Modifier.width(12.dp))
