@@ -44,13 +44,18 @@ class OutboxManager(
     /**
      * Initialize outbox model for the current user
      */
-    suspend fun initialize(
+    fun initialize(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit
     ) {
-        // Connect to bootstrap relays immediately
+        // Connect to bootstrap relays in background — loadJoinedGroupsFromNostr connects
+        // to these same relays itself via getOrConnectRelay, so no need to await them here.
         val bootstrapToConnect = bootstrapRelays.take(3)
-        connectionManager.connectToRelaysParallel(bootstrapToConnect, messageHandler)
+        bootstrapToConnect.forEach { url ->
+            scope.launch {
+                try { connectionManager.getOrConnectRelay(url, messageHandler) } catch (_: Exception) {}
+            }
+        }
 
         // Fetch NIP-65 relay list in background
         scope.launch {
@@ -144,6 +149,7 @@ class OutboxManager(
         pubKey: String,
         joinedGroups: Set<String>,
         currentRelayUrl: String,
+        nip29Relays: List<String>,
         signEvent: suspend (Event) -> Event,
         messageHandler: (String, NostrGroupClient) -> Unit
     ): Result<Unit> {
@@ -152,10 +158,15 @@ class OutboxManager(
                 allRelayGroups = allRelayGroups + (currentRelayUrl to joinedGroups)
 
                 val tagsList = mutableListOf<List<String>>()
+                // ["group", groupId, relayUrl] for each joined group
                 allRelayGroups.forEach { (relayUrl, groupIds) ->
                     groupIds.forEach { groupId ->
                         tagsList.add(listOf("group", groupId, relayUrl))
                     }
+                }
+                // ["r", relayUrl] for each NIP-29 relay the user has added
+                nip29Relays.filter { it.isNotBlank() }.distinct().forEach { relayUrl ->
+                    tagsList.add(listOf("r", relayUrl))
                 }
                 tagsList
             }
@@ -201,6 +212,8 @@ class OutboxManager(
         currentRelayUrl: String,
         pubKey: String,
         onGroupsUpdated: (Set<String>) -> Unit,
+        onRelaysRestored: suspend (List<String>) -> Unit = {},
+        onRelayGroupsUpdated: (Map<String, Set<String>>) -> Unit = {},
         messageHandler: (String, NostrGroupClient) -> Unit = { _, _ -> }
     ) {
         kind10009Received = true
@@ -215,25 +228,67 @@ class OutboxManager(
         }
 
         val newRelayGroups = mutableMapOf<String, MutableSet<String>>()
+        val explicitNip29Relays = mutableListOf<String>()
 
         tags.forEach { tag ->
             val tagArray = tag.jsonArray
-            if (tagArray.size >= 2 && tagArray[0].jsonPrimitive.content == "group") {
-                val groupId = tagArray[1].jsonPrimitive.content
-                val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content ?: currentRelayUrl
-                newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
+            val tagName = tagArray.getOrNull(0)?.jsonPrimitive?.content ?: return@forEach
+            when (tagName) {
+                "group" -> {
+                    val groupId = tagArray.getOrNull(1)?.jsonPrimitive?.content ?: return@forEach
+                    val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content ?: currentRelayUrl
+                    newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
+                }
+                "r" -> {
+                    val relayUrl = tagArray.getOrNull(1)?.jsonPrimitive?.content ?: return@forEach
+                    if (relayUrl.isNotBlank()) explicitNip29Relays.add(relayUrl)
+                }
             }
         }
 
+        val immutableRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
         groupsMutex.withLock {
-            allRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
+            allRelayGroups = immutableRelayGroups
         }
 
-        val currentRelayGroups = newRelayGroups[currentRelayUrl] ?: emptySet()
-        SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, currentRelayGroups)
+        // Restore NIP-29 relay list from "r" tags if present; fall back to extracting
+        // from "group" tags for events published by older versions of the app.
+        val restoredRelays = if (explicitNip29Relays.isNotEmpty()) {
+            explicitNip29Relays.distinct()
+        } else {
+            newRelayGroups.keys.toList()
+        }
+        var newlyRestoredRelays = emptyList<String>()
+        if (restoredRelays.isNotEmpty()) {
+            val existing = SecureStorage.loadRelayList()
+            val merged = (existing + restoredRelays).distinct()
+            if (merged != existing) {
+                SecureStorage.saveRelayList(merged)
+                newlyRestoredRelays = merged.filter { it !in existing }
+            }
+        }
 
-        // Surface only current-relay groups to the UI; full map lives in allRelayGroups.
-        onGroupsUpdated(currentRelayGroups)
+        // Save joined groups for ALL relays found in the event so that switching
+        // relays later can load membership from storage without a network fetch.
+        immutableRelayGroups.forEach { (relayUrl, groups) ->
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, groups)
+        }
+
+        // Update in-memory per-relay joined groups for ALL relays at once.
+        onRelayGroupsUpdated(immutableRelayGroups)
+
+        // Surface only current-relay groups to the active UI.
+        // Only call onGroupsUpdated when the current relay is actually in the event;
+        // avoid wiping the UI with an empty set when the event belongs to other relays.
+        val currentRelayGroups = immutableRelayGroups[currentRelayUrl]
+        if (currentRelayGroups != null) {
+            onGroupsUpdated(currentRelayGroups)
+        }
+
+        // Notify caller about newly discovered relays so it can connect and request groups.
+        if (newlyRestoredRelays.isNotEmpty()) {
+            onRelaysRestored(newlyRestoredRelays)
+        }
 
         // Connect to relays from kind:10009 using the caller's message handler so that
         // group events (kind 39000) are not silently dropped by a no-op handler.

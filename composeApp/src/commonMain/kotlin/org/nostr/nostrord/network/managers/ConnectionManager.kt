@@ -354,7 +354,7 @@ class ConnectionManager(
     }
 
     /**
-     * Clear all connections
+     * Clear all connections, disconnecting pool clients in parallel.
      */
     suspend fun clearAll() {
         scope.coroutineContext.cancelChildren()
@@ -366,7 +366,10 @@ class ConnectionManager(
             relayPool.clear()
             clients
         }
-        clientsToDisconnect.forEach { it.disconnect() }
+        // Parallel disconnect — avoids multiplying per-relay close latency
+        clientsToDisconnect.map { client ->
+            scope.launch { try { client.disconnect() } catch (_: Exception) {} }
+        }.forEach { it.join() }
     }
 
     /**

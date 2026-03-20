@@ -108,11 +108,24 @@ class NostrRepository(
 
             // Load saved relay list and pre-populate the rail before connecting
             val savedRelays = SecureStorage.loadRelayList()
-            // No relay configured at all — skip connection, user must add one
+
+            // No NIP-29 relays saved locally — still fetch kind:10009 from bootstrap
+            // relays so "r" tags can restore the user's relay list automatically.
             if (activeRelay.isBlank() && savedRelays.isEmpty()) {
+                if (pubkey != null) {
+                    unreadManager.initialize(pubkey)
+                    initializeOutboxModel()
+                    scope.launch {
+                        outboxManager.loadJoinedGroupsFromNostr(pubkey) { msg, c ->
+                            handleUnifiedMessage(msg, c)
+                        }
+                    }
+                    requestUserMetadata(setOf(pubkey))
+                }
                 _isInitialized.value = true
                 return
             }
+
             val allRelays = (if (activeRelay.isBlank()) savedRelays else (listOf(activeRelay) + savedRelays)).distinct()
             println("[Init] activeRelay=$activeRelay  savedRelays=$savedRelays  allRelays=$allRelays")
             groupManager.prePopulateRelayList(allRelays)
@@ -131,8 +144,6 @@ class NostrRepository(
             }
 
             // Connect to all other saved relays in parallel to populate groupsByRelay.
-            // Previously sequential — each relay waited for the previous one's 15s timeout.
-            // Now each relay connects independently so all 4 relays race in parallel.
             val otherRelays = allRelays.filter { it != activeRelay }
             otherRelays.forEach { relayUrl ->
                 scope.launch { connectToRelayBackground(relayUrl) }
@@ -172,10 +183,10 @@ class NostrRepository(
         return try {
             val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
             unreadManager.initialize(userPubkey)
-            initializeOutboxModel()
+            initializeOutboxModel()  // instant: launches all work in background internally
             connect()
             sessionManager.setLoggedIn(true)
-            requestUserMetadata(setOf(userPubkey))
+            scope.launch { requestUserMetadata(setOf(userPubkey)) }
             Result.Success(userPubkey)
         } catch (e: Exception) {
             Result.Error(AppError.Auth.BunkerError(e.message ?: "Bunker connection failed", e))
@@ -192,8 +203,7 @@ class NostrRepository(
     ): String {
         val userPubkey = sessionManager.completeNostrConnectLogin(client, relays)
         unreadManager.initialize(userPubkey)
-        // Connect to NIP-29 relay first (what the user sees), outbox model in background
-        scope.launch { initializeOutboxModel() }
+        initializeOutboxModel()  // instant: launches all work in background internally
         connect()
         sessionManager.setLoggedIn(true)
         scope.launch { requestUserMetadata(setOf(userPubkey)) }
@@ -204,10 +214,10 @@ class NostrRepository(
         return try {
             sessionManager.loginWithPrivateKey(privKey, pubKey)
             unreadManager.initialize(pubKey)
-            initializeOutboxModel()
+            initializeOutboxModel()  // instant: launches all work in background internally
             connect()
             sessionManager.setLoggedIn(true)
-            requestUserMetadata(setOf(pubKey))
+            scope.launch { requestUserMetadata(setOf(pubKey)) }
             Result.Success(Unit)
         } catch (e: Exception) {
             Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
@@ -218,10 +228,10 @@ class NostrRepository(
         return try {
             sessionManager.loginWithNip07(pubkey)
             unreadManager.initialize(pubkey)
-            initializeOutboxModel()
+            initializeOutboxModel()  // instant: launches all work in background internally
             connect()
             sessionManager.setLoggedIn(true)
-            requestUserMetadata(setOf(pubkey))
+            scope.launch { requestUserMetadata(setOf(pubkey)) }
             Result.Success(Unit)
         } catch (e: Exception) {
             Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
@@ -231,25 +241,31 @@ class NostrRepository(
     override suspend fun logout() {
         scope.coroutineContext.cancelChildren()
 
+        // Clear in-memory and persistent state first — makes isLoggedIn flip immediately
+        // so the UI can navigate to the login screen without waiting for WebSocket closes.
         sessionManager.getPublicKey()?.let { pubKey ->
             groupManager.clearJoinedGroupsForAccount(pubKey)
         }
-
-        disconnect()
-        connectionManager.clearAll()
         outboxManager.clear()
-        sessionManager.logout()
         groupManager.clear()
         unreadManager.clear()
+        SecureStorage.saveRelayList(emptyList())
+        SecureStorage.clearCurrentRelayUrl()
+        connectionManager.clearCurrentRelay()
+        sessionManager.logout()  // flips isLoggedIn → UI navigates now
+
+        // Disconnect WebSockets in background — don't hold up the caller
+        scope.launch {
+            try { connectionManager.clearAll() } catch (_: Exception) {}
+        }
     }
 
     override fun forgetBunkerConnection() {
         sessionManager.forgetBunkerConnection()
     }
 
-    private suspend fun initializeOutboxModel() {
-        val pubKey = sessionManager.getPublicKey()
-        if (pubKey == null) return
+    private fun initializeOutboxModel() {
+        val pubKey = sessionManager.getPublicKey() ?: return
         // Use unified handler so that if an outbox relay is also a NIP-29 group relay,
         // kind 39000 group events are still processed correctly.
         outboxManager.initialize(pubKey) { msg, client -> handleUnifiedMessage(msg, client) }
@@ -308,7 +324,8 @@ class NostrRepository(
     override suspend fun switchRelay(newRelayUrl: String) {
         // Persist the new relay so it reappears in the rail after restart
         val existing = SecureStorage.loadRelayList()
-        if (newRelayUrl !in existing) {
+        val isNewRelay = newRelayUrl !in existing
+        if (isNewRelay) {
             SecureStorage.saveRelayList((existing + newRelayUrl).distinct())
         }
         _relayMetadataManager.fetch(newRelayUrl)
@@ -352,6 +369,11 @@ class NostrRepository(
                 outboxManager.loadJoinedGroupsFromNostr(pubKey) { msg, c -> handleRelayMessage(msg, c) }
             }
         }
+
+        // Publish updated kind:10009 so the new relay appears in the "r" tags
+        if (isNewRelay && pubKey.isNotEmpty()) {
+            scope.launch { publishJoinedGroupsList() }
+        }
     }
 
     override suspend fun removeRelay(url: String) {
@@ -370,6 +392,12 @@ class NostrRepository(
         }
         // Disconnect the removed relay (pool or primary)
         connectionManager.disconnectRelay(url)
+
+        // Publish updated kind:10009 so the removed relay is dropped from "r" tags
+        val pubKey = sessionManager.getPublicKey()
+        if (pubKey != null && remaining.isNotEmpty()) {
+            scope.launch { publishJoinedGroupsList() }
+        }
     }
 
     override suspend fun disconnect() {
@@ -705,6 +733,7 @@ class NostrRepository(
             pubKey = pubKey,
             joinedGroups = groupManager.joinedGroups.value,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
+            nip29Relays = SecureStorage.loadRelayList(),
             signEvent = { sessionManager.signEvent(it) },
             messageHandler = { msg, client -> handleRelayMessage(msg, client) }
         )
@@ -761,6 +790,16 @@ class NostrRepository(
                             currentRelayUrl = connectionManager.currentRelayUrl.value,
                             pubKey = pubKey,
                             onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) },
+                            onRelaysRestored = { newRelays ->
+                                groupManager.prePopulateRelayList(newRelays)
+                                _relayMetadataManager.fetchAll(newRelays)
+                                newRelays.forEach { relayUrl ->
+                                    scope.launch { connectToRelayBackground(relayUrl) }
+                                }
+                            },
+                            onRelayGroupsUpdated = { relayGroups ->
+                                groupManager.updateAllRelayJoinedGroups(relayGroups)
+                            },
                             messageHandler = { m, c -> handleUnifiedMessage(m, c) }
                         )
                     }
@@ -976,6 +1015,16 @@ class NostrRepository(
                             currentRelayUrl = connectionManager.currentRelayUrl.value,
                             pubKey = pubKey,
                             onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) },
+                            onRelaysRestored = { newRelays ->
+                                groupManager.prePopulateRelayList(newRelays)
+                                _relayMetadataManager.fetchAll(newRelays)
+                                newRelays.forEach { relayUrl ->
+                                    scope.launch { connectToRelayBackground(relayUrl) }
+                                }
+                            },
+                            onRelayGroupsUpdated = { relayGroups ->
+                                groupManager.updateAllRelayJoinedGroups(relayGroups)
+                            },
                             messageHandler = { m, c -> handleUnifiedMessage(m, c) }
                         )
                     }

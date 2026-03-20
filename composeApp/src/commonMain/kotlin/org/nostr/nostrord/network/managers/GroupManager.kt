@@ -192,6 +192,20 @@ class GroupManager(
     }
 
     /**
+     * Update joined groups for all relays at once from a kind:10009 event.
+     * Called when a kind:10009 arrives so every relay's membership is reflected
+     * in the UI immediately — not just the currently active relay.
+     */
+    fun updateAllRelayJoinedGroups(relayGroups: Map<String, Set<String>>) {
+        if (relayGroups.isEmpty()) return
+        _joinedGroupsByRelay.update { it + relayGroups }
+        // Also sync _joinedGroups if the active relay is in the event
+        currentRelayUrl?.let { url ->
+            relayGroups[url]?.let { groups -> _joinedGroups.value = groups }
+        }
+    }
+
+    /**
      * Join a group
      */
     suspend fun joinGroup(
