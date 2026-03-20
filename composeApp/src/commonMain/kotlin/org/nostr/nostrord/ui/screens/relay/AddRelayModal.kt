@@ -86,7 +86,7 @@ fun AddRelayModal(
                 modifier = Modifier
                     .widthIn(max = 480.dp)
                     .fillMaxWidth(fraction = 0.92f)
-                    .fillMaxHeight(fraction = 0.85f)
+                    .heightIn(max = 560.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(NostrordColors.Surface)
                     .clickable(
