@@ -67,6 +67,7 @@ interface NostrRepositoryApi {
     suspend fun connect()
     suspend fun reconnect(): Boolean
     suspend fun switchRelay(newRelayUrl: String)
+    suspend fun removeRelay(url: String)
     suspend fun disconnect()
 
     // --- Group operations ---

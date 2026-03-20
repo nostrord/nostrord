@@ -254,6 +254,18 @@ class ConnectionManager(
     }
 
     /**
+     * Disconnect and remove a specific relay, whether it's in the pool or is the primary.
+     */
+    suspend fun disconnectRelay(url: String) {
+        poolMutex.withLock {
+            relayPool.remove(url)?.disconnect()
+        }
+        if (_currentRelayUrl.value == url) {
+            disconnectPrimary()
+        }
+    }
+
+    /**
      * Get or create a connection to a relay in the pool
      */
     suspend fun getOrConnectRelay(

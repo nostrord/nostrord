@@ -223,6 +223,13 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
         (groupsByRelay.keys.toList() + currentRelayUrl).distinct()
     }
 
+    // If the selected relay was removed, fall back to the first remaining relay
+    LaunchedEffect(relayList) {
+        if (selectedRelayUrl !in relayList) {
+            selectedRelayUrl = relayList.firstOrNull() ?: currentRelayUrl
+        }
+    }
+
     // All groups for the relay selected in the rail (not just joined ones)
     val groupsForSelectedRelay = remember(selectedRelayUrl, groupsByRelay) {
         groupsByRelay[selectedRelayUrl] ?: emptyList()

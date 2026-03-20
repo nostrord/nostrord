@@ -1185,6 +1185,14 @@ class GroupManager(
     }
 
     /**
+     * Remove a single relay entry from the in-memory cache so the rail updates immediately.
+     */
+    fun removeRelayEntry(url: String) {
+        completeGroupLoadRelays.remove(url)
+        _groupsByRelay.update { current -> current - url }
+    }
+
+    /**
      * Clear all state including the per-relay group metadata cache.
      * Use on logout or full account reset.
      */

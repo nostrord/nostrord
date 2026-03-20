@@ -22,4 +22,8 @@ class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
     fun connect() {
         viewModelScope.launch { repo.connect() }
     }
+
+    fun removeRelay(url: String) {
+        viewModelScope.launch { repo.removeRelay(url) }
+    }
 }

@@ -122,6 +122,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun connect() {}
     override suspend fun reconnect(): Boolean = true
     override suspend fun switchRelay(newRelayUrl: String) { _currentRelayUrl.value = newRelayUrl }
+    override suspend fun removeRelay(url: String) {}
     override suspend fun disconnect() {}
 
     override suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean): Result<String> =

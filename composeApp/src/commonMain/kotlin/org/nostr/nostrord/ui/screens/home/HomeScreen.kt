@@ -88,7 +88,11 @@ fun HomeScreen(
                 hasError = hasError,
                 onRetry = { vm.connect() },
                 onCreateGroupClick = onCreateGroupClick,
-                onOpenDrawer = onOpenDrawer
+                onOpenDrawer = onOpenDrawer,
+                onRemoveRelay = {
+                    vm.removeRelay(displayRelayUrl)
+                    onNavigate(Screen.Home)
+                }
             )
         } else {
             HomeScreenDesktop(
@@ -106,7 +110,11 @@ fun HomeScreen(
                 gridColumns = if (isMedium) 2 else 3,
                 isLoading = isLoading,
                 hasError = hasError,
-                onRetry = { vm.connect() }
+                onRetry = { vm.connect() },
+                onRemoveRelay = {
+                    vm.removeRelay(displayRelayUrl)
+                    onNavigate(Screen.Home)
+                }
             )
         }
     }

@@ -27,8 +27,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -37,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import org.nostr.nostrord.utils.rememberClipboardWriter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,7 +81,8 @@ fun HomeScreenDesktop(
     onFilterChange: (GroupFilter) -> Unit,
     isLoading: Boolean = false,
     hasError: Boolean = false,
-    onRetry: () -> Unit = {}
+    onRetry: () -> Unit = {},
+    onRemoveRelay: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -89,10 +94,11 @@ fun HomeScreenDesktop(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(NostrordColors.Background)
-                .padding(top = 32.dp, start = 24.dp, end = 56.dp, bottom = 16.dp)
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 32.dp, start = 24.dp, end = 24.dp, bottom = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 val relayLabel = relayMeta?.name?.takeIf { it.isNotBlank() }
@@ -123,17 +129,12 @@ fun HomeScreenDesktop(
                 )
             }
 
-            // Relay settings — top-right
-            IconButton(
-                onClick = { onNavigate(Screen.RelaySettings) },
+            // Relay options menu — position:absolute; top:8px; right:8px
+            RelayOptionsMenu(
+                relayUrl = currentRelayUrl,
+                onRemoveRelay = onRemoveRelay,
                 modifier = Modifier.align(Alignment.TopEnd)
-            ) {
-                Icon(
-                    Icons.Default.Settings,
-                    contentDescription = "Relay Settings",
-                    tint = NostrordColors.TextMuted
-                )
-            }
+            )
         }
 
         // Scrollable content area
@@ -310,6 +311,58 @@ private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+        }
+    }
+}
+
+@Composable
+internal fun RelayOptionsMenu(
+    relayUrl: String,
+    onRemoveRelay: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val copyToClipboard = rememberClipboardWriter()
+    var expanded by remember { mutableStateOf(false) }
+
+    // Box wraps IconButton + DropdownMenu so the dropdown anchors to the button
+    Box(modifier = modifier.wrapContentSize(Alignment.TopEnd)) {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                Icons.Default.MoreVert,
+                contentDescription = "Relay options",
+                tint = NostrordColors.TextMuted
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = NostrordColors.Surface
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("📋", fontSize = 14.sp)
+                        Text("Copy relay URL", color = NostrordColors.TextPrimary, fontSize = 14.sp)
+                    }
+                },
+                onClick = {
+                    copyToClipboard(relayUrl)
+                    expanded = false
+                }
+            )
+            HorizontalDivider(color = NostrordColors.Divider)
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("✕", fontSize = 14.sp, color = NostrordColors.Error)
+                        Text("Remove relay", color = NostrordColors.Error, fontSize = 14.sp)
+                    }
+                },
+                onClick = {
+                    expanded = false
+                    onRemoveRelay()
+                }
+            )
         }
     }
 }

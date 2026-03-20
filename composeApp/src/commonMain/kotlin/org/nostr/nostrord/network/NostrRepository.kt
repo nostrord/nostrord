@@ -349,6 +349,21 @@ class NostrRepository(
         }
     }
 
+    override suspend fun removeRelay(url: String) {
+        val existing = SecureStorage.loadRelayList()
+        val remaining = existing.filter { it != url }
+        SecureStorage.saveRelayList(remaining)
+        // Remove from in-memory map so the rail updates immediately
+        groupManager.removeRelayEntry(url)
+        // Switch to the first remaining relay before disconnecting the removed one
+        val fallback = remaining.firstOrNull()
+        if (fallback != null && fallback != connectionManager.currentRelayUrl.value) {
+            switchRelay(fallback)
+        }
+        // Disconnect the removed relay (pool or primary)
+        connectionManager.disconnectRelay(url)
+    }
+
     override suspend fun disconnect() {
         connectionManager.disconnectPrimary()
         groupManager.clear()

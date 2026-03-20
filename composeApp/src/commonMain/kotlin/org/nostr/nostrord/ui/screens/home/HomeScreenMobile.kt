@@ -18,7 +18,6 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -60,7 +59,8 @@ fun HomeScreenMobile(
     hasError: Boolean = false,
     onRetry: () -> Unit = {},
     onCreateGroupClick: () -> Unit = {},
-    onOpenDrawer: () -> Unit = {}
+    onOpenDrawer: () -> Unit = {},
+    onRemoveRelay: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -85,16 +85,10 @@ fun HomeScreenMobile(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { onNavigate(Screen.RelaySettings) },
-                        modifier = Modifier.size(Spacing.touchTargetMin)
-                    ) {
-                        Icon(
-                            Icons.Default.Settings,
-                            contentDescription = "Relay Settings",
-                            tint = NostrordColors.TextSecondary
-                        )
-                    }
+                    RelayOptionsMenu(
+                        relayUrl = currentRelayUrl,
+                        onRemoveRelay = onRemoveRelay
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = NostrordColors.BackgroundDark
