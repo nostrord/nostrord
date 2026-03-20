@@ -56,6 +56,7 @@ import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
 import org.nostr.nostrord.ui.screens.profile.ProfileScreen
+import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 /**
@@ -220,7 +221,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     // currentRelayUrl is appended last only as a fallback for when it isn't in the map yet
     // (e.g. briefly after switchRelay before the first kind:39000 events arrive).
     val relayList = remember(currentRelayUrl, groupsByRelay) {
-        (groupsByRelay.keys.toList() + currentRelayUrl).distinct()
+        (groupsByRelay.keys.toList() + currentRelayUrl).filter { it.isNotBlank() }.distinct()
     }
 
     // If the selected relay was removed, fall back to the first remaining relay
@@ -366,6 +367,12 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize().then(keyEventModifier)) {
         val isDesktop = maxWidth >= 600.dp
+
+        // No relay configured — show onboarding
+        if (relayList.isEmpty()) {
+            OnboardingScreen(onAddRelay = { showAddRelayModal = true })
+            return@BoxWithConstraints
+        }
 
         if (isDesktop) {
             Column {

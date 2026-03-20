@@ -30,7 +30,7 @@ class ConnectionManager(
     // guard simultaneously (Dispatchers.Default is multi-threaded).
     private val connectMutex = Mutex()
 
-    private val _currentRelayUrl = MutableStateFlow("wss://groups.fiatjaf.com")
+    private val _currentRelayUrl = MutableStateFlow("")
     val currentRelayUrl: StateFlow<String> = _currentRelayUrl.asStateFlow()
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -78,6 +78,10 @@ class ConnectionManager(
         if (savedRelayUrl != null) {
             _currentRelayUrl.value = savedRelayUrl
         }
+    }
+
+    fun clearCurrentRelay() {
+        _currentRelayUrl.value = ""
     }
 
     /**

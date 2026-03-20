@@ -108,7 +108,12 @@ class NostrRepository(
 
             // Load saved relay list and pre-populate the rail before connecting
             val savedRelays = SecureStorage.loadRelayList()
-            val allRelays = (listOf(activeRelay) + savedRelays).distinct()
+            // No relay configured at all — skip connection, user must add one
+            if (activeRelay.isBlank() && savedRelays.isEmpty()) {
+                _isInitialized.value = true
+                return
+            }
+            val allRelays = (if (activeRelay.isBlank()) savedRelays else (listOf(activeRelay) + savedRelays)).distinct()
             println("[Init] activeRelay=$activeRelay  savedRelays=$savedRelays  allRelays=$allRelays")
             groupManager.prePopulateRelayList(allRelays)
             groupManager.restoreAllGroupsFromStorage(allRelays)
@@ -355,10 +360,13 @@ class NostrRepository(
         SecureStorage.saveRelayList(remaining)
         // Remove from in-memory map so the rail updates immediately
         groupManager.removeRelayEntry(url)
-        // Switch to the first remaining relay before disconnecting the removed one
+        // Switch to first remaining relay, or clear persisted relay if none left
         val fallback = remaining.firstOrNull()
         if (fallback != null && fallback != connectionManager.currentRelayUrl.value) {
             switchRelay(fallback)
+        } else if (fallback == null) {
+            SecureStorage.clearCurrentRelayUrl()
+            connectionManager.clearCurrentRelay()
         }
         // Disconnect the removed relay (pool or primary)
         connectionManager.disconnectRelay(url)
