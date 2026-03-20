@@ -281,7 +281,8 @@ private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
             .padding(bottom = 4.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(NostrordColors.BackgroundDark)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .height(40.dp)
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.CenterStart
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

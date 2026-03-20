@@ -392,7 +392,8 @@ private fun CustomUrlTab(onAdd: (String) -> Unit, onCancel: () -> Unit) {
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(4.dp))
                     .background(NostrordColors.BackgroundDark)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .height(40.dp)
+                    .padding(horizontal = 12.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
                 if (relayUrl.isEmpty()) {

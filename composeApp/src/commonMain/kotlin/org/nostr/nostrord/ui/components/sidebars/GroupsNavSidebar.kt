@@ -165,7 +165,8 @@ fun GroupsNavSidebar(
                                             .padding(horizontal = Spacing.xs, vertical = 2.dp)
                                             .clip(RoundedCornerShape(4.dp))
                                             .background(NostrordColors.BackgroundDark)
-                                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                                            .height(28.dp)
+                                            .padding(horizontal = 8.dp),
                                         contentAlignment = Alignment.CenterStart
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
