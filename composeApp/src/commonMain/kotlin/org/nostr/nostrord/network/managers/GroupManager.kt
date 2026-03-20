@@ -413,13 +413,24 @@ class GroupManager(
             _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave) }
             publishJoinedGroups()
 
-            // Remove group from list
+            // Remove group from live list and per-relay cache
             _groups.value = _groups.value.filter { it.id != groupId }
+            _groupsByRelay.update { current ->
+                val updated = (current[groupRelayUrl] ?: emptyList()).filter { it.id != groupId }
+                current + (groupRelayUrl to updated)
+            }
+            // Persist the updated relay group list so the group doesn't reappear on restart
+            try {
+                val updatedRelayGroups = _groupsByRelay.value[groupRelayUrl] ?: emptyList()
+                SecureStorage.saveGroupsForRelay(groupRelayUrl, json.encodeToString(updatedRelayGroups))
+            } catch (_: Exception) {}
+
             _messages.update { it - groupId }
             _isLoadingMore.update { it - groupId }
             _hasMoreMessages.update { it - groupId }
             _groupStates.update { it - groupId }
             _groupAdmins.value = _groupAdmins.value - groupId
+            _groupMembers.update { it - groupId }
             loadingRegistry.remove(groupId)
 
             Result.Success(Unit)

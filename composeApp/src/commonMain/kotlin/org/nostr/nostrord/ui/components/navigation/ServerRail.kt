@@ -57,6 +57,7 @@ import org.nostr.nostrord.ui.theme.NostrordAnimation
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.util.relayFallbackPainter
 
 /**
  * Relay Rail — leftmost 72dp column.
@@ -180,7 +181,8 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
     )
 
     var imageLoadFailed by remember(iconUrl) { mutableStateOf(false) }
-    val showImage = !iconUrl.isNullOrBlank() && !imageLoadFailed
+    val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
+    val showImage = (fallbackPainter != null) || (!iconUrl.isNullOrBlank() && !imageLoadFailed)
     val showText = !showImage
 
     // clip() before background() so children are clipped to the rounded shape too
@@ -211,7 +213,14 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
             )
         }
 
-        if (showImage) {
+        if (fallbackPainter != null) {
+            androidx.compose.foundation.Image(
+                painter = fallbackPainter,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (showImage) {
             val context = LocalPlatformContext.current
             val density = LocalDensity.current
             val sizeInPx = with(density) { Spacing.serverIconSize.roundToPx() }

@@ -39,6 +39,7 @@ import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.generateColorFromString
+import org.nostr.nostrord.ui.util.relayFallbackPainter
 import org.nostr.nostrord.utils.getImageUrl
 
 private data class SuggestedRelay(
@@ -334,11 +335,12 @@ private fun SuggestedRelayCard(
 @Composable
 private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: androidx.compose.ui.unit.Dp) {
     val context = LocalPlatformContext.current
+    val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(url) else null
     val hasIcon = isValidIconUrl(iconUrl)
     var imageState by remember(iconUrl) {
         mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
     }
-    val showImage = hasIcon && imageState !is AsyncImagePainter.State.Error
+    val showImage = (fallbackPainter != null) || (hasIcon && imageState !is AsyncImagePainter.State.Error)
 
     Box(
         modifier = Modifier
@@ -355,7 +357,14 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
                 fontWeight = FontWeight.Bold
             )
         }
-        if (hasIcon) {
+        if (fallbackPainter != null) {
+            androidx.compose.foundation.Image(
+                painter = fallbackPainter,
+                contentDescription = name,
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
+            )
+        } else if (hasIcon) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(getImageUrl(iconUrl!!))
