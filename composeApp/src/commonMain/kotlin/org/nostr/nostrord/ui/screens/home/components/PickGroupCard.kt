@@ -70,7 +70,7 @@ fun PickGroupCard(
         Column(modifier = Modifier.weight(1f)) {
             val displayName = group.name ?: group.id
             Text(
-                text = "#$displayName",
+                text = displayName,
                 color = NostrordColors.TextPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
