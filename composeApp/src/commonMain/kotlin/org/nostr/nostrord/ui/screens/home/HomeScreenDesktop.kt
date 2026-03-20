@@ -59,7 +59,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.generateColorFromString
 
-enum class GroupFilter { All, Joined, Open, Closed, Private }
+enum class GroupFilter { All, Joined }
 
 @Composable
 fun HomeScreenDesktop(
@@ -216,10 +216,7 @@ fun HomeScreenDesktop(
 private fun FilterBar(activeFilter: GroupFilter, onFilterChange: (GroupFilter) -> Unit) {
     val filters = listOf(
         GroupFilter.All to "All",
-        GroupFilter.Joined to "Joined",
-        GroupFilter.Open to "Open",
-        GroupFilter.Closed to "Closed",
-        GroupFilter.Private to "Private"
+        GroupFilter.Joined to "Joined"
     )
 
     Row(

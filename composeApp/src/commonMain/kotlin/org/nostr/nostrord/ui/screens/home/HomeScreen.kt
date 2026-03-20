@@ -52,9 +52,6 @@ fun HomeScreen(
                 when (activeFilter) {
                     GroupFilter.All -> true
                     GroupFilter.Joined -> group.id in joinedGroupIds
-                    GroupFilter.Open -> group.isOpen
-                    GroupFilter.Closed -> !group.isOpen
-                    GroupFilter.Private -> !group.isPublic
                 }
             }
             .filter { group ->

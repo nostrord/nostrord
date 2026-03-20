@@ -176,10 +176,7 @@ fun HomeScreenMobile(
 private fun MobileFilterBar(activeFilter: GroupFilter, onFilterChange: (GroupFilter) -> Unit) {
     val filters = listOf(
         GroupFilter.All to "All",
-        GroupFilter.Joined to "Joined",
-        GroupFilter.Open to "Open",
-        GroupFilter.Closed to "Closed",
-        GroupFilter.Private to "Private"
+        GroupFilter.Joined to "Joined"
     )
 
     Row(
