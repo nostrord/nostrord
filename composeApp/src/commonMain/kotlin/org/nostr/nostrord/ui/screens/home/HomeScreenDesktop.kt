@@ -1,46 +1,65 @@
 package org.nostr.nostrord.ui.screens.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
+import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.nostr.isValidIconUrl
+import org.nostr.nostrord.utils.getImageUrl
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
-import org.nostr.nostrord.ui.screens.home.components.GroupCard
+import org.nostr.nostrord.ui.components.navigation.relayShortLabel
+import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
+import org.nostr.nostrord.ui.screens.home.components.PickGroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.theme.NostrordShapes
-import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.util.generateColorFromString
 
-/**
- * Desktop home screen - group discovery/explore view.
- *
- * When inside DesktopShell, the ServerRail handles group navigation.
- * This screen focuses on exploring and finding new groups.
- *
- * Layout:
- * ┌─────────────────────────────────────────────┐
- * │ Header: Relay info + Settings               │
- * ├─────────────────────────────────────────────┤
- * │ Search bar                                  │
- * ├─────────────────────────────────────────────┤
- * │                                             │
- * │        Group cards grid (2-3 columns)       │
- * │                                             │
- * └─────────────────────────────────────────────┘
- */
+enum class GroupFilter { All, Joined, Open, Closed, Private }
+
 @Composable
 fun HomeScreenDesktop(
     gridState: LazyGridState,
@@ -51,7 +70,10 @@ fun HomeScreenDesktop(
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     currentRelayUrl: String,
+    relayMeta: Nip11RelayInfo? = null,
     gridColumns: Int,
+    activeFilter: GroupFilter,
+    onFilterChange: (GroupFilter) -> Unit,
     isLoading: Boolean = false,
     hasError: Boolean = false,
     onRetry: () -> Unit = {}
@@ -61,148 +83,280 @@ fun HomeScreenDesktop(
             .fillMaxSize()
             .background(NostrordColors.Background)
     ) {
-        // Header bar
+        // pick-group-header: centered relay icon + title + description
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(Spacing.headerHeight)
-                .background(NostrordColors.BackgroundDark)
-                .padding(horizontal = Spacing.lg),
-            contentAlignment = Alignment.CenterStart
+                .background(NostrordColors.Background)
+                .padding(top = 32.dp, start = 24.dp, end = 56.dp, bottom = 16.dp)
         ) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "Explore Groups",
-                    style = NostrordTypography.ServerHeader,
-                    color = Color.White
+                val relayLabel = relayMeta?.name?.takeIf { it.isNotBlank() }
+                    ?: relayShortLabel(currentRelayUrl)
+
+                RelayHeaderIcon(
+                    relayUrl = currentRelayUrl,
+                    iconUrl = relayMeta?.icon,
+                    label = relayLabel,
+                    size = 64.dp
                 )
-                IconButton(onClick = { onNavigate(Screen.RelaySettings) }) {
-                    Icon(
-                        Icons.Default.Cloud,
-                        contentDescription = "Relay Settings",
-                        tint = NostrordColors.TextSecondary
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = relayLabel,
+                    color = NostrordColors.TextPrimary,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Choose a group to join and start chatting.",
+                    color = NostrordColors.TextMuted,
+                    fontSize = 14.sp
+                )
+            }
+
+            // Relay settings — top-right
+            IconButton(
+                onClick = { onNavigate(Screen.RelaySettings) },
+                modifier = Modifier.align(Alignment.TopEnd)
+            ) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "Relay Settings",
+                    tint = NostrordColors.TextMuted
+                )
+            }
+        }
+
+        // Scrollable content area
+        Box(modifier = Modifier.weight(1f)) {
+            when {
+                hasError -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        ConnectionErrorState(onRetry = onRetry)
+                    }
+                }
+                isLoading && groups.isEmpty() -> {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 280.dp),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(6) { GroupCardSkeleton() }
+                    }
+                }
+                else -> {
+                    LazyVerticalGrid(
+                        state = gridState,
+                        columns = GridCells.Adaptive(minSize = 280.dp),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Filter bar
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            FilterBar(activeFilter = activeFilter, onFilterChange = onFilterChange)
+                        }
+
+                        // Search input
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            PickGroupSearch(
+                                query = searchQuery,
+                                onQueryChange = onSearchChange
+                            )
+                        }
+
+                        if (filteredGroups.isEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (searchQuery.isNotBlank()) "No groups match \"$searchQuery\""
+                                               else "No groups found",
+                                        color = NostrordColors.TextMuted,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        } else {
+                            items(filteredGroups, key = { it.id }) { group ->
+                                PickGroupCard(
+                                    group = group,
+                                    isJoined = group.id in joinedGroups,
+                                    onClick = { onNavigate(Screen.Group(group.id, group.name)) }
+                                )
+                            }
+                        }
+                    }
+
+                    VerticalScrollbarWrapper(
+                        gridState = gridState,
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
                     )
                 }
             }
         }
+    }
+}
 
-        // Search and content area
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = Spacing.lg)
-        ) {
-            // Search header
-            Spacer(modifier = Modifier.height(Spacing.lg))
+@Composable
+private fun FilterBar(activeFilter: GroupFilter, onFilterChange: (GroupFilter) -> Unit) {
+    val filters = listOf(
+        GroupFilter.All to "All",
+        GroupFilter.Joined to "Joined",
+        GroupFilter.Open to "Open",
+        GroupFilter.Closed to "Closed",
+        GroupFilter.Private to "Private"
+    )
 
-            Text(
-                text = "Discover",
-                style = NostrordTypography.ServerHeader,
-                color = Color.White
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 2.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        filters.forEach { (filter, label) ->
+            FilterChip(
+                label = label,
+                isActive = activeFilter == filter,
+                onClick = { onFilterChange(filter) }
             )
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(Spacing.xs))
+@Composable
+private fun FilterChip(label: String, isActive: Boolean, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
 
-            Text(
-                text = "${filteredGroups.size} groups on $currentRelayUrl",
-                style = NostrordTypography.Caption,
-                color = NostrordColors.TextSecondary
+    val bg = when {
+        isActive -> NostrordColors.Primary
+        isHovered -> NostrordColors.SurfaceVariant
+        else -> NostrordColors.BackgroundDark
+    }
+    val textColor = when {
+        isActive -> Color.White
+        isHovered -> NostrordColors.TextSecondary
+        else -> NostrordColors.TextMuted
+    }
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(bg)
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(horizontal = 12.dp, vertical = 5.dp)
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 4.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(NostrordColors.BackgroundDark)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = null,
+                tint = NostrordColors.TextMuted,
+                modifier = Modifier.size(14.dp)
             )
-
-            Spacer(modifier = Modifier.height(Spacing.md))
-
-            // Search input
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchChange,
-                placeholder = {
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(modifier = Modifier.weight(1f)) {
+                if (query.isEmpty()) {
                     Text(
-                        "Search groups...",
-                        style = NostrordTypography.InputPlaceholder,
-                        color = NostrordColors.TextMuted
+                        text = "Search groups...",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 13.sp
                     )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                textStyle = NostrordTypography.Input.copy(color = Color.White),
-                shape = NostrordShapes.inputShape,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = NostrordColors.Primary,
-                    unfocusedBorderColor = NostrordColors.Divider,
-                    focusedContainerColor = NostrordColors.InputBackground,
-                    unfocusedContainerColor = NostrordColors.InputBackground
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = NostrordColors.TextPrimary,
+                        fontSize = 13.sp
+                    ),
+                    cursorBrush = SolidColor(NostrordColors.Primary),
+                    modifier = Modifier.fillMaxWidth()
                 )
-            )
-
-            Spacer(modifier = Modifier.height(Spacing.lg))
-
-            // Grid content
-            when {
-                hasError -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ConnectionErrorState(onRetry = onRetry)
-                    }
-                }
-                isLoading && filteredGroups.isEmpty() -> {
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(gridColumns),
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = Spacing.sm),
-                        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
-                    ) {
-                        items(6) {
-                            GroupCardSkeleton()
-                        }
-                    }
-                }
-                filteredGroups.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            "No groups found",
-                            style = NostrordTypography.MessageBody,
-                            color = NostrordColors.TextSecondary
-                        )
-                    }
-                }
-                else -> {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        LazyVerticalGrid(
-                            state = gridState,
-                            columns = GridCells.Fixed(gridColumns),
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = Spacing.sm),
-                            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
-                        ) {
-                            items(filteredGroups) { group ->
-                                GroupCard(
-                                    group = group,
-                                    onClick = {
-                                        onNavigate(Screen.Group(group.id, group.name))
-                                    },
-                                    isJoined = joinedGroups.contains(group.id)
-                                )
-                            }
-                        }
-
-                        VerticalScrollbarWrapper(
-                            gridState = gridState,
-                            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-                        )
-                    }
-                }
             }
+        }
+    }
+}
+
+@Composable
+private fun RelayHeaderIcon(
+    relayUrl: String,
+    iconUrl: String?,
+    label: String,
+    size: androidx.compose.ui.unit.Dp
+) {
+    val context = LocalPlatformContext.current
+    val hasIcon = isValidIconUrl(iconUrl)
+    var imageState by remember(iconUrl) {
+        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+    val showImage = hasIcon && imageState !is AsyncImagePainter.State.Error
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (!showImage) generateColorFromString(relayUrl) else NostrordColors.BackgroundDark),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!showImage) {
+            Text(
+                text = label.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (hasIcon) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(getImageUrl(iconUrl!!))
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = label,
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                contentScale = ContentScale.Crop,
+                onState = { imageState = it }
+            )
         }
     }
 }

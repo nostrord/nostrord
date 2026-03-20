@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.ui.Screen
 
 @Composable
@@ -27,33 +28,43 @@ fun HomeScreen(
     val connectionState by vm.connectionState.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val joinedGroups by vm.joinedGroups.collectAsState()
+    val relayMetadata by vm.relayMetadata.collectAsState()
 
-    // Use groups for the selected relay; fall back to the active relay's groups
     val displayRelayUrl = relayUrl ?: currentRelayUrl
+    val relayMeta: Nip11RelayInfo? = relayMetadata[displayRelayUrl]
     val groups = remember(displayRelayUrl, groupsByRelay, allGroups) {
         groupsByRelay[displayRelayUrl] ?: if (displayRelayUrl == currentRelayUrl) allGroups else emptyList()
     }
 
-    var searchQuery by remember { mutableStateOf("") }
+    var searchQuery by remember(displayRelayUrl) { mutableStateOf("") }
+    var activeFilter by remember(displayRelayUrl) { mutableStateOf(GroupFilter.All) }
 
-    val filteredGroups = remember(groups, searchQuery) {
-        if (searchQuery.isBlank()) groups
-        else groups.filter {
-            it.name?.contains(searchQuery, ignoreCase = true) == true ||
-                    it.id.contains(searchQuery, ignoreCase = true)
-        }
+    val filteredGroups = remember(groups, searchQuery, activeFilter, joinedGroups) {
+        groups
+            .filter { group ->
+                when (activeFilter) {
+                    GroupFilter.All -> true
+                    GroupFilter.Joined -> group.id in joinedGroups
+                    GroupFilter.Open -> group.isOpen
+                    GroupFilter.Closed -> !group.isOpen
+                    GroupFilter.Private -> !group.isPublic
+                }
+            }
+            .filter { group ->
+                if (searchQuery.isBlank()) true
+                else group.name?.contains(searchQuery, ignoreCase = true) == true ||
+                     group.id.contains(searchQuery, ignoreCase = true)
+            }
     }
 
     LaunchedEffect(Unit) {
         vm.connect()
     }
 
-    // Detect screen width
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isCompact = maxWidth < 600.dp
         val isMedium = maxWidth in 600.dp..840.dp
 
-        // Determine loading state
         val isLoading = connectionState is ConnectionManager.ConnectionState.Connecting
         val hasError = connectionState is ConnectionManager.ConnectionState.Error
 
@@ -65,7 +76,10 @@ fun HomeScreen(
                 filteredGroups = filteredGroups,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
+                activeFilter = activeFilter,
+                onFilterChange = { activeFilter = it },
                 currentRelayUrl = displayRelayUrl,
+                relayMeta = relayMeta,
                 isLoading = isLoading,
                 hasError = hasError,
                 onRetry = { vm.connect() },
@@ -81,7 +95,10 @@ fun HomeScreen(
                 filteredGroups = filteredGroups,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
+                activeFilter = activeFilter,
+                onFilterChange = { activeFilter = it },
                 currentRelayUrl = displayRelayUrl,
+                relayMeta = relayMeta,
                 gridColumns = if (isMedium) 2 else 3,
                 isLoading = isLoading,
                 hasError = hasError,
