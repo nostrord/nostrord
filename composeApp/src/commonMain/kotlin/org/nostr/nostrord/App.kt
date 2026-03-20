@@ -51,7 +51,7 @@ import org.nostr.nostrord.ui.navigation.platformHasBrowserNavigation
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.home.HomeScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
-import org.nostr.nostrord.ui.screens.relay.RelaySettingsScreen
+import org.nostr.nostrord.ui.screens.relay.AddRelayModal
 import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
@@ -210,6 +210,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     var selectedRelayUrl by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
 
     var showCreateGroupModal by remember { mutableStateOf(false) }
+    var showAddRelayModal by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -249,10 +250,15 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
         }
     }
 
-    // Navigation handler that records history and persists state
+    // Navigation handler that records history and persists state.
+    // Screen.RelaySettings is intercepted here and shown as a modal instead of navigating.
     val onNavigate: (Screen) -> Unit = { newScreen ->
-        navHistory.navigate(newScreen)
-        persistScreenState(newScreen)
+        if (newScreen is Screen.RelaySettings) {
+            showAddRelayModal = true
+        } else {
+            navHistory.navigate(newScreen)
+            persistScreenState(newScreen)
+        }
     }
 
     // Direct history navigation — called by native platforms and by BrowserNavigationHandler
@@ -334,6 +340,20 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                 showCreateGroupModal = false
                 onNavigate(Screen.Group(groupId, groupName))
             }
+        )
+    }
+
+    if (showAddRelayModal) {
+        AddRelayModal(
+            currentRelayUrl = currentRelayUrl,
+            connectedRelays = relayList.toSet(),
+            relayMetadata = relayMetadata,
+            onSwitchRelay = { url ->
+                scope.launch { AppModule.nostrRepository.switchRelay(url) }
+                selectedRelayUrl = url
+                onNavigate(Screen.Home)
+            },
+            onDismiss = { showAddRelayModal = false }
         )
     }
 
@@ -485,12 +505,6 @@ private fun DesktopContent(
                 showServerRail = false
             )
         }
-        is Screen.RelaySettings -> {
-            RelaySettingsScreen(
-                listState = relayListState,
-                onNavigate = onNavigate
-            )
-        }
         is Screen.Profile -> {
             ProfileScreen(
                 onNavigate = onNavigate,
@@ -508,6 +522,7 @@ private fun DesktopContent(
             }
         }
         is Screen.BackupPrivateKey -> BackupScreen()
+        else -> HomeScreen(relayUrl = selectedRelayUrl, gridState = homeGridState, onNavigate = onNavigate)
     }
 }
 
@@ -545,12 +560,6 @@ private fun MobileContent(
                 onOpenDrawer = onOpenDrawer
             )
         }
-        is Screen.RelaySettings -> {
-            RelaySettingsScreen(
-                listState = relayListState,
-                onNavigate = onNavigate
-            )
-        }
         is Screen.Profile -> {
             ProfileScreen(
                 onNavigate = onNavigate,
@@ -568,5 +577,12 @@ private fun MobileContent(
             }
         }
         is Screen.BackupPrivateKey -> BackupScreen()
+        else -> HomeScreen(
+            relayUrl = selectedRelayUrl,
+            gridState = homeGridState,
+            onNavigate = onNavigate,
+            onCreateGroupClick = onCreateGroupClick,
+            onOpenDrawer = onOpenDrawer
+        )
     }
 }
