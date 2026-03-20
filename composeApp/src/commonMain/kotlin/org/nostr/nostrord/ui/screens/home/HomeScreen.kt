@@ -28,6 +28,7 @@ fun HomeScreen(
     val connectionState by vm.connectionState.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val joinedGroups by vm.joinedGroups.collectAsState()
+    val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
 
     val displayRelayUrl = relayUrl ?: currentRelayUrl
@@ -36,15 +37,21 @@ fun HomeScreen(
         groupsByRelay[displayRelayUrl] ?: if (displayRelayUrl == currentRelayUrl) allGroups else emptyList()
     }
 
+    // Use relay-specific joined groups so the filter matches the sidebar for the same relay
+    val joinedGroupIds = remember(displayRelayUrl, joinedGroupsByRelay, joinedGroups, currentRelayUrl) {
+        joinedGroupsByRelay[displayRelayUrl]
+            ?: if (displayRelayUrl == currentRelayUrl) joinedGroups else emptySet()
+    }
+
     var searchQuery by remember(displayRelayUrl) { mutableStateOf("") }
     var activeFilter by remember(displayRelayUrl) { mutableStateOf(GroupFilter.All) }
 
-    val filteredGroups = remember(groups, searchQuery, activeFilter, joinedGroups) {
+    val filteredGroups = remember(groups, searchQuery, activeFilter, joinedGroupIds) {
         groups
             .filter { group ->
                 when (activeFilter) {
                     GroupFilter.All -> true
-                    GroupFilter.Joined -> group.id in joinedGroups
+                    GroupFilter.Joined -> group.id in joinedGroupIds
                     GroupFilter.Open -> group.isOpen
                     GroupFilter.Closed -> !group.isOpen
                     GroupFilter.Private -> !group.isPublic
@@ -72,7 +79,7 @@ fun HomeScreen(
             HomeScreenMobile(
                 gridState = gridState,
                 onNavigate = onNavigate,
-                joinedGroups = joinedGroups,
+                joinedGroups = joinedGroupIds,
                 filteredGroups = filteredGroups,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
@@ -90,7 +97,7 @@ fun HomeScreen(
             HomeScreenDesktop(
                 gridState = gridState,
                 onNavigate = onNavigate,
-                joinedGroups = joinedGroups,
+                joinedGroups = joinedGroupIds,
                 groups = groups,
                 filteredGroups = filteredGroups,
                 searchQuery = searchQuery,
