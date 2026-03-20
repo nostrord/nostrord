@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
@@ -15,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,7 +37,6 @@ private fun extractDomain(url: String): String {
 @Composable
 fun RelayCard(
     relay: RelayInfo,
-    isActive: Boolean,
     isCompact: Boolean,
     onSelectRelay: () -> Unit,
     onDeleteRelay: (() -> Unit)? = null
@@ -61,24 +58,11 @@ fun RelayCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .then(
-                if (isActive) Modifier.border(
-                    width = 2.dp,
-                    brush = Brush.linearGradient(
-                        colors = listOf(NostrordColors.Primary, NostrordColors.Success)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                )
-                else Modifier.border(1.dp, NostrordColors.Divider, RoundedCornerShape(12.dp))
-            )
+            .border(1.dp, NostrordColors.Divider, RoundedCornerShape(12.dp))
             .clickable(onClick = onSelectRelay),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isActive) NostrordColors.SurfaceVariant else NostrordColors.Surface
-        ),
+        colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isActive) 4.dp else 0.dp
-        )
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -92,16 +76,13 @@ fun RelayCard(
                     modifier = Modifier
                         .size(if (isCompact) 44.dp else 52.dp)
                         .clip(CircleShape)
-                        .background(
-                            if (isActive) NostrordColors.Primary.copy(alpha = 0.2f)
-                            else NostrordColors.SurfaceVariant
-                        ),
+                        .background(NostrordColors.SurfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Public,
                         contentDescription = null,
-                        tint = if (isActive) NostrordColors.Primary else NostrordColors.TextSecondary,
+                        tint = NostrordColors.TextSecondary,
                         modifier = Modifier.size(if (isCompact) 24.dp else 28.dp)
                     )
                 }
@@ -179,64 +160,35 @@ fun RelayCard(
             Spacer(modifier = Modifier.width(12.dp))
 
             // Action buttons
-            if (isActive) {
-                // Active badge
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(NostrordColors.Success.copy(alpha = 0.15f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (onDeleteRelay != null) {
+                    IconButton(
+                        onClick = onDeleteRelay,
+                        modifier = Modifier.size(36.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = NostrordColors.Success,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Active",
-                            color = NostrordColors.Success,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Remove relay",
+                            tint = NostrordColors.TextMuted,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
-            } else {
-                // Select and delete buttons
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    // Delete button (if callback provided)
-                    if (onDeleteRelay != null) {
-                        IconButton(
-                            onClick = onDeleteRelay,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Remove relay",
-                                tint = NostrordColors.TextMuted,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
 
-                    // Select button
-                    Button(
-                        onClick = onSelectRelay,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NostrordColors.Primary
-                        ),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text(
-                            text = "Connect",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                Button(
+                    onClick = onSelectRelay,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = NostrordColors.Primary
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "Connect",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }

@@ -353,7 +353,6 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 
     if (showAddRelayModal) {
         AddRelayModal(
-            currentRelayUrl = currentRelayUrl,
             connectedRelays = relayList.toSet(),
             relayMetadata = relayMetadata,
             onSwitchRelay = { url ->

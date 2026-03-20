@@ -109,7 +109,6 @@ fun RelaySettingsScreen(
             RelaySettingsMobile(
                 listState = listState,
                 relays = relays,
-                currentRelay = currentRelay,
                 onNavigate = onNavigate,
                 onSelectRelay = { relayUrl ->
                     onNavigate(Screen.Home)
@@ -121,7 +120,6 @@ fun RelaySettingsScreen(
             RelaySettingsDesktop(
                 listState = listState,
                 relays = relays,
-                currentRelay = currentRelay,
                 onNavigate = onNavigate,
                 onSelectRelay = { relayUrl ->
                     onNavigate(Screen.Home)

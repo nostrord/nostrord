@@ -58,7 +58,6 @@ private val suggestedRelays = listOf(
 
 @Composable
 fun AddRelayModal(
-    currentRelayUrl: String,
     connectedRelays: Set<String>,
     relayMetadata: Map<String, Nip11RelayInfo>,
     onSwitchRelay: (String) -> Unit,
@@ -177,7 +176,6 @@ fun AddRelayModal(
                 Box(modifier = Modifier.weight(1f)) {
                     when (activeTab) {
                         0 -> SuggestedTab(
-                            currentRelayUrl = currentRelayUrl,
                             connectedRelays = connectedRelays,
                             relayMetadata = relayMetadata,
                             onSelect = { url ->
@@ -201,7 +199,6 @@ fun AddRelayModal(
 
 @Composable
 private fun SuggestedTab(
-    currentRelayUrl: String,
     connectedRelays: Set<String>,
     relayMetadata: Map<String, Nip11RelayInfo>,
     onSelect: (String) -> Unit
@@ -224,7 +221,6 @@ private fun SuggestedTab(
                 description = description,
                 iconUrl = meta?.icon,
                 isConnected = isConnected,
-                isActive = relay.url == currentRelayUrl,
                 onAdd = { onSelect(relay.url) }
             )
         }
@@ -238,7 +234,6 @@ private fun SuggestedRelayCard(
     description: String,
     iconUrl: String?,
     isConnected: Boolean,
-    isActive: Boolean,
     onAdd: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -289,16 +284,8 @@ private fun SuggestedRelayCard(
 
         Spacer(Modifier.width(12.dp))
 
-        val btnBg = when {
-            isActive -> NostrordColors.Success
-            isConnected -> NostrordColors.SurfaceVariant
-            else -> NostrordColors.Primary
-        }
-        val btnLabel = when {
-            isActive -> "Active"
-            isConnected -> "Added"
-            else -> "Add"
-        }
+        val btnBg = if (isConnected) NostrordColors.SurfaceVariant else NostrordColors.Primary
+        val btnLabel = if (isConnected) "Added" else "Add"
 
         Box(
             modifier = Modifier
@@ -310,7 +297,7 @@ private fun SuggestedRelayCard(
         ) {
             Text(
                 text = btnLabel,
-                color = if (isConnected && !isActive) NostrordColors.TextMuted else Color.White,
+                color = if (isConnected) NostrordColors.TextMuted else Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold
             )
