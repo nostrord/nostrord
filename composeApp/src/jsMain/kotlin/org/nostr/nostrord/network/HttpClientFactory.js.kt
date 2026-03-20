@@ -16,3 +16,5 @@ actual fun createHttpClient(): HttpClient = HttpClient(Js) {
         })
     }
 }
+
+actual fun createNip11HttpClient(): HttpClient = HttpClient(Js)

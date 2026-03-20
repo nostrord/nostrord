@@ -10,6 +10,7 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.PendingEventManager
+import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.RelayListManager
@@ -82,6 +83,10 @@ object AppModule {
         UnreadManager()
     }
 
+    val relayMetadataManager: RelayMetadataManager by lazy {
+        RelayMetadataManager(scope = appScope)
+    }
+
     val nostrRepository: NostrRepository by lazy {
         NostrRepository(
             connectionManager = connectionManager,
@@ -91,6 +96,7 @@ object AppModule {
             outboxManager = outboxManager,
             unreadManager = unreadManager,
             pendingEventManager = pendingEventManager,
+            relayMetadataManager = relayMetadataManager,
             scope = appScope
         )
     }

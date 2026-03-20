@@ -16,3 +16,5 @@ actual fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
         })
     }
 }
+
+actual fun createNip11HttpClient(): HttpClient = HttpClient(OkHttp)

@@ -16,3 +16,5 @@ actual fun createHttpClient(): HttpClient = HttpClient(CIO) {
         })
     }
 }
+
+actual fun createNip11HttpClient(): HttpClient = HttpClient(CIO)
