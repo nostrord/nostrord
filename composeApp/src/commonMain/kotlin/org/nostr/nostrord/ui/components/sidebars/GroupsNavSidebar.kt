@@ -67,16 +67,8 @@ fun GroupsNavSidebar(
         else base.filter { it.name?.contains(searchQuery, ignoreCase = true) == true || it.id.contains(searchQuery, ignoreCase = true) }
     }
 
-    // Toggle state — OTHER GROUPS starts collapsed when there are joined groups
     var myGroupsExpanded by remember(relayUrl) { mutableStateOf(true) }
-    var otherGroupsExpanded by remember(relayUrl) { mutableStateOf(myGroups.isEmpty()) }
-
-    // Keep otherGroupsExpanded in sync if myGroups transitions from empty to non-empty on first load
-    LaunchedEffect(myGroups.isEmpty()) {
-        if (myGroups.isNotEmpty() && !myGroupsExpanded && !otherGroupsExpanded) {
-            otherGroupsExpanded = false
-        }
-    }
+    var otherGroupsExpanded by remember(relayUrl) { mutableStateOf(true) }
 
     Column(
         modifier = modifier
