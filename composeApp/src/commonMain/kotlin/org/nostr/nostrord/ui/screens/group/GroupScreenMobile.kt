@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
@@ -64,6 +65,7 @@ fun GroupScreenMobile(
     groupMetadata: GroupMetadata?,
     selectedChannel: String,
     onChannelSelect: (String) -> Unit,
+    onOpenDrawer: () -> Unit = {},
     messages: List<NostrGroupClient.NostrMessage>,
     chatItems: List<ChatItem>,
     connectionStatus: String,
@@ -114,6 +116,7 @@ fun GroupScreenMobile(
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
                 isAdmin = isAdmin,
+                onOpenDrawer = onOpenDrawer,
                 onTitleClick = onShowGroupInfo,
                 onMembersClick = { showMemberSheet = true },
                 onJoinClick = onJoinGroup,
@@ -245,6 +248,7 @@ private fun MobileGroupTopBar(
     groupMetadata: GroupMetadata?,
     isJoined: Boolean,
     isAdmin: Boolean = false,
+    onOpenDrawer: () -> Unit = {},
     onTitleClick: () -> Unit,
     onMembersClick: () -> Unit,
     onJoinClick: () -> Unit,
@@ -253,6 +257,18 @@ private fun MobileGroupTopBar(
     onDeleteClick: () -> Unit = {}
 ) {
     TopAppBar(
+        navigationIcon = {
+            IconButton(
+                onClick = onOpenDrawer,
+                modifier = Modifier.size(Spacing.touchTargetMin)
+            ) {
+                Icon(
+                    Icons.Default.Menu,
+                    contentDescription = "Open sidebar",
+                    tint = Color.White
+                )
+            }
+        },
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,

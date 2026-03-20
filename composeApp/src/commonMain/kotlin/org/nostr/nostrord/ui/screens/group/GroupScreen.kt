@@ -25,7 +25,8 @@ fun GroupScreen(
     groupName: String?,
     onNavigateHome: () -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
-    showServerRail: Boolean = true // When false, server rail is handled by parent shell
+    showServerRail: Boolean = true, // When false, server rail is handled by parent shell
+    onOpenDrawer: () -> Unit = {}
 ) {
     val vm = viewModel(key = groupId) { GroupViewModel(AppModule.nostrRepository, groupId) }
 
@@ -279,6 +280,7 @@ fun GroupScreen(
                 groupMetadata = currentGroupMetadata,
                 selectedChannel = selectedChannel,
                 onChannelSelect = { selectedChannel = it },
+                onOpenDrawer = onOpenDrawer,
                 messages = messages,
                 chatItems = chatItems,
                 connectionStatus = connectionStatus,
