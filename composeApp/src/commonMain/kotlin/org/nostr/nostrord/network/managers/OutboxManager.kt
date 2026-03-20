@@ -41,14 +41,6 @@ class OutboxManager(
     // Timestamp of the last accepted kind:10009; older arrivals are discarded.
     private var latestKind10009CreatedAt: Long = 0
 
-    init {
-        // Share relay pool with RelayListManager
-        relayListManager.setConnectionProvider { relayUrl ->
-            // This will be connected via ConnectionManager when needed
-            null // Placeholder - actual connection happens through requestRelayLists
-        }
-    }
-
     /**
      * Initialize outbox model for the current user
      */
@@ -208,15 +200,17 @@ class OutboxManager(
         event: JsonObject,
         currentRelayUrl: String,
         pubKey: String,
-        onGroupsUpdated: (Set<String>) -> Unit
+        onGroupsUpdated: (Set<String>) -> Unit,
+        messageHandler: (String, NostrGroupClient) -> Unit = { _, _ -> }
     ) {
         kind10009Received = true
         val tags = event["tags"]?.jsonArray ?: return
 
-        // Discard if older than the last accepted event (stale relay response).
+        // Discard if older than OR equal to the last accepted event (deduplicates the same
+        // event arriving from multiple bootstrap relays, preventing redundant connection races).
         val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
         groupsMutex.withLock {
-            if (createdAt < latestKind10009CreatedAt) return
+            if (createdAt <= latestKind10009CreatedAt) return
             latestKind10009CreatedAt = createdAt
         }
 
@@ -241,8 +235,9 @@ class OutboxManager(
         // Surface only current-relay groups to the UI; full map lives in allRelayGroups.
         onGroupsUpdated(currentRelayGroups)
 
-        // Connect to relays from kind:10009
-        connectToKind10009Relays { _, _ -> }
+        // Connect to relays from kind:10009 using the caller's message handler so that
+        // group events (kind 39000) are not silently dropped by a no-op handler.
+        connectToKind10009Relays(messageHandler)
     }
 
     /**
