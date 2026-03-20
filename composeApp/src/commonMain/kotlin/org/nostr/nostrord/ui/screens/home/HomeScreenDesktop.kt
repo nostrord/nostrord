@@ -323,6 +323,31 @@ internal fun RelayOptionsMenu(
 ) {
     val copyToClipboard = rememberClipboardWriter()
     var expanded by remember { mutableStateOf(false) }
+    var showConfirm by remember { mutableStateOf(false) }
+
+    if (showConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Remove relay?") },
+            text = { Text("This will disconnect and remove ${relayUrl.removePrefix("wss://")} from your relay list.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showConfirm = false
+                    onRemoveRelay()
+                }) {
+                    Text("Remove", color = NostrordColors.Error)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showConfirm = false }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            }
+        )
+    }
 
     // Box wraps IconButton + DropdownMenu so the dropdown anchors to the button
     Box(modifier = modifier.wrapContentSize(Alignment.TopEnd)) {
@@ -360,7 +385,7 @@ internal fun RelayOptionsMenu(
                 },
                 onClick = {
                     expanded = false
-                    onRemoveRelay()
+                    showConfirm = true
                 }
             )
         }
