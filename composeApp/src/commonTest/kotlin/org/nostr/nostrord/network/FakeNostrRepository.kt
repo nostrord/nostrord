@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.utils.Result
 
@@ -39,6 +40,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     val _cachedEvents = MutableStateFlow<Map<String, CachedEvent>>(emptyMap())
     val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
     val _userRelayList = MutableStateFlow<List<Nip65Relay>>(emptyList())
+    val _relayMetadata = MutableStateFlow<Map<String, Nip11RelayInfo>>(emptyMap())
 
     // Configurable behaviour
     var initializeAction: suspend () -> Unit = { _isInitialized.value = true }
@@ -68,8 +70,10 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val currentRelayUrl: StateFlow<String> = _currentRelayUrl
     override val connectionState: StateFlow<ConnectionManager.ConnectionState> = _connectionState
     override val groups: StateFlow<List<GroupMetadata>> = _groups
+    override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = MutableStateFlow(emptyMap())
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages
     override val joinedGroups: StateFlow<Set<String>> = _joinedGroups
+    override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = MutableStateFlow(emptyMap())
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = _isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = _hasMoreMessages
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = _reactions
@@ -79,6 +83,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val cachedEvents: StateFlow<Map<String, CachedEvent>> = _cachedEvents
     override val unreadCounts: StateFlow<Map<String, Int>> = _unreadCounts
     override val userRelayList: StateFlow<List<Nip65Relay>> = _userRelayList
+    override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadata
 
     override fun forceInitialized() { _isInitialized.value = true }
     override suspend fun initialize() { calls += "initialize"; initializeAction() }

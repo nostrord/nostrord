@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.GroupAdmins
 import org.nostr.nostrord.network.GroupMembers
@@ -59,6 +61,10 @@ class GroupManager(
 
     private val _joinedGroups = MutableStateFlow<Set<String>>(emptySet())
     val joinedGroups: StateFlow<Set<String>> = _joinedGroups.asStateFlow()
+
+    // Per-relay joined groups cache — persists across relay view switches
+    private val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = _joinedGroupsByRelay.asStateFlow()
 
     // ==========================================================================
     // STATE MACHINE: Per-group loading controller with formal state transitions
@@ -125,7 +131,34 @@ class GroupManager(
      * Load joined groups from storage
      */
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
-        _joinedGroups.value = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
+        val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
+        _joinedGroups.value = groups
+        _joinedGroupsByRelay.update { it + (relayUrl to groups) }
+    }
+
+    /**
+     * Load joined groups for all given relays into the per-relay cache without
+     * touching the live _joinedGroups state (which belongs to the active relay).
+     */
+    fun loadAllJoinedGroupsFromStorage(pubKey: String, relayUrls: List<String>) {
+        val updates = relayUrls.associateWith { url ->
+            SecureStorage.getJoinedGroupsForRelay(pubKey, url)
+        }.filter { (_, groups) -> groups.isNotEmpty() }
+        if (updates.isNotEmpty()) {
+            _joinedGroupsByRelay.update { it + updates }
+        }
+    }
+
+    /**
+     * Pre-populate _groupsByRelay with empty entries so relays appear in the
+     * rail before their first connection this session.
+     */
+    fun prePopulateRelayList(relayUrls: List<String>) {
+        _groupsByRelay.update { current ->
+            val additions = relayUrls.filter { !current.containsKey(it) }
+                .associateWith { emptyList<GroupMetadata>() }
+            current + additions
+        }
     }
 
     /**
@@ -133,6 +166,9 @@ class GroupManager(
      */
     fun setJoinedGroups(groups: Set<String>) {
         _joinedGroups.value = groups
+        currentRelayUrl?.let { url ->
+            _joinedGroupsByRelay.update { it + (url to groups) }
+        }
     }
 
     /**
@@ -166,8 +202,10 @@ class GroupManager(
 
             currentClient.send(message)
 
-            _joinedGroups.value = _joinedGroups.value + groupId
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, _joinedGroups.value)
+            val updated = _joinedGroups.value + groupId
+            _joinedGroups.value = updated
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updated)
+            _joinedGroupsByRelay.update { it + (currentRelayUrl to updated) }
 
             publishJoinedGroups()
 
@@ -247,8 +285,10 @@ class GroupManager(
             }.toString())
 
             // Auto-join with the confirmed ID
-            _joinedGroups.value = _joinedGroups.value + confirmedGroupId
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, _joinedGroups.value)
+            val updatedAfterCreate = _joinedGroups.value + confirmedGroupId
+            _joinedGroups.value = updatedAfterCreate
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterCreate)
+            _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterCreate) }
             publishJoinedGroups()
             currentClient.requestGroupMessages(confirmedGroupId)
 
@@ -341,8 +381,10 @@ class GroupManager(
             }.toString())
 
             // Remove from joined groups
-            _joinedGroups.value = _joinedGroups.value - groupId
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, _joinedGroups.value)
+            val updatedAfterLeave = _joinedGroups.value - groupId
+            _joinedGroups.value = updatedAfterLeave
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterLeave)
+            _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterLeave) }
             publishJoinedGroups()
 
             // Remove group from list
@@ -392,8 +434,10 @@ class GroupManager(
 
             currentClient.send(message)
 
-            _joinedGroups.value = _joinedGroups.value - groupId
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, _joinedGroups.value)
+            val updatedAfterLeave2 = _joinedGroups.value - groupId
+            _joinedGroups.value = updatedAfterLeave2
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterLeave2)
+            _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterLeave2) }
 
             publishJoinedGroups()
 
@@ -542,11 +586,52 @@ class GroupManager(
      * proper ordering with message tracking.
      */
     suspend fun handleEoseSuspend(subscriptionId: String): Boolean {
-        if (subscriptionId == "group-list") {
-            currentRelayUrl?.let { completeGroupLoadRelays.add(it) }
+        // Handle both the legacy "group-list" ID and new relay-specific IDs
+        // ("group-list-<hashCode>"). Map the sub ID back to the relay URL by
+        // scanning pool and primary clients so we mark the *correct* relay as
+        // having completed its initial load.
+        if (subscriptionId == "group-list" || subscriptionId.startsWith("group-list-")) {
+            if (subscriptionId == "group-list") {
+                // Legacy path: mark the currently active relay
+                val relay = currentRelayUrl
+                if (relay != null) {
+                    completeGroupLoadRelays.add(relay)
+                    val count = _groupsByRelay.value[relay]?.size ?: 0
+                    println("[Groups] EOSE group-list (legacy)  relay=$relay  groupsLoaded=$count")
+                }
+            } else {
+                // New path: find the relay whose hash matches this subscription ID
+                val matchedRelay = findRelayForGroupListSubId(subscriptionId)
+                if (matchedRelay != null) {
+                    completeGroupLoadRelays.add(matchedRelay)
+                    val count = _groupsByRelay.value[matchedRelay]?.size ?: 0
+                    println("[Groups] EOSE group-list  relay=$matchedRelay  groupsLoaded=$count")
+                } else {
+                    // Fallback: mark currently active relay
+                    val relay = currentRelayUrl
+                    if (relay != null) {
+                        completeGroupLoadRelays.add(relay)
+                        println("[Groups] EOSE group-list (fallback, no relay match)  subId=$subscriptionId  relay=$relay")
+                    } else {
+                        println("[Groups] EOSE group-list (unmatched, no active relay)  subId=$subscriptionId  knownRelays=${_groupsByRelay.value.keys}")
+                    }
+                }
+            }
             return true
         }
         return loadingRegistry.handleEose(subscriptionId)
+    }
+
+    /**
+     * Find the relay URL whose group-list subscription ID matches the given subId.
+     * The subscription ID format is "group-list-<unsignedHashCode>" where the hash
+     * is derived from the relay URL.
+     */
+    private fun findRelayForGroupListSubId(subscriptionId: String): String? {
+        // Check all known relay URLs from _groupsByRelay
+        return _groupsByRelay.value.keys.firstOrNull { relayUrl ->
+            "group-list-${relayUrl.hashCode().toUInt()}" == subscriptionId
+        }
     }
 
     /**
@@ -577,14 +662,6 @@ class GroupManager(
         scope.launch {
             loadingRegistry.trackMessage(subscriptionId, timestamp, eventId)
         }
-    }
-
-    /**
-     * Legacy overload for backward compatibility.
-     */
-    fun trackMessageForSubscription(subscriptionId: String) {
-        // This overload can't track timestamp/eventId, but maintains API compatibility
-        // Real tracking happens via the new overload
     }
 
     /**
@@ -774,16 +851,24 @@ class GroupManager(
      * so returning to this relay later is instant without a network re-fetch.
      */
     fun handleGroupMetadata(metadata: GroupMetadata, relayUrl: String) {
-        // Only update the live list if the event is from the currently active relay.
-        // Stragglers from a previous relay only go to the cache, not the visible list.
-        if (relayUrl == currentRelayUrl) {
-            _groups.value = (_groups.value + metadata).distinctBy { it.id }
-        }
+        // ALL relays contribute to the unified group list regardless of which relay
+        // is currently active. _groupsByRelay handles per-relay filtering for the UI.
+        val wasNew = _groups.value.none { it.id == metadata.id }
+        _groups.value = (_groups.value + metadata).distinctBy { it.id }
         _groupsByRelay.update { current ->
             val relayGroups = current[relayUrl] ?: emptyList()
             val updated = (relayGroups + metadata).distinctBy { it.id }
             current + (relayUrl to updated)
         }
+        if (wasNew) {
+            val relayCount = _groupsByRelay.value[relayUrl]?.size ?: 0
+            println("[Groups] +group  relay=$relayUrl  id=${metadata.id}  name=${metadata.name}  totalForRelay=$relayCount")
+        }
+        // Persist the updated group list for this relay so it survives app restarts
+        val relayGroups = _groupsByRelay.value[relayUrl] ?: emptyList()
+        try {
+            SecureStorage.saveGroupsForRelay(relayUrl, json.encodeToString(relayGroups))
+        } catch (_: Exception) {}
     }
 
     /**
@@ -792,7 +877,29 @@ class GroupManager(
      */
     fun restoreGroupsForRelay(relayUrl: String) {
         currentRelayUrl = relayUrl
-        _groups.value = _groupsByRelay.value[relayUrl] ?: emptyList()
+        // Merge cached groups for the new relay into the unified live list.
+        // State is additive: previously loaded groups from other relays are kept.
+        val cached = _groupsByRelay.value[relayUrl] ?: emptyList()
+        if (cached.isNotEmpty()) {
+            _groups.value = (_groups.value + cached).distinctBy { it.id }
+        }
+    }
+
+    /**
+     * Restore group metadata for all known relays from SecureStorage.
+     * Called on startup before any WebSocket connects so relay switching is instant.
+     */
+    fun restoreAllGroupsFromStorage(relayUrls: List<String>) {
+        _groupsByRelay.update { current ->
+            val updates = relayUrls.mapNotNull { url ->
+                val jsonStr = SecureStorage.getGroupsForRelay(url) ?: return@mapNotNull null
+                try {
+                    val groups = json.decodeFromString<List<GroupMetadata>>(jsonStr)
+                    if (groups.isNotEmpty()) url to groups else null
+                } catch (_: Exception) { null }
+            }.toMap()
+            current + updates
+        }
     }
 
     /**
@@ -1022,26 +1129,20 @@ class GroupManager(
      * Use this on relay switch. Use [clear] only on logout.
      */
     fun clearForRelaySwitch() {
-        // Null out current relay so stragglers arriving before restoreGroupsForRelay()
-        // only update the per-relay cache, not the live _groups list.
+        // Reset the current relay pointer so stragglers from the old connection
+        // go to the per-relay cache only, not the live _groups list.
+        // State is ADDITIVE — messages, groups, reactions, and members are
+        // intentionally preserved across relay switches so no data is lost.
         currentRelayUrl = null
-        _groups.value = emptyList()
-        _messages.value = emptyMap()
-        _joinedGroups.value = emptySet()
-        _isLoadingMore.value = emptyMap()
-        _hasMoreMessages.value = emptyMap()
-        _groupStates.value = emptyMap()
-        _reactions.value = emptyMap()
-        _groupMembers.value = emptyMap()
 
-        // Safe for single-threaded JS/Wasm; best-effort on JVM.
+        // Reset observation tracking so subscriptions are re-established on the
+        // new primary connection without leaking the old group set.
         observedGroups.clear()
 
         scope.launch {
             loadingRegistry.clear()
             eventDeduplicator.clear()
         }
-        // _groupsByRelay is intentionally preserved.
     }
 
     /**

@@ -17,6 +17,7 @@ actual object SecureStorage {
     private const val ENCRYPTION_KEY_PREF = "encryption_key"
     private const val JOINED_GROUPS_PREFIX = "joined_groups_"
     private const val CURRENT_RELAY_URL = "current_relay_url"
+    private const val RELAY_LIST = "relay_list"
     private const val BUNKER_URL_PREF = "nostr_bunker_url"
     private const val BUNKER_USER_PUBKEY_PREF = "nostr_bunker_user_pubkey"
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
@@ -24,6 +25,7 @@ actual object SecureStorage {
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
+    private const val RELAY_GROUPS_PREFIX = "relay_groups_"
 
     init {
         if (prefs.get(ENCRYPTION_KEY_PREF, null) == null) {
@@ -94,7 +96,16 @@ actual object SecureStorage {
     actual fun clearCurrentRelayUrl() {
         remove(CURRENT_RELAY_URL)
     }
-    
+
+    actual fun saveRelayList(relays: List<String>) {
+        saveString(RELAY_LIST, relays.joinToString(","))
+    }
+
+    actual fun loadRelayList(): List<String> {
+        val raw = getString(RELAY_LIST) ?: return emptyList()
+        return if (raw.isBlank()) emptyList() else raw.split(",").filter { it.isNotBlank() }
+    }
+
     actual fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>) {
         // Account-scoped key: prefix + pubkey hash + relay hash
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
@@ -331,6 +342,22 @@ actual object SecureStorage {
 
     actual fun clearPendingEvents(pubkey: String) {
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        remove(key)
+    }
+
+    // Group metadata cache
+    actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
+        saveString(key, groupsJson)
+    }
+
+    actual fun getGroupsForRelay(relayUrl: String): String? {
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
+        return getString(key)
+    }
+
+    actual fun clearGroupsForRelay(relayUrl: String) {
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         remove(key)
     }
 }

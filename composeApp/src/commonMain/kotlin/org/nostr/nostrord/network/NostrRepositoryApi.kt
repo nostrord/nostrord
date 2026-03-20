@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.StateFlow
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.utils.Result
 
@@ -26,8 +27,10 @@ interface NostrRepositoryApi {
 
     // --- Group state ---
     val groups: StateFlow<List<GroupMetadata>>
+    val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>>
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
     val joinedGroups: StateFlow<Set<String>>
+    val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
     val isLoadingMore: StateFlow<Map<String, Boolean>>
     val hasMoreMessages: StateFlow<Map<String, Boolean>>
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>
@@ -39,6 +42,7 @@ interface NostrRepositoryApi {
     val cachedEvents: StateFlow<Map<String, CachedEvent>>
     val unreadCounts: StateFlow<Map<String, Int>>
     val userRelayList: StateFlow<List<Nip65Relay>>
+    val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>>
 
     // --- Initialization ---
     fun forceInitialized()

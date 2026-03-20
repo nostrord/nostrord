@@ -13,6 +13,10 @@ expect object SecureStorage {
     fun saveCurrentRelayUrl(relayUrl: String)
     fun getCurrentRelayUrl(): String?
     fun clearCurrentRelayUrl()
+
+    // Persisted relay list — all NIP-29 relays the user has added
+    fun saveRelayList(relays: List<String>)
+    fun loadRelayList(): List<String>
     
     // Account-scoped joined groups (namespaced by pubkey)
     fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>)
@@ -66,6 +70,11 @@ expect object SecureStorage {
     fun savePendingEvents(pubkey: String, eventsJson: String)
     fun getPendingEvents(pubkey: String): String?
     fun clearPendingEvents(pubkey: String)
+
+    // Group metadata cache (for offline-first relay switching)
+    fun saveGroupsForRelay(relayUrl: String, groupsJson: String)
+    fun getGroupsForRelay(relayUrl: String): String?
+    fun clearGroupsForRelay(relayUrl: String)
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)
