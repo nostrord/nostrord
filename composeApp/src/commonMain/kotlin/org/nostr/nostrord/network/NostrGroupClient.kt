@@ -8,9 +8,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.utils.epochMillis
 
+@Serializable
 @Immutable
 data class GroupMetadata(
     val id: String,
@@ -138,6 +140,7 @@ class NostrGroupClient(
             try {
                 client.webSocket(relayUrl) {
                     session = this
+                    println("[WS] OPEN  relay=$relayUrl")
 
                     // Signal that connection is ready
                     connectionReady.trySend(Unit)
@@ -149,14 +152,16 @@ class NostrGroupClient(
                             onMessage(text)
                         }
                     }
+                    println("[WS] CLOSED (normal)  relay=$relayUrl")
                 }
             } catch (e: Exception) {
-                // Connection error occurred
+                println("[WS] ERROR  relay=$relayUrl  error=${e.message}")
             } finally {
                 val wasConnected = session != null
                 session = null
                 // Notify if connection was lost unexpectedly (not a graceful disconnect)
                 if (wasConnected && !isDisconnecting) {
+                    println("[WS] LOST (unexpected)  relay=$relayUrl")
                     onConnectionLost?.invoke()
                 }
             }
@@ -371,9 +376,14 @@ class NostrGroupClient(
     }
 
     suspend fun requestGroups() {
+        // Use a relay-specific subscription ID to avoid collisions when multiple
+        // relay clients are active concurrently. The ID must be stable per relay
+        // so the EOSE handler can map it back to the originating relay URL.
+        val subId = "group-list-${relayUrl.hashCode().toUInt()}"
+        println("[Groups] REQ group-list  relay=$relayUrl  subId=$subId  connected=${isConnected()}")
         val req = buildJsonArray {
             add("REQ")
-            add("group-list")
+            add(subId)
             add(
                 buildJsonObject {
                     putJsonArray("kinds") { add(39000) }
@@ -382,6 +392,12 @@ class NostrGroupClient(
         }
         sendJson(req)
     }
+
+    /**
+     * Returns the subscription ID that requestGroups() uses for this relay.
+     * Used by callers (e.g., EOSE handler) to identify the originating relay.
+     */
+    fun groupListSubscriptionId(): String = "group-list-${relayUrl.hashCode().toUInt()}"
 
     /**
      * Subscribe for kind:39000 metadata for a specific group.

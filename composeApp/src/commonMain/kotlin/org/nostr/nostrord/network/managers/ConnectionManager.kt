@@ -23,9 +23,12 @@ class ConnectionManager(
     private val scope: CoroutineScope
 ) {
     private var primaryClient: NostrGroupClient? = null
-    private var isConnecting = false
     private var reconnectJob: Job? = null
     private var currentMessageHandler: ((String, NostrGroupClient) -> Unit)? = null
+
+    // Serialises connectPrimary so two coroutines cannot both pass the "already connecting"
+    // guard simultaneously (Dispatchers.Default is multi-threaded).
+    private val connectMutex = Mutex()
 
     private val _currentRelayUrl = MutableStateFlow("wss://groups.fiatjaf.com")
     val currentRelayUrl: StateFlow<String> = _currentRelayUrl.asStateFlow()
@@ -40,6 +43,18 @@ class ConnectionManager(
     // Shared relay pool for all auxiliary connections (outbox, metadata, NIP-65)
     private val poolMutex = Mutex()
     private val relayPool = mutableMapOf<String, NostrGroupClient>()
+
+    /**
+     * Called when the primary connection drops unexpectedly.
+     * Set by NostrRepository to also notify GroupManager.
+     */
+    var onConnectionDropped: (() -> Unit)? = null
+
+    /**
+     * Called after a successful auto-reconnect with the new client.
+     * Set by NostrRepository to re-auth and re-subscribe.
+     */
+    var onReconnected: (suspend (NostrGroupClient) -> Unit)? = null
 
     companion object {
         private const val INITIAL_RECONNECT_DELAY_MS = 1000L
@@ -71,62 +86,51 @@ class ConnectionManager(
     fun getPrimaryClient(): NostrGroupClient? = primaryClient
 
     /**
-     * Connect to the primary NIP-29 relay
+     * Connect to the primary NIP-29 relay.
+     * Serialised by [connectMutex] — concurrent callers block until the in-flight
+     * attempt finishes, then return false immediately if a client is already up.
      */
     suspend fun connectPrimary(
         relayUrl: String = _currentRelayUrl.value,
         onMessage: (String, NostrGroupClient) -> Unit
-    ): Boolean {
-        if (primaryClient != null || isConnecting) {
-            return false
-        }
+    ): Boolean = connectMutex.withLock {
+        if (primaryClient != null) return@withLock false
 
-        // Store message handler for reconnection
         currentMessageHandler = onMessage
-        isConnecting = true
         _connectionState.value = ConnectionState.Connecting
 
-        return try {
+        try {
             val newClient = NostrGroupClient(relayUrl)
             primaryClient = newClient
 
-            // Set up connection lost callback for auto-reconnection
             newClient.onConnectionLost = {
-                scope.launch {
-                    handleConnectionLost()
-                }
+                scope.launch { handleConnectionLost() }
             }
 
-            newClient.connect { msg ->
-                onMessage(msg, newClient)
-            }
-
+            newClient.connect { msg -> onMessage(msg, newClient) }
             newClient.waitForConnection()
             _connectionState.value = ConnectionState.Connected
-            reconnectAttempts = 0 // Reset on successful connection
+            reconnectAttempts = 0
             true
         } catch (e: Exception) {
             _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
             primaryClient = null
             false
-        } finally {
-            isConnecting = false
         }
     }
 
     /**
-     * Handle connection lost - attempt auto-reconnection with exponential backoff
+     * Handle connection lost - notify observers then attempt auto-reconnection.
      */
     private suspend fun handleConnectionLost() {
+        onConnectionDropped?.invoke()
+
         if (!autoReconnectEnabled) {
             _connectionState.value = ConnectionState.Disconnected
             return
         }
 
-        // Clean up old client
         primaryClient = null
-
-        // Start reconnection attempts
         startReconnection()
     }
 
@@ -147,13 +151,12 @@ class ConnectionManager(
                 )
                 delay(delayMs)
 
-                // Attempt to reconnect
                 val handler = currentMessageHandler ?: break
-                isConnecting = false // Reset so connectPrimary will work
                 val success = connectPrimary(_currentRelayUrl.value, handler)
 
                 if (success) {
                     reconnectAttempts = 0
+                    primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
                     return@launch
                 }
             }
@@ -173,10 +176,8 @@ class ConnectionManager(
         reconnectAttempts = 0
         autoReconnectEnabled = true
 
-        // Disconnect any stale client
         primaryClient?.disconnect()
         primaryClient = null
-        isConnecting = false
 
         val handler = currentMessageHandler ?: return false
         return connectPrimary(_currentRelayUrl.value, handler)
@@ -186,7 +187,6 @@ class ConnectionManager(
      * Disconnect the primary relay
      */
     suspend fun disconnectPrimary() {
-        // Stop any ongoing reconnection attempts
         autoReconnectEnabled = false
         reconnectJob?.cancel()
         reconnectJob = null
@@ -194,16 +194,52 @@ class ConnectionManager(
         primaryClient?.disconnect()
         primaryClient = null
         _connectionState.value = ConnectionState.Disconnected
-        isConnecting = false
     }
 
     /**
-     * Switch to a new relay
+     * Switch to a new relay while keeping the old primary alive in the pool.
+     *
+     * The old primary is moved into [relayPool] (if not already present) so it
+     * continues receiving messages and contributing group metadata to the unified
+     * state.  The new relay is then connected as the primary.  If the new relay
+     * URL is already in the pool, that existing connection is promoted to primary.
      */
     suspend fun switchRelay(newRelayUrl: String, onMessage: (String, NostrGroupClient) -> Unit): Boolean {
-        disconnectPrimary()
+        // Move the current primary into the pool instead of disconnecting it.
+        val oldPrimary = primaryClient
+        val oldUrl = _currentRelayUrl.value
+        if (oldPrimary != null && oldUrl != newRelayUrl) {
+            poolMutex.withLock {
+                if (!relayPool.containsKey(oldUrl)) {
+                    relayPool[oldUrl] = oldPrimary
+                }
+            }
+        }
+
+        // If the new relay is already in the pool, promote it to primary.
+        val existingPoolClient = poolMutex.withLock { relayPool.remove(newRelayUrl) }
+
+        // Clear the primary slot (without disconnecting the old client).
+        primaryClient = null
+        autoReconnectEnabled = true
+        reconnectJob?.cancel()
+        reconnectJob = null
+
         _currentRelayUrl.value = newRelayUrl
         SecureStorage.saveCurrentRelayUrl(newRelayUrl)
+
+        if (existingPoolClient != null) {
+            // Re-use the already-connected pool client as the new primary.
+            primaryClient = existingPoolClient
+            existingPoolClient.onConnectionLost = {
+                scope.launch { handleConnectionLost() }
+            }
+            currentMessageHandler = onMessage
+            _connectionState.value = ConnectionState.Connected
+            reconnectAttempts = 0
+            return true
+        }
+
         return connectPrimary(newRelayUrl, onMessage)
     }
 

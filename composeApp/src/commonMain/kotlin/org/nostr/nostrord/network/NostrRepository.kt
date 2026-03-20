@@ -11,9 +11,12 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
+import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.urlDecode
@@ -33,6 +36,7 @@ class NostrRepository(
     private val outboxManager: OutboxManager,
     private val unreadManager: UnreadManager,
     private val pendingEventManager: org.nostr.nostrord.network.managers.PendingEventManager? = null,
+    private val relayMetadataManager: RelayMetadataManager? = null,
     private val scope: CoroutineScope
 ) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
@@ -46,8 +50,10 @@ class NostrRepository(
 
     // Expose group state
     override val groups: StateFlow<List<GroupMetadata>> = groupManager.groups
+    override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = groupManager.groupsByRelay
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.messages
     override val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
+    override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = groupManager.joinedGroupsByRelay
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
@@ -70,29 +76,87 @@ class NostrRepository(
     // Expose unread state
     override val unreadCounts: StateFlow<Map<String, Int>> = unreadManager.unreadCounts
 
+    // Expose NIP-11 relay metadata
+    private val _relayMetadataManager = relayMetadataManager ?: RelayMetadataManager(scope)
+    override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadataManager.relayMetadata
+
     override fun forceInitialized() {
         _isInitialized.value = true
     }
 
     override suspend fun initialize() {
+        // Wire up connection lifecycle callbacks once — avoids overwriting them on every connect().
+        connectionManager.onConnectionDropped = {
+            scope.launch { groupManager.handleConnectionLost() }
+        }
+        connectionManager.onReconnected = { client ->
+            sessionManager.sendAuthIfNeeded(client)
+            val relayUrl = connectionManager.currentRelayUrl.value
+            groupManager.restoreGroupsForRelay(relayUrl)
+            if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
+                client.requestGroups()
+            }
+            pendingEventManager?.onConnectionRestored()
+        }
+
         connectionManager.loadSavedRelay()
 
         val restored = sessionManager.restoreSession()
         if (restored) {
             val pubkey = sessionManager.getPublicKey()
+            val activeRelay = connectionManager.currentRelayUrl.value
+
+            // Load saved relay list and pre-populate the rail before connecting
+            val savedRelays = SecureStorage.loadRelayList()
+            val allRelays = (listOf(activeRelay) + savedRelays).distinct()
+            println("[Init] activeRelay=$activeRelay  savedRelays=$savedRelays  allRelays=$allRelays")
+            groupManager.prePopulateRelayList(allRelays)
+            groupManager.restoreAllGroupsFromStorage(allRelays)
+            _relayMetadataManager.fetchAll(allRelays)
+
             if (pubkey != null) {
-                groupManager.loadJoinedGroupsFromStorage(pubkey, connectionManager.currentRelayUrl.value)
+                groupManager.loadJoinedGroupsFromStorage(pubkey, activeRelay)
+                groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
                 unreadManager.initialize(pubkey)
             }
             initializeOutboxModel()
             connect()
-            // Fetch current user's metadata after login
             if (pubkey != null) {
                 requestUserMetadata(setOf(pubkey))
+            }
+
+            // Connect to all other saved relays in parallel to populate groupsByRelay.
+            // Previously sequential — each relay waited for the previous one's 15s timeout.
+            // Now each relay connects independently so all 4 relays race in parallel.
+            val otherRelays = allRelays.filter { it != activeRelay }
+            otherRelays.forEach { relayUrl ->
+                scope.launch { connectToRelayBackground(relayUrl) }
             }
         }
 
         _isInitialized.value = true
+    }
+
+    private suspend fun connectToRelayBackground(relayUrl: String) {
+        println("[Relay] Connecting background relay: $relayUrl")
+        // Use unified handler: if this relay is already in the pool (connected by the outbox
+        // manager with handleRelayMessage), getOrConnectRelay returns the existing client
+        // whose handler we cannot change. By ensuring ALL pool connections use
+        // handleUnifiedMessage from the start (via initializeOutboxModel), we avoid
+        // the handler mismatch that caused kind 39000 events to be silently dropped.
+        val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+            handleUnifiedMessage(msg, c)
+        }
+        if (client == null) {
+            println("[Relay] ✗ Failed to connect: $relayUrl")
+            return
+        }
+        val cached = groupManager.hasCachedGroupsForRelay(relayUrl)
+        val subId = client.groupListSubscriptionId()
+        println("[Relay] ✓ Connected: $relayUrl  cached=$cached  subId=$subId")
+        if (!cached) {
+            client.requestGroups()
+        }
     }
 
     override fun clearAuthUrl() {
@@ -181,7 +245,9 @@ class NostrRepository(
     private suspend fun initializeOutboxModel() {
         val pubKey = sessionManager.getPublicKey()
         if (pubKey == null) return
-        outboxManager.initialize(pubKey) { msg, client -> handleRelayMessage(msg, client) }
+        // Use unified handler so that if an outbox relay is also a NIP-29 group relay,
+        // kind 39000 group events are still processed correctly.
+        outboxManager.initialize(pubKey) { msg, client -> handleUnifiedMessage(msg, client) }
     }
 
     override suspend fun connect() {
@@ -215,6 +281,9 @@ class NostrRepository(
     }
 
     private suspend fun connect(relayUrl: String) {
+        // Fetch NIP-11 metadata eagerly — fire-and-forget, result flows via StateFlow
+        _relayMetadataManager.fetch(relayUrl)
+
         val connected = connectionManager.connectPrimary(relayUrl) { msg, client ->
             handleMessage(msg, client)
         }
@@ -222,24 +291,23 @@ class NostrRepository(
         if (connected) {
             val client = connectionManager.getPrimaryClient()
             if (client != null) {
-                // Wire up connection lost handler to notify group manager
-                client.onConnectionLost = {
-                    scope.launch {
-                        groupManager.handleConnectionLost()
-                    }
-                }
-
                 sessionManager.sendAuthIfNeeded(client)
                 groupManager.restoreGroupsForRelay(relayUrl)
                 if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
                     client.requestGroups()
                 }
             }
-        } else {
         }
     }
 
     override suspend fun switchRelay(newRelayUrl: String) {
+        // Persist the new relay so it reappears in the rail after restart
+        val existing = SecureStorage.loadRelayList()
+        if (newRelayUrl !in existing) {
+            SecureStorage.saveRelayList((existing + newRelayUrl).distinct())
+        }
+        _relayMetadataManager.fetch(newRelayUrl)
+
         // Clears messages/state but NOT the group metadata cache (_groupsByRelay).
         groupManager.clearForRelaySwitch()
 
@@ -618,6 +686,68 @@ class NostrRepository(
     // Groups whose subscriptions were closed by the relay (e.g. auth-required)
     private val closedGroupSubscriptions = mutableSetOf<String>()
 
+    // Per-relay debug counters: relayUrl -> event count since last connect
+    private val relayEventCounts = mutableMapOf<String, Int>()
+    private val relayEoseReceived = mutableSetOf<String>()
+
+    /**
+     * Unified message handler for all relay pool connections.
+     *
+     * Problem this solves: getOrConnectRelay() always returns the *existing* pool client
+     * when a relay is already connected, ignoring the new onMessage callback. This means
+     * whichever handler was used on the first connection wins permanently.
+     *
+     * If initializeOutboxModel() connected relay A with handleRelayMessage first, then
+     * connectToRelayBackground() got that same client. requestGroups() was sent, but
+     * kind 39000 responses went to handleRelayMessage which drops them — the relay
+     * appeared "connected but silent" from the group perspective.
+     *
+     * Fix: both initializeOutboxModel and connectToRelayBackground now use this unified
+     * handler so the first-connection handler always handles both NIP-29 and outbox events.
+     */
+    private fun handleUnifiedMessage(msg: String, client: NostrGroupClient) {
+        try {
+            val arr = json.parseToJsonElement(msg).jsonArray
+            if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
+                val subId = arr[1].jsonPrimitive.content
+                val url = client.getRelayUrl()
+                if (!relayEoseReceived.contains(subId)) {
+                    relayEoseReceived.add(subId)
+                    val count = relayEventCounts[url] ?: 0
+                    println("[Relay] EOSE  relay=$url  subId=$subId  eventsReceived=$count")
+                }
+                // Notify outbox manager for outbox subscriptions, then fall through
+                // to handleMessage which notifies groupManager for group subscriptions.
+                outboxManager.handleEose(subId)
+                // Fall through — do NOT return
+            } else if (arr.size >= 3 && arr[0].jsonPrimitive.content == "EVENT") {
+                val event = arr[2].jsonObject
+                val kind = event["kind"]?.jsonPrimitive?.int
+                val url = client.getRelayUrl()
+                relayEventCounts[url] = (relayEventCounts[url] ?: 0) + 1
+                if (kind == 10009) {
+                    val pubKey = sessionManager.getPublicKey() ?: ""
+                    scope.launch {
+                        outboxManager.handleKind10009Event(
+                            event = event,
+                            currentRelayUrl = connectionManager.currentRelayUrl.value,
+                            pubKey = pubKey,
+                            onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) },
+                            messageHandler = { m, c -> handleUnifiedMessage(m, c) }
+                        )
+                    }
+                    return
+                }
+                if (kind == 10002) {
+                    outboxManager.handleKind10002Event(event, sessionManager.getPublicKey())
+                    return
+                }
+            }
+        } catch (_: Exception) {}
+        // Delegate all other events (39000, 39001, 39002, 9, 7, 5, 0, AUTH, OK, CLOSED…)
+        handleMessage(msg, client)
+    }
+
     private fun handleMessage(msg: String, client: NostrGroupClient) {
         // Handle NIP-42 AUTH challenge first
         val authChallenge = client.parseAuthChallenge(msg)
@@ -817,7 +947,8 @@ class NostrRepository(
                             event = event,
                             currentRelayUrl = connectionManager.currentRelayUrl.value,
                             pubKey = pubKey,
-                            onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) }
+                            onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) },
+                            messageHandler = { m, c -> handleUnifiedMessage(m, c) }
                         )
                     }
                     return
