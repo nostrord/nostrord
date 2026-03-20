@@ -86,6 +86,16 @@ class ConnectionManager(
     fun getPrimaryClient(): NostrGroupClient? = primaryClient
 
     /**
+     * Returns the client for a specific relay URL.
+     * Checks the primary first, then the pool.
+     * Does not create new connections — returns null if relay is not connected.
+     */
+    suspend fun getClientForRelay(relayUrl: String): NostrGroupClient? {
+        if (_currentRelayUrl.value == relayUrl) return primaryClient
+        return poolMutex.withLock { relayPool[relayUrl] }
+    }
+
+    /**
      * Connect to the primary NIP-29 relay.
      * Serialised by [connectMutex] — concurrent callers block until the in-flight
      * attempt finishes, then return false immediately if a client is already up.

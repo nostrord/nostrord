@@ -128,6 +128,26 @@ class GroupManager(
     private val observedGroupsMutex = Mutex()
 
     /**
+     * Returns the relay URL that hosts the given group, by scanning the per-relay cache.
+     * Uses an immutable snapshot of _groupsByRelay so no lock is needed.
+     */
+    fun getRelayForGroup(groupId: String): String? =
+        _groupsByRelay.value.entries.firstOrNull { (_, groups) -> groups.any { it.id == groupId } }?.key
+
+    /**
+     * Returns the WebSocket client for the relay that hosts [groupId].
+     * Falls back to the primary client if the group's relay is not connected.
+     */
+    private suspend fun clientForGroup(groupId: String): NostrGroupClient? {
+        val relayUrl = getRelayForGroup(groupId)
+        return if (relayUrl != null) {
+            connectionManager.getClientForRelay(relayUrl) ?: connectionManager.getPrimaryClient()
+        } else {
+            connectionManager.getPrimaryClient()
+        }
+    }
+
+    /**
      * Load joined groups from storage
      */
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
@@ -181,8 +201,10 @@ class GroupManager(
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit
     ): Result<Unit> {
-        val currentClient = connectionManager.getPrimaryClient()
-            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
             val event = Event(
@@ -204,8 +226,8 @@ class GroupManager(
 
             val updated = _joinedGroups.value + groupId
             _joinedGroups.value = updated
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updated)
-            _joinedGroupsByRelay.update { it + (currentRelayUrl to updated) }
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updated)
+            _joinedGroupsByRelay.update { it + (groupRelayUrl to updated) }
 
             publishJoinedGroups()
 
@@ -312,8 +334,10 @@ class GroupManager(
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event
     ): Result<Unit> {
-        val currentClient = connectionManager.getPrimaryClient()
-            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
             // kind 9002: edit-metadata — name, about, visibility, access all in one event
@@ -363,8 +387,10 @@ class GroupManager(
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit
     ): Result<Unit> {
-        val currentClient = connectionManager.getPrimaryClient()
-            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
             val event = Event(
@@ -383,8 +409,8 @@ class GroupManager(
             // Remove from joined groups
             val updatedAfterLeave = _joinedGroups.value - groupId
             _joinedGroups.value = updatedAfterLeave
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterLeave)
-            _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterLeave) }
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave)
+            _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave) }
             publishJoinedGroups()
 
             // Remove group from list
@@ -413,8 +439,10 @@ class GroupManager(
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit
     ): Result<Unit> {
-        val currentClient = connectionManager.getPrimaryClient()
-            ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
             val event = Event(
@@ -436,8 +464,8 @@ class GroupManager(
 
             val updatedAfterLeave2 = _joinedGroups.value - groupId
             _joinedGroups.value = updatedAfterLeave2
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterLeave2)
-            _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterLeave2) }
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave2)
+            _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave2) }
 
             publishJoinedGroups()
 
@@ -478,7 +506,7 @@ class GroupManager(
      * Uses the state machine for reliable loading with proper state transitions.
      */
     suspend fun requestGroupMessages(groupId: String, channel: String? = null): Boolean {
-        val currentClient = connectionManager.getPrimaryClient() ?: return false
+        val currentClient = clientForGroup(groupId) ?: return false
 
         // Get controller and attempt to start initial load
         val controller = loadingRegistry.getController(groupId)
@@ -549,7 +577,7 @@ class GroupManager(
      * Uses the state machine with per-group locks - doesn't block other groups.
      */
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
-        val currentClient = connectionManager.getPrimaryClient() ?: return false
+        val currentClient = clientForGroup(groupId) ?: return false
 
         // Get controller and attempt to start pagination
         val controller = loadingRegistry.getController(groupId)
@@ -675,7 +703,7 @@ class GroupManager(
      * Retry loading after an error.
      */
     suspend fun retryLoading(groupId: String, channel: String? = null): Boolean {
-        val currentClient = connectionManager.getPrimaryClient() ?: return false
+        val currentClient = clientForGroup(groupId) ?: return false
         val controller = loadingRegistry.getController(groupId)
 
         val subscriptionId = controller.retry() ?: return false
@@ -735,7 +763,7 @@ class GroupManager(
         replyToMessageId: String? = null,
         signEvent: suspend (Event) -> Event
     ): Result<Unit> {
-        val currentClient = connectionManager.getPrimaryClient()
+        val currentClient = clientForGroup(groupId)
             ?: return Result.Error(AppError.Network.Disconnected(""))
 
         return try {
@@ -811,7 +839,7 @@ class GroupManager(
         pubKey: String,
         signEvent: suspend (Event) -> Event
     ): Result<Unit> {
-        val currentClient = connectionManager.getPrimaryClient()
+        val currentClient = clientForGroup(groupId)
             ?: return Result.Error(AppError.Network.Disconnected(""))
         return try {
             val event = Event(
@@ -924,7 +952,7 @@ class GroupManager(
      * Request group members (kind 39002)
      */
     suspend fun requestGroupMembers(groupId: String): Boolean {
-        val currentClient = connectionManager.getPrimaryClient() ?: return false
+        val currentClient = clientForGroup(groupId) ?: return false
         currentClient.requestGroupMembers(groupId)
         return true
     }
@@ -940,7 +968,7 @@ class GroupManager(
      * Request group admins (kind 39001)
      */
     suspend fun requestGroupAdmins(groupId: String): Boolean {
-        val currentClient = connectionManager.getPrimaryClient() ?: return false
+        val currentClient = clientForGroup(groupId) ?: return false
         currentClient.requestGroupAdmins(groupId)
         return true
     }

@@ -419,7 +419,9 @@ class NostrRepository(
         }
         groupManager.requestGroupMessages(groupId, channel)
         // Also request group metadata (kind 39000), members (kind 39002) and admins (kind 39001)
-        connectionManager.getPrimaryClient()?.requestGroupMetadata(groupId)
+        val relayUrl = groupManager.getRelayForGroup(groupId)
+        val metaClient = if (relayUrl != null) connectionManager.getClientForRelay(relayUrl) else null
+        (metaClient ?: connectionManager.getPrimaryClient())?.requestGroupMetadata(groupId)
         groupManager.requestGroupMembers(groupId)
         groupManager.requestGroupAdmins(groupId)
     }
@@ -445,7 +447,10 @@ class NostrRepository(
     }
 
     override suspend fun refreshGroupMetadata(groupId: String) {
-        val client = connectionManager.getPrimaryClient() ?: return
+        val relayUrl = groupManager.getRelayForGroup(groupId)
+        val client = (if (relayUrl != null) connectionManager.getClientForRelay(relayUrl) else null)
+            ?: connectionManager.getPrimaryClient()
+            ?: return
         client.requestGroupMetadata(groupId)
         client.requestGroupAdmins(groupId)
     }
