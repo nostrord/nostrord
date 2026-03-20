@@ -490,8 +490,8 @@ suspend fun requestGroupMessages(
                 name = tagMap["name"],
                 about = tagMap["about"],
                 picture = tagMap["picture"],
-                isPublic = tagNames.contains("public"),
-                isOpen = tagNames.contains("open")
+                isPublic = !tagNames.contains("private"),
+                isOpen = !tagNames.contains("closed")
             )
         } catch (e: Exception) {
             null
