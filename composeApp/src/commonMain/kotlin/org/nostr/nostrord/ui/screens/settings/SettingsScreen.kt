@@ -371,6 +371,32 @@ private fun SettingsSidebar(
     onLogout: () -> Unit,
     compact: Boolean = false
 ) {
+    var showLogoutConfirm by remember { mutableStateOf(false) }
+
+    if (showLogoutConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLogoutConfirm = false },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Log out?") },
+            text = { Text("You will need your private key or bunker URL to log back in.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showLogoutConfirm = false
+                    onLogout()
+                }) {
+                    Text("Log Out", color = NostrordColors.Error)
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showLogoutConfirm = false }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            }
+        )
+    }
+
     SettingsNavItem("Profile", activeSection == SettingsSection.Profile, compact = compact) {
         onSelectSection(SettingsSection.Profile)
     }
@@ -381,7 +407,8 @@ private fun SettingsSidebar(
         onSelectSection(SettingsSection.RelaysNip65)
     }
     SettingsNavDivider(compact)
-    SettingsNavItem("Log Out", isActive = false, isDanger = true, compact = compact, onClick = onLogout)
+    SettingsNavItem("Log Out", isActive = false, isDanger = true, compact = compact,
+        onClick = { showLogoutConfirm = true })
 }
 
 // ── Nav primitives ────────────────────────────────────────────────────────────
