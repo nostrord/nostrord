@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.CircularProgressIndicator
@@ -202,7 +201,6 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 
     // Remember scroll states across navigation
     val homeGridState = rememberLazyGridState()
-    val relayListState = rememberLazyListState()
 
     val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
 
@@ -412,7 +410,6 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                         currentScreen = currentScreen,
                         selectedRelayUrl = selectedRelayUrl,
                         homeGridState = homeGridState,
-                        relayListState = relayListState,
                         onNavigate = onNavigate
                     )
                 }
@@ -476,7 +473,6 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                     currentScreen = currentScreen,
                     selectedRelayUrl = selectedRelayUrl,
                     homeGridState = homeGridState,
-                    relayListState = relayListState,
                     onNavigate = onNavigate,
                     onCreateGroupClick = { showCreateGroupModal = true },
                     onOpenDrawer = onOpenDrawer
@@ -494,7 +490,6 @@ private fun DesktopContent(
     currentScreen: Screen,
     selectedRelayUrl: String,
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
-    relayListState: androidx.compose.foundation.lazy.LazyListState,
     onNavigate: (Screen) -> Unit
 ) {
     when (val screen = currentScreen) {
@@ -545,7 +540,6 @@ private fun MobileContent(
     currentScreen: Screen,
     selectedRelayUrl: String,
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
-    relayListState: androidx.compose.foundation.lazy.LazyListState,
     onNavigate: (Screen) -> Unit,
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {}
