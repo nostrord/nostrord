@@ -79,7 +79,11 @@ suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
             return null
         }
         val limitation = obj["limitation"]?.jsonObject
-        val icon = obj["icon"]?.jsonPrimitive?.contentOrNull?.takeIf { isValidIconUrl(it) }
+        val rawIcon = obj["icon"]?.jsonPrimitive?.contentOrNull
+        val icon = rawIcon?.takeIf { isValidIconUrl(it) }
+        if (rawIcon != null && icon == null) {
+            println("[NIP-11] icon rejected for $httpUrl — not a valid HTTPS URL: $rawIcon")
+        }
         val info = Nip11RelayInfo(
             name = obj["name"]?.jsonPrimitive?.contentOrNull,
             description = obj["description"]?.jsonPrimitive?.contentOrNull,

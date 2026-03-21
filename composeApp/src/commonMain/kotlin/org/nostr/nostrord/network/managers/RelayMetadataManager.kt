@@ -57,10 +57,16 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
     fun fetch(relayUrl: String) {
         if (succeeded.contains(relayUrl)) return
         if (inProgress.contains(relayUrl)) return
-        if ((attempts[relayUrl] ?: 0) >= MAX_RETRIES) return
+        val currentAttempts = attempts[relayUrl] ?: 0
+        if (currentAttempts >= MAX_RETRIES) {
+            println("[NIP-11] giving up on $relayUrl after $MAX_RETRIES failed attempts")
+            return
+        }
         inProgress.add(relayUrl)
         scope.launch {
-            attempts[relayUrl] = (attempts[relayUrl] ?: 0) + 1
+            val attempt = currentAttempts + 1
+            attempts[relayUrl] = attempt
+            println("[NIP-11] fetching $relayUrl (attempt $attempt/$MAX_RETRIES)")
             val info = fetchNip11RelayInfo(relayUrl)
             inProgress.remove(relayUrl)
             if (info != null) {
@@ -72,6 +78,8 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
                 } catch (_: Exception) {
                     // Non-critical — cache write failure doesn't break anything
                 }
+            } else {
+                println("[NIP-11] fetch failed for $relayUrl (attempt $attempt/$MAX_RETRIES)")
             }
         }
     }

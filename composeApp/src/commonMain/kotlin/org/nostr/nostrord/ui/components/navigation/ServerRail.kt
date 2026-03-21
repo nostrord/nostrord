@@ -21,10 +21,13 @@ import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,6 +55,7 @@ import coil3.request.crossfade
 import coil3.size.Size as CoilSize
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
 import org.nostr.nostrord.ui.theme.NostrordAnimation
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -180,9 +184,23 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
         animationSpec = NostrordAnimation.standardSpec()
     )
 
-    var imageLoadFailed by remember(iconUrl) { mutableStateOf(false) }
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
-    val showImage = (fallbackPainter != null) || (!iconUrl.isNullOrBlank() && !imageLoadFailed)
+    val hasIcon = isValidIconUrl(iconUrl)
+
+    // retryCount drives recomposition: each increment resets imageState and rebuilds the request.
+    var retryCount by remember(iconUrl) { mutableIntStateOf(0) }
+    var imageState by remember(iconUrl, retryCount) {
+        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+    LaunchedEffect(imageState) {
+        if (imageState is AsyncImagePainter.State.Error && retryCount < 2) {
+            println("[RelayIcon] load failed for $iconUrl (attempt ${retryCount + 1}/3), retrying in 3s")
+            delay(3_000)
+            retryCount++
+        }
+    }
+
+    val showImage = (fallbackPainter != null) || (hasIcon && imageState !is AsyncImagePainter.State.Error)
     val showText = !showImage
 
     // clip() before background() so children are clipped to the rounded shape too
@@ -220,29 +238,28 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
-        } else if (showImage) {
+        } else if (hasIcon) {
             val context = LocalPlatformContext.current
             val density = LocalDensity.current
             val sizeInPx = with(density) { Spacing.serverIconSize.roundToPx() }
-            val imageRequest = remember(iconUrl, context, sizeInPx) {
-                ImageRequest.Builder(context)
+            AsyncImage(
+                model = ImageRequest.Builder(context)
                     .data(getImageUrl(iconUrl!!))
                     .crossfade(true)
                     .size(CoilSize(sizeInPx, sizeInPx))
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
-                    .build()
-            }
-            AsyncImage(
-                model = imageRequest,
+                    .build(),
                 contentDescription = null,
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                 filterQuality = FilterQuality.High,
                 modifier = Modifier.fillMaxSize(),
                 onState = { state ->
+                    imageState = state
                     if (state is AsyncImagePainter.State.Error) {
-                        println("[RelayIcon] Coil error loading $iconUrl: $state")
-                        imageLoadFailed = true
+                        println("[RelayIcon] Coil error loading $iconUrl (attempt ${retryCount + 1}): ${state.result.throwable?.message}")
+                    } else if (state is AsyncImagePainter.State.Success) {
+                        println("[RelayIcon] Coil success for $iconUrl")
                     }
                 }
             )
