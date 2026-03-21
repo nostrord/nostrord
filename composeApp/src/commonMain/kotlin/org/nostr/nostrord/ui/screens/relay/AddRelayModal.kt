@@ -33,15 +33,12 @@ import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.util.buildRelayIconRequest
 import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.ui.util.relayFallbackPainter
-import org.nostr.nostrord.utils.getImageUrl
 
 private data class SuggestedRelay(
     val url: String,
@@ -350,12 +347,7 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
         if (hasIcon) {
             key(retryCount) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(getImageUrl(iconUrl!!))
-                        .crossfade(true)
-                        .memoryCachePolicy(CachePolicy.DISABLED)
-                        .diskCachePolicy(CachePolicy.DISABLED)
-                        .build(),
+                    model = buildRelayIconRequest(iconUrl!!, context),
                     contentDescription = name,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop,

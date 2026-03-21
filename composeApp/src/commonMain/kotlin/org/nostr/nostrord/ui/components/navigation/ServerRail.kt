@@ -18,7 +18,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TooltipBox
-import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,7 +34,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,11 +48,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.size.Size as CoilSize
-import org.nostr.nostrord.utils.getImageUrl
+import org.nostr.nostrord.ui.util.buildRelayIconRequest
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
@@ -248,19 +242,9 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
         // with no prior error state to reuse.
         if (hasIcon) {
             val context = LocalPlatformContext.current
-            val density = LocalDensity.current
-            val sizeInPx = with(density) { Spacing.serverIconSize.roundToPx() }
             key(retryCount) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(getImageUrl(iconUrl!!))
-                        .crossfade(true)
-                        .size(CoilSize(sizeInPx, sizeInPx))
-                        // No caching for relay icons: they're small, caching adds no meaningful
-                        // benefit while disabling it eliminates all cache-poisoning failure modes.
-                        .memoryCachePolicy(CachePolicy.DISABLED)
-                        .diskCachePolicy(CachePolicy.DISABLED)
-                        .build(),
+                    model = buildRelayIconRequest(iconUrl!!, context),
                     contentDescription = null,
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     filterQuality = FilterQuality.High,

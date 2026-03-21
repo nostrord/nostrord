@@ -7,13 +7,10 @@ import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
+import org.nostr.nostrord.ui.util.buildRelayIconRequest
 import org.nostr.nostrord.ui.util.relayFallbackPainter
-import org.nostr.nostrord.utils.getImageUrl
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -64,7 +61,6 @@ import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.home.components.PickGroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.generateColorFromString
 
 enum class GroupFilter { All, Joined }
@@ -80,7 +76,6 @@ fun HomeScreenDesktop(
     onSearchChange: (String) -> Unit,
     currentRelayUrl: String,
     relayMeta: Nip11RelayInfo? = null,
-    gridColumns: Int,
     activeFilter: GroupFilter,
     onFilterChange: (GroupFilter) -> Unit,
     isLoading: Boolean = false,
@@ -445,12 +440,7 @@ private fun RelayHeaderIcon(
         if (hasIcon) {
             key(retryCount) {
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(getImageUrl(iconUrl!!))
-                        .crossfade(true)
-                        .memoryCachePolicy(CachePolicy.DISABLED)
-                        .diskCachePolicy(CachePolicy.DISABLED)
-                        .build(),
+                    model = buildRelayIconRequest(iconUrl!!, context),
                     contentDescription = label,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
                     contentScale = ContentScale.Crop,

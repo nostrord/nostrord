@@ -111,7 +111,6 @@ fun HomeScreen(
                 onFilterChange = { activeFilter = it },
                 currentRelayUrl = displayRelayUrl,
                 relayMeta = relayMeta,
-                gridColumns = gridColumns,
                 isLoading = isLoading,
                 hasError = hasError,
                 onRetry = { vm.connect() },
