@@ -18,7 +18,6 @@ import org.nostr.nostrord.utils.rememberClipboardWriter
  * - User avatar and name display
  * - Public key display with copy
  * - Navigation to backup keys
- * - Navigation to relay settings
  * - Logout option
  *
  * No bottom navigation bar - uses back button for navigation.
@@ -65,7 +64,6 @@ fun ProfileScreen(
                 },
                 onEditProfile = { onNavigate(Screen.EditProfile) },
                 onBackupKeys = { onNavigate(Screen.BackupPrivateKey) },
-                onRelaySettings = { onNavigate(Screen.RelaySettings) },
                 onLogout = { vm.logout(onLogout) }
             )
         } else {
@@ -85,7 +83,6 @@ fun ProfileScreen(
                 },
                 onEditProfile = { onNavigate(Screen.EditProfile) },
                 onBackupKeys = { onNavigate(Screen.BackupPrivateKey) },
-                onRelaySettings = { onNavigate(Screen.RelaySettings) },
                 onLogout = { vm.logout(onLogout) }
             )
         }

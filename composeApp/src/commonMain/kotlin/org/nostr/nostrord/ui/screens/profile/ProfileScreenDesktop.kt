@@ -42,7 +42,6 @@ fun ProfileScreenDesktop(
     onCopyNpub: () -> Unit,
     onEditProfile: () -> Unit,
     onBackupKeys: () -> Unit,
-    onRelaySettings: () -> Unit,
     onLogout: () -> Unit
 ) {
     Box(
@@ -216,17 +215,6 @@ fun ProfileScreenDesktop(
                                 onClick = onBackupKeys
                             )
 
-                            HorizontalDivider(
-                                color = NostrordColors.Divider,
-                                modifier = Modifier.padding(horizontal = Spacing.lg)
-                            )
-
-                            SettingsMenuItem(
-                                icon = Icons.Default.Cloud,
-                                title = "Relay Settings",
-                                subtitle = "Manage your relay connections",
-                                onClick = onRelaySettings
-                            )
                         }
                     }
 

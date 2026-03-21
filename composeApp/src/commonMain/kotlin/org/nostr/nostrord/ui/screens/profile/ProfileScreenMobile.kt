@@ -49,7 +49,6 @@ fun ProfileScreenMobile(
     onCopyNpub: () -> Unit,
     onEditProfile: () -> Unit,
     onBackupKeys: () -> Unit,
-    onRelaySettings: () -> Unit,
     onLogout: () -> Unit
 ) {
     Scaffold(
@@ -231,17 +230,6 @@ fun ProfileScreenMobile(
                     onClick = onBackupKeys
                 )
 
-                HorizontalDivider(
-                    color = NostrordColors.Divider,
-                    modifier = Modifier.padding(horizontal = Spacing.lg)
-                )
-
-                SettingsMenuItem(
-                    icon = Icons.Default.Cloud,
-                    title = "Relay Settings",
-                    subtitle = "Manage your relays",
-                    onClick = onRelaySettings
-                )
             }
 
             Spacer(modifier = Modifier.height(Spacing.sm))
