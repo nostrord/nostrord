@@ -188,23 +188,24 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
     val hasIcon = isValidIconUrl(iconUrl)
 
+    // Single source of truth: did the image load successfully?
+    // Derived exclusively from AsyncImagePainter.onState — no parallel tracking.
+    var imageLoaded by remember(iconUrl) { mutableStateOf(false) }
     var retryCount by remember(iconUrl) { mutableIntStateOf(0) }
-    // loadError is separate from retryCount so LaunchedEffect can track the transition.
     var loadError by remember(iconUrl) { mutableStateOf(false) }
 
-    // Schedule a retry whenever loadError flips to true and we have attempts left.
-    // Using key(loadError, retryCount) ensures the effect restarts only on meaningful changes.
+    // Infinite exponential backoff. No permanent failure state — Nostr relays are unreliable
+    // by design and icons must eventually appear once the relay becomes reachable.
+    // Backoff: 3s → 6s → 12s → 24s → 48s → ~1.6min → ~3.2min → 5min (cap)
     LaunchedEffect(loadError, retryCount) {
-        if (loadError && retryCount < 2) {
-            delay(3_000L * (retryCount + 1)) // 3s first retry, 6s second
-            retryCount++        // key(retryCount) will destroy+recreate AsyncImage
-            loadError = false   // clear so next error can re-trigger
+        if (loadError && !imageLoaded) {
+            val backoffMs = minOf(3_000L * (1 shl minOf(retryCount, 7)), 5 * 60_000L)
+            println("[RelayIcon] will retry $iconUrl in ${backoffMs}ms (attempt ${retryCount + 2})")
+            delay(backoffMs)
+            retryCount++
+            loadError = false
         }
     }
-
-    // Permanent fallback only after all retries are exhausted AND still failing.
-    val permanentFail = loadError && retryCount >= 2
-    val showText = fallbackPainter == null && (!hasIcon || permanentFail)
 
     Box(
         modifier = Modifier
@@ -220,7 +221,16 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
             ),
         contentAlignment = Alignment.Center
     ) {
-        if (showText) {
+        // Base layer: fallback is ALWAYS visible until the image successfully overlays it.
+        // Fallback is a visual placeholder, not a terminal state.
+        if (fallbackPainter != null) {
+            androidx.compose.foundation.Image(
+                painter = fallbackPainter,
+                contentDescription = null,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (!imageLoaded) {
             Text(
                 text = relayShortLabel(relayUrl),
                 color = Color.White,
@@ -233,29 +243,23 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
             )
         }
 
-        if (fallbackPainter != null) {
-            androidx.compose.foundation.Image(
-                painter = fallbackPainter,
-                contentDescription = null,
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else if (hasIcon) {
+        // Top layer: image attempt. key(retryCount) destroys and recreates the entire
+        // AsyncImagePainter on each retry, so Coil always starts a completely fresh request
+        // with no prior error state to reuse.
+        if (hasIcon) {
             val context = LocalPlatformContext.current
             val density = LocalDensity.current
             val sizeInPx = with(density) { Spacing.serverIconSize.roundToPx() }
-            // key(retryCount) destroys and recreates AsyncImagePainter on each retry,
-            // guaranteeing a fresh Coil request rather than reusing the error-state painter.
             key(retryCount) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(getImageUrl(iconUrl!!))
                         .crossfade(true)
                         .size(CoilSize(sizeInPx, sizeInPx))
-                        // Bypass memory cache on retries so a stale in-memory state
-                        // can never short-circuit the network attempt.
-                        .memoryCachePolicy(if (retryCount > 0) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
+                        // No caching for relay icons: they're small, caching adds no meaningful
+                        // benefit while disabling it eliminates all cache-poisoning failure modes.
+                        .memoryCachePolicy(CachePolicy.DISABLED)
+                        .diskCachePolicy(CachePolicy.DISABLED)
                         .build(),
                     contentDescription = null,
                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
@@ -264,10 +268,12 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
                     onState = { state ->
                         when (state) {
                             is AsyncImagePainter.State.Success -> {
+                                imageLoaded = true
                                 loadError = false
                                 println("[RelayIcon] loaded $iconUrl (attempt ${retryCount + 1})")
                             }
                             is AsyncImagePainter.State.Error -> {
+                                imageLoaded = false
                                 loadError = true
                                 println("[RelayIcon] error $iconUrl attempt=${retryCount + 1}: ${state.result.throwable?.message}")
                             }

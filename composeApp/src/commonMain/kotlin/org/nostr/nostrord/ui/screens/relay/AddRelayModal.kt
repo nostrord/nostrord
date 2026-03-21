@@ -311,33 +311,27 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
     val context = LocalPlatformContext.current
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(url) else null
     val hasIcon = isValidIconUrl(iconUrl)
+    var imageLoaded by remember(iconUrl) { mutableStateOf(false) }
     var retryCount by remember(iconUrl) { mutableIntStateOf(0) }
     var loadError by remember(iconUrl) { mutableStateOf(false) }
     LaunchedEffect(loadError, retryCount) {
-        if (loadError && retryCount < 2) {
-            delay(3_000L * (retryCount + 1))
+        if (loadError && !imageLoaded) {
+            val backoffMs = minOf(3_000L * (1 shl minOf(retryCount, 7)), 5 * 60_000L)
+            println("[RelayCardIcon] will retry $iconUrl in ${backoffMs}ms (attempt ${retryCount + 2})")
+            delay(backoffMs)
             retryCount++
             loadError = false
         }
     }
-    val permanentFail = loadError && retryCount >= 2
-    val showImage = (fallbackPainter != null) || (hasIcon && !permanentFail)
 
     Box(
         modifier = Modifier
             .size(size)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (!showImage) generateColorFromString(url) else NostrordColors.BackgroundDark),
+            .background(if (imageLoaded && hasIcon) NostrordColors.BackgroundDark else generateColorFromString(url)),
         contentAlignment = Alignment.Center
     ) {
-        if (!showImage) {
-            Text(
-                text = name.take(1).uppercase(),
-                color = Color.White,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        // Base layer: fallback shown until image overlays it
         if (fallbackPainter != null) {
             androidx.compose.foundation.Image(
                 painter = fallbackPainter,
@@ -345,14 +339,22 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
                 contentScale = ContentScale.Crop
             )
-        } else if (hasIcon) {
+        } else if (!imageLoaded) {
+            Text(
+                text = name.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (hasIcon) {
             key(retryCount) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(getImageUrl(iconUrl!!))
                         .crossfade(true)
-                        .memoryCachePolicy(if (retryCount > 0) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .memoryCachePolicy(CachePolicy.DISABLED)
+                        .diskCachePolicy(CachePolicy.DISABLED)
                         .build(),
                     contentDescription = name,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
@@ -360,10 +362,12 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
                     onState = { state ->
                         when (state) {
                             is AsyncImagePainter.State.Success -> {
+                                imageLoaded = true
                                 loadError = false
                                 println("[RelayCardIcon] loaded $iconUrl (attempt ${retryCount + 1})")
                             }
                             is AsyncImagePainter.State.Error -> {
+                                imageLoaded = false
                                 loadError = true
                                 println("[RelayCardIcon] error $iconUrl attempt=${retryCount + 1}: ${state.result.throwable?.message}")
                             }

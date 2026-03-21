@@ -406,33 +406,27 @@ private fun RelayHeaderIcon(
     val context = LocalPlatformContext.current
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
     val hasIcon = isValidIconUrl(iconUrl)
+    var imageLoaded by remember(iconUrl) { mutableStateOf(false) }
     var retryCount by remember(iconUrl) { mutableIntStateOf(0) }
     var loadError by remember(iconUrl) { mutableStateOf(false) }
     LaunchedEffect(loadError, retryCount) {
-        if (loadError && retryCount < 2) {
-            delay(3_000L * (retryCount + 1))
+        if (loadError && !imageLoaded) {
+            val backoffMs = minOf(3_000L * (1 shl minOf(retryCount, 7)), 5 * 60_000L)
+            println("[RelayHeaderIcon] will retry $iconUrl in ${backoffMs}ms (attempt ${retryCount + 2})")
+            delay(backoffMs)
             retryCount++
             loadError = false
         }
     }
-    val permanentFail = loadError && retryCount >= 2
-    val showImage = (fallbackPainter != null) || (hasIcon && !permanentFail)
 
     Box(
         modifier = Modifier
             .size(size)
             .clip(RoundedCornerShape(14.dp))
-            .background(if (!showImage) generateColorFromString(relayUrl) else NostrordColors.BackgroundDark),
+            .background(if (imageLoaded && hasIcon) NostrordColors.BackgroundDark else generateColorFromString(relayUrl)),
         contentAlignment = Alignment.Center
     ) {
-        if (!showImage) {
-            Text(
-                text = label.take(1).uppercase(),
-                color = Color.White,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        // Base layer: fallback shown until image overlays it
         if (fallbackPainter != null) {
             androidx.compose.foundation.Image(
                 painter = fallbackPainter,
@@ -440,14 +434,22 @@ private fun RelayHeaderIcon(
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
                 contentScale = ContentScale.Crop
             )
-        } else if (hasIcon) {
+        } else if (!imageLoaded) {
+            Text(
+                text = label.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (hasIcon) {
             key(retryCount) {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(getImageUrl(iconUrl!!))
                         .crossfade(true)
-                        .memoryCachePolicy(if (retryCount > 0) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .memoryCachePolicy(CachePolicy.DISABLED)
+                        .diskCachePolicy(CachePolicy.DISABLED)
                         .build(),
                     contentDescription = label,
                     modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
@@ -455,10 +457,12 @@ private fun RelayHeaderIcon(
                     onState = { state ->
                         when (state) {
                             is AsyncImagePainter.State.Success -> {
+                                imageLoaded = true
                                 loadError = false
                                 println("[RelayHeaderIcon] loaded $iconUrl (attempt ${retryCount + 1})")
                             }
                             is AsyncImagePainter.State.Error -> {
+                                imageLoaded = false
                                 loadError = true
                                 println("[RelayHeaderIcon] error $iconUrl attempt=${retryCount + 1}: ${state.result.throwable?.message}")
                             }
