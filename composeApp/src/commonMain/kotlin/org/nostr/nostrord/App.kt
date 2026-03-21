@@ -49,12 +49,12 @@ import org.nostr.nostrord.ui.navigation.browserGoForward
 import org.nostr.nostrord.ui.navigation.platformHasBrowserNavigation
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.home.HomeScreen
+import org.nostr.nostrord.ui.screens.settings.SettingsScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.relay.AddRelayModal
 import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
-import org.nostr.nostrord.ui.screens.profile.ProfileScreen
 import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.theme.NostrordColors
 
@@ -362,6 +362,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
         )
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize().then(keyEventModifier)) {
         val isDesktop = maxWidth >= 600.dp
 
@@ -479,7 +480,26 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                 )
             }
         }
+    } // BoxWithConstraints
+
+    // Settings overlay — covers the entire app (rail, sidebar, content) when active
+    if (currentScreen is Screen.Profile) {
+        SettingsScreen(
+            showToolbar = !platformHasBrowserNavigation,
+            canGoBack = navHistory.canGoBack,
+            canGoForward = navHistory.canGoForward,
+            onHistoryBack = onHistoryBack,
+            onHistoryForward = onHistoryForward,
+            onClose = { onHistoryBack() },
+            onNavigate = onNavigate,
+            onLogout = {
+                scope.launch {
+                    AppModule.nostrRepository.logout()
+                }
+            }
+        )
     }
+    } // Box
 }
 
 /**
@@ -510,12 +530,6 @@ private fun DesktopContent(
                     onNavigate(Screen.Group(newGroupId, newGroupName))
                 },
                 showServerRail = false
-            )
-        }
-        is Screen.Profile -> {
-            ProfileScreen(
-                onNavigate = onNavigate,
-                onLogout = { onNavigate(Screen.Home) }
             )
         }
         is Screen.EditProfile -> {
@@ -564,12 +578,6 @@ private fun MobileContent(
                     onNavigate(Screen.Group(newGroupId, newGroupName))
                 },
                 onOpenDrawer = onOpenDrawer
-            )
-        }
-        is Screen.Profile -> {
-            ProfileScreen(
-                onNavigate = onNavigate,
-                onLogout = { onNavigate(Screen.Home) }
             )
         }
         is Screen.EditProfile -> {
