@@ -56,6 +56,12 @@ class ConnectionManager(
      */
     var onReconnected: (suspend (NostrGroupClient) -> Unit)? = null
 
+    /**
+     * Called when a pool relay drops unexpectedly.
+     * Set by NostrRepository to trigger reconnection with backoff.
+     */
+    var onPoolRelayLost: ((relayUrl: String) -> Unit)? = null
+
     companion object {
         private const val INITIAL_RECONNECT_DELAY_MS = 1000L
         private const val MAX_RECONNECT_DELAY_MS = 30000L
@@ -114,6 +120,7 @@ class ConnectionManager(
         _connectionState.value = ConnectionState.Connecting
 
         try {
+            println("[Primary] Connecting  relay=$relayUrl")
             val newClient = NostrGroupClient(relayUrl)
             primaryClient = newClient
 
@@ -122,11 +129,19 @@ class ConnectionManager(
             }
 
             newClient.connect { msg -> onMessage(msg, newClient) }
-            newClient.waitForConnection()
+            val opened = newClient.waitForConnection()
+            if (!opened) {
+                println("[Primary] TIMEOUT  relay=$relayUrl  — giving up this attempt")
+                primaryClient = null
+                _connectionState.value = ConnectionState.Error("Connection timed out")
+                return@withLock false
+            }
             _connectionState.value = ConnectionState.Connected
             reconnectAttempts = 0
+            println("[Primary] OPEN  relay=$relayUrl")
             true
         } catch (e: Exception) {
+            println("[Primary] ERROR  relay=$relayUrl  error=${e.message}")
             _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
             primaryClient = null
             false
@@ -158,11 +173,11 @@ class ConnectionManager(
                 reconnectAttempts++
                 _connectionState.value = ConnectionState.Reconnecting(reconnectAttempts, MAX_RECONNECT_ATTEMPTS)
 
-                // Calculate delay with exponential backoff
                 val delayMs = minOf(
                     INITIAL_RECONNECT_DELAY_MS * (1L shl (reconnectAttempts - 1)),
                     MAX_RECONNECT_DELAY_MS
                 )
+                println("[Primary] Reconnecting in ${delayMs}ms (attempt $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)  relay=${_currentRelayUrl.value}")
                 delay(delayMs)
 
                 val handler = currentMessageHandler ?: break
@@ -175,8 +190,8 @@ class ConnectionManager(
                 }
             }
 
-            // Max attempts reached
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                println("[Primary] GAVE-UP  relay=${_currentRelayUrl.value}  maxAttempts=$MAX_RECONNECT_ATTEMPTS")
                 _connectionState.value = ConnectionState.Error("Connection lost. Tap to retry.")
             }
         }
@@ -223,6 +238,18 @@ class ConnectionManager(
         val oldPrimary = primaryClient
         val oldUrl = _currentRelayUrl.value
         if (oldPrimary != null && oldUrl != newRelayUrl) {
+            // CRITICAL: re-wire onConnectionLost to the pool handler before adding to pool.
+            // Without this, the demoted primary still fires handleConnectionLost() when it
+            // drops, which triggers reconnection of the WRONG relay (_currentRelayUrl, which
+            // is already the new relay). communities.nos.social was never reconnected because
+            // of this exact bug — it was in the pool with the primary's callback wired.
+            oldPrimary.onConnectionLost = {
+                scope.launch {
+                    poolMutex.withLock { relayPool.remove(oldUrl) }
+                    println("[Pool] LOST  relay=$oldUrl  (demoted primary)")
+                    onPoolRelayLost?.invoke(oldUrl)
+                }
+            }
             poolMutex.withLock {
                 if (!relayPool.containsKey(oldUrl)) {
                     relayPool[oldUrl] = oldPrimary
@@ -284,14 +311,24 @@ class ConnectionManager(
         // Create new connection outside the lock to avoid blocking other operations
         return try {
             val newClient = NostrGroupClient(relayUrl)
+            // Wire up pool-relay drop detection so we can attempt reconnection.
+            newClient.onConnectionLost = {
+                scope.launch {
+                    poolMutex.withLock { relayPool.remove(relayUrl) }
+                    println("[Pool] LOST  relay=$relayUrl  poolSize=${poolMutex.withLock { relayPool.size }}")
+                    onPoolRelayLost?.invoke(relayUrl)
+                }
+            }
             newClient.connect { msg ->
                 onMessage(msg, newClient)
             }
             val connected = newClient.waitForConnection()
             if (!connected) {
+                println("[Pool] TIMEOUT  relay=$relayUrl  — could not connect within 15s")
                 newClient.disconnect()
                 return null
             }
+            println("[Pool] OPEN  relay=$relayUrl")
 
             // Add to pool with lock, but check again in case another coroutine added it
             poolMutex.withLock {

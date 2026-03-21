@@ -2,6 +2,7 @@ package org.nostr.nostrord.network
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,12 +90,22 @@ class NostrRepository(
         connectionManager.onConnectionDropped = {
             scope.launch { groupManager.handleConnectionLost() }
         }
+        connectionManager.onPoolRelayLost = { relayUrl ->
+            scope.launch { reconnectPoolRelay(relayUrl) }
+        }
         connectionManager.onReconnected = { client ->
             sessionManager.sendAuthIfNeeded(client)
             val relayUrl = connectionManager.currentRelayUrl.value
             groupManager.restoreGroupsForRelay(relayUrl)
             if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
                 client.requestGroups()
+            }
+            // Re-subscribe for all groups that had messages — WebSocket subscriptions
+            // are gone after reconnect and must be re-established to receive new messages.
+            val groupIds = (groupManager.messages.value.keys + groupManager.joinedGroups.value).distinct()
+            for (groupId in groupIds) {
+                groupManager.requestGroupMessages(groupId)
+                client.requestGroupMetadata(groupId)
             }
             pendingEventManager?.onConnectionRestored()
         }
@@ -1046,6 +1057,56 @@ class NostrRepository(
         if (userMetadata != null) {
             val (pubkey, metadata) = userMetadata
             metadataManager.handleMetadataEvent(pubkey, metadata)
+        }
+    }
+
+    /**
+     * Reconnect a pool relay that dropped unexpectedly, with exponential backoff.
+     * After reconnect, re-subscribes to group messages for every group hosted on that relay.
+     *
+     * RC-1 fix: pool clients had no onConnectionLost → died silently without reconnection.
+     * RC-2 fix: clientForGroup() now rejects dead clients (returns null) so subscriptions
+     *           are not fire-and-forgotten into a closed WebSocket session.
+     */
+    private suspend fun reconnectPoolRelay(relayUrl: String, attempt: Int = 1) {
+        // Only keep NIP-29 group relays alive. Outbox/write relays (nos.lol, relay.damus.io,
+        // purplepag.es, etc.) are temporary — the outbox reconnects them on demand. Aggressively
+        // reconnecting them here would cause an infinite loop because they drop frequently.
+        val nip29Relays = SecureStorage.loadRelayList()
+        if (relayUrl !in nip29Relays) {
+            println("[Pool] Skip reconnect $relayUrl — not a NIP-29 relay (outbox-only)")
+            return
+        }
+
+        val maxAttempts = 8
+        if (attempt > maxAttempts) {
+            println("[Pool] ✗ Gave up reconnecting $relayUrl after $maxAttempts attempts")
+            return
+        }
+        val backoffMs = minOf(1000L * (1L shl (attempt - 1)), 30_000L)
+        println("[Pool] Reconnecting $relayUrl in ${backoffMs}ms (attempt $attempt/$maxAttempts)")
+        delay(backoffMs)
+
+        val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+            handleUnifiedMessage(msg, c)
+        }
+        if (client == null) {
+            println("[Pool] ✗ Reconnect failed: $relayUrl — scheduling retry")
+            scope.launch { reconnectPoolRelay(relayUrl, attempt + 1) }
+            return
+        }
+        println("[Pool] ✓ Reconnected $relayUrl — re-subscribing groups")
+
+        // Re-fetch group list if not yet cached for this relay
+        if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
+            client.requestGroups()
+        }
+
+        // Re-subscribe for all groups that live on this relay
+        val groupsOnRelay = groupManager.getGroupsForRelay(relayUrl)
+        for (group in groupsOnRelay) {
+            groupManager.requestGroupMessages(group.id)
+            client.requestGroupMetadata(group.id)
         }
     }
 

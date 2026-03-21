@@ -136,16 +136,30 @@ class GroupManager(
 
     /**
      * Returns the WebSocket client for the relay that hosts [groupId].
-     * Falls back to the primary client if the group's relay is not connected.
+     * If the group's relay client exists but is disconnected, returns null — callers must
+     * not send subscriptions to dead sockets (send() silently no-ops on a closed session).
+     * Falls back to the primary only when the group's relay is completely unknown.
      */
     private suspend fun clientForGroup(groupId: String): NostrGroupClient? {
         val relayUrl = getRelayForGroup(groupId)
         return if (relayUrl != null) {
-            connectionManager.getClientForRelay(relayUrl) ?: connectionManager.getPrimaryClient()
+            val client = connectionManager.getClientForRelay(relayUrl)
+            when {
+                client == null -> connectionManager.getPrimaryClient() // relay not in pool yet
+                client.isConnected() -> client                         // healthy pool client ✓
+                else -> {
+                    println("[GroupManager] DEAD-CLIENT  relay=$relayUrl  group=$groupId — skipping send, reconnect pending")
+                    null  // dead pool client — reconnect is pending, don't send to it
+                }
+            }
         } else {
             connectionManager.getPrimaryClient()
         }
     }
+
+    /** Returns all cached groups for the given relay URL. */
+    fun getGroupsForRelay(relayUrl: String): List<GroupMetadata> =
+        _groupsByRelay.value[relayUrl] ?: emptyList()
 
     /**
      * Load joined groups from storage

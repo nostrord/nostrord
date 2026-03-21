@@ -137,6 +137,7 @@ class NostrGroupClient(
     suspend fun connect(onMessage: (String) -> Unit) {
         isDisconnecting = false
         connectionJob = clientScope.launch {
+            val connectedAt = epochMillis()
             try {
                 client.webSocket(relayUrl) {
                     session = this
@@ -147,22 +148,39 @@ class NostrGroupClient(
 
                     // Listen to incoming messages
                     for (frame in incoming) {
-                        if (frame is Frame.Text) {
-                            val text = frame.readText()
-                            onMessage(text)
+                        when (frame) {
+                            is Frame.Text -> onMessage(frame.readText())
+                            is Frame.Close -> {
+                                val reason = frame.readReason()
+                                println("[WS] CLOSE-FRAME  relay=$relayUrl  code=${reason?.code}  reason='${reason?.message}'")
+                            }
+                            else -> {} // ping/pong handled by Ktor
                         }
                     }
-                    println("[WS] CLOSED (normal)  relay=$relayUrl")
+                    val durationSec = (epochMillis() - connectedAt) / 1000
+                    val reason = closeReason.await()
+                    println("[WS] CLOSED  relay=$relayUrl  duration=${durationSec}s  code=${reason?.code}  reason='${reason?.message}'")
                 }
             } catch (e: Exception) {
-                println("[WS] ERROR  relay=$relayUrl  error=${e.message}")
+                val durationSec = (epochMillis() - connectedAt) / 1000
+                // JobCancellationException = graceful disconnect or race-condition loser in
+                // getOrConnectRelay (expected, not an error). Only log real failures.
+                if (e is kotlinx.coroutines.CancellationException) {
+                    if (!isDisconnecting) {
+                        println("[WS] CANCELLED (unexpected)  relay=$relayUrl  duration=${durationSec}s")
+                    }
+                    // else: graceful disconnect — silent
+                } else {
+                    println("[WS] ERROR  relay=$relayUrl  duration=${durationSec}s  error=${e::class.simpleName}: ${e.message}")
+                }
             } finally {
                 val wasConnected = session != null
                 session = null
-                // Notify if connection was lost unexpectedly (not a graceful disconnect)
                 if (wasConnected && !isDisconnecting) {
-                    println("[WS] LOST (unexpected)  relay=$relayUrl")
+                    println("[WS] LOST (unexpected)  relay=$relayUrl  hasLostCallback=${onConnectionLost != null}")
                     onConnectionLost?.invoke()
+                } else if (!wasConnected && !isDisconnecting) {
+                    println("[WS] FAILED-TO-OPEN  relay=$relayUrl")
                 }
             }
         }
@@ -180,10 +198,12 @@ class NostrGroupClient(
     suspend fun send(message: String) {
         try {
             val currentSession = session ?: run {
+                println("[WS] SEND-DROPPED  relay=$relayUrl  reason=no-session  msg=${message.take(80)}")
                 return
             }
             currentSession.send(Frame.Text(message))
         } catch (e: Exception) {
+            println("[WS] SEND-ERROR  relay=$relayUrl  error=${e.message}  msg=${message.take(80)}")
         }
     }
 
