@@ -63,6 +63,8 @@ kotlin {
             implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.14.0")
             implementation("androidx.security:security-crypto:1.1.0")
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+            // Animated GIF support: provides AnimatedImageDecoder (API 28+) and GifDecoder (API < 28)
+            implementation("io.coil-kt.coil3:coil-gif:3.0.4")
         }
         
         commonMain.dependencies {

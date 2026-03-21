@@ -54,6 +54,7 @@ import coil3.size.Size
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.getImageUrl
+import org.nostr.nostrord.utils.isAnimatedImageUrl
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
@@ -832,6 +833,21 @@ private fun ChatImage(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Animated GIF and animated WebP need a platform-specific renderer.
+    // On Android, Coil's AnimatedImageDecoder (API 28+) handles both formats automatically.
+    // On JVM Desktop, we decode frame-by-frame via ImageIO (GIF) or Skia Codec (WebP).
+    if (isAnimatedImageUrl(imageUrl)) {
+        AnimatedImage(
+            url = imageUrl,
+            modifier = modifier
+                .widthIn(max = 400.dp)
+                .heightIn(max = 300.dp)
+                .clip(NostrordShapes.imageShape),
+            onClick = onClick
+        )
+        return
+    }
+
     val context = LocalPlatformContext.current
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
     var showError by remember { mutableStateOf(false) }
