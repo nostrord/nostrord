@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -359,21 +358,6 @@ private fun MobileGroupTopBar(
                         onDismissRequest = { menuExpanded = false },
                         containerColor = NostrordColors.Surface
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Settings", color = NostrordColors.TextPrimary) },
-                            onClick = {
-                                menuExpanded = false
-                                // TODO: Navigate to group settings
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Settings,
-                                    contentDescription = null,
-                                    tint = NostrordColors.TextSecondary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        )
                         if (isAdmin) {
                             DropdownMenuItem(
                                 text = { Text("Edit Group", color = NostrordColors.TextPrimary) },
