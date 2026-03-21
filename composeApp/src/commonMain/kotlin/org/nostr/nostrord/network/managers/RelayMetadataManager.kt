@@ -37,14 +37,16 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
     }
 
     init {
-        // Restore cached NIP-11 metadata from storage so icons appear immediately on startup
+        // Pre-populate the StateFlow from storage so icons appear immediately on startup,
+        // without waiting for the network fetch. We intentionally do NOT add these URLs to
+        // `succeeded` so that fetch() still runs once per session and picks up any changes
+        // to relay metadata (e.g. updated icon URL, new name).
         try {
             val cached = SecureStorage.getRelayMetadata()
             if (!cached.isNullOrBlank()) {
                 val map = json.decodeFromString<Map<String, Nip11RelayInfo>>(cached)
                 if (map.isNotEmpty()) {
                     _relayMetadata.value = map
-                    succeeded.addAll(map.keys)
                 }
             }
         } catch (_: Exception) {
