@@ -16,6 +16,7 @@ actual object SecureStorage {
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
+    private const val RELAY_METADATA_KEY = "relay_metadata"
 
     actual fun savePrivateKey(privateKeyHex: String) {
         localStorage.setItem(PRIVATE_KEY_PREF, privateKeyHex)
@@ -255,5 +256,13 @@ actual object SecureStorage {
     actual fun clearGroupsForRelay(relayUrl: String) {
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         localStorage.removeItem(key)
+    }
+
+    actual fun saveRelayMetadata(json: String) {
+        localStorage.setItem(RELAY_METADATA_KEY, json)
+    }
+
+    actual fun getRelayMetadata(): String? {
+        return localStorage.getItem(RELAY_METADATA_KEY)
     }
 }

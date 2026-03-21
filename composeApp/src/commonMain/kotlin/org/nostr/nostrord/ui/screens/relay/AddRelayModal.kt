@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -310,8 +311,15 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
     val context = LocalPlatformContext.current
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(url) else null
     val hasIcon = isValidIconUrl(iconUrl)
-    var imageState by remember(iconUrl) {
+    var retryCount by remember(iconUrl) { mutableIntStateOf(0) }
+    var imageState by remember(iconUrl, retryCount) {
         mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+    LaunchedEffect(imageState) {
+        if (imageState is AsyncImagePainter.State.Error && retryCount < 2) {
+            delay(3_000)
+            retryCount++
+        }
     }
     val showImage = (fallbackPainter != null) || (hasIcon && imageState !is AsyncImagePainter.State.Error)
 

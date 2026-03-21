@@ -21,6 +21,7 @@ actual object SecureStorage {
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
+    private const val RELAY_METADATA_KEY = "relay_metadata"
 
     private lateinit var prefs: SharedPreferences
     
@@ -318,5 +319,15 @@ actual object SecureStorage {
         ensureInitialized()
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         prefs.edit().remove(key).apply()
+    }
+
+    actual fun saveRelayMetadata(json: String) {
+        ensureInitialized()
+        prefs.edit().putString(RELAY_METADATA_KEY, json).apply()
+    }
+
+    actual fun getRelayMetadata(): String? {
+        ensureInitialized()
+        return prefs.getString(RELAY_METADATA_KEY, null)
     }
 }

@@ -36,10 +36,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import org.nostr.nostrord.utils.rememberClipboardWriter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -402,8 +405,15 @@ private fun RelayHeaderIcon(
     val context = LocalPlatformContext.current
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
     val hasIcon = isValidIconUrl(iconUrl)
-    var imageState by remember(iconUrl) {
+    var retryCount by remember(iconUrl) { mutableIntStateOf(0) }
+    var imageState by remember(iconUrl, retryCount) {
         mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+    LaunchedEffect(imageState) {
+        if (imageState is AsyncImagePainter.State.Error && retryCount < 2) {
+            delay(3_000)
+            retryCount++
+        }
     }
     val showImage = (fallbackPainter != null) || (hasIcon && imageState !is AsyncImagePainter.State.Error)
 

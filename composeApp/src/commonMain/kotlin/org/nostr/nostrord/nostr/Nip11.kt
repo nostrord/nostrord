@@ -4,6 +4,7 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -20,6 +21,7 @@ import org.nostr.nostrord.network.createNip11HttpClient
  *
  * https://github.com/nostr-protocol/nips/blob/master/11.md
  */
+@Serializable
 data class Nip11RelayInfo(
     val name: String? = null,
     val description: String? = null,

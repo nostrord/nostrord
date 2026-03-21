@@ -75,6 +75,10 @@ expect object SecureStorage {
     fun saveGroupsForRelay(relayUrl: String, groupsJson: String)
     fun getGroupsForRelay(relayUrl: String): String?
     fun clearGroupsForRelay(relayUrl: String)
+
+    // NIP-11 relay metadata cache (persisted across restarts)
+    fun saveRelayMetadata(json: String)
+    fun getRelayMetadata(): String?
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)

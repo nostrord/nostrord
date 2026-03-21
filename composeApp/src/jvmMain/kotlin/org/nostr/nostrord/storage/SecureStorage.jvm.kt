@@ -26,6 +26,7 @@ actual object SecureStorage {
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
+    private const val RELAY_METADATA_KEY = "relay_metadata"
 
     init {
         if (prefs.get(ENCRYPTION_KEY_PREF, null) == null) {
@@ -359,5 +360,13 @@ actual object SecureStorage {
     actual fun clearGroupsForRelay(relayUrl: String) {
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         remove(key)
+    }
+
+    actual fun saveRelayMetadata(json: String) {
+        saveString(RELAY_METADATA_KEY, json)
+    }
+
+    actual fun getRelayMetadata(): String? {
+        return getString(RELAY_METADATA_KEY)
     }
 }
