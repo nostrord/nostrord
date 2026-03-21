@@ -312,16 +312,16 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(url) else null
     val hasIcon = isValidIconUrl(iconUrl)
     var retryCount by remember(iconUrl) { mutableIntStateOf(0) }
-    var imageState by remember(iconUrl, retryCount) {
-        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
-    }
-    LaunchedEffect(imageState) {
-        if (imageState is AsyncImagePainter.State.Error && retryCount < 2) {
-            delay(3_000)
+    var loadError by remember(iconUrl) { mutableStateOf(false) }
+    LaunchedEffect(loadError, retryCount) {
+        if (loadError && retryCount < 2) {
+            delay(3_000L * (retryCount + 1))
             retryCount++
+            loadError = false
         }
     }
-    val showImage = (fallbackPainter != null) || (hasIcon && imageState !is AsyncImagePainter.State.Error)
+    val permanentFail = loadError && retryCount >= 2
+    val showImage = (fallbackPainter != null) || (hasIcon && !permanentFail)
 
     Box(
         modifier = Modifier
@@ -346,18 +346,32 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
                 contentScale = ContentScale.Crop
             )
         } else if (hasIcon) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(getImageUrl(iconUrl!!))
-                    .crossfade(true)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                contentDescription = name,
-                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop,
-                onState = { imageState = it }
-            )
+            key(retryCount) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(getImageUrl(iconUrl!!))
+                        .crossfade(true)
+                        .memoryCachePolicy(if (retryCount > 0) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build(),
+                    contentDescription = name,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop,
+                    onState = { state ->
+                        when (state) {
+                            is AsyncImagePainter.State.Success -> {
+                                loadError = false
+                                println("[RelayCardIcon] loaded $iconUrl (attempt ${retryCount + 1})")
+                            }
+                            is AsyncImagePainter.State.Error -> {
+                                loadError = true
+                                println("[RelayCardIcon] error $iconUrl attempt=${retryCount + 1}: ${state.result.throwable?.message}")
+                            }
+                            else -> {}
+                        }
+                    }
+                )
+            }
         }
     }
 }

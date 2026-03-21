@@ -37,6 +37,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -406,16 +407,16 @@ private fun RelayHeaderIcon(
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
     val hasIcon = isValidIconUrl(iconUrl)
     var retryCount by remember(iconUrl) { mutableIntStateOf(0) }
-    var imageState by remember(iconUrl, retryCount) {
-        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
-    }
-    LaunchedEffect(imageState) {
-        if (imageState is AsyncImagePainter.State.Error && retryCount < 2) {
-            delay(3_000)
+    var loadError by remember(iconUrl) { mutableStateOf(false) }
+    LaunchedEffect(loadError, retryCount) {
+        if (loadError && retryCount < 2) {
+            delay(3_000L * (retryCount + 1))
             retryCount++
+            loadError = false
         }
     }
-    val showImage = (fallbackPainter != null) || (hasIcon && imageState !is AsyncImagePainter.State.Error)
+    val permanentFail = loadError && retryCount >= 2
+    val showImage = (fallbackPainter != null) || (hasIcon && !permanentFail)
 
     Box(
         modifier = Modifier
@@ -440,18 +441,32 @@ private fun RelayHeaderIcon(
                 contentScale = ContentScale.Crop
             )
         } else if (hasIcon) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(getImageUrl(iconUrl!!))
-                    .crossfade(true)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                contentDescription = label,
-                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
-                contentScale = ContentScale.Crop,
-                onState = { imageState = it }
-            )
+            key(retryCount) {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(getImageUrl(iconUrl!!))
+                        .crossfade(true)
+                        .memoryCachePolicy(if (retryCount > 0) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build(),
+                    contentDescription = label,
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                    contentScale = ContentScale.Crop,
+                    onState = { state ->
+                        when (state) {
+                            is AsyncImagePainter.State.Success -> {
+                                loadError = false
+                                println("[RelayHeaderIcon] loaded $iconUrl (attempt ${retryCount + 1})")
+                            }
+                            is AsyncImagePainter.State.Error -> {
+                                loadError = true
+                                println("[RelayHeaderIcon] error $iconUrl attempt=${retryCount + 1}: ${state.result.throwable?.message}")
+                            }
+                            else -> {}
+                        }
+                    }
+                )
+            }
         }
     }
 }

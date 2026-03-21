@@ -24,6 +24,7 @@ import coil3.memory.MemoryCache
 import coil3.network.ktor3.KtorNetworkFetcherFactory
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpRedirect
 import io.ktor.client.plugins.HttpTimeout
 import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.ui.window.DesktopWindowControls
@@ -42,6 +43,9 @@ fun main() {
                 connectTimeoutMillis = 15_000
                 requestTimeoutMillis = 30_000
                 socketTimeoutMillis = 30_000
+            }
+            install(HttpRedirect) {
+                checkHttpMethod = false
             }
         }
         ImageLoader.Builder(context)
