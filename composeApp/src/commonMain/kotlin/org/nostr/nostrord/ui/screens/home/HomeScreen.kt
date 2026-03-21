@@ -19,7 +19,8 @@ fun HomeScreen(
     gridState: LazyGridState = rememberLazyGridState(),
     onNavigate: (Screen) -> Unit,
     onCreateGroupClick: () -> Unit = {},
-    onOpenDrawer: () -> Unit = {}
+    onOpenDrawer: () -> Unit = {},
+    forceDesktop: Boolean = false
 ) {
     val vm = viewModel { HomeViewModel(AppModule.nostrRepository) }
 
@@ -66,8 +67,11 @@ fun HomeScreen(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isCompact = maxWidth < 600.dp
-        val isMedium = maxWidth in 600.dp..840.dp
+        val isCompact = !forceDesktop && maxWidth < 600.dp
+        val gridColumns = when {
+            maxWidth < 840.dp -> 2
+            else -> 3
+        }
 
         val isLoading = connectionState is ConnectionManager.ConnectionState.Connecting
         val hasError = connectionState is ConnectionManager.ConnectionState.Error
@@ -107,7 +111,7 @@ fun HomeScreen(
                 onFilterChange = { activeFilter = it },
                 currentRelayUrl = displayRelayUrl,
                 relayMeta = relayMeta,
-                gridColumns = if (isMedium) 2 else 3,
+                gridColumns = gridColumns,
                 isLoading = isLoading,
                 hasError = hasError,
                 onRetry = { vm.connect() },

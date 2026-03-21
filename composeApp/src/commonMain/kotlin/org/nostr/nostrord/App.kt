@@ -497,7 +497,8 @@ private fun DesktopContent(
             HomeScreen(
                 relayUrl = selectedRelayUrl,
                 gridState = homeGridState,
-                onNavigate = onNavigate
+                onNavigate = onNavigate,
+                forceDesktop = true
             )
         }
         is Screen.Group -> {
