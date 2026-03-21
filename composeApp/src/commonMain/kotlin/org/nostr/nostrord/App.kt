@@ -393,13 +393,11 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                     relayMetadata = relayMetadata,
                     onRelayClick = { url ->
                         selectedRelayUrl = url
+                        scope.launch { AppModule.nostrRepository.switchRelay(url) }
                         onNavigate(Screen.Home)
                     },
                     onAddRelayClick = { onNavigate(Screen.RelaySettings) },
                     onGroupClick = { groupId, groupName ->
-                        if (selectedRelayUrl != currentRelayUrl) {
-                            scope.launch { AppModule.nostrRepository.switchRelay(selectedRelayUrl) }
-                        }
                         onNavigate(Screen.Group(groupId, groupName))
                     },
                     onCreateGroupClick = { showCreateGroupModal = true },
@@ -435,7 +433,10 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                                 activeRelayUrl = selectedRelayUrl,
                                 onRelayClick = { url ->
                                     selectedRelayUrl = url
-                                    scope.launch { drawerState.close() }
+                                    scope.launch {
+                                        drawerState.close()
+                                        AppModule.nostrRepository.switchRelay(url)
+                                    }
                                     onNavigate(Screen.Home)
                                 },
                                 onAddRelayClick = {
@@ -460,9 +461,6 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                                 unreadCounts = unreadCounts,
                                 onGroupClick = { groupId, groupName ->
                                     scope.launch { drawerState.close() }
-                                    if (selectedRelayUrl != currentRelayUrl) {
-                                        scope.launch { AppModule.nostrRepository.switchRelay(selectedRelayUrl) }
-                                    }
                                     onNavigate(Screen.Group(groupId, groupName))
                                 },
                                 onCreateGroupClick = {
