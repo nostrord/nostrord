@@ -441,7 +441,8 @@ class NostrRepository(
         about: String?,
         relayUrl: String,
         isPrivate: Boolean,
-        isClosed: Boolean
+        isClosed: Boolean,
+        picture: String?
     ): Result<String> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -451,6 +452,7 @@ class NostrRepository(
         return groupManager.createGroup(
             name = name,
             about = about,
+            picture = picture,
             isPrivate = isPrivate,
             isClosed = isClosed,
             pubKey = pubKey,
@@ -522,7 +524,8 @@ class NostrRepository(
         name: String,
         about: String?,
         isPrivate: Boolean,
-        isClosed: Boolean
+        isClosed: Boolean,
+        picture: String?
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -530,6 +533,7 @@ class NostrRepository(
             groupId = groupId,
             name = name,
             about = about,
+            picture = picture,
             isPrivate = isPrivate,
             isClosed = isClosed,
             pubKey = pubKey,
@@ -607,6 +611,26 @@ class NostrRepository(
         metadataManager.requestUserMetadata(pubkeys) { msg, client ->
             handleRelayMessage(msg, client)
         }
+    }
+
+    /**
+     * Build a NIP-98 Authorization header value for HTTP requests.
+     * Returns "Nostr <base64>" or null if not authenticated.
+     */
+    @OptIn(kotlin.io.encoding.ExperimentalEncodingApi::class)
+    suspend fun buildNip98AuthHeader(url: String, method: String): String? {
+        val pubKey = sessionManager.getPublicKey() ?: return null
+        val event = org.nostr.nostrord.nostr.Event(
+            pubkey = pubKey,
+            createdAt = org.nostr.nostrord.utils.epochMillis() / 1000,
+            kind = 27235,
+            tags = listOf(listOf("u", url), listOf("method", method)),
+            content = ""
+        )
+        val signed = try { sessionManager.signEvent(event) } catch (_: Throwable) { return null }
+        val json = signed.toJsonObject().toString()
+        val encoded = kotlin.io.encoding.Base64.encode(json.encodeToByteArray())
+        return "Nostr $encoded"
     }
 
     /**

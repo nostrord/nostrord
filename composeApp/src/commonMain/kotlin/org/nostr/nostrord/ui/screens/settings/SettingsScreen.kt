@@ -50,6 +50,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
+import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.components.cards.KeyCard
 import org.nostr.nostrord.ui.components.cards.WarningCard
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
@@ -585,7 +586,12 @@ private fun ProfileFormContent(
                 ProfileField("Display Name", displayName, onDisplayNameChange, "Your display name")
                 ProfileField("Username", username, onUsernameChange, "your_username")
                 ProfileField("About", about, onAboutChange, "Tell us about yourself", singleLine = false, maxLines = 4)
-                ProfileField("Avatar URL", pictureUrl, onPictureUrlChange, "https://example.com/avatar.jpg")
+                UploadImageField(
+                    label = "Avatar URL",
+                    value = pictureUrl,
+                    onValueChange = onPictureUrlChange,
+                    placeholder = "https://example.com/avatar.jpg"
+                )
                 ProfileField("NIP-05 Identifier", nip05, onNip05Change, "you@example.com")
 
                 // Save button

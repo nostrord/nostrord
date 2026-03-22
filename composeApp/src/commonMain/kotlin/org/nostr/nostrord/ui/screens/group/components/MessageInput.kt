@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import org.nostr.nostrord.getPlatform
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -250,6 +251,16 @@ fun MessageInput(
                     .padding(horizontal = Spacing.lg, vertical = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                MessageUploadButton(
+                    onUrlReady = { url ->
+                        val current = textFieldValue.text
+                        val separator = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
+                        val newText = current + separator + url
+                        textFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                        onMessageInputChange(newText)
+                    }
+                )
+
                 TextField(
                     value = textFieldValue,
                     onValueChange = { handleTextFieldValueChange(it) },

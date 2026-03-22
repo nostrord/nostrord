@@ -71,10 +71,10 @@ interface NostrRepositoryApi {
     suspend fun disconnect()
 
     // --- Group operations ---
-    suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean): Result<String>
+    suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String? = null): Result<String>
     suspend fun joinGroup(groupId: String): Result<Unit>
     suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit>
-    suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean): Result<Unit>
+    suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String? = null): Result<Unit>
     suspend fun deleteGroup(groupId: String): Result<Unit>
     fun isGroupJoined(groupId: String): Boolean
     suspend fun requestGroupMessages(groupId: String, channel: String? = null)

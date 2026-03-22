@@ -27,6 +27,7 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.ui.components.upload.UploadImageField
 import androidx.compose.runtime.LaunchedEffect
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -45,6 +46,7 @@ fun EditGroupModal(
 
     var name by remember(currentMetadata) { mutableStateOf(currentMetadata?.name ?: "") }
     var about by remember(currentMetadata) { mutableStateOf(currentMetadata?.about ?: "") }
+    var picture by remember(currentMetadata) { mutableStateOf(currentMetadata?.picture ?: "") }
     var isPrivate by remember(currentMetadata) { mutableStateOf(currentMetadata?.isPublic == false) }
     var isClosed by remember(currentMetadata) { mutableStateOf(currentMetadata?.isOpen == false) }
     var isSaving by remember { mutableStateOf(false) }
@@ -169,6 +171,16 @@ fun EditGroupModal(
                         shape = RoundedCornerShape(8.dp)
                     )
 
+                    Spacer(modifier = Modifier.height(Spacing.lg))
+
+                    UploadImageField(
+                        label = "Group Image URL",
+                        value = picture,
+                        onValueChange = { picture = it },
+                        placeholder = "https://example.com/image.jpg",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     Spacer(modifier = Modifier.height(Spacing.xxl))
 
                     // Access settings
@@ -233,7 +245,8 @@ fun EditGroupModal(
                                         name = name.trim(),
                                         about = about.trim().ifBlank { null },
                                         isPrivate = isPrivate,
-                                        isClosed = isClosed
+                                        isClosed = isClosed,
+                                        picture = picture.trim().ifBlank { null }
                                     )
                                     isSaving = false
                                     when (result) {

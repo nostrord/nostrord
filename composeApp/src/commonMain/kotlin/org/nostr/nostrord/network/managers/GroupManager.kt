@@ -274,6 +274,7 @@ class GroupManager(
     suspend fun createGroup(
         name: String,
         about: String?,
+        picture: String? = null,
         isPrivate: Boolean,
         isClosed: Boolean,
         pubKey: String,
@@ -314,7 +315,7 @@ class GroupManager(
                 suggestedGroupId = suggestedId
             )
 
-            // kind 9002: edit-metadata — sets name, about, and access in one event
+            // kind 9002: edit-metadata — sets name, about, picture, and access in one event
             val metaTags = mutableListOf(
                 listOf("h", confirmedGroupId),
                 listOf("name", name),
@@ -322,6 +323,7 @@ class GroupManager(
                 if (isClosed) listOf("closed") else listOf("open")
             )
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
+            if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
             val signedMeta = signEvent(Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
@@ -356,6 +358,7 @@ class GroupManager(
         groupId: String,
         name: String,
         about: String?,
+        picture: String? = null,
         isPrivate: Boolean,
         isClosed: Boolean,
         pubKey: String,
@@ -368,7 +371,7 @@ class GroupManager(
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
-            // kind 9002: edit-metadata — name, about, visibility, access all in one event
+            // kind 9002: edit-metadata — name, about, picture, visibility, access all in one event
             val metaTags = mutableListOf(
                 listOf("h", groupId),
                 listOf("name", name),
@@ -376,6 +379,7 @@ class GroupManager(
                 if (isClosed) listOf("closed") else listOf("open")
             )
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
+            if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
             val signedMeta = signEvent(Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
