@@ -226,8 +226,8 @@ class NostrRepository(
             sessionManager.loginWithPrivateKey(privKey, pubKey)
             unreadManager.initialize(pubKey)
             initializeOutboxModel()  // instant: launches all work in background internally
-            connect()
-            sessionManager.setLoggedIn(true)
+            sessionManager.setLoggedIn(true)  // navigate immediately — connect in background
+            scope.launch { connect() }
             scope.launch { requestUserMetadata(setOf(pubKey)) }
             Result.Success(Unit)
         } catch (e: Exception) {
@@ -240,8 +240,8 @@ class NostrRepository(
             sessionManager.loginWithNip07(pubkey)
             unreadManager.initialize(pubkey)
             initializeOutboxModel()  // instant: launches all work in background internally
-            connect()
-            sessionManager.setLoggedIn(true)
+            sessionManager.setLoggedIn(true)  // navigate immediately — connect in background
+            scope.launch { connect() }
             scope.launch { requestUserMetadata(setOf(pubkey)) }
             Result.Success(Unit)
         } catch (e: Exception) {
@@ -704,6 +704,41 @@ class NostrRepository(
             Result.Success(Unit)
         } catch (e: Exception) {
             Result.Error(AppError.Unknown(e.message ?: "Failed to update profile", e))
+        }
+    }
+
+    override suspend fun publishRelayList(relays: List<org.nostr.nostrord.network.outbox.Nip65Relay>): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return try {
+            val event = org.nostr.nostrord.nostr.Event(
+                pubkey = pubKey,
+                createdAt = org.nostr.nostrord.utils.epochSeconds(),
+                kind = 10002,
+                tags = relays.map { it.toTag() },
+                content = ""
+            )
+            val signedEvent = sessionManager.signEvent(event)
+            val message = buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString()
+
+            // Publish to current write relays + bootstrap to ensure the new list is
+            // discoverable even when switching relay sets entirely.
+            val targets = (outboxManager.getWriteRelays() + outboxManager.bootstrapRelays).distinct()
+            if (targets.isEmpty()) {
+                val client = connectionManager.getPrimaryClient()
+                    ?: return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
+                client.send(message)
+            } else {
+                connectionManager.sendToRelays(targets, message) { _, _ -> }
+            }
+
+            outboxManager.updateMyRelayList(pubKey, relays)
+            Result.Success(Unit)
+        } catch (e: Exception) {
+            Result.Error(AppError.Unknown(e.message ?: "Failed to publish relay list", e))
         }
     }
 

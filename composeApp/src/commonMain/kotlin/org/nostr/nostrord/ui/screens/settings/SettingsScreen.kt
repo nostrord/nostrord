@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
@@ -176,6 +178,22 @@ fun SettingsScreen(
         )
     }
 
+    // NIP-65 relay state
+    val userRelayList by AppModule.nostrRepository.userRelayList.collectAsState()
+    val usingDefaultRelays = userRelayList.isEmpty()
+    val effectiveRelayList = if (usingDefaultRelays) {
+        RelayListManager.DEFAULT_FALLBACK_RELAYS.map { Nip65Relay(it) }
+    } else {
+        userRelayList
+    }
+    val relaysContent: @Composable () -> Unit = {
+        RelayNip65PanelContent(
+            currentRelays = effectiveRelayList,
+            usingDefaults = usingDefaultRelays,
+            onPublish = { relays -> AppModule.nostrRepository.publishRelayList(relays) }
+        )
+    }
+
     var activeSection by remember { mutableStateOf(SettingsSection.Profile) }
     var showMobilePanel by remember { mutableStateOf(false) }
 
@@ -203,7 +221,8 @@ fun SettingsScreen(
                 onClose = onClose,
                 onLogout = onLogout,
                 profileContent = profileContent,
-                backupContent = backupContent
+                backupContent = backupContent,
+                relaysContent = relaysContent
             )
         } else {
             DesktopSettings(
@@ -213,6 +232,7 @@ fun SettingsScreen(
                 onLogout = onLogout,
                 profileContent = profileContent,
                 backupContent = backupContent,
+                relaysContent = relaysContent,
                 showToolbar = showToolbar,
                 canGoBack = canGoBack,
                 canGoForward = canGoForward,
@@ -233,6 +253,7 @@ private fun DesktopSettings(
     onLogout: () -> Unit,
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
+    relaysContent: @Composable () -> Unit,
     showToolbar: Boolean = false,
     canGoBack: Boolean = false,
     canGoForward: Boolean = false,
@@ -293,7 +314,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp)
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent)
                     }
                 }
 
@@ -316,7 +337,8 @@ private fun MobileSettings(
     onClose: () -> Unit,
     onLogout: () -> Unit,
     profileContent: @Composable () -> Unit,
-    backupContent: @Composable () -> Unit
+    backupContent: @Composable () -> Unit,
+    relaysContent: @Composable () -> Unit
 ) {
     if (!showPanel) {
         Column(modifier = Modifier.fillMaxSize().background(NostrordColors.BackgroundDark)) {
@@ -357,7 +379,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp)
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent)
             }
         }
     }
@@ -504,7 +526,8 @@ private fun SettingsCloseButton(onClick: () -> Unit, showEscHint: Boolean = true
 private fun SettingsPanel(
     section: SettingsSection,
     profileContent: @Composable () -> Unit,
-    backupContent: @Composable () -> Unit
+    backupContent: @Composable () -> Unit,
+    relaysContent: @Composable () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -518,9 +541,9 @@ private fun SettingsPanel(
         Spacer(Modifier.height(24.dp))
 
         when (section) {
-            SettingsSection.Profile -> profileContent()
+            SettingsSection.Profile    -> profileContent()
             SettingsSection.BackupKeys -> backupContent()
-            else -> Unit
+            SettingsSection.RelaysNip65 -> relaysContent()
         }
     }
 }

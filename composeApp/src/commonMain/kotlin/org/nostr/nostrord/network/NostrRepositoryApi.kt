@@ -59,8 +59,8 @@ interface NostrRepositoryApi {
     suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit>
     suspend fun loginWithNip07(pubkey: String): Result<Unit>
     suspend fun loginWithBunker(bunkerUrl: String): Result<String>
-    suspend fun createNostrConnectSession(relays: List<String>): Pair<String, Nip46Client>
-    suspend fun completeNostrConnectLogin(client: Nip46Client, relays: List<String>): String
+    suspend fun createNostrConnectSession(relays: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")): Pair<String, Nip46Client>
+    suspend fun completeNostrConnectLogin(client: Nip46Client, relays: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")): String
     suspend fun logout()
 
     // --- Connection operations ---
@@ -93,6 +93,7 @@ interface NostrRepositoryApi {
     // --- Metadata operations ---
     suspend fun requestUserMetadata(pubkeys: Set<String>)
     suspend fun updateProfileMetadata(displayName: String? = null, name: String? = null, about: String? = null, picture: String? = null, nip05: String? = null): Result<Unit>
+    suspend fun publishRelayList(relays: List<Nip65Relay>): Result<Unit>
 
     // --- Event operations ---
     suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null)
