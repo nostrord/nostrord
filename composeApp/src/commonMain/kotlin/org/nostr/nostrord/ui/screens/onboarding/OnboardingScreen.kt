@@ -30,16 +30,22 @@ import androidx.compose.ui.unit.sp
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
+import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 @Composable
 fun OnboardingScreen(onAddRelay: () -> Unit) {
-    BoxWithConstraints(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(NostrordColors.Background),
-        contentAlignment = Alignment.Center
+            .background(NostrordColors.Background)
     ) {
+        MinimalTitleBar()
+
+        BoxWithConstraints(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
         val isCompact = maxWidth < 600.dp
 
         val logoSize: Dp = if (isCompact) 64.dp else 88.dp
@@ -136,6 +142,7 @@ fun OnboardingScreen(onAddRelay: () -> Unit) {
                 onClick = onAddRelay
             )
         }
+    }
     }
 }
 
