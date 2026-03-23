@@ -1213,9 +1213,11 @@ class GroupManager(
     fun clearForRelaySwitch() {
         // Reset the current relay pointer so stragglers from the old connection
         // go to the per-relay cache only, not the live _groups list.
-        // State is ADDITIVE — messages, groups, reactions, and members are
-        // intentionally preserved across relay switches so no data is lost.
         currentRelayUrl = null
+
+        // Clear the live group list so the new relay starts from a clean slate.
+        // restoreGroupsForRelay() will repopulate from _groupsByRelay if cached data exists.
+        _groups.value = emptyList()
 
         // Reset observation tracking so subscriptions are re-established on the
         // new primary connection without leaking the old group set.
