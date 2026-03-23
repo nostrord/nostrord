@@ -51,6 +51,7 @@ fun GroupsNavSidebar(
     joinedGroupIds: Set<String>,
     activeGroupId: String?,
     unreadCounts: Map<String, Int> = emptyMap(),
+    relayName: String? = null,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -86,7 +87,7 @@ fun GroupsNavSidebar(
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
-                text = relayShortLabel(relayUrl).uppercase(),
+                text = (relayName?.takeIf { it.isNotBlank() } ?: relayUrl).uppercase(),
                 color = NostrordColors.TextSecondary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,

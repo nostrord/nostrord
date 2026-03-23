@@ -457,6 +457,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                                 joinedGroupIds = joinedGroupIdsForSelectedRelay,
                                 activeGroupId = activeGroupId,
                                 unreadCounts = unreadCounts,
+                                relayName = relayMetadata[selectedRelayUrl]?.name,
                                 onGroupClick = { groupId, groupName ->
                                     scope.launch { drawerState.close() }
                                     onNavigate(Screen.Group(groupId, groupName))

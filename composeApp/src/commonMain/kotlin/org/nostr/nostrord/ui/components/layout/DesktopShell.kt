@@ -79,6 +79,7 @@ fun DesktopShell(
                     joinedGroupIds = joinedGroupIds,
                     activeGroupId = activeGroupId,
                     unreadCounts = unreadCounts,
+                    relayName = relayMetadata[activeRelayUrl]?.name,
                     onGroupClick = onGroupClick,
                     onCreateGroupClick = onCreateGroupClick
                 )
