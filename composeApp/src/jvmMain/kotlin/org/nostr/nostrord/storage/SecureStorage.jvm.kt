@@ -362,11 +362,30 @@ actual object SecureStorage {
         remove(key)
     }
 
+    // Relay metadata is NOT stored in Preferences because java.util.prefs.Preferences.put()
+    // rejects values longer than MAX_VALUE_LENGTH (8192 chars). Encrypted+Base64 relay metadata
+    // for even a handful of relays can exceed this limit, causing silent save failures and a
+    // missing cache on every app restart. We use a plain JSON file instead — relay metadata
+    // is non-sensitive (it's public NIP-11 info) so encryption is unnecessary.
+    private val relayMetadataFile: java.io.File by lazy {
+        val dir = java.io.File(System.getProperty("user.home"), ".nostrord")
+        dir.mkdirs()
+        java.io.File(dir, "relay_metadata.json")
+    }
+
     actual fun saveRelayMetadata(json: String) {
-        saveString(RELAY_METADATA_KEY, json)
+        try {
+            relayMetadataFile.writeText(json)
+        } catch (_: Exception) {
+            // Non-critical
+        }
     }
 
     actual fun getRelayMetadata(): String? {
-        return getString(RELAY_METADATA_KEY)
+        return try {
+            if (relayMetadataFile.exists()) relayMetadataFile.readText() else null
+        } catch (_: Exception) {
+            null
+        }
     }
 }

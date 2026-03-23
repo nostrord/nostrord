@@ -20,8 +20,9 @@ actual fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
 
 actual fun createNip11HttpClient(): HttpClient = HttpClient(OkHttp) {
     install(HttpTimeout) {
-        connectTimeoutMillis = 5_000
-        requestTimeoutMillis = 8_000
-        socketTimeoutMillis = 8_000
+        connectTimeoutMillis = 10_000
+        requestTimeoutMillis = 15_000
+        socketTimeoutMillis = 15_000
     }
+    followRedirects = true
 }

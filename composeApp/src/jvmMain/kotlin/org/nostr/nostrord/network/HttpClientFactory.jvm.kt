@@ -19,9 +19,13 @@ actual fun createHttpClient(): HttpClient = HttpClient(CIO) {
 }
 
 actual fun createNip11HttpClient(): HttpClient = HttpClient(CIO) {
+    // Each NIP-11 client instance is used for exactly one request and then closed, so we
+    // don't need persistent connection pools — just honest timeouts. Relays on Caddy/HTTP-2
+    // can be slow; 15 s gives them ample time without blocking the UI indefinitely.
     install(HttpTimeout) {
-        connectTimeoutMillis = 5_000
-        requestTimeoutMillis = 8_000
-        socketTimeoutMillis = 8_000
+        connectTimeoutMillis = 10_000
+        requestTimeoutMillis = 15_000
+        socketTimeoutMillis = 15_000
     }
+    followRedirects = true
 }

@@ -33,6 +33,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -201,6 +202,14 @@ private fun SuggestedTab(
     relayMetadata: Map<String, Nip11RelayInfo>,
     onSelect: (String) -> Unit
 ) {
+    // Kick off NIP-11 fetches for all suggested relays the first time this tab renders.
+    // These relays may not be in the user's relay list yet, so their metadata won't have
+    // been fetched during initialization. Results flow back via the shared relayMetadata
+    // StateFlow in App.kt which will trigger recomposition once each fetch completes.
+    LaunchedEffect(Unit) {
+        AppModule.relayMetadataManager.fetchAll(suggestedRelays.map { it.url })
+    }
+
     // Only show relays not yet connected (or mark them as added)
     LazyColumn(
         modifier = Modifier.fillMaxSize(),

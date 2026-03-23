@@ -35,8 +35,6 @@ data class Nip11RelayInfo(
     val paymentRequired: Boolean? = null,
 )
 
-private val nip11HttpClient by lazy { createNip11HttpClient() }
-
 /** Converts a WebSocket relay URL to its HTTPS equivalent for the NIP-11 fetch. */
 fun relayUrlToHttps(relayUrl: String): String =
     relayUrl.replaceFirst("wss://", "https://").replaceFirst("ws://", "http://")
@@ -48,6 +46,11 @@ fun isValidIconUrl(url: String?): Boolean =
 /**
  * Fetches NIP-11 relay info for [relayUrl].
  *
+ * A fresh [io.ktor.client.HttpClient] is created for every call and closed immediately after.
+ * This is intentional: reusing a shared client across requests causes stale-connection failures
+ * when the server closes the keep-alive connection between attempts (common on relays that use
+ * Caddy / HTTP-2). A new client guarantees a fresh TLS connection with no pooling artifacts.
+ *
  * Treats relay responses as untrusted input:
  * - Rejects explicit text/html before attempting JSON parse
  * - Wraps all parsing in try/catch — a broken relay never crashes the app
@@ -57,9 +60,11 @@ fun isValidIconUrl(url: String?): Boolean =
  */
 suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
     val httpUrl = relayUrlToHttps(relayUrl)
+    val client = createNip11HttpClient()
     return try {
-        val response = nip11HttpClient.get(httpUrl) {
+        val response = client.get(httpUrl) {
             header(HttpHeaders.Accept, "application/nostr+json")
+            header(HttpHeaders.UserAgent, "Nostrord/1.0 (Nostr client)")
         }
         if (!response.status.isSuccess()) {
             println("[NIP-11] HTTP ${response.status} for $httpUrl")
@@ -102,5 +107,7 @@ suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
     } catch (e: Exception) {
         println("[NIP-11] Error fetching $httpUrl: ${e::class.simpleName}: ${e.message}")
         null
+    } finally {
+        client.close()
     }
 }
