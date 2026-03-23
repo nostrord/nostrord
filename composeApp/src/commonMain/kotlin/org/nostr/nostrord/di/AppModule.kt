@@ -24,17 +24,9 @@ object AppModule {
     // Coroutine scope for the entire app
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // Bootstrap relays for NIP-65
-    private val bootstrapRelays = listOf(
-        "wss://relay.damus.io",
-        "wss://nos.lol",
-        "wss://relay.nostr.net",
-        "wss://purplepag.es"
-    )
-
     // Lazy initialization of dependencies
     val relayListManager: RelayListManager by lazy {
-        RelayListManager(bootstrapRelays = bootstrapRelays)
+        RelayListManager(bootstrapRelays = RelayListManager.DEFAULT_BOOTSTRAP_RELAYS)
     }
 
     val connectionManager: ConnectionManager by lazy {

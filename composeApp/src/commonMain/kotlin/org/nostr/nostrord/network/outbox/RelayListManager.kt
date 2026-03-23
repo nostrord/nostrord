@@ -2,6 +2,7 @@ package org.nostr.nostrord.network.outbox
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,16 +25,25 @@ import org.nostr.nostrord.utils.epochMillis
  * Note: Does not manage its own connections - uses connectionProvider from NostrRepository
  */
 class RelayListManager(
-    override val bootstrapRelays: List<String> = DEFAULT_BOOTSTRAP_RELAYS,
-    private val connectionProvider: (suspend (String) -> NostrGroupClient?)? = null
+    override val bootstrapRelays: List<String> = DEFAULT_BOOTSTRAP_RELAYS
 ) : OutboxModel {
 
     companion object {
+        // Used for NIP-65 discovery: high availability + purplepag.es for kind:10002 index
         val DEFAULT_BOOTSTRAP_RELAYS = listOf(
             "wss://relay.damus.io",
             "wss://nos.lol",
-            "wss://relay.nostr.net",
-            "wss://purplepag.es"  // Specialized for NIP-65
+            "wss://relay.primal.net",
+            "wss://purplepag.es"        // specialized NIP-65 index
+        )
+
+        // Used when a user has no NIP-65 relay list: content-rich relays with high retention
+        val DEFAULT_FALLBACK_RELAYS = listOf(
+            "wss://relay.damus.io",
+            "wss://nos.lol",
+            "wss://relay.primal.net",
+            "wss://relay.snort.social",
+            "wss://www.nostr.ltd"
         )
 
         const val CACHE_TTL_MS = 3600_000L  // 1 hour
@@ -55,15 +65,6 @@ class RelayListManager(
 
     // Current user's pubkey (set after login)
     private var myPubkey: String? = null
-
-    /**
-     * Set the connection provider (called by NostrRepository after init)
-     */
-    private var _connectionProvider: (suspend (String) -> NostrGroupClient?)? = connectionProvider
-
-    fun setConnectionProvider(provider: suspend (String) -> NostrGroupClient?) {
-        _connectionProvider = provider
-    }
 
     /**
      * Set the current user's pubkey and relay list
@@ -163,58 +164,38 @@ class RelayListManager(
     }
 
     /**
-     * Fetch relay list from a specific relay
+     * Fetch relay list from a specific relay using a dedicated short-lived connection.
      */
     private suspend fun fetchFromRelay(relayUrl: String, pubkey: String): List<Nip65Relay> {
-        val client = getRelayConnection(relayUrl) ?: return emptyList()
-
-        val filter = buildJsonObject {
-            putJsonArray("kinds") { add(10002) }
-            putJsonArray("authors") { add(pubkey) }
-            put("limit", 1)
-        }
-
         val subId = "nip65-${pubkey.take(8)}-${epochMillis()}"
-        val message = buildJsonArray {
-            add("REQ")
-            add(subId)
-            add(filter)
-        }.toString()
-
         var relays: List<Nip65Relay> = emptyList()
         var eoseReceived = false
 
-        // Set up one-time message handler
-        val originalHandler = client.messageHandler
-        client.messageHandler = { msg ->
-            val parsed = parseRelayListResponse(msg, subId)
-            if (parsed != null) {
-                relays = parsed
-            }
-            if (isEose(msg, subId)) {
-                eoseReceived = true
-            }
-            originalHandler?.invoke(msg)
-        }
-
+        val client = NostrGroupClient(relayUrl)
         try {
-            client.send(message)
+            client.connect { msg ->
+                val parsed = parseRelayListResponse(msg, subId)
+                if (parsed != null) relays = parsed
+                if (isEose(msg, subId)) eoseReceived = true
+            }
 
-            // Wait for response with timeout
+            if (!client.waitForConnection(3_000)) return emptyList()
+
+            val filter = buildJsonObject {
+                putJsonArray("kinds") { add(10002) }
+                putJsonArray("authors") { add(pubkey) }
+                put("limit", 1)
+            }
+            client.send(buildJsonArray { add("REQ"); add(subId); add(filter) }.toString())
+
             val startTime = epochMillis()
             while (!eoseReceived && epochMillis() - startTime < FETCH_TIMEOUT_MS) {
-                kotlinx.coroutines.delay(50)
+                delay(50)
             }
 
-            // Close subscription
-            val closeMsg = buildJsonArray {
-                add("CLOSE")
-                add(subId)
-            }.toString()
-            client.send(closeMsg)
-
+            client.send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
         } finally {
-            client.messageHandler = originalHandler
+            client.disconnect()
         }
 
         return relays
@@ -262,16 +243,6 @@ class RelayListManager(
     }
 
     /**
-     * Get a connection to a relay via the connection provider
-     */
-    private suspend fun getRelayConnection(relayUrl: String): NostrGroupClient? {
-        val provider = _connectionProvider ?: run {
-            return null
-        }
-        return provider(relayUrl)
-    }
-
-    /**
      * Cache a relay list
      */
     private fun cacheRelayList(pubkey: String, relays: List<Nip65Relay>) {
@@ -301,9 +272,9 @@ class RelayListManager(
         val writeRelays = authorRelays.filter { it.write }.map { it.url }
 
         return if (writeRelays.isNotEmpty()) {
-            writeRelays + bootstrapRelays // Add bootstrap as fallback
+            writeRelays + DEFAULT_FALLBACK_RELAYS
         } else {
-            bootstrapRelays
+            DEFAULT_FALLBACK_RELAYS
         }
     }
 
@@ -317,7 +288,7 @@ class RelayListManager(
         return if (writeRelays.isNotEmpty()) {
             writeRelays
         } else {
-            bootstrapRelays
+            DEFAULT_FALLBACK_RELAYS
         }
     }
 
@@ -335,9 +306,9 @@ class RelayListManager(
         val readRelays = relays.filter { it.read }.map { it.url }
 
         return if (readRelays.isNotEmpty()) {
-            readRelays + bootstrapRelays
+            readRelays + DEFAULT_FALLBACK_RELAYS
         } else {
-            bootstrapRelays
+            DEFAULT_FALLBACK_RELAYS
         }
     }
 
@@ -375,8 +346,3 @@ class RelayListManager(
         myPubkey = null
     }
 }
-
-// Extension property for NostrGroupClient to support message handler
-private var NostrGroupClient.messageHandler: ((String) -> Unit)?
-    get() = null  // Stored externally
-    set(value) {}  // Stored externally

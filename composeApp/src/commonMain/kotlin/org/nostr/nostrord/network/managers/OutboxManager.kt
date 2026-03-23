@@ -467,6 +467,10 @@ class OutboxManager(
      */
     fun getWriteRelays(): List<String> = relayListManager.selectPublishRelays()
 
+    fun updateMyRelayList(pubkey: String, relays: List<Nip65Relay>) {
+        relayListManager.setMyRelayList(pubkey, relays)
+    }
+
     /**
      * Get joined groups for a specific relay from the in-memory cache.
      * Used when switching relays to instantly restore membership state without
