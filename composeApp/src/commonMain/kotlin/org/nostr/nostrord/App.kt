@@ -210,6 +210,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 
     var showCreateGroupModal by remember { mutableStateOf(false) }
     var showAddRelayModal by remember { mutableStateOf(false) }
+    var addRelayInitialTab by remember { mutableIntStateOf(0) }
 
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -260,6 +261,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     // Screen.RelaySettings is intercepted here and shown as a modal instead of navigating.
     val onNavigate: (Screen) -> Unit = { newScreen ->
         if (newScreen is Screen.RelaySettings) {
+            addRelayInitialTab = 0
             showAddRelayModal = true
         } else {
             navHistory.navigate(newScreen)
@@ -358,7 +360,8 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                 selectedRelayUrl = url
                 onNavigate(Screen.Home)
             },
-            onDismiss = { showAddRelayModal = false }
+            onDismiss = { showAddRelayModal = false },
+            initialTab = addRelayInitialTab,
         )
     }
 
@@ -368,7 +371,10 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 
         // No relay configured — show onboarding
         if (relayList.isEmpty()) {
-            OnboardingScreen(onAddRelay = { showAddRelayModal = true })
+            OnboardingScreen(
+                onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
+                onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
+            )
             return@BoxWithConstraints
         }
 

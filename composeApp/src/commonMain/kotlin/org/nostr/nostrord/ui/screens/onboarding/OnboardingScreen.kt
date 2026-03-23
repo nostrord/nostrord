@@ -34,7 +34,7 @@ import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 @Composable
-fun OnboardingScreen(onAddRelay: () -> Unit) {
+fun OnboardingScreen(onAddRelay: () -> Unit, onAddRelayCustomUrl: () -> Unit = onAddRelay) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -139,7 +139,7 @@ fun OnboardingScreen(onAddRelay: () -> Unit) {
                 text = "I already have a relay URL",
                 primary = false,
                 fullWidth = isCompact,
-                onClick = onAddRelay
+                onClick = onAddRelayCustomUrl
             )
         }
     }

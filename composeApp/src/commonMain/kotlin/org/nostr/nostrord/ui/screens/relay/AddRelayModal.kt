@@ -60,7 +60,8 @@ fun AddRelayModal(
     connectedRelays: Set<String>,
     relayMetadata: Map<String, Nip11RelayInfo>,
     onSwitchRelay: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    initialTab: Int = 0,
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -93,7 +94,7 @@ fun AddRelayModal(
                         onClick = {}
                     )
             ) {
-                var activeTab by remember { mutableIntStateOf(0) }
+                var activeTab by remember { mutableIntStateOf(initialTab) }
 
                 // Header
                 Row(
