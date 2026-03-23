@@ -186,7 +186,7 @@ class NostrGroupClient(
         }
     }
 
-    suspend fun waitForConnection(timeoutMs: Long = 15000): Boolean {
+    suspend fun waitForConnection(timeoutMs: Long = 7_000): Boolean {
         return withTimeoutOrNull(timeoutMs) {
             connectionReady.receive()
             true

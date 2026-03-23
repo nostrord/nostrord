@@ -70,9 +70,9 @@ class LoginViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
         _qrUri.value = null
         qrJob = viewModelScope.launch {
             try {
-                val (uri, client) = repo.createNostrConnectSession(emptyList())
+                val (uri, client) = repo.createNostrConnectSession()
                 _qrUri.value = uri
-                repo.completeNostrConnectLogin(client, emptyList())
+                repo.completeNostrConnectLogin(client)
                 onConnected()
             } catch (e: Exception) {
                 val message = when {
