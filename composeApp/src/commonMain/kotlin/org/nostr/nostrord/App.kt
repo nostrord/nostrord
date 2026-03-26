@@ -28,6 +28,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
@@ -215,6 +218,21 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
 
+    // Lifecycle integration — reconnect on foreground, persist cursors on background/destroy.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME  -> AppModule.nostrRepository.onForeground()
+                Lifecycle.Event.ON_PAUSE   -> AppModule.nostrRepository.onBackground()
+                Lifecycle.Event.ON_DESTROY -> AppModule.nostrRepository.onDestroy()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     // Relay list — stable insertion order. The active relay does NOT jump to the top when
     // switching. New relays are appended at the end; all others keep their position.
     // currentRelayUrl is appended last only as a fallback for when it isn't in the map yet
@@ -229,6 +247,9 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
             selectedRelayUrl = relayList.firstOrNull() ?: currentRelayUrl
         }
     }
+
+    val loadingRelays by AppModule.nostrRepository.loadingRelays.collectAsState()
+    val isGroupsLoading = selectedRelayUrl in loadingRelays
 
     // All groups for the relay selected in the rail (not just joined ones)
     val groupsForSelectedRelay = remember(selectedRelayUrl, groupsByRelay) {
@@ -266,6 +287,11 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
         } else {
             navHistory.navigate(newScreen)
             persistScreenState(newScreen)
+            // Promote the relay of the opened group to ACTIVE priority for faster reconnect backoff.
+            // Clear it when navigating away from a group so the relay reverts to BACKGROUND.
+            AppModule.nostrRepository.setActiveGroup(
+                if (newScreen is Screen.Group) newScreen.groupId else null
+            )
         }
     }
 
@@ -396,6 +422,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                     activeGroupId = activeGroupId,
                     unreadCounts = unreadCounts,
                     relayMetadata = relayMetadata,
+                    isGroupsLoading = isGroupsLoading,
                     onRelayClick = { url ->
                         selectedRelayUrl = url
                         scope.launch { AppModule.nostrRepository.switchRelay(url) }
@@ -464,6 +491,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                                 activeGroupId = activeGroupId,
                                 unreadCounts = unreadCounts,
                                 relayName = relayMetadata[selectedRelayUrl]?.name,
+                                isLoading = isGroupsLoading,
                                 onGroupClick = { groupId, groupName ->
                                     scope.launch { drawerState.close() }
                                     onNavigate(Screen.Group(groupId, groupName))

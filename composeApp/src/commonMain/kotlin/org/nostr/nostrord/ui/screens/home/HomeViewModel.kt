@@ -9,6 +9,7 @@ class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
 
     val groups = repo.groups
     val groupsByRelay = repo.groupsByRelay
+    val loadingRelays = repo.loadingRelays
     val connectionState = repo.connectionState
     val currentRelayUrl = repo.currentRelayUrl
     val joinedGroups = repo.joinedGroups

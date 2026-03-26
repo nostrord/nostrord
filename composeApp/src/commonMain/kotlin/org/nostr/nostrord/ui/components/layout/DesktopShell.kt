@@ -36,6 +36,7 @@ fun DesktopShell(
     activeGroupId: String?,
     unreadCounts: Map<String, Int> = emptyMap(),
     relayMetadata: Map<String, Nip11RelayInfo> = emptyMap(),
+    isGroupsLoading: Boolean = false,
     onRelayClick: (String) -> Unit,
     onAddRelayClick: () -> Unit,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
@@ -80,6 +81,7 @@ fun DesktopShell(
                     activeGroupId = activeGroupId,
                     unreadCounts = unreadCounts,
                     relayName = relayMetadata[activeRelayUrl]?.name,
+                    isLoading = isGroupsLoading,
                     onGroupClick = onGroupClick,
                     onCreateGroupClick = onCreateGroupClick
                 )

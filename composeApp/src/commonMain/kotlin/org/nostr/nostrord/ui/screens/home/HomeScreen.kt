@@ -24,24 +24,21 @@ fun HomeScreen(
 ) {
     val vm = viewModel { HomeViewModel(AppModule.nostrRepository) }
 
-    val allGroups by vm.groups.collectAsState()
     val groupsByRelay by vm.groupsByRelay.collectAsState()
-    val connectionState by vm.connectionState.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
-    val joinedGroups by vm.joinedGroups.collectAsState()
     val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
+    val loadingRelays by vm.loadingRelays.collectAsState()
 
     val displayRelayUrl = relayUrl ?: currentRelayUrl
     val relayMeta: Nip11RelayInfo? = relayMetadata[displayRelayUrl]
-    val groups = remember(displayRelayUrl, groupsByRelay, allGroups) {
-        groupsByRelay[displayRelayUrl] ?: if (displayRelayUrl == currentRelayUrl) allGroups else emptyList()
+    val groups = remember(displayRelayUrl, groupsByRelay) {
+        groupsByRelay[displayRelayUrl] ?: emptyList()
     }
 
     // Use relay-specific joined groups so the filter matches the sidebar for the same relay
-    val joinedGroupIds = remember(displayRelayUrl, joinedGroupsByRelay, joinedGroups, currentRelayUrl) {
-        joinedGroupsByRelay[displayRelayUrl]
-            ?: if (displayRelayUrl == currentRelayUrl) joinedGroups else emptySet()
+    val joinedGroupIds = remember(displayRelayUrl, joinedGroupsByRelay) {
+        joinedGroupsByRelay[displayRelayUrl] ?: emptySet()
     }
 
     var searchQuery by remember(displayRelayUrl) { mutableStateOf("") }
@@ -73,7 +70,8 @@ fun HomeScreen(
             else -> 3
         }
 
-        val isLoading = connectionState is ConnectionManager.ConnectionState.Connecting
+        val isLoading = displayRelayUrl in loadingRelays
+        val connectionState by vm.connectionState.collectAsState()
         val hasError = connectionState is ConnectionManager.ConnectionState.Error
 
         if (isCompact) {
@@ -82,6 +80,7 @@ fun HomeScreen(
                 onNavigate = onNavigate,
                 joinedGroups = joinedGroupIds,
                 filteredGroups = filteredGroups,
+                groupCount = groups.size,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
                 activeFilter = activeFilter,
@@ -105,6 +104,7 @@ fun HomeScreen(
                 joinedGroups = joinedGroupIds,
                 groups = groups,
                 filteredGroups = filteredGroups,
+                groupCount = groups.size,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
                 activeFilter = activeFilter,

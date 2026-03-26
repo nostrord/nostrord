@@ -72,6 +72,7 @@ fun HomeScreenDesktop(
     joinedGroups: Set<String>,
     groups: List<GroupMetadata>,
     filteredGroups: List<GroupMetadata>,
+    groupCount: Int = 0,
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     currentRelayUrl: String,
@@ -126,6 +127,7 @@ fun HomeScreenDesktop(
                     color = NostrordColors.TextMuted,
                     fontSize = 14.sp
                 )
+
             }
 
             // Relay options menu — position:absolute; top:8px; right:8px
@@ -166,7 +168,12 @@ fun HomeScreenDesktop(
                     ) {
                         // Filter bar
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            FilterBar(activeFilter = activeFilter, onFilterChange = onFilterChange)
+                            FilterBar(
+                                activeFilter = activeFilter,
+                                onFilterChange = onFilterChange,
+                                allCount = groupCount,
+                                joinedCount = joinedGroups.size
+                            )
                         }
 
                         // Search input
@@ -213,10 +220,15 @@ fun HomeScreenDesktop(
 }
 
 @Composable
-private fun FilterBar(activeFilter: GroupFilter, onFilterChange: (GroupFilter) -> Unit) {
+private fun FilterBar(
+    activeFilter: GroupFilter,
+    onFilterChange: (GroupFilter) -> Unit,
+    allCount: Int = 0,
+    joinedCount: Int = 0
+) {
     val filters = listOf(
-        GroupFilter.All to "All",
-        GroupFilter.Joined to "Joined"
+        GroupFilter.All to if (allCount > 0) "All ($allCount)" else "All",
+        GroupFilter.Joined to if (joinedCount > 0) "Joined ($joinedCount)" else "Joined"
     )
 
     Row(

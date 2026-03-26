@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
+import org.nostr.nostrord.ui.components.loading.shimmerEffect
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -52,6 +53,7 @@ fun GroupsNavSidebar(
     activeGroupId: String?,
     unreadCounts: Map<String, Int> = emptyMap(),
     relayName: String? = null,
+    isLoading: Boolean = false,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -109,7 +111,15 @@ fun GroupsNavSidebar(
         Box(modifier = Modifier.weight(1f)) {
             val listState = rememberLazyListState()
 
-            if (groups.isEmpty()) {
+            if (isLoading && groups.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.sm, vertical = Spacing.xs)
+                ) {
+                    repeat(6) { GroupNavItemSkeleton() }
+                }
+            } else if (groups.isEmpty()) {
                 Text(
                     text = "No groups on this relay",
                     color = NostrordColors.TextMuted,
@@ -288,6 +298,31 @@ private fun SectionToggleHeader(
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.02.sp
+        )
+    }
+}
+
+@Composable
+private fun GroupNavItemSkeleton() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .shimmerEffect()
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Box(
+            modifier = Modifier
+                .height(13.dp)
+                .fillMaxWidth(0.65f)
+                .clip(RoundedCornerShape(3.dp))
+                .shimmerEffect()
         )
     }
 }

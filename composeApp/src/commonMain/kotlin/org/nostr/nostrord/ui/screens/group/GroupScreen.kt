@@ -141,6 +141,14 @@ fun GroupScreen(
         vm.requestGroupMessages(selectedChannel)
     }
 
+    // Re-request messages when connection is restored so the open group reloads after
+    // a reconnect, even if it wasn't in the joined list or messages cache.
+    LaunchedEffect(connectionState) {
+        if (connectionState is ConnectionManager.ConnectionState.Connected) {
+            vm.requestGroupMessages(selectedChannel)
+        }
+    }
+
     // Group info modal
     if (showGroupInfoModal) {
         GroupInfoModal(

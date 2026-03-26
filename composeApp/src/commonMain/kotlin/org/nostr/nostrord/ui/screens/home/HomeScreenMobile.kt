@@ -49,6 +49,7 @@ fun HomeScreenMobile(
     onNavigate: (Screen) -> Unit,
     joinedGroups: Set<String>,
     filteredGroups: List<GroupMetadata>,
+    groupCount: Int = 0,
     searchQuery: String,
     onSearchChange: (String) -> Unit,
     activeFilter: GroupFilter,
@@ -66,11 +67,20 @@ fun HomeScreenMobile(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        relayMeta?.name?.takeIf { it.isNotBlank() } ?: relayShortLabel(currentRelayUrl),
-                        style = NostrordTypography.ServerHeader,
-                        color = Color.White
-                    )
+                    Column {
+                        Text(
+                            relayMeta?.name?.takeIf { it.isNotBlank() } ?: relayShortLabel(currentRelayUrl),
+                            style = NostrordTypography.ServerHeader,
+                            color = Color.White
+                        )
+                        if (groupCount > 0) {
+                            Text(
+                                text = "$groupCount groups",
+                                fontSize = 11.sp,
+                                color = NostrordColors.TextMuted
+                            )
+                        }
+                    }
                 },
                 navigationIcon = {
                     IconButton(
@@ -129,7 +139,12 @@ fun HomeScreenMobile(
                 ) {
                     // Filter bar
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        MobileFilterBar(activeFilter = activeFilter, onFilterChange = onFilterChange)
+                        MobileFilterBar(
+                            activeFilter = activeFilter,
+                            onFilterChange = onFilterChange,
+                            allCount = groupCount,
+                            joinedCount = joinedGroups.size
+                        )
                     }
 
                     // Search input
@@ -167,10 +182,15 @@ fun HomeScreenMobile(
 }
 
 @Composable
-private fun MobileFilterBar(activeFilter: GroupFilter, onFilterChange: (GroupFilter) -> Unit) {
+private fun MobileFilterBar(
+    activeFilter: GroupFilter,
+    onFilterChange: (GroupFilter) -> Unit,
+    allCount: Int = 0,
+    joinedCount: Int = 0
+) {
     val filters = listOf(
-        GroupFilter.All to "All",
-        GroupFilter.Joined to "Joined"
+        GroupFilter.All to if (allCount > 0) "All ($allCount)" else "All",
+        GroupFilter.Joined to if (joinedCount > 0) "Joined ($joinedCount)" else "Joined"
     )
 
     Row(
