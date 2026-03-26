@@ -7,12 +7,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.RelayMetadataManager
+import org.nostr.nostrord.network.managers.RelayReconnectScheduler
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
@@ -20,6 +23,7 @@ import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.urlDecode
 
 /**
@@ -38,9 +42,83 @@ class NostrRepository(
     private val unreadManager: UnreadManager,
     private val pendingEventManager: org.nostr.nostrord.network.managers.PendingEventManager? = null,
     private val relayMetadataManager: RelayMetadataManager? = null,
+    private val liveCursorStore: LiveCursorStore? = null,
     private val scope: CoroutineScope
 ) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
+
+    /**
+     * A gap is suspected when the newest in-memory message is older than the cursor by at least
+     * this many seconds. 120 s gives relays reasonable delivery time before we consider the
+     * difference a real hole rather than normal clock skew.
+     */
+    private val GAP_THRESHOLD_S = 120L
+
+    /**
+     * Minimum seconds between gap-detection passes for the same relay.
+     * Prevents the CLOSE→REQ mux cycle from triggering three successive gap fills.
+     */
+    private val GAP_DETECTION_COOLDOWN_S = 30L
+    private val lastGapDetectionAt = mutableMapOf<String, Long>()
+
+    /**
+     * Epoch-seconds of the last requestGroups() call per relay.
+     * Prevents resubscribeAfterAuth from sending a duplicate group-list REQ when
+     * connect() already sent one within the last 10 seconds.
+     */
+    private val lastRequestGroupsAt = mutableMapOf<String, Long>()
+
+    /**
+     * Relay URL of the group currently open on screen — used to promote reconnect priority.
+     * Null when no group is focused (Home screen, settings, etc.).
+     */
+    private var activeRelayUrl: String? = null
+
+    // Per-relay bounded message pipelines — prevents unbounded coroutine creation under burst load.
+    // Map: relayUrl -> (client, pipeline). The client reference is used to detect reconnects:
+    // when a new NostrGroupClient is created for the same URL, the old pipeline is closed and a
+    // new one is created, ensuring handleUnifiedMessage always sees the live client.
+    private val relayPipelines = mutableMapOf<String, Pair<NostrGroupClient, RelayEventPipeline>>()
+
+    /**
+     * Routes an incoming WebSocket frame through the per-relay pipeline.
+     * Creates the pipeline on first message; replaces it if the client has changed (reconnect).
+     */
+    private fun enqueueToRelayPipeline(msg: String, client: NostrGroupClient) {
+        val url = client.getRelayUrl()
+        val entry = relayPipelines[url]
+        val pipeline = if (entry != null && entry.first === client) {
+            entry.second
+        } else {
+            entry?.second?.close()
+            RelayEventPipeline(url, scope) { m -> handleUnifiedMessage(m, client) }
+                .also { relayPipelines[url] = client to it }
+        }
+        pipeline.enqueue(msg)
+    }
+
+    // Centralised reconnect scheduler for NIP-29 pool relays.
+    // Replaces the per-relay while(true) loops with priority-aware backoff + jitter.
+    private val relayReconnectScheduler = RelayReconnectScheduler(
+        scope = scope,
+        isRelayActive = { relayUrl -> relayUrl in SecureStorage.loadRelayList() },
+        doReconnect = { relayUrl ->
+            // Snapshot before connect: if relay is already in the pool the connection was
+            // established by another path (staggered init, outbox manager). In that case
+            // subscriptions are already live — calling resubscribePoolRelay again would
+            // open N×4 duplicate one-shot subs on top of the existing mux subscriptions.
+            val alreadyConnected = connectionManager.getClientForRelay(relayUrl) != null
+            val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+                enqueueToRelayPipeline(msg, c)
+            }
+            if (client != null) {
+                if (!alreadyConnected) resubscribePoolRelay(relayUrl, client)
+                true
+            } else {
+                false
+            }
+        }
+    )
 
     private val _isInitialized = MutableStateFlow(false)
     override val isInitialized: StateFlow<Boolean> = _isInitialized.asStateFlow()
@@ -55,6 +133,7 @@ class NostrRepository(
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.messages
     override val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
     override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = groupManager.joinedGroupsByRelay
+    override val loadingRelays: StateFlow<Set<String>> = groupManager.loadingRelays
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
@@ -91,23 +170,20 @@ class NostrRepository(
             scope.launch { groupManager.handleConnectionLost() }
         }
         connectionManager.onPoolRelayLost = { relayUrl ->
-            scope.launch { reconnectPoolRelay(relayUrl) }
+            // Only reconnect NIP-29 group relays. Bootstrap / fallback relays (relay.damus.io,
+            // nos.lol, purplepag.es, etc.) are ephemeral — they reconnect on-demand the next
+            // time metadata or relay-list discovery is needed. Aggressively reconnecting them
+            // here is wasteful because they drop frequently on high-traffic public infrastructure.
+            if (relayUrl in SecureStorage.loadRelayList()) {
+                relayReconnectScheduler.schedule(relayUrl)
+            }
+            // Ephemeral content/outbox relays are not reconnected — they connect on-demand.
         }
         connectionManager.onReconnected = { client ->
             sessionManager.sendAuthIfNeeded(client)
-            val relayUrl = connectionManager.currentRelayUrl.value
-            groupManager.restoreGroupsForRelay(relayUrl)
-            if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
-                client.requestGroups()
-            }
-            // Re-subscribe for all groups that had messages — WebSocket subscriptions
-            // are gone after reconnect and must be re-established to receive new messages.
-            val groupIds = (groupManager.messages.value.keys + groupManager.joinedGroups.value).distinct()
-            for (groupId in groupIds) {
-                groupManager.requestGroupMessages(groupId)
-                client.requestGroupMetadata(groupId)
-            }
+            resubscribeAllGroups(client)
             pendingEventManager?.onConnectionRestored()
+            reconnectDroppedNip29PoolRelays()
         }
 
         connectionManager.loadSavedRelay()
@@ -128,7 +204,7 @@ class NostrRepository(
                     initializeOutboxModel()
                     scope.launch {
                         outboxManager.loadJoinedGroupsFromNostr(pubkey) { msg, c ->
-                            handleUnifiedMessage(msg, c)
+                            enqueueToRelayPipeline(msg, c)
                         }
                     }
                     requestUserMetadata(setOf(pubkey))
@@ -138,7 +214,8 @@ class NostrRepository(
             }
 
             val allRelays = (if (activeRelay.isBlank()) savedRelays else (listOf(activeRelay) + savedRelays)).distinct()
-            println("[Init] activeRelay=$activeRelay  savedRelays=$savedRelays  allRelays=$allRelays")
+            println("[NIP29] init  primary=$activeRelay  pool=${allRelays.filter { it != activeRelay }}")
+            liveCursorStore?.loadAll(allRelays)
             groupManager.prePopulateRelayList(allRelays)
             groupManager.restoreAllGroupsFromStorage(allRelays)
             _relayMetadataManager.fetchAll(allRelays)
@@ -154,35 +231,56 @@ class NostrRepository(
                 requestUserMetadata(setOf(pubkey))
             }
 
-            // Connect to all other saved relays in parallel to populate groupsByRelay.
+            // Connect pool relays with staggered delays to avoid overwhelming relay servers
+            // with simultaneous subscriptions. Groups are fetched lazily when the user
+            // selects a relay — switchRelay() calls requestGroups() if not cached.
             val otherRelays = allRelays.filter { it != activeRelay }
-            otherRelays.forEach { relayUrl ->
-                scope.launch { connectToRelayBackground(relayUrl) }
+            otherRelays.forEachIndexed { index, relayUrl ->
+                pendingPoolConnections.add(relayUrl)  // mark pending BEFORE launch to prevent revive race
+                scope.launch {
+                    delay(1000L + index * 200L + (0..200).random())
+                    connectToRelayBackground(relayUrl)
+                }
             }
         }
 
         _isInitialized.value = true
+
+        // Periodically refresh live group subscriptions so relays that drop idle subs
+        // (e.g. pyramid.fiatjaf.com) don't permanently stall message delivery.
+        // The CLOSED handler already re-opens live subs on explicit relay closure; this
+        // periodic refresh is the safety net for silent drops with no CLOSED message.
+        scope.launch {
+            while (true) {
+                delay(5 * 60 * 1000L) // 5 minutes
+                if (connectionManager.connectionState.value is ConnectionManager.ConnectionState.Connected) {
+                    groupManager.refreshLiveSubscriptions()
+                }
+                liveCursorStore?.persistAll()
+            }
+        }
     }
 
     private suspend fun connectToRelayBackground(relayUrl: String) {
-        println("[Relay] Connecting background relay: $relayUrl")
-        // Use unified handler: if this relay is already in the pool (connected by the outbox
-        // manager with handleRelayMessage), getOrConnectRelay returns the existing client
-        // whose handler we cannot change. By ensuring ALL pool connections use
-        // handleUnifiedMessage from the start (via initializeOutboxModel), we avoid
-        // the handler mismatch that caused kind 39000 events to be silently dropped.
-        val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
-            handleUnifiedMessage(msg, c)
-        }
-        if (client == null) {
-            println("[Relay] ✗ Failed to connect: $relayUrl")
+        // Skip if this URL is already the primary NIP-29 relay — avoids a second WebSocket
+        // connection when the outbox model's relay list overlaps with the primary relay.
+        if (connectionManager.getPrimaryClient()?.getRelayUrl() == relayUrl) {
+            pendingPoolConnections.remove(relayUrl)
             return
         }
-        val cached = groupManager.hasCachedGroupsForRelay(relayUrl)
-        val subId = client.groupListSubscriptionId()
-        println("[Relay] ✓ Connected: $relayUrl  cached=$cached  subId=$subId")
-        if (!cached) {
-            client.requestGroups()
+        pendingPoolConnections.add(relayUrl)
+        try {
+            // Use unified handler: if this relay is already in the pool (connected by the outbox
+            // manager with handleRelayMessage), getOrConnectRelay returns the existing client
+            // whose handler we cannot change. By ensuring ALL pool connections use
+            // handleUnifiedMessage from the start (via initializeOutboxModel), we avoid
+            // the handler mismatch that caused kind 39000 events to be silently dropped.
+            connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+                enqueueToRelayPipeline(msg, c)
+            } ?: return
+            // Group list (kind 39000) is NOT fetched here — only when the user selects this relay.
+        } finally {
+            pendingPoolConnections.remove(relayUrl)
         }
     }
 
@@ -260,6 +358,9 @@ class NostrRepository(
         outboxManager.clear()
         groupManager.clear()
         unreadManager.clear()
+        liveCursorStore?.clear()
+        relayPipelines.values.forEach { (_, pipeline) -> pipeline.close() }
+        relayPipelines.clear()
         SecureStorage.saveRelayList(emptyList())
         SecureStorage.clearCurrentRelayUrl()
         connectionManager.clearCurrentRelay()
@@ -279,7 +380,7 @@ class NostrRepository(
         val pubKey = sessionManager.getPublicKey() ?: return
         // Use unified handler so that if an outbox relay is also a NIP-29 group relay,
         // kind 39000 group events are still processed correctly.
-        outboxManager.initialize(pubKey) { msg, client -> handleUnifiedMessage(msg, client) }
+        outboxManager.initialize(pubKey) { msg, client -> enqueueToRelayPipeline(msg, client) }
     }
 
     override suspend fun connect() {
@@ -296,20 +397,102 @@ class NostrRepository(
             val client = connectionManager.getPrimaryClient()
             if (client != null) {
                 sessionManager.sendAuthIfNeeded(client)
-                groupManager.restoreGroupsForRelay(connectionManager.currentRelayUrl.value)
-                client.requestGroups()
-
-                // Re-request messages for current group if any
-                val pubKey = sessionManager.getPublicKey() ?: ""
-                if (pubKey.isNotEmpty()) {
-                    groupManager.loadJoinedGroupsFromStorage(pubKey, connectionManager.currentRelayUrl.value)
-                }
-
-                // Retry any pending events that were queued while offline
+                resubscribeAllGroups(client)
                 pendingEventManager?.onConnectionRestored()
             }
+            reconnectDroppedNip29PoolRelays()
         }
         return connected
+    }
+
+    /**
+     * Called when the app returns to the foreground.
+     * - If the primary relay is disconnected or errored: triggers a full reconnect.
+     * - If already connected: refreshes all live mux subscriptions and pool relays.
+     */
+    override fun onForeground() {
+        scope.launch {
+            val state = connectionManager.connectionState.value
+            if (state is ConnectionManager.ConnectionState.Disconnected ||
+                state is ConnectionManager.ConnectionState.Error) {
+                reconnect()
+            } else {
+                groupManager.refreshLiveSubscriptions()
+                reconnectDroppedNip29PoolRelays()
+            }
+        }
+    }
+
+    /**
+     * Called when the app moves to the background.
+     * Persists live cursors to storage so they survive process death.
+     */
+    override fun onBackground() {
+        scope.launch {
+            liveCursorStore?.persistAll()
+        }
+    }
+
+    /**
+     * Called when the app process is about to be destroyed (Android onDestroy / process exit).
+     * Persists all live cursors and disconnects gracefully.
+     */
+    override fun onDestroy() {
+        scope.launch {
+            liveCursorStore?.persistAll()
+            groupManager.saveAllMessagesToStorage()
+            connectionManager.disconnectPrimary()
+        }
+    }
+
+    /**
+     * Notify the repository which group the user is currently viewing.
+     * The relay hosting [groupId] is promoted to [RelayReconnectScheduler.Priority.ACTIVE]
+     * so reconnect attempts for it use faster (500 ms base) backoff.
+     * Pass null when the user leaves the group screen to revert to BACKGROUND priority.
+     */
+    override fun setActiveGroup(groupId: String?) {
+        activeRelayUrl = if (groupId != null) groupManager.getRelayForGroup(groupId) else null
+    }
+
+    /**
+     * Gap detection: after EOSE for the [mux_chat_] subscription, check each group on
+     * [relayUrl] for evidence of a gap between the cursor and what was actually delivered.
+     *
+     * A gap is suspected when the newest in-memory message for a group is more than
+     * [GAP_THRESHOLD_S] seconds older than what the cursor expected to have received.
+     * In that case a targeted history fetch is scheduled to fill the hole.
+     */
+    private suspend fun detectAndFillGaps(relayUrl: String) {
+        val now = epochSeconds()
+        val lastAt = lastGapDetectionAt[relayUrl] ?: 0L
+        if (now - lastAt < GAP_DETECTION_COOLDOWN_S) return
+        lastGapDetectionAt[relayUrl] = now
+
+        val groupIds = groupManager.getGroupIdsForMux(relayUrl)
+        if (groupIds.isEmpty()) return
+
+        for (groupId in groupIds) {
+            val cursorSince = liveCursorStore?.getSince(relayUrl, groupId) ?: continue
+            // getSince already subtracts RECONNECT_OVERLAP_S; add it back to get the actual
+            // timestamp of the last event we KNOW we received.
+            val lastKnown = cursorSince + LiveCursorStore.RECONNECT_OVERLAP_S
+            val latestInMemory = groupManager.getLatestMessageTimestamp(groupId)
+
+            val gapDetected = when {
+                latestInMemory == null -> false  // no messages loaded yet — normal cold start
+                latestInMemory < lastKnown - GAP_THRESHOLD_S -> true  // memory is stale
+                else -> false
+            }
+
+            if (gapDetected) {
+                val gapSec = lastKnown - (latestInMemory ?: 0)
+                println("[Gap] group=${groupId.take(8)}  relay=$relayUrl  gap=${gapSec}s — fetching history")
+                scope.launch {
+                    try { groupManager.requestGroupMessages(groupId) } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     private suspend fun connect(relayUrl: String) {
@@ -317,7 +500,7 @@ class NostrRepository(
         _relayMetadataManager.fetch(relayUrl)
 
         val connected = connectionManager.connectPrimary(relayUrl) { msg, client ->
-            handleMessage(msg, client)
+            enqueueToRelayPipeline(msg, client)
         }
 
         if (connected) {
@@ -326,6 +509,8 @@ class NostrRepository(
                 sessionManager.sendAuthIfNeeded(client)
                 groupManager.restoreGroupsForRelay(relayUrl)
                 if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
+                    lastRequestGroupsAt[relayUrl] = epochSeconds()
+                    groupManager.markRelayLoading(relayUrl)
                     client.requestGroups()
                 }
             }
@@ -345,7 +530,7 @@ class NostrRepository(
         groupManager.clearForRelaySwitch()
 
         connectionManager.switchRelay(newRelayUrl) { msg, client ->
-            handleMessage(msg, client)
+            enqueueToRelayPipeline(msg, client)
         }
 
         val pubKey = sessionManager.getPublicKey() ?: ""
@@ -364,6 +549,7 @@ class NostrRepository(
             sessionManager.sendAuthIfNeeded(client)
             // Skip re-fetch if cached; re-fetching races against restored state.
             if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
+                groupManager.markRelayLoading(newRelayUrl)
                 client.requestGroups()
             }
         }
@@ -815,6 +1001,11 @@ class NostrRepository(
     // Groups whose subscriptions were closed by the relay (e.g. auth-required)
     private val closedGroupSubscriptions = mutableSetOf<String>()
 
+    // Pool relay URLs whose connectToRelayBackground is currently in flight.
+    // Used to prevent reconnectDroppedNip29PoolRelays from scheduling a revive for a relay
+    // that is already being connected by the staggered startup sequence.
+    private val pendingPoolConnections = mutableSetOf<String>()
+
     // Per-relay debug counters: relayUrl -> event count since last connect
     private val relayEventCounts = mutableMapOf<String, Int>()
     private val relayEoseReceived = mutableSetOf<String>()
@@ -840,10 +1031,11 @@ class NostrRepository(
             if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
                 val subId = arr[1].jsonPrimitive.content
                 val url = client.getRelayUrl()
-                if (!relayEoseReceived.contains(subId)) {
-                    relayEoseReceived.add(subId)
+                // Log only mux_chat_ EOSE — the key signal that live messages are flowing.
+                if (subId.startsWith("mux_chat_")) {
                     val count = relayEventCounts[url] ?: 0
-                    println("[Relay] EOSE  relay=$url  subId=$subId  eventsReceived=$count")
+                    println("[Mux] EOSE  relay=$url  events=$count")
+                    relayEventCounts.remove(url)
                 }
                 // Notify outbox manager for outbox subscriptions, then fall through
                 // to handleMessage which notifies groupManager for group subscriptions.
@@ -872,7 +1064,7 @@ class NostrRepository(
                             onRelayGroupsUpdated = { relayGroups ->
                                 groupManager.updateAllRelayJoinedGroups(relayGroups)
                             },
-                            messageHandler = { m, c -> handleUnifiedMessage(m, c) }
+                            messageHandler = { m, c -> enqueueToRelayPipeline(m, c) }
                         )
                     }
                     return
@@ -915,25 +1107,61 @@ class NostrRepository(
             val arr = json.parseToJsonElement(msg).jsonArray
             if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
                 val subId = arr[1].jsonPrimitive.content
-                // Use scope.launch to ensure this runs after any pending message tracking
+                // yield() before EOSE so pending message-tracking coroutines (scope.launch
+                // blocks queued by handleMessage) get scheduled first, reducing the race
+                // window where messageCount is read before all tracking completes.
                 scope.launch {
+                    yield()
                     groupManager.handleEoseSuspend(subId)
+                    // After the mux chat subscription delivers its backlog, detect any gaps
+                    // (groups whose cursor expected events that never arrived from this relay).
+                    if (subId.startsWith("mux_chat_")) {
+                        detectAndFillGaps(client.getRelayUrl())
+                    }
+                    // Close one-shot metadata subs after EOSE so the relay slot is freed.
+                    // meta_/admins_/members_ are fire-and-forget: once EOSE arrives the relay
+                    // has sent the latest state — keeping the sub open just wastes a slot.
+                    if (subId.startsWith("meta_") ||
+                        subId.startsWith("admins_") ||
+                        subId.startsWith("members_") ||
+                        subId.startsWith("metadata_")) {
+                        try { client.send("""["CLOSE","$subId"]""") } catch (_: Exception) {}
+                    }
                 }
                 return
             }
 
-            // Handle CLOSED (relay closed the subscription, e.g. auth-required for private group)
+            // Handle CLOSED (relay closed the subscription)
             if (arr.size >= 2 && arr[0].jsonPrimitive.content == "CLOSED") {
                 val subId = arr[1].jsonPrimitive.content
                 val reason = if (arr.size >= 3) arr[2].jsonPrimitive.contentOrNull ?: "" else ""
-                if (reason.contains("auth-required") || reason.contains("restricted")) {
-                    // Extract groupId from subId if it's a message subscription, otherwise
-                    // mark all currently loaded groups for re-subscription after auth
-                    val activeGroupIds = groupManager.messages.value.keys +
-                        groupManager.joinedGroups.value
+                val isAuthRequired = reason.contains("auth-required") || reason.contains("restricted")
+
+                if (isAuthRequired) {
+                    // Only record groups that belong to THIS relay so resubscribeAfterAuth
+                    // doesn't send cross-relay metadata requests to the authed client.
+                    val relayUrl = client.getRelayUrl()
+                    val activeGroupIds = groupManager.getGroupIdsForMux(relayUrl)
                     closedGroupSubscriptions.addAll(activeGroupIds)
                 }
-                scope.launch { groupManager.handleEoseSuspend(subId) } // unblock any pending load
+
+                // Unblock any pending state-machine load (transitions InitialLoading → Exhausted)
+                scope.launch { groupManager.handleEoseSuspend(subId) }
+
+                // Re-open the mux subscription when the relay closes it for non-auth reasons.
+                // pyramid.fiatjaf.com and similar relays drop idle subs without closing the WS.
+                if (!isAuthRequired &&
+                    (subId.startsWith("mux_chat_") || subId.startsWith("mux_reactions_") ||
+                     subId.startsWith("mux_meta_"))) {
+                    val relayUrl = client.getRelayUrl()
+                    scope.launch {
+                        delay(2_000)  // brief back-off before re-opening
+                        try {
+                            groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+                            println("[Mux] Re-opened mux subs relay=$relayUrl  reason='$reason'")
+                        } catch (_: Exception) {}
+                    }
+                }
                 return
             }
 
@@ -1014,24 +1242,15 @@ class NostrRepository(
                 if (arr.size >= 2) arr[1].jsonPrimitive.content else null
             } catch (_: Exception) { null }
 
-            // Track message in state machine BEFORE adding to message list
-            // This ensures cursor calculation includes this message before EOSE processing
-            if (subscriptionId != null) {
-                scope.launch {
-                    groupManager.trackMessageForSubscriptionSuspend(
-                        subscriptionId,
-                        message.createdAt,
-                        message.id
-                    )
-                }
-            }
+            // Tracking is done inside GroupManager.handleMessage via trackMessageForSubscription.
+            // Do NOT add a second scope.launch here — double-tracking corrupts messageCount,
+            // causing pagination to never reach Exhausted state.
 
             // Pass subscription ID to handleMessage for cursor tracking
-            val senderPubkey = groupManager.handleMessage(message, msg, subscriptionId)
-            if (senderPubkey != null && !metadataManager.hasMetadata(senderPubkey)) {
+            val senderPubkey = groupManager.handleMessage(message, msg, subscriptionId, client.getRelayUrl())
+            if (senderPubkey != null && (!metadataManager.hasMetadata(senderPubkey) || metadataManager.isStale(senderPubkey))) {
                 scope.launch {
                     requestUserMetadata(setOf(senderPubkey))
-                    requestRelayLists(setOf(senderPubkey))
                 }
             }
         }
@@ -1097,7 +1316,7 @@ class NostrRepository(
                             onRelayGroupsUpdated = { relayGroups ->
                                 groupManager.updateAllRelayJoinedGroups(relayGroups)
                             },
-                            messageHandler = { m, c -> handleUnifiedMessage(m, c) }
+                            messageHandler = { m, c -> enqueueToRelayPipeline(m, c) }
                         )
                     }
                     return
@@ -1120,75 +1339,163 @@ class NostrRepository(
     }
 
     /**
-     * Reconnect a pool relay that dropped unexpectedly, with exponential backoff.
-     * After reconnect, re-subscribes to group messages for every group hosted on that relay.
-     *
-     * RC-1 fix: pool clients had no onConnectionLost → died silently without reconnection.
-     * RC-2 fix: clientForGroup() now rejects dead clients (returns null) so subscriptions
-     *           are not fire-and-forgotten into a closed WebSocket session.
+     * Re-subscribe to all groups on a pool relay after it reconnects.
+     * Called by [relayReconnectScheduler]'s doReconnect lambda and [resubscribeAllGroups].
      */
-    private suspend fun reconnectPoolRelay(relayUrl: String, attempt: Int = 1) {
-        // Only keep NIP-29 group relays alive. Outbox/write relays (nos.lol, relay.damus.io,
-        // purplepag.es, etc.) are temporary — the outbox reconnects them on demand. Aggressively
-        // reconnecting them here would cause an infinite loop because they drop frequently.
+    private suspend fun resubscribePoolRelay(relayUrl: String, client: NostrGroupClient) {
+        // Don't proactively fetch the group list. If the user has never selected this relay,
+        // getGroupsForRelay() returns empty and the loop below does nothing. If they have,
+        // the data is already cached and switchRelay() will handle re-fetch if ever needed.
+        val groupsOnRelay = groupManager.getGroupsForRelay(relayUrl)
+        println("[Pool] reconnected  relay=$relayUrl  groups=${groupsOnRelay.size}")
+        groupManager.handleConnectionLostForGroups(groupsOnRelay.map { it.id })
+        for (group in groupsOnRelay) {
+            groupManager.requestGroupMessages(group.id)
+            groupManager.requestGroupMembers(group.id)
+            groupManager.requestGroupAdmins(group.id)
+            client.requestGroupMetadata(group.id)
+        }
+
+        // Send the relay-level mux subscription for all groups on this pool relay.
+        groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+    }
+
+    /**
+     * Revive NIP-29 pool relay reconnect loops that gave up during an internet outage.
+     *
+     * After an extended outage the reconnect scheduler coroutines may have been cancelled.
+     * When the primary comes back (via onReconnected / manual reconnect) we call this to
+     * schedule a fresh reconnect via RelayReconnectScheduler for every NIP-29 relay in the pool
+     * but currently has no live connection.
+     */
+    private fun reconnectDroppedNip29PoolRelays() {
         val nip29Relays = SecureStorage.loadRelayList()
-        if (relayUrl !in nip29Relays) {
-            println("[Pool] Skip reconnect $relayUrl — not a NIP-29 relay (outbox-only)")
-            return
+        val primaryUrl = connectionManager.currentRelayUrl.value
+        for (relayUrl in nip29Relays) {
+            if (relayUrl == primaryUrl) continue  // primary is handled separately
+            scope.launch {
+                val existing = connectionManager.getClientForRelay(relayUrl)
+                // Skip if already connected OR if staggered startup is still connecting it.
+                // Without this check, onReconnected fires before the 1s+ staggered delays
+                // elapse and schedules duplicate connections for all pool relays.
+                if (existing == null && relayUrl !in pendingPoolConnections) {
+                    println("[Pool] revive  relay=$relayUrl")
+                    val priority = if (relayUrl == activeRelayUrl)
+                        RelayReconnectScheduler.Priority.ACTIVE
+                    else
+                        RelayReconnectScheduler.Priority.BACKGROUND
+                    relayReconnectScheduler.schedule(relayUrl, priority = priority)
+                }
+            }
         }
+    }
 
-        val maxAttempts = 8
-        if (attempt > maxAttempts) {
-            println("[Pool] ✗ Gave up reconnecting $relayUrl after $maxAttempts attempts")
-            return
-        }
-        val backoffMs = minOf(1000L * (1L shl (attempt - 1)), 30_000L)
-        println("[Pool] Reconnecting $relayUrl in ${backoffMs}ms (attempt $attempt/$maxAttempts)")
-        delay(backoffMs)
-
-        val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
-            handleUnifiedMessage(msg, c)
-        }
-        if (client == null) {
-            println("[Pool] ✗ Reconnect failed: $relayUrl — scheduling retry")
-            scope.launch { reconnectPoolRelay(relayUrl, attempt + 1) }
-            return
-        }
-        println("[Pool] ✓ Reconnected $relayUrl — re-subscribing groups")
-
-        // Re-fetch group list if not yet cached for this relay
+    /**
+     * Re-establish all group subscriptions after a connection (re-)connect.
+     *
+     * Called from both auto-reconnect (onReconnected) and manual reconnect (reconnect()).
+     * Explicitly resets group loading states to Idle before re-subscribing so
+     * startInitialLoad() always succeeds regardless of timing — groups might still be
+     * in InitialLoading/Exhausted/HasMore if the previous disconnect was very fast.
+     *
+     * Relay separation: only touches NIP-29 groups stored in groupManager; bootstrap
+     * and fallback relays connect on-demand and are NOT re-subscribed here.
+     */
+    private suspend fun resubscribeAllGroups(client: NostrGroupClient) {
+        val relayUrl = connectionManager.currentRelayUrl.value
+        groupManager.restoreGroupsForRelay(relayUrl)
         if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
+            lastRequestGroupsAt[relayUrl] = epochSeconds()
+            groupManager.markRelayLoading(relayUrl)
             client.requestGroups()
         }
 
-        // Re-subscribe for all groups that live on this relay
-        val groupsOnRelay = groupManager.getGroupsForRelay(relayUrl)
-        for (group in groupsOnRelay) {
-            groupManager.requestGroupMessages(group.id)
-            client.requestGroupMetadata(group.id)
+        // Re-subscribe only groups on the PRIMARY relay.
+        // Pool relay groups are NOT affected by a primary-relay drop — their WebSocket
+        // subscriptions are still live. Using getGroupsForRelay() instead of
+        // messages.value.keys avoids accidentally resetting and double-subscribing
+        // groups that live on other NIP-29 relays in the pool.
+        val primaryGroupIds = groupManager.getGroupsForRelay(relayUrl).map { it.id }
+        // joinedGroups is always scoped to the active relay (set from kind:10009 currentRelay slot)
+        val joinedGroupIds = groupManager.joinedGroups.value.toList()
+        val groupIds = (primaryGroupIds + joinedGroupIds).distinct()
+
+        if (groupIds.isEmpty()) return
+
+        // Explicitly reset to Idle — don't rely on onConnectionDropped timing.
+        // handleConnectionLost() runs in a separate coroutine; if the connection bounced
+        // very quickly it may not have completed before we reach here.
+        groupManager.handleConnectionLostForGroups(groupIds.toList())
+
+        for (groupId in groupIds) {
+            groupManager.requestGroupMessages(groupId)
+            groupManager.requestGroupMembers(groupId)
+            groupManager.requestGroupAdmins(groupId)
+            client.requestGroupMetadata(groupId)
         }
+
+        // Send the relay-level mux subscription covering all primary-relay groups.
+        groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
     }
 
     /**
      * Re-subscribe for group messages after a successful NIP-42 AUTH.
      * Covers groups whose subscriptions were closed with auth-required,
-     * as well as all currently loaded groups.
+     * as well as all currently loaded groups on THIS relay.
+     *
+     * Only groups that belong to [client]'s relay are handled here.
+     * Sending requestGroupMetadata for groups on a different relay causes
+     * "Not connected" crashes and wastes relay bandwidth.
      */
     private suspend fun resubscribeAfterAuth(client: NostrGroupClient) {
-        // Re-fetch the full group list (includes private groups now that we're authed)
-        client.requestGroups()
+        val relayUrl = client.getRelayUrl()
 
-        // Re-subscribe for all active/joined groups
-        val groupIds = closedGroupSubscriptions +
-            groupManager.messages.value.keys +
-            groupManager.joinedGroups.value
-        closedGroupSubscriptions.clear()
-        for (groupId in groupIds) {
-            client.requestGroupMessages(groupId)
-            client.requestGroupMetadata(groupId)
-            client.requestGroupAdmins(groupId)
-            client.requestGroupMembers(groupId)
+        // Guard: if this client lost the getOrConnectRelay race (displaced by a concurrent
+        // connection attempt), its WebSocket session is already gone. Proceeding would crash
+        // with "Not connected" when requestGroupMetadata sends CLOSE/REQ on a null session.
+        if (!client.isConnected()) return
+
+        // Only re-fetch the group list for the primary relay, and only if connect()
+        // didn't already send one in the last 10 seconds (auth fires right after connect).
+        if (connectionManager.getPrimaryClient() === client) {
+            val now = epochSeconds()
+            val lastAt = lastRequestGroupsAt[relayUrl] ?: 0L
+            if (now - lastAt > 10L) {
+                lastRequestGroupsAt[relayUrl] = now
+                groupManager.markRelayLoading(relayUrl)
+                client.requestGroups()
+            }
         }
+
+        // Only re-subscribe groups that live on this relay.
+        // getGroupIdsForMux filters by relay via _joinedGroupsByRelay and getRelayForGroup().
+        val groupIdsOnRelay = groupManager.getGroupIdsForMux(relayUrl).toSet()
+        // Drain only the closed subs that belong to this relay; leave others for their relay.
+        val closedOnRelay = closedGroupSubscriptions.filter { it in groupIdsOnRelay }
+        closedGroupSubscriptions.removeAll(closedOnRelay.toSet())
+
+        val groupIds = (closedOnRelay + groupIdsOnRelay).distinct()
+        if (groupIds.isEmpty()) return
+
+        println("[Auth] resubscribe  relay=$relayUrl  groups=${groupIds.size}  closed=${closedOnRelay.size}")
+
+        // CRITICAL: auth-CLOSED put groups in Exhausted state (0 messages from CLOSED event).
+        // GroupManager.requestGroupMessages calls startInitialLoad() which only proceeds from
+        // Idle or Error — it returns null for Exhausted, so the group never reloads.
+        // Reset to Idle first so re-subscription can proceed through the state machine.
+        groupManager.handleConnectionLostForGroups(groupIds)
+
+        for (groupId in groupIds) {
+            // Route through GroupManager (state machine) instead of calling client directly.
+            // Direct client calls bypass subscription registration → EOSE never tracked →
+            // loading state never transitions → UI stuck forever.
+            groupManager.requestGroupMessages(groupId)
+            groupManager.requestGroupMembers(groupId)
+            groupManager.requestGroupAdmins(groupId)
+            client.requestGroupMetadata(groupId)
+        }
+
+        groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
     }
 
 }

@@ -31,6 +31,7 @@ interface NostrRepositoryApi {
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
     val joinedGroups: StateFlow<Set<String>>
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
+    val loadingRelays: StateFlow<Set<String>>
     val isLoadingMore: StateFlow<Map<String, Boolean>>
     val hasMoreMessages: StateFlow<Map<String, Boolean>>
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>
@@ -69,6 +70,21 @@ interface NostrRepositoryApi {
     suspend fun switchRelay(newRelayUrl: String)
     suspend fun removeRelay(url: String)
     suspend fun disconnect()
+
+    // --- Lifecycle ---
+    /** Called when the app returns to the foreground. Re-establishes connections and refreshes subscriptions. */
+    fun onForeground()
+    /** Called when the app moves to the background. Persists live cursors to storage. */
+    fun onBackground()
+    /** Called when the app process is about to be destroyed. Persists all state and disconnects. */
+    fun onDestroy()
+
+    /**
+     * Notify the repository which group the user is currently viewing.
+     * The relay that hosts [groupId] is promoted to [RelayReconnectScheduler.Priority.ACTIVE]
+     * so reconnect attempts for it use faster backoff. Pass null when leaving the group screen.
+     */
+    fun setActiveGroup(groupId: String?)
 
     // --- Group operations ---
     suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String? = null): Result<String>

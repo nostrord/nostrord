@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.utils.epochMillis
 
 /**
@@ -25,7 +26,8 @@ import org.nostr.nostrord.utils.epochMillis
  * Note: Does not manage its own connections - uses connectionProvider from NostrRepository
  */
 class RelayListManager(
-    override val bootstrapRelays: List<String> = DEFAULT_BOOTSTRAP_RELAYS
+    override val bootstrapRelays: List<String> = DEFAULT_BOOTSTRAP_RELAYS,
+    private val connectionManager: ConnectionManager? = null
 ) : OutboxModel {
 
     companion object {
@@ -164,10 +166,46 @@ class RelayListManager(
     }
 
     /**
-     * Fetch relay list from a specific relay using a dedicated short-lived connection.
+     * Fetch relay list from a specific relay.
+     * Reuses an existing pool connection if available (avoids creating a new disposable connection).
+     * Falls back to a short-lived dedicated connection when the relay is not already in the pool.
+     *
+     * When using a pool connection, the kind:10002 response is routed through the global message
+     * handler → OutboxManager.handleKind10002Event → cacheRelayListForUser. We poll the cache
+     * until the data appears rather than using a local handler.
      */
     private suspend fun fetchFromRelay(relayUrl: String, pubkey: String): List<Nip65Relay> {
-        val subId = "nip65-${pubkey.take(8)}-${epochMillis()}"
+        val subId = "nip65-${pubkey.take(8)}"
+        val filter = buildJsonObject {
+            putJsonArray("kinds") { add(10002) }
+            putJsonArray("authors") { add(pubkey) }
+            put("limit", 1)
+        }
+
+        // Prefer reusing an already-connected pool client to avoid redundant connections.
+        val poolClient = connectionManager?.getClientForRelay(relayUrl)
+        if (poolClient != null) {
+            try {
+                poolClient.send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+                poolClient.send(buildJsonArray { add("REQ"); add(subId); add(filter) }.toString())
+            } catch (_: Exception) {
+                return emptyList()
+            }
+            // Wait for the global handler to populate the cache
+            val startTime = epochMillis()
+            while (epochMillis() - startTime < FETCH_TIMEOUT_MS) {
+                val cached = cacheMutex.withLock { relayListCache[pubkey] }
+                if (cached != null && !cached.isExpired(epochMillis())) {
+                    try { poolClient.send(buildJsonArray { add("CLOSE"); add(subId) }.toString()) } catch (_: Exception) {}
+                    return cached.relays
+                }
+                delay(100)
+            }
+            try { poolClient.send(buildJsonArray { add("CLOSE"); add(subId) }.toString()) } catch (_: Exception) {}
+            return emptyList()
+        }
+
+        // Relay not in pool — use a short-lived dedicated connection
         var relays: List<Nip65Relay> = emptyList()
         var eoseReceived = false
 
@@ -181,11 +219,6 @@ class RelayListManager(
 
             if (!client.waitForConnection(3_000)) return emptyList()
 
-            val filter = buildJsonObject {
-                putJsonArray("kinds") { add(10002) }
-                putJsonArray("authors") { add(pubkey) }
-                put("limit", 1)
-            }
             client.send(buildJsonArray { add("REQ"); add(subId); add(filter) }.toString())
 
             val startTime = epochMillis()
