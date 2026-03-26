@@ -39,10 +39,19 @@ import org.nostr.nostrord.utils.epochMillis
 class GroupManager(
     private val connectionManager: ConnectionManager,
     private val scope: CoroutineScope,
-    private val pendingEventManager: PendingEventManager? = null
+    private val pendingEventManager: PendingEventManager? = null,
+    private val liveCursorStore: LiveCursorStore = LiveCursorStore()
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val eventDeduplicator = EventDeduplicator()
+
+    /**
+     * Collects incoming messages per group for 300 ms, then applies them to [_messages]
+     * in a single sorted batch — reducing N StateFlow emissions to 1 during burst loads.
+     */
+    private val eventOrderingBuffer = EventOrderingBuffer(scope) { groupId, messages ->
+        flushBatchToState(groupId, messages)
+    }
 
     private val _groups = MutableStateFlow<List<GroupMetadata>>(emptyList())
     val groups: StateFlow<List<GroupMetadata>> = _groups.asStateFlow()
@@ -55,6 +64,15 @@ class GroupManager(
     // (i.e. received EOSE for the "group-list" subscription).
     private var currentRelayUrl: String? = null
     private val completeGroupLoadRelays = mutableSetOf<String>()
+
+    // Relays for which requestGroups() was sent but EOSE hasn't arrived yet.
+    // Used by the UI to show skeleton loaders while groups are being fetched.
+    private val _loadingRelays = MutableStateFlow<Set<String>>(emptySet())
+    val loadingRelays: StateFlow<Set<String>> = _loadingRelays.asStateFlow()
+
+    fun markRelayLoading(relayUrl: String) {
+        _loadingRelays.update { it + relayUrl }
+    }
 
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages.asStateFlow()
@@ -160,6 +178,65 @@ class GroupManager(
     /** Returns all cached groups for the given relay URL. */
     fun getGroupsForRelay(relayUrl: String): List<GroupMetadata> =
         _groupsByRelay.value[relayUrl] ?: emptyList()
+
+    /**
+     * Reverse-lookup: find a group ID from its first-8-chars prefix.
+     * Used to identify which group a `live_<prefix>` or `msg_<prefix>_...` subscription belongs to.
+     */
+    fun getGroupIdByPrefix(prefix: String): String? {
+        val allGroups = (_groups.value + _groupsByRelay.value.values.flatten()).distinctBy { it.id }
+        return allGroups.firstOrNull { it.id.take(8) == prefix }?.id
+    }
+
+    /**
+     * Re-send live subscriptions for all currently-loaded groups.
+     *
+     * Called every ~5 minutes to prevent relays from dropping idle subscriptions.
+     * Also called from resubscribeAllGroups / resubscribePoolRelay implicitly because
+     * requestGroupMessages already calls sendLiveSubscription on initial load.
+     */
+    /**
+     * Returns the set of group IDs that should be covered by the mux subscription for [relayUrl].
+     *
+     * Union of: joined groups on that relay + groups with loaded messages on that relay.
+     * This is the canonical input to [sendMuxSubscriptions].
+     */
+    fun getGroupIdsForMux(relayUrl: String): List<String> {
+        val joined = _joinedGroupsByRelay.value[relayUrl] ?: emptySet()
+        val loaded = _messages.value.keys.filter { groupId -> getRelayForGroup(groupId) == relayUrl }
+        return (joined + loaded).distinct()
+    }
+
+    /**
+     * Send (or refresh) the relay-level multiplexed subscriptions for [relayUrl].
+     *
+     * Uses [LiveCursorStore.getMinSince] to pick the oldest per-group cursor — guarantees
+     * no group misses events during the offline window.
+     * No-ops if there are no groups for that relay or the client is not connected.
+     */
+    suspend fun refreshMuxSubscriptionsForRelay(relayUrl: String) {
+        val groupIds = getGroupIdsForMux(relayUrl)
+        if (groupIds.isEmpty()) return
+        val client = connectionManager.getClientForRelay(relayUrl) ?: return
+        if (!client.isConnected()) return
+        val since = liveCursorStore.getMinSince(relayUrl, groupIds)
+        try {
+            client.sendMuxSubscriptions(groupIds, since)
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Refresh mux subscriptions for all relays that currently have joined or loaded groups.
+     * Replaces the old per-group `live_` refresh loop.
+     * Called from the 5-minute periodic timer in NostrRepository.
+     */
+    suspend fun refreshLiveSubscriptions() {
+        val relayUrls = (_joinedGroupsByRelay.value.keys +
+            _messages.value.keys.mapNotNull { getRelayForGroup(it) }).distinct()
+        for (relayUrl in relayUrls) {
+            try { refreshMuxSubscriptionsForRelay(relayUrl) } catch (_: Exception) {}
+        }
+    }
 
     /**
      * Load joined groups from storage
@@ -528,8 +605,12 @@ class GroupManager(
             // Clear state machine for this group
             loadingRegistry.remove(groupId)
 
-            // Clear event deduplicator so messages can be re-fetched on rejoin
-            eventDeduplicator.clear()
+            // Do NOT clear the full deduplicator here — that would wipe the seen-event
+            // history for every other loaded group and allow their events to be re-processed
+            // as duplicates on the next delivery.  The message list for this group is already
+            // removed above; when the user rejoins and messages are re-fetched the deduplicator
+            // will correctly admit them as new (they will have been evicted by LRU/TTL by then,
+            // or they are genuinely the same events and should not appear twice).
 
             Result.Success(Unit)
         } catch (e: Throwable) {
@@ -662,31 +743,18 @@ class GroupManager(
         // scanning pool and primary clients so we mark the *correct* relay as
         // having completed its initial load.
         if (subscriptionId == "group-list" || subscriptionId.startsWith("group-list-")) {
-            if (subscriptionId == "group-list") {
-                // Legacy path: mark the currently active relay
-                val relay = currentRelayUrl
-                if (relay != null) {
-                    completeGroupLoadRelays.add(relay)
-                    val count = _groupsByRelay.value[relay]?.size ?: 0
-                    println("[Groups] EOSE group-list (legacy)  relay=$relay  groupsLoaded=$count")
-                }
+            val relay = if (subscriptionId == "group-list") {
+                currentRelayUrl
             } else {
-                // New path: find the relay whose hash matches this subscription ID
-                val matchedRelay = findRelayForGroupListSubId(subscriptionId)
-                if (matchedRelay != null) {
-                    completeGroupLoadRelays.add(matchedRelay)
-                    val count = _groupsByRelay.value[matchedRelay]?.size ?: 0
-                    println("[Groups] EOSE group-list  relay=$matchedRelay  groupsLoaded=$count")
-                } else {
-                    // Fallback: mark currently active relay
-                    val relay = currentRelayUrl
-                    if (relay != null) {
-                        completeGroupLoadRelays.add(relay)
-                        println("[Groups] EOSE group-list (fallback, no relay match)  subId=$subscriptionId  relay=$relay")
-                    } else {
-                        println("[Groups] EOSE group-list (unmatched, no active relay)  subId=$subscriptionId  knownRelays=${_groupsByRelay.value.keys}")
-                    }
-                }
+                findRelayForGroupListSubId(subscriptionId) ?: currentRelayUrl
+            }
+            if (relay != null) {
+                completeGroupLoadRelays.add(relay)
+                _loadingRelays.update { it - relay }
+                val count = _groupsByRelay.value[relay]?.size ?: 0
+                println("[Groups] EOSE  relay=$relay  groups=$count")
+            } else {
+                println("[Groups] EOSE  subId=$subscriptionId  relay=unknown  knownRelays=${_groupsByRelay.value.keys}")
             }
             return true
         }
@@ -791,6 +859,14 @@ class GroupManager(
      */
     suspend fun handleConnectionLost() {
         loadingRegistry.handleDisconnectAll()
+    }
+
+    /**
+     * Handle connection lost for a specific set of groups (e.g. a pool relay dropped).
+     * Resets their loading states to Idle so re-subscription can proceed after reconnect.
+     */
+    suspend fun handleConnectionLostForGroups(groupIds: List<String>) {
+        loadingRegistry.handleDisconnectForGroups(groupIds)
     }
 
     /**
@@ -942,10 +1018,7 @@ class GroupManager(
             }
             current + (relayUrl to updated)
         }
-        if (wasNew) {
-            val relayCount = _groupsByRelay.value[relayUrl]?.size ?: 0
-            println("[Groups] +group  relay=$relayUrl  id=${metadata.id}  name=${metadata.name}  totalForRelay=$relayCount")
-        }
+        // Individual group additions are not logged — count is reported at EOSE.
         // Persist the updated group list for this relay so it survives app restarts
         val relayGroups = _groupsByRelay.value[relayUrl] ?: emptyList()
         try {
@@ -1066,7 +1139,8 @@ class GroupManager(
     fun handleMessage(
         message: NostrGroupClient.NostrMessage,
         rawMsg: String,
-        subscriptionId: String? = null
+        subscriptionId: String? = null,
+        relayUrl: String? = null
     ): String? {
         // Handle deletion events separately
         if (message.kind in deletionKinds) {
@@ -1086,22 +1160,41 @@ class GroupManager(
 
         val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
 
+        // Update live cursor so reconnects resume from the right timestamp.
+        // Fire-and-forget: cursor updates are non-critical and should not block message processing.
+        if (relayUrl != null && message.createdAt > 0L) {
+            scope.launch { liveCursorStore.update(relayUrl, groupId, message.createdAt) }
+        }
+
         // Track message in state machine for cursor calculation
         if (subscriptionId != null) {
             trackMessageForSubscription(subscriptionId, message.createdAt, message.id)
         }
 
-        // Use atomic update for message list
-        _messages.update { currentMap ->
-            val currentMessages = currentMap[groupId] ?: emptyList()
-            if (currentMessages.none { it.id == message.id }) {
-                currentMap + (groupId to (currentMessages + message).sortedBy { it.createdAt })
-            } else {
-                currentMap
-            }
-        }
+        // Enqueue to the ordering buffer; the buffer flushes after 300 ms of inactivity
+        // for this group, applying the entire batch in one sorted StateFlow update.
+        eventOrderingBuffer.enqueue(groupId, message)
 
         return message.pubkey
+    }
+
+    /**
+     * Apply a pre-sorted batch of messages for [groupId] to [_messages] in one atomic update.
+     * Called by [EventOrderingBuffer] after its debounce window expires.
+     */
+    private fun flushBatchToState(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
+        _messages.update { currentMap ->
+            val current = (currentMap[groupId] ?: emptyList()).toMutableList()
+            var changed = false
+            for (msg in messages) {
+                if (current.none { it.id == msg.id }) {
+                    current.add(msg)
+                    changed = true
+                }
+            }
+            if (changed) currentMap + (groupId to current.sortedBy { it.createdAt })
+            else currentMap
+        }
     }
 
     /**
@@ -1148,6 +1241,14 @@ class GroupManager(
     fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> {
         return _messages.value[groupId] ?: emptyList()
     }
+
+    /**
+     * Returns the [NostrGroupClient.NostrMessage.createdAt] of the newest message in the
+     * in-memory list for [groupId], or null if the group has no messages loaded yet.
+     * Used by gap detection to check whether events near the cursor arrived after reconnect.
+     */
+    fun getLatestMessageTimestamp(groupId: String): Long? =
+        _messages.value[groupId]?.maxOfOrNull { it.createdAt }
 
     /**
      * Handle incoming reaction (kind 7)
@@ -1210,7 +1311,7 @@ class GroupManager(
      *
      * Use this on relay switch. Use [clear] only on logout.
      */
-    fun clearForRelaySwitch() {
+    suspend fun clearForRelaySwitch() {
         // Reset the current relay pointer so stragglers from the old connection
         // go to the per-relay cache only, not the live _groups list.
         currentRelayUrl = null
@@ -1223,10 +1324,11 @@ class GroupManager(
         // new primary connection without leaking the old group set.
         observedGroups.clear()
 
-        scope.launch {
-            loadingRegistry.clear()
-            eventDeduplicator.clear()
-        }
+        // MUST be synchronous (not scope.launch). If this is async, requestGroupMessages
+        // called immediately after switchRelay sees stale HasMore/Exhausted state from the
+        // previous relay and startInitialLoad() returns null — group silently never loads.
+        loadingRegistry.clear()
+        eventDeduplicator.clear()
     }
 
     /**
@@ -1241,8 +1343,10 @@ class GroupManager(
      * Clear all state including the per-relay group metadata cache.
      * Use on logout or full account reset.
      */
-    fun clear() {
+    suspend fun clear() {
+        eventOrderingBuffer.flushAll()
         completeGroupLoadRelays.clear()
+        _loadingRelays.value = emptySet()
         _groupsByRelay.value = emptyMap()
         clearForRelaySwitch()
     }

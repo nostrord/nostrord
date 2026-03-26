@@ -553,4 +553,17 @@ class GroupLoadingRegistry(
         }
         snapshot.forEach { it.handleDisconnect() }
     }
+
+    /**
+     * Handle disconnect for a specific set of groups (e.g. when a pool relay drops).
+     * Resets only the affected groups to Idle so startInitialLoad() can re-subscribe.
+     */
+    suspend fun handleDisconnectForGroups(groupIds: List<String>) {
+        val snapshot = mutex.withLock {
+            groupIds.mapNotNull { controllers[it] }.also { affected ->
+                subscriptionToController.entries.removeAll { e -> e.value in affected }
+            }
+        }
+        snapshot.forEach { it.handleDisconnect() }
+    }
 }

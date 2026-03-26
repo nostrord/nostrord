@@ -1,15 +1,21 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.utils.LruCache
+import org.nostr.nostrord.utils.epochMillis
 
 /**
  * Manages user metadata (profiles) and cached events.
@@ -25,11 +31,31 @@ class MetadataManager(
     companion object {
         const val MAX_METADATA_CACHE_SIZE = 500
         const val MAX_EVENTS_CACHE_SIZE = 500
+        /** Metadata older than this is considered stale and will be re-fetched. */
+        const val STALE_THRESHOLD_MS = 30 * 60 * 1000L
+        /** Maximum concurrent outbox relay connections for metadata fetching. */
+        const val MAX_FETCH_CONCURRENCY = 8
+        /** Number of retry attempts before giving up on a metadata fetch. */
+        const val MAX_FETCH_ATTEMPTS = 3
     }
 
     // LRU caches for bounded memory usage
     private val metadataCache = LruCache<String, UserMetadata>(MAX_METADATA_CACHE_SIZE)
     private val eventsCache = LruCache<String, CachedEvent>(MAX_EVENTS_CACHE_SIZE)
+
+    /** Tracks when each pubkey's metadata was last successfully fetched (epoch ms). */
+    private val metadataFetchedAt = LruCache<String, Long>(MAX_METADATA_CACHE_SIZE)
+
+    /** Limits concurrent outbox relay connections to avoid opening too many sockets. */
+    private val fetchConcurrency = Semaphore(MAX_FETCH_CONCURRENCY)
+
+    /** Token-bucket rate limiter: at most [MAX_FETCH_CONCURRENCY] fetches/second burst,
+     *  sustained at [MetadataRateLimiter.DEFAULT_REQUESTS_PER_SECOND] fetches/second. */
+    private val rateLimiter = MetadataRateLimiter(scope = scope)
+
+    // Prevents duplicate concurrent fetches for the same pubkey
+    private val inFlightPubkeys = mutableSetOf<String>()
+    private val inFlightMutex = Mutex()
 
     private val _userMetadata = MutableStateFlow<Map<String, UserMetadata>>(emptyMap())
     val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata.asStateFlow()
@@ -45,23 +71,50 @@ class MetadataManager(
 
         pubkeys.forEach { pubkey ->
             scope.launch {
-                try {
-                    // First, get their relay list
-                    val relays = outboxManager.getRelayList(pubkey)
-                    val writeRelays = if (relays.isNotEmpty()) {
-                        relays.filter { it.write }.map { it.url }
-                    } else {
-                        outboxManager.bootstrapRelays
-                    }
+                // Skip if already fetching metadata for this pubkey
+                val shouldFetch = inFlightMutex.withLock {
+                    if (inFlightPubkeys.contains(pubkey)) false
+                    else { inFlightPubkeys.add(pubkey); true }
+                }
+                if (!shouldFetch) return@launch
 
-                    // Fetch metadata from their WRITE relays
-                    writeRelays.take(3).forEach { relayUrl ->
-                        try {
-                            val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                            client?.requestMetadata(listOf(pubkey))
-                        } catch (_: Exception) {}
+                try {
+                    rateLimiter.acquire()
+                    fetchConcurrency.withPermit {
+                        fetchWithRetry(pubkey, messageHandler)
                     }
-                } catch (_: Exception) {}
+                } finally {
+                    inFlightMutex.withLock { inFlightPubkeys.remove(pubkey) }
+                }
+            }
+        }
+    }
+
+    private suspend fun fetchWithRetry(pubkey: String, messageHandler: (String, NostrGroupClient) -> Unit) {
+        val relays = outboxManager.getRelayList(pubkey)
+        val writeRelays = if (relays.isNotEmpty()) {
+            relays.filter { it.write }.map { it.url }
+        } else {
+            outboxManager.bootstrapRelays
+        }
+
+        repeat(MAX_FETCH_ATTEMPTS) { attempt ->
+            // Stop retrying if metadata arrived while we were waiting
+            if (metadataFetchedAt.get(pubkey) != null) return
+
+            val sent = writeRelays.take(3).count { relayUrl ->
+                try {
+                    val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
+                    client?.requestMetadata(listOf(pubkey))
+                    client != null
+                } catch (_: Exception) { false }
+            }
+
+            if (sent > 0) return  // request dispatched; wait for handleMetadataEvent
+
+            // All relays failed — back off before retry (skip delay on last attempt)
+            if (attempt < MAX_FETCH_ATTEMPTS - 1) {
+                delay(if (attempt == 0) 2_000L else 4_000L)
             }
         }
     }
@@ -162,6 +215,7 @@ class MetadataManager(
      */
     fun handleMetadataEvent(pubkey: String, metadata: UserMetadata) {
         metadataCache.put(pubkey, metadata)
+        metadataFetchedAt.put(pubkey, epochMillis())
         _userMetadata.value = metadataCache.toMap()
     }
 
@@ -264,6 +318,12 @@ class MetadataManager(
      */
     fun hasMetadata(pubkey: String): Boolean = metadataCache.containsKey(pubkey)
 
+    /** Returns true if metadata for [pubkey] was never fetched or is older than [STALE_THRESHOLD_MS]. */
+    fun isStale(pubkey: String): Boolean {
+        val fetchedAt = metadataFetchedAt.get(pubkey) ?: return true
+        return (epochMillis() - fetchedAt) > STALE_THRESHOLD_MS
+    }
+
     /**
      * Check if we have a cached event
      */
@@ -285,6 +345,7 @@ class MetadataManager(
     fun clear() {
         metadataCache.clear()
         eventsCache.clear()
+        metadataFetchedAt.clear()
         _userMetadata.value = emptyMap()
         _cachedEvents.value = emptyMap()
     }
