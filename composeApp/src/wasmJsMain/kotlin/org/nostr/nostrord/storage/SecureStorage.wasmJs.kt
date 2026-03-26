@@ -33,6 +33,7 @@ actual object SecureStorage {
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
     private const val RELAY_METADATA_KEY = "relay_metadata"
+    private const val LIVE_CURSORS_PREFIX = "live_cursors_"
 
     actual fun savePrivateKey(privateKeyHex: String) {
         jsSetItem(PRIVATE_KEY_PREF, privateKeyHex)
@@ -271,5 +272,20 @@ actual object SecureStorage {
 
     actual fun getRelayMetadata(): String? {
         return jsGetItem(RELAY_METADATA_KEY)
+    }
+
+    actual fun saveLiveCursors(relayUrl: String, json: String) {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        jsSetItem(key, json)
+    }
+
+    actual fun getLiveCursors(relayUrl: String): String? {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        return jsGetItem(key)
+    }
+
+    actual fun clearLiveCursors(relayUrl: String) {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        jsRemoveItem(key)
     }
 }

@@ -22,6 +22,7 @@ actual object SecureStorage {
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
     private const val RELAY_METADATA_KEY = "relay_metadata"
+    private const val LIVE_CURSORS_PREFIX = "live_cursors_"
 
     private lateinit var prefs: SharedPreferences
     
@@ -329,5 +330,23 @@ actual object SecureStorage {
     actual fun getRelayMetadata(): String? {
         ensureInitialized()
         return prefs.getString(RELAY_METADATA_KEY, null)
+    }
+
+    actual fun saveLiveCursors(relayUrl: String, json: String) {
+        ensureInitialized()
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        prefs.edit().putString(key, json).apply()
+    }
+
+    actual fun getLiveCursors(relayUrl: String): String? {
+        ensureInitialized()
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        return prefs.getString(key, null)
+    }
+
+    actual fun clearLiveCursors(relayUrl: String) {
+        ensureInitialized()
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        prefs.edit().remove(key).apply()
     }
 }

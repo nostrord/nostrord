@@ -26,6 +26,7 @@ actual object SecureStorage {
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
+    private const val LIVE_CURSORS_PREFIX = "live_cursors_"
     private const val RELAY_METADATA_KEY = "relay_metadata"
 
     init {
@@ -387,5 +388,20 @@ actual object SecureStorage {
         } catch (_: Exception) {
             null
         }
+    }
+
+    actual fun saveLiveCursors(relayUrl: String, json: String) {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        saveString(key, json)
+    }
+
+    actual fun getLiveCursors(relayUrl: String): String? {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        return getString(key)
+    }
+
+    actual fun clearLiveCursors(relayUrl: String) {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        remove(key)
     }
 }

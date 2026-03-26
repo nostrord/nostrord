@@ -79,6 +79,11 @@ expect object SecureStorage {
     // NIP-11 relay metadata cache (persisted across restarts)
     fun saveRelayMetadata(json: String)
     fun getRelayMetadata(): String?
+
+    // Live subscription cursors — last-seen event timestamp per group per relay
+    fun saveLiveCursors(relayUrl: String, json: String)
+    fun getLiveCursors(relayUrl: String): String?
+    fun clearLiveCursors(relayUrl: String)
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)
