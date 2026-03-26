@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.*
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,7 @@ import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
+import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -109,6 +111,8 @@ fun GroupScreenMobile(
     var dragStartX by remember { mutableStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
 
+    val parentHidden = LocalAnimatedImageHidden.current
+    CompositionLocalProvider(LocalAnimatedImageHidden provides (parentHidden || showMemberSheet)) {
     Scaffold(
         topBar = {
             MobileGroupTopBar(
@@ -215,6 +219,7 @@ fun GroupScreenMobile(
             }
         }
     }
+    } // CompositionLocalProvider
 
     // Member list bottom sheet
     if (showMemberSheet) {

@@ -207,7 +207,8 @@ fun MessageContent(
         }
     }
 
-    CompositionLocalProvider(LocalAnimatedImageHidden provides (selectedImageUrl != null)) {
+    val parentHidden = LocalAnimatedImageHidden.current
+    CompositionLocalProvider(LocalAnimatedImageHidden provides (parentHidden || selectedImageUrl != null)) {
     Column(modifier = modifier) {
         groups.forEach { group ->
             val firstPart = group.firstOrNull()

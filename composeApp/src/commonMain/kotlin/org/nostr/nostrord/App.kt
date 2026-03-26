@@ -38,6 +38,7 @@ import org.nostr.nostrord.startup.AppStartState
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.components.layout.DesktopShell
 import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
@@ -505,14 +506,17 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
                     }
                 }
             ) {
-                MobileContent(
-                    currentScreen = currentScreen,
-                    selectedRelayUrl = selectedRelayUrl,
-                    homeGridState = homeGridState,
-                    onNavigate = onNavigate,
-                    onCreateGroupClick = { showCreateGroupModal = true },
-                    onOpenDrawer = onOpenDrawer
-                )
+                val hideAnimatedImages = drawerState.targetValue == DrawerValue.Open || showCreateGroupModal || showAddRelayModal
+                CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
+                    MobileContent(
+                        currentScreen = currentScreen,
+                        selectedRelayUrl = selectedRelayUrl,
+                        homeGridState = homeGridState,
+                        onNavigate = onNavigate,
+                        onCreateGroupClick = { showCreateGroupModal = true },
+                        onOpenDrawer = onOpenDrawer
+                    )
+                }
             }
         }
     } // BoxWithConstraints

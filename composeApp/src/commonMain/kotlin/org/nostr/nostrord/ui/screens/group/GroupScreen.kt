@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
@@ -280,6 +281,10 @@ fun GroupScreen(
     }
 
     // Responsive layout
+    val parentHidden = LocalAnimatedImageHidden.current
+    val anyDialogOpen = parentHidden || showLeaveDialog || showGroupInfoModal || showEditGroupModal ||
+        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null
+    CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isCompact = maxWidth < 600.dp
 
@@ -382,4 +387,5 @@ fun GroupScreen(
             )
         }
     }
+    } // CompositionLocalProvider
 }
