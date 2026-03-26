@@ -90,6 +90,7 @@ fun GroupScreenMobile(
     onReplyClick: (NostrMessage) -> Unit = {},
     onDeleteMessage: (NostrMessage) -> Unit = {},
     onCancelReply: () -> Unit = {},
+    isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -180,6 +181,7 @@ fun GroupScreenMobile(
                         reactions = reactions,
                         currentUserPubkey = currentUserPubkey,
                         isJoined = isJoined,
+                        isInitialLoading = isInitialLoading,
                         isLoadingMore = isLoadingMore,
                         hasMoreMessages = hasMoreMessages,
                         onLoadMore = onLoadMore,
@@ -225,6 +227,7 @@ fun GroupScreenMobile(
             MemberSidebar(
                 members = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
+                isLoading = isInitialLoading && groupMembers.isEmpty(),
                 onMemberClick = { member ->
                     showMemberSheet = false
                     onUserClick(member.pubkey)

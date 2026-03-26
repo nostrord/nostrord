@@ -645,11 +645,18 @@ class GroupManager(
         // Observe state changes to update legacy flags (only once per group)
         observeStateChanges(groupId, controller)
 
+        // If messages have already been delivered by mux, request only events older than
+        // the oldest one we have to avoid deduplication causing messageCount=0 → Exhausted.
+        val existingMessages = _messages.value[groupId]
+        val until = existingMessages?.minOfOrNull { it.createdAt }?.let { oldest ->
+            if (oldest < Long.MAX_VALUE) oldest - 1L else null
+        }
+
         return try {
             currentClient.requestGroupMessages(
                 groupId = groupId,
                 channel = channel,
-                until = null,
+                until = until,
                 limit = PAGE_SIZE,
                 subscriptionId = subscriptionId
             )

@@ -64,6 +64,7 @@ fun GroupScreenDesktop(
     onReplyClick: (NostrMessage) -> Unit = {},
     onDeleteMessage: (NostrMessage) -> Unit = {},
     onCancelReply: () -> Unit = {},
+    isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -115,6 +116,7 @@ fun GroupScreenDesktop(
                     reactions = reactions,
                     currentUserPubkey = currentUserPubkey,
                     isJoined = isJoined,
+                    isInitialLoading = isInitialLoading,
                     isLoadingMore = isLoadingMore,
                     hasMoreMessages = hasMoreMessages,
                     onLoadMore = onLoadMore,
@@ -151,6 +153,7 @@ fun GroupScreenDesktop(
         MemberSidebar(
             members = groupMembers,
             recentlyActiveMembers = recentlyActiveMembers,
+            isLoading = isInitialLoading && groupMembers.isEmpty(),
             onMemberClick = { member -> onUserClick(member.pubkey) }
         )
     }

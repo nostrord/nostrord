@@ -45,6 +45,7 @@ import coil3.compose.AsyncImagePainter
 import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.loading.MemberSkeleton
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -57,6 +58,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 fun MemberSidebar(
     members: List<MemberInfo>,
     recentlyActiveMembers: Set<String> = emptySet(),
+    isLoading: Boolean = false,
     onMemberClick: (MemberInfo) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -143,8 +145,15 @@ fun MemberSidebar(
                     .padding(top = 8.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
+                // Skeleton placeholder while members are loading
+                if (isLoading) {
+                    items(8) {
+                        MemberSkeleton()
+                    }
+                }
+
                 // Online section
-                if (onlineMembers.isNotEmpty()) {
+                if (!isLoading && onlineMembers.isNotEmpty()) {
                     item {
                         MemberSectionHeader(
                             title = "ONLINE",
@@ -166,7 +175,7 @@ fun MemberSidebar(
                 }
 
                 // Offline section
-                if (offlineMembers.isNotEmpty()) {
+                if (!isLoading && offlineMembers.isNotEmpty()) {
                     item {
                         Spacer(modifier = Modifier.height(8.dp))
                         MemberSectionHeader(
@@ -189,7 +198,7 @@ fun MemberSidebar(
                 }
 
                 // If no categorization needed (all shown as active)
-                if (onlineMembers.isEmpty() && offlineMembers.isEmpty() && filteredMembers.isNotEmpty()) {
+                if (!isLoading && onlineMembers.isEmpty() && offlineMembers.isEmpty() && filteredMembers.isNotEmpty()) {
                     item {
                         MemberSectionHeader(
                             title = "MEMBERS",
@@ -208,7 +217,7 @@ fun MemberSidebar(
                 }
 
                 // No results message when search has no matches
-                if (filteredMembers.isEmpty() && searchQuery.isNotBlank()) {
+                if (!isLoading && filteredMembers.isEmpty() && searchQuery.isNotBlank()) {
                     item {
                         Box(
                             modifier = Modifier

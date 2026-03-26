@@ -133,6 +133,8 @@ fun GroupScreen(
         buildChatItems(messages)
     }
 
+    val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
+
     LaunchedEffect(groupId) {
         vm.requestGroupMessages(selectedChannel)
     }
@@ -319,6 +321,7 @@ fun GroupScreen(
                 onReplyClick = { message -> replyingToMessage = message },
                 onDeleteMessage = { message -> messageToDelete = message },
                 onCancelReply = { replyingToMessage = null },
+                isInitialLoading = isInitialLoading,
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
                 onLoadMore = { vm.loadMoreMessages(selectedChannel) },
@@ -366,6 +369,7 @@ fun GroupScreen(
                 onReplyClick = { message -> replyingToMessage = message },
                 onDeleteMessage = { message -> messageToDelete = message },
                 onCancelReply = { replyingToMessage = null },
+                isInitialLoading = isInitialLoading,
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
                 onLoadMore = { vm.loadMoreMessages(selectedChannel) },
