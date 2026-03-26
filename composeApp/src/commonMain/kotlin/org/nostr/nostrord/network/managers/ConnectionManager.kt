@@ -120,7 +120,7 @@ class ConnectionManager(
         _connectionState.value = ConnectionState.Connecting
 
         try {
-            println("[Primary] Connecting  relay=$relayUrl")
+            println("[NIP29] connecting  relay=$relayUrl")
             val newClient = NostrGroupClient(relayUrl)
             primaryClient = newClient
 
@@ -131,18 +131,25 @@ class ConnectionManager(
             newClient.connect { msg -> onMessage(msg, newClient) }
             val opened = newClient.waitForConnection()
             if (!opened) {
-                println("[Primary] TIMEOUT  relay=$relayUrl  — giving up this attempt")
+                println("[NIP29] timeout  relay=$relayUrl")
+                // CRITICAL: detach onConnectionLost BEFORE nulling primaryClient.
+                // Without this, the orphaned client's WebSocket may open then close later
+                // and fire handleConnectionLost(), killing any primary that was connected
+                // in the meantime by the reconnect loop.
+                newClient.onConnectionLost = null
+                newClient.cancelAndClose()
                 primaryClient = null
                 _connectionState.value = ConnectionState.Error("Connection timed out")
                 return@withLock false
             }
             _connectionState.value = ConnectionState.Connected
             reconnectAttempts = 0
-            println("[Primary] OPEN  relay=$relayUrl")
+            println("[NIP29] connected  relay=$relayUrl")
             true
         } catch (e: Exception) {
-            println("[Primary] ERROR  relay=$relayUrl  error=${e.message}")
+            println("[NIP29] error  relay=$relayUrl  error=${e.message}")
             _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
+            primaryClient?.let { it.onConnectionLost = null; it.cancelAndClose() }
             primaryClient = null
             false
         }
@@ -152,23 +159,39 @@ class ConnectionManager(
      * Handle connection lost - notify observers then attempt auto-reconnection.
      */
     private suspend fun handleConnectionLost() {
+        // Detach the callback first to prevent re-entrant calls if cancelAndClose()
+        // somehow triggers another connection-lost event on the dying client.
+        val dead = primaryClient
+        dead?.onConnectionLost = null
+
         onConnectionDropped?.invoke()
 
         if (!autoReconnectEnabled) {
+            primaryClient = null
+            dead?.cancelAndClose()
             _connectionState.value = ConnectionState.Disconnected
             return
         }
 
         primaryClient = null
+        dead?.cancelAndClose()  // release HttpClient threads/pool, cancel lingering coroutines
         startReconnection()
     }
 
     /**
-     * Start reconnection with exponential backoff
+     * Start reconnection with exponential backoff, then persistent slow retry.
+     *
+     * Phase 1 (fast): exponential back-off from 1 s up to 30 s, MAX_RECONNECT_ATTEMPTS times.
+     * Phase 2 (slow): retry every 30 s indefinitely until success or explicit disconnect.
+     *
+     * Phase 2 is what makes the app self-heal after an extended internet outage — the loop
+     * never exits on its own, so when connectivity returns the next 30-second tick reconnects
+     * automatically without requiring the user to restart the app.
      */
     private fun startReconnection() {
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
+            // Phase 1: fast retries with exponential back-off
             while (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && autoReconnectEnabled) {
                 reconnectAttempts++
                 _connectionState.value = ConnectionState.Reconnecting(reconnectAttempts, MAX_RECONNECT_ATTEMPTS)
@@ -177,7 +200,7 @@ class ConnectionManager(
                     INITIAL_RECONNECT_DELAY_MS * (1L shl (reconnectAttempts - 1)),
                     MAX_RECONNECT_DELAY_MS
                 )
-                println("[Primary] Reconnecting in ${delayMs}ms (attempt $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)  relay=${_currentRelayUrl.value}")
+                println("[NIP29] reconnecting  relay=${_currentRelayUrl.value}  attempt=$reconnectAttempts/${MAX_RECONNECT_ATTEMPTS}  delay=${delayMs}ms")
                 delay(delayMs)
 
                 val handler = currentMessageHandler ?: break
@@ -190,9 +213,25 @@ class ConnectionManager(
                 }
             }
 
-            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                println("[Primary] GAVE-UP  relay=${_currentRelayUrl.value}  maxAttempts=$MAX_RECONNECT_ATTEMPTS")
-                _connectionState.value = ConnectionState.Error("Connection lost. Tap to retry.")
+            // Phase 2: persistent slow retry every 30 s — never give up.
+            // The UI already shows "Tap to retry" so the user can force an immediate attempt,
+            // but the background loop ensures automatic recovery without any user action.
+            println("[NIP29] slow-retry  relay=${_currentRelayUrl.value}  interval=${MAX_RECONNECT_DELAY_MS}ms")
+            _connectionState.value = ConnectionState.Error("Connection lost. Tap to retry.")
+
+            while (autoReconnectEnabled) {
+                delay(MAX_RECONNECT_DELAY_MS)
+                if (!autoReconnectEnabled) break
+
+                val handler = currentMessageHandler ?: break
+                println("[NIP29] slow-retry attempt  relay=${_currentRelayUrl.value}")
+                val success = connectPrimary(_currentRelayUrl.value, handler)
+
+                if (success) {
+                    reconnectAttempts = 0
+                    primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
+                    return@launch
+                }
             }
         }
     }
@@ -246,7 +285,7 @@ class ConnectionManager(
             oldPrimary.onConnectionLost = {
                 scope.launch {
                     poolMutex.withLock { relayPool.remove(oldUrl) }
-                    println("[Pool] LOST  relay=$oldUrl  (demoted primary)")
+                    println("[Pool] lost  relay=$oldUrl")
                     onPoolRelayLost?.invoke(oldUrl)
                 }
             }
@@ -315,7 +354,7 @@ class ConnectionManager(
             newClient.onConnectionLost = {
                 scope.launch {
                     poolMutex.withLock { relayPool.remove(relayUrl) }
-                    println("[Pool] LOST  relay=$relayUrl  poolSize=${poolMutex.withLock { relayPool.size }}")
+                    println("[Pool] lost  relay=$relayUrl")
                     onPoolRelayLost?.invoke(relayUrl)
                 }
             }
@@ -324,11 +363,11 @@ class ConnectionManager(
             }
             val connected = newClient.waitForConnection()
             if (!connected) {
-                println("[Pool] TIMEOUT  relay=$relayUrl  — could not connect within 15s")
+                println("[Pool] timeout  relay=$relayUrl")
                 newClient.disconnect()
                 return null
             }
-            println("[Pool] OPEN  relay=$relayUrl")
+            println("[Pool] connected  relay=$relayUrl")
 
             // Add to pool with lock, but check again in case another coroutine added it
             poolMutex.withLock {
