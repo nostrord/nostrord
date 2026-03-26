@@ -207,6 +207,7 @@ fun MessageContent(
         }
     }
 
+    CompositionLocalProvider(LocalAnimatedImageHidden provides (selectedImageUrl != null)) {
     Column(modifier = modifier) {
         groups.forEach { group ->
             val firstPart = group.firstOrNull()
@@ -315,6 +316,7 @@ fun MessageContent(
             }
         }
     }
+    } // CompositionLocalProvider
 
     // Image viewer modal
     selectedImageUrl?.let { imageUrl ->
