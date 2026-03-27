@@ -91,6 +91,7 @@ fun GroupScreenMobile(
     replyingToMessage: NostrMessage? = null,
     onReplyClick: (NostrMessage) -> Unit = {},
     onDeleteMessage: (NostrMessage) -> Unit = {},
+    onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onCancelReply: () -> Unit = {},
     isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
@@ -192,6 +193,7 @@ fun GroupScreenMobile(
                         onUsernameClick = onUserClick,
                         onReplyClick = onReplyClick,
                         onDeleteMessage = onDeleteMessage,
+                        onReactionBadgeClick = onReactionBadgeClick,
                         onNavigateToGroup = { targetGroupId, targetGroupName, targetRelayUrl ->
                             if (targetRelayUrl != null) onSwitchRelay(targetRelayUrl)
                             onNavigateToGroup(targetGroupId, targetGroupName)

@@ -27,7 +27,11 @@ class GroupViewModel(
     private val _deleteMessageError = MutableStateFlow<String?>(null)
     val deleteMessageError: StateFlow<String?> = _deleteMessageError
 
+    private val _reactionError = MutableStateFlow<String?>(null)
+    val reactionError: StateFlow<String?> = _reactionError
+
     fun clearDeleteMessageError() { _deleteMessageError.value = null }
+    fun clearReactionError() { _reactionError.value = null }
 
     fun getPublicKey() = repo.getPublicKey()
 
@@ -54,6 +58,20 @@ class GroupViewModel(
         viewModelScope.launch {
             repo.deleteGroup(groupId)
             onSuccess()
+        }
+    }
+
+    fun sendReaction(targetEventId: String, targetPubkey: String, emoji: String) {
+        viewModelScope.launch {
+            when (val result = repo.sendReaction(groupId, targetEventId, targetPubkey, emoji)) {
+                is Result.Error -> {
+                    val raw = result.error.cause?.message ?: result.error.toString()
+                    val friendly = raw.removePrefix("blocked: ").removePrefix("error: ")
+                        .replaceFirstChar { it.uppercaseChar() }
+                    _reactionError.value = friendly
+                }
+                is Result.Success -> Unit
+            }
         }
     }
 

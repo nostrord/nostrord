@@ -49,6 +49,7 @@ fun GroupScreen(
     }
 
     val deleteMessageError by vm.deleteMessageError.collectAsState()
+    val reactionError by vm.reactionError.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
     val joinedGroups by vm.joinedGroups.collectAsState()
     val groups by vm.groups.collectAsState()
@@ -243,6 +244,43 @@ fun GroupScreen(
         )
     }
 
+    // Reaction error dialog (relay rejected kind 7)
+    reactionError?.let { error ->
+        val isUnknownMember = error.contains("unknown member", ignoreCase = true)
+        AlertDialog(
+            onDismissRequest = { vm.clearReactionError() },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text(if (isUnknownMember) "Join Required" else "Cannot React") },
+            text = {
+                Text(
+                    if (isUnknownMember) "You need to join this group before you can react to messages."
+                    else "This relay does not support reactions.\n\n$error"
+                )
+            },
+            confirmButton = {
+                if (isUnknownMember) {
+                    TextButton(onClick = {
+                        vm.clearReactionError()
+                        vm.joinGroup()
+                    }) {
+                        Text("Join Group", color = NostrordColors.Primary)
+                    }
+                } else {
+                    TextButton(onClick = { vm.clearReactionError() }) {
+                        Text("OK", color = NostrordColors.Primary)
+                    }
+                }
+            },
+            dismissButton = if (isUnknownMember) {
+                { TextButton(onClick = { vm.clearReactionError() }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                } }
+            } else null
+        )
+    }
+
     // User profile modal
     selectedUserPubkey?.let { pubkey ->
         UserProfileModal(
@@ -325,6 +363,12 @@ fun GroupScreen(
                 replyingToMessage = replyingToMessage,
                 onReplyClick = { message -> replyingToMessage = message },
                 onDeleteMessage = { message -> messageToDelete = message },
+                onReactionBadgeClick = { messageId, emoji ->
+                    val targetMessage = messages.find { it.id == messageId }
+                    if (targetMessage != null) {
+                        vm.sendReaction(messageId, targetMessage.pubkey, emoji)
+                    }
+                },
                 onCancelReply = { replyingToMessage = null },
                 isInitialLoading = isInitialLoading,
                 isLoadingMore = isLoadingMore,
@@ -373,6 +417,12 @@ fun GroupScreen(
                 replyingToMessage = replyingToMessage,
                 onReplyClick = { message -> replyingToMessage = message },
                 onDeleteMessage = { message -> messageToDelete = message },
+                onReactionBadgeClick = { messageId, emoji ->
+                    val targetMessage = messages.find { it.id == messageId }
+                    if (targetMessage != null) {
+                        vm.sendReaction(messageId, targetMessage.pubkey, emoji)
+                    }
+                },
                 onCancelReply = { replyingToMessage = null },
                 isInitialLoading = isInitialLoading,
                 isLoadingMore = isLoadingMore,

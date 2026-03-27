@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import org.nostr.nostrord.network.managers.GroupManager
@@ -143,9 +144,11 @@ private fun ReactionBadge(
                     else -> emoji
                 }
 
+                val emojiFontFamily = rememberEmojiFontFamily()
                 Text(
                     text = displayEmoji,
-                    fontSize = 16.sp
+                    fontSize = 16.sp,
+                    fontFamily = emojiFontFamily
                 )
             }
 

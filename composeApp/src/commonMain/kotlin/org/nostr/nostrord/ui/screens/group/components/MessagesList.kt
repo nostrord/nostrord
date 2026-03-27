@@ -42,11 +42,16 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.MessageItem
 import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
 import org.nostr.nostrord.ui.components.chat.ZapEventItem
+import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.loading.MessagesListSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
@@ -90,6 +95,9 @@ fun MessagesList(
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
     val currentOnRefresh by rememberUpdatedState(onRefresh)
+
+    // Reaction picker state: which message ID is being reacted to (null = closed)
+    var reactingToMessageId by remember { mutableStateOf<String?>(null) }
 
     // Get current relay URL for forwarded message detection
     val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
@@ -283,6 +291,7 @@ fun MessagesList(
                                         currentRelayUrl = currentRelayUrl,
                                         onUsernameClick = currentOnUsernameClick,
                                         onReplyClick = { currentOnReplyClick(item.message) },
+                                        onReactionClick = { reactingToMessageId = item.message.id },
                                         onDeleteMessage = { onDeleteMessage(item.message) },
                                         onReactionBadgeClick = { emoji ->
                                             onReactionBadgeClick(item.message.id, emoji)
@@ -360,6 +369,41 @@ fun MessagesList(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Reaction emoji picker popup
+    if (reactingToMessageId != null) {
+        Popup(
+            alignment = Alignment.Center,
+            onDismissRequest = { reactingToMessageId = null },
+            properties = PopupProperties(
+                focusable = true,
+                dismissOnClickOutside = false,
+                dismissOnBackPress = true
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { reactingToMessageId = null }
+                    )
+            ) {
+                EmojiPicker(
+                    onEmojiSelect = { emoji ->
+                        val msgId = reactingToMessageId
+                        if (msgId != null) {
+                            onReactionBadgeClick(msgId, emoji)
+                        }
+                        reactingToMessageId = null
+                    },
+                    onDismiss = { reactingToMessageId = null },
+                    modifier = Modifier.align(Alignment.Center)
+                )
             }
         }
     }

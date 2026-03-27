@@ -771,6 +771,19 @@ class NostrRepository(
         )
     }
 
+    override suspend fun sendReaction(groupId: String, targetEventId: String, targetPubkey: String, emoji: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.sendReaction(
+            groupId = groupId,
+            targetEventId = targetEventId,
+            targetPubkey = targetPubkey,
+            emoji = emoji,
+            pubKey = pubKey,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
     override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> {
         return groupManager.getMessagesForGroup(groupId)
     }
@@ -1224,6 +1237,9 @@ class NostrRepository(
         // Handle reactions (kind 7)
         val reaction = client.parseReaction(msg)
         if (reaction != null) {
+            val now = org.nostr.nostrord.utils.epochMillis() / 1000
+            val eventAge = now - reaction.createdAt
+            println("[Reaction] received  id=${reaction.id.take(8)}  emoji=${reaction.emoji}  target=${reaction.targetEventId.take(8)}  age=${eventAge}s")
             val reactorPubkey = groupManager.handleReaction(reaction)
             if (reactorPubkey != null && !metadataManager.hasMetadata(reactorPubkey)) {
                 scope.launch {

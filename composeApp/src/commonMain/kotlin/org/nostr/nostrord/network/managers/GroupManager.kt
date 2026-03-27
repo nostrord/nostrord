@@ -954,6 +954,91 @@ class GroupManager(
         }
     }
 
+
+    /**
+     * Send a reaction to a message (NIP-25: kind 7 reaction event).
+     * Uses optimistic update: shows the reaction immediately, rolls back on rejection.
+     */
+    suspend fun sendReaction(
+        groupId: String,
+        targetEventId: String,
+        targetPubkey: String,
+        emoji: String,
+        pubKey: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<Unit> {
+        val currentClient = clientForGroup(groupId)
+            ?: return Result.Error(AppError.Network.Disconnected(""))
+
+        return try {
+            val groupRelayUrl = getRelayForGroup(groupId) ?: ""
+            val tags = listOf(
+                listOf("h", groupId, groupRelayUrl),
+                listOf("e", targetEventId, "", "", targetPubkey),
+                listOf("p", targetPubkey)
+            )
+
+            val event = Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 7,
+                tags = tags,
+                content = emoji
+            )
+
+            val signedEvent = signEvent(event)
+            val eventJson = signedEvent.toJsonObject()
+            val message = buildJsonArray {
+                add("EVENT")
+                add(eventJson)
+            }.toString()
+
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
+
+            println("[GroupManager] sendReaction  group=$groupId  target=$targetEventId  emoji=$emoji  relay=$groupRelayUrl")
+
+            // Optimistic update: show reaction in UI immediately
+            handleReaction(NostrGroupClient.NostrReaction(
+                id = eventId,
+                pubkey = pubKey,
+                emoji = emoji,
+                emojiUrl = null,
+                targetEventId = targetEventId,
+                createdAt = event.createdAt
+            ))
+
+            // Send to group relay
+            val publishResult = currentClient.sendAndAwaitOk(message, eventId)
+
+            when (publishResult) {
+                is org.nostr.nostrord.network.PublishResult.Success -> {
+                    println("[GroupManager] sendReaction OK  eventId=$eventId")
+                    Result.Success(Unit)
+                }
+                is org.nostr.nostrord.network.PublishResult.Rejected -> {
+                    println("[GroupManager] sendReaction REJECTED: ${publishResult.reason}")
+                    // Rollback optimistic update
+                    removeReaction(targetEventId, emoji, pubKey)
+                    Result.Error(AppError.Group.SendFailed(groupId, Exception(publishResult.reason)))
+                }
+                is org.nostr.nostrord.network.PublishResult.Timeout -> {
+                    println("[GroupManager] sendReaction TIMEOUT")
+                    Result.Error(AppError.Group.SendFailed(groupId, Exception("timeout")))
+                }
+                is org.nostr.nostrord.network.PublishResult.Error -> {
+                    println("[GroupManager] sendReaction ERROR: ${publishResult.exception.message}")
+                    // Rollback optimistic update
+                    removeReaction(targetEventId, emoji, pubKey)
+                    Result.Error(AppError.Group.SendFailed(groupId, publishResult.exception))
+                }
+            }
+        } catch (e: Throwable) {
+            println("[GroupManager] sendReaction EXCEPTION  $e")
+            Result.Error(AppError.Group.SendFailed(groupId, e))
+        }
+    }
+
     /**
      * Delete a message from a group (NIP-09: kind 5 deletion event).
      * Sends the deletion event to the relay; the relay will broadcast it and
@@ -1290,6 +1375,25 @@ class GroupManager(
         _reactions.value = _reactions.value + (messageId to updatedEmojiMap)
 
         return reactorPubkey
+    }
+
+    /**
+     * Remove a reaction from local state (used for rollback on relay rejection).
+     */
+    private fun removeReaction(messageId: String, emoji: String, pubkey: String) {
+        val currentReactions = _reactions.value[messageId] ?: return
+        val info = currentReactions[emoji] ?: return
+        val updatedReactors = info.reactors.filter { it != pubkey }
+        val updatedEmojiMap = if (updatedReactors.isEmpty()) {
+            currentReactions - emoji
+        } else {
+            currentReactions + (emoji to info.copy(reactors = updatedReactors))
+        }
+        _reactions.value = if (updatedEmojiMap.isEmpty()) {
+            _reactions.value - messageId
+        } else {
+            _reactions.value + (messageId to updatedEmojiMap)
+        }
     }
 
     /**

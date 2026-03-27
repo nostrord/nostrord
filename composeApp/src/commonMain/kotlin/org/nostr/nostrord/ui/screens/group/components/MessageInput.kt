@@ -30,7 +30,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.EmojiEmotions
 import org.nostr.nostrord.getPlatform
+import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
+import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.network.UserMetadata
@@ -77,7 +80,12 @@ fun MessageInput(
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var mentionQuery by remember { mutableStateOf("") }
     var mentionSelectedIndex by remember { mutableStateOf(0) }
+    var showEmojiPicker by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val showEmojiButton = remember {
+        val platform = getPlatform().name
+        !platform.startsWith("Android") && !platform.startsWith("iOS")
+    }
 
     // Auto-focus on desktop only — on Android this would open the keyboard immediately
     LaunchedEffect(isJoined, groupName) {
@@ -143,6 +151,7 @@ fun MessageInput(
         if (atIndex >= 0) {
             val queryChanged = mentionQuery != query
             showMentionPopup = true
+            showEmojiPicker = false
             mentionStartIndex = atIndex
             mentionQuery = query
             if (queryChanged) {
@@ -284,6 +293,13 @@ fun MessageInput(
                         .onPreviewKeyEvent { event ->
                             val filteredMembers = getFilteredMembers(groupMembers, mentionQuery)
                             when {
+                                // Escape closes the emoji picker first, then mention popup
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.Escape &&
+                                showEmojiPicker -> {
+                                    showEmojiPicker = false
+                                    true
+                                }
                                 // Escape closes the mention popup
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.Escape &&
@@ -334,6 +350,7 @@ fun MessageInput(
                                         }
                                         true
                                     } else if (textFieldValue.text.isNotBlank()) {
+                                        showEmojiPicker = false
                                         onSendMessage()
                                         true
                                     } else {
@@ -364,7 +381,9 @@ fun MessageInput(
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent
                     ),
-                    textStyle = NostrordTypography.Input,
+                    textStyle = NostrordTypography.Input.copy(
+                        fontFamily = rememberEmojiFontFamily()
+                    ),
                     shape = NostrordShapes.inputShape,
                     singleLine = false,
                     maxLines = 4,
@@ -374,9 +393,33 @@ fun MessageInput(
                     )
                 )
 
+                // Emoji picker button — desktop/web only
+                if (showEmojiButton) {
+                    IconButton(
+                        onClick = {
+                            showEmojiPicker = !showEmojiPicker
+                            if (showEmojiPicker) showMentionPopup = false
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.EmojiEmotions,
+                            contentDescription = "Emoji picker",
+                            tint = if (showEmojiPicker) NostrordColors.Primary
+                                   else NostrordColors.TextMuted,
+                            modifier = Modifier.size(Spacing.iconMd)
+                        )
+                    }
+                }
+
                 // Send button — disabled when empty, shows spinner while sending
                 IconButton(
-                    onClick = { if (textFieldValue.text.isNotBlank() && !isSending) onSendMessage() },
+                    onClick = {
+                        if (textFieldValue.text.isNotBlank() && !isSending) {
+                            showEmojiPicker = false
+                            onSendMessage()
+                        }
+                    },
                     enabled = textFieldValue.text.isNotBlank() && !isSending,
                     modifier = Modifier.size(40.dp)
                 ) {
@@ -444,6 +487,55 @@ fun MessageInput(
                         selectedIndex = mentionSelectedIndex,
                         onMemberSelect = { handleMemberSelect(it) }
                     )
+                }
+            }
+
+            // Emoji picker popup — single fullscreen popup with scrim + positioned picker
+            if (showEmojiPicker) {
+                Popup(
+                    alignment = Alignment.Center,
+                    onDismissRequest = {
+                        showEmojiPicker = false
+                        focusRequester.requestFocus()
+                    },
+                    properties = PopupProperties(
+                        focusable = true,
+                        dismissOnClickOutside = false,
+                        dismissOnBackPress = true
+                    )
+                ) {
+                    // Fullscreen container: transparent scrim catches clicks outside picker
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {
+                                    showEmojiPicker = false
+                                    focusRequester.requestFocus()
+                                }
+                            )
+                    ) {
+                        // Picker anchored to bottom-end, above the input bar
+                        EmojiPicker(
+                            onEmojiSelect = { emoji ->
+                                val text = textFieldValue.text
+                                val cursor = textFieldValue.selection.start
+                                val newText = text.substring(0, cursor) + emoji + text.substring(cursor)
+                                val newCursor = cursor + emoji.length
+                                textFieldValue = TextFieldValue(newText, TextRange(newCursor))
+                                onMessageInputChange(newText)
+                            },
+                            onDismiss = {
+                                showEmojiPicker = false
+                                focusRequester.requestFocus()
+                            },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = Spacing.lg, bottom = 56.dp)
+                        )
+                    }
                 }
             }
             } // End Box
