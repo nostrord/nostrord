@@ -13,11 +13,19 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
@@ -208,6 +216,7 @@ fun GroupsNavSidebar(
                                     onToggle = { otherGroupsExpanded = !otherGroupsExpanded }
                                 )
                                 if (otherGroupsExpanded) {
+                                    val focusRequester = remember { FocusRequester() }
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -215,10 +224,17 @@ fun GroupsNavSidebar(
                                             .clip(RoundedCornerShape(4.dp))
                                             .background(NostrordColors.BackgroundDark)
                                             .height(28.dp)
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
+                                            ) { focusRequester.requestFocus() }
                                             .padding(horizontal = 8.dp),
                                         contentAlignment = Alignment.CenterStart
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
                                             Icon(
                                                 imageVector = Icons.Filled.Search,
                                                 contentDescription = null,
@@ -243,8 +259,34 @@ fun GroupsNavSidebar(
                                                         fontSize = 12.sp
                                                     ),
                                                     cursorBrush = SolidColor(NostrordColors.Primary),
-                                                    modifier = Modifier.fillMaxWidth()
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .focusRequester(focusRequester)
+                                                        .onKeyEvent { event ->
+                                                            if (event.key == Key.Escape && event.type == KeyEventType.KeyUp && searchQuery.isNotEmpty()) {
+                                                                searchQuery = ""
+                                                                true
+                                                            } else false
+                                                        }
                                                 )
+                                            }
+                                            if (searchQuery.isNotEmpty()) {
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(14.dp)
+                                                        .clip(RoundedCornerShape(7.dp))
+                                                        .clickable { searchQuery = "" }
+                                                        .pointerHoverIcon(PointerIcon.Hand),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Clear,
+                                                        contentDescription = "Clear filter",
+                                                        tint = NostrordColors.TextMuted,
+                                                        modifier = Modifier.size(10.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }

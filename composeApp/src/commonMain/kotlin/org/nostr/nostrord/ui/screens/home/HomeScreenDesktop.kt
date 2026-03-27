@@ -24,6 +24,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
@@ -43,6 +44,13 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.utils.rememberClipboardWriter
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -284,6 +292,8 @@ private fun FilterChip(label: String, isActive: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
+    val focusRequester = remember { FocusRequester() }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -291,10 +301,17 @@ private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
             .clip(RoundedCornerShape(4.dp))
             .background(NostrordColors.BackgroundDark)
             .height(40.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { focusRequester.requestFocus() }
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.CenterStart
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Icon(
                 imageVector = Icons.Filled.Search,
                 contentDescription = null,
@@ -319,8 +336,30 @@ private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
                         fontSize = 13.sp
                     ),
                     cursorBrush = SolidColor(NostrordColors.Primary),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .onKeyEvent { event ->
+                            if (event.key == Key.Escape && event.type == KeyEventType.KeyUp && query.isNotEmpty()) {
+                                onQueryChange("")
+                                true
+                            } else false
+                        }
                 )
+            }
+            if (query.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(
+                    onClick = { onQueryChange("") },
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = "Clear search",
+                        tint = NostrordColors.TextMuted,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
         }
     }
