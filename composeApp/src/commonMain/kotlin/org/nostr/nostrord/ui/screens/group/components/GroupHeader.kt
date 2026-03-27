@@ -8,7 +8,6 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,7 +37,6 @@ fun GroupHeader(
     isJoined: Boolean,
     onJoinClick: () -> Unit,
     onLeaveClick: () -> Unit,
-    onSettingsClick: () -> Unit = {},
     onTitleClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
@@ -142,21 +140,6 @@ fun GroupHeader(
                             onDismissRequest = { menuExpanded = false },
                             containerColor = NostrordColors.Surface,
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Settings", color = NostrordColors.TextPrimary) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onSettingsClick()
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.Settings,
-                                        contentDescription = null,
-                                        tint = NostrordColors.TextSecondary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            )
                             if (isAdmin) {
                                 DropdownMenuItem(
                                     text = { Text("Edit Group", color = NostrordColors.TextPrimary) },

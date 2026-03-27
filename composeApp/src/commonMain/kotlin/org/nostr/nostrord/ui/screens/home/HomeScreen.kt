@@ -10,88 +10,114 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.ui.Screen
 
 @Composable
 fun HomeScreen(
+    relayUrl: String? = null,
     gridState: LazyGridState = rememberLazyGridState(),
     onNavigate: (Screen) -> Unit,
-    showServerRail: Boolean = true, // When false, server rail is handled by parent shell
-    onCreateGroupClick: () -> Unit = {}
+    onCreateGroupClick: () -> Unit = {},
+    onOpenDrawer: () -> Unit = {},
+    forceDesktop: Boolean = false
 ) {
     val vm = viewModel { HomeViewModel(AppModule.nostrRepository) }
 
-    val groups by vm.groups.collectAsState()
-    val connectionState by vm.connectionState.collectAsState()
+    val groupsByRelay by vm.groupsByRelay.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
-    val joinedGroups by vm.joinedGroups.collectAsState()
-    val userMetadata by vm.userMetadata.collectAsState()
-    val unreadCounts by vm.unreadCounts.collectAsState()
+    val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
+    val relayMetadata by vm.relayMetadata.collectAsState()
+    val loadingRelays by vm.loadingRelays.collectAsState()
 
-    var searchQuery by remember { mutableStateOf("") }
-
-    val filteredGroups = remember(groups, searchQuery) {
-        if (searchQuery.isBlank()) groups
-        else groups.filter {
-            it.name?.contains(searchQuery, ignoreCase = true) == true ||
-                    it.id.contains(searchQuery, ignoreCase = true)
-        }
+    val displayRelayUrl = relayUrl ?: currentRelayUrl
+    val relayMeta: Nip11RelayInfo? = relayMetadata[displayRelayUrl]
+    val groups = remember(displayRelayUrl, groupsByRelay) {
+        groupsByRelay[displayRelayUrl] ?: emptyList()
     }
 
-    val pubKey = vm.getPublicKey()
-    val currentUserMetadata = pubKey?.let { userMetadata[it] }
+    // Use relay-specific joined groups so the filter matches the sidebar for the same relay
+    val joinedGroupIds = remember(displayRelayUrl, joinedGroupsByRelay) {
+        joinedGroupsByRelay[displayRelayUrl] ?: emptySet()
+    }
+
+    var searchQuery by remember(displayRelayUrl) { mutableStateOf("") }
+    var activeFilter by remember(displayRelayUrl) { mutableStateOf(GroupFilter.All) }
+
+    val filteredGroups = remember(groups, searchQuery, activeFilter, joinedGroupIds) {
+        groups
+            .filter { group ->
+                when (activeFilter) {
+                    GroupFilter.All -> true
+                    GroupFilter.Joined -> group.id in joinedGroupIds
+                }
+            }
+            .filter { group ->
+                if (searchQuery.isBlank()) true
+                else group.name?.contains(searchQuery, ignoreCase = true) == true ||
+                     group.id.contains(searchQuery, ignoreCase = true)
+            }
+    }
 
     LaunchedEffect(Unit) {
         vm.connect()
     }
 
-    // Detect screen width
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isCompact = maxWidth < 600.dp
-        val isMedium = maxWidth in 600.dp..840.dp
+        val isCompact = !forceDesktop && maxWidth < 600.dp
+        val gridColumns = when {
+            maxWidth < 840.dp -> 2
+            else -> 3
+        }
 
-        // Determine loading state
-        val isLoading = connectionState is ConnectionManager.ConnectionState.Connecting
+        val isLoading = displayRelayUrl in loadingRelays || displayRelayUrl.isBlank()
+        val connectionState by vm.connectionState.collectAsState()
         val hasError = connectionState is ConnectionManager.ConnectionState.Error
 
         if (isCompact) {
             HomeScreenMobile(
                 gridState = gridState,
                 onNavigate = onNavigate,
-                joinedGroups = joinedGroups,
-                groups = groups,
+                joinedGroups = joinedGroupIds,
                 filteredGroups = filteredGroups,
+                groupCount = groups.size,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
-                currentRelayUrl = currentRelayUrl,
+                activeFilter = activeFilter,
+                onFilterChange = { activeFilter = it },
+                currentRelayUrl = displayRelayUrl,
+                relayMeta = relayMeta,
                 isLoading = isLoading,
                 hasError = hasError,
                 onRetry = { vm.connect() },
-                userAvatarUrl = currentUserMetadata?.picture,
-                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
-                userPubkey = pubKey,
-                unreadCounts = unreadCounts,
-                onGroupClick = { groupId, groupName ->
-                    onNavigate(Screen.Group(groupId, groupName))
-                },
-                onUserClick = { onNavigate(Screen.Profile) },
-                showServerRail = showServerRail,
-                onCreateGroupClick = onCreateGroupClick
+                onCreateGroupClick = onCreateGroupClick,
+                onOpenDrawer = onOpenDrawer,
+                onRemoveRelay = {
+                    vm.removeRelay(displayRelayUrl)
+                    onNavigate(Screen.Home)
+                }
             )
         } else {
             HomeScreenDesktop(
                 gridState = gridState,
                 onNavigate = onNavigate,
-                joinedGroups = joinedGroups,
+                joinedGroups = joinedGroupIds,
                 groups = groups,
                 filteredGroups = filteredGroups,
+                groupCount = groups.size,
                 searchQuery = searchQuery,
                 onSearchChange = { searchQuery = it },
-                currentRelayUrl = currentRelayUrl,
-                gridColumns = if (isMedium) 2 else 3,
+                activeFilter = activeFilter,
+                onFilterChange = { activeFilter = it },
+                currentRelayUrl = displayRelayUrl,
+                relayMeta = relayMeta,
                 isLoading = isLoading,
                 hasError = hasError,
-                onRetry = { vm.connect() }
+                onRetry = { vm.connect() },
+                onRemoveRelay = {
+                    vm.removeRelay(displayRelayUrl)
+                    onNavigate(Screen.Home)
+                }
             )
         }
     }

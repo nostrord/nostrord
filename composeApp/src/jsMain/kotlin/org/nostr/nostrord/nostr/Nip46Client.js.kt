@@ -15,11 +15,12 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
 
     private var remoteSignerPubkey: String? = null
     private var relayClients: MutableList<NostrGroupClient> = mutableListOf()
-    private var pendingRequests: MutableMap<String, CompletableDeferred<String>> = mutableMapOf()
+    private val pendingRequests: MutableMap<String, CompletableDeferred<String>> = mutableMapOf()
     private var listenSubscriptionId: String? = null
     private var nostrConnectSecret: String? = null
 
     private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val nip46Json = Json { ignoreUnknownKeys = true }
 
     actual var onAuthUrl: ((String) -> Unit)? = null
     actual val clientPubkey: String get() = clientKeyPair.publicKeyHex
@@ -91,7 +92,9 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             pendingRequests.remove("_incoming_connect")
             listenSubscriptionId?.let { subId ->
                 val closeMessage = buildJsonArray { add("CLOSE"); add(subId) }.toString()
-                relayClients.forEach { try { it.send(closeMessage) } catch (_: Exception) {} }
+                withContext(NonCancellable) {
+                    relayClients.forEach { try { it.send(closeMessage) } catch (_: Exception) {} }
+                }
             }
             listenSubscriptionId = null
         }
@@ -116,11 +119,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             secret?.let { add(it) }
         }
 
-        val response = sendRequest(requestId, "connect", params)
-
-        if (response != "ack" && secret != null && response != secret) {
-            throw Exception("Connect failed: unexpected response '$response'")
-        }
+        sendRequest(requestId, "connect", params)
 
         return remoteSignerPubkey
     }
@@ -197,13 +196,15 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         } finally {
             pendingRequests.remove(requestId)
             val closeMessage = buildJsonArray { add("CLOSE"); add(subscriptionId) }.toString()
-            relayClients.forEach { try { it.send(closeMessage) } catch (_: Exception) {} }
+            withContext(NonCancellable) {
+                relayClients.forEach { try { it.send(closeMessage) } catch (_: Exception) {} }
+            }
         }
     }
 
     private fun handleMessage(msg: String) {
         try {
-            val json = Json { ignoreUnknownKeys = true }
+            val json = nip46Json
             val arr = json.parseToJsonElement(msg).jsonArray
             val msgType = arr.getOrNull(0)?.jsonPrimitive?.contentOrNull ?: return
 

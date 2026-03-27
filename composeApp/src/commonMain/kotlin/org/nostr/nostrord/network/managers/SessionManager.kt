@@ -141,6 +141,7 @@ class SessionManager(
      */
     suspend fun handleAuthChallenge(client: NostrGroupClient, challenge: String) {
         val relayUrl = client.getRelayUrl()
+        if (!client.isConnected()) return  // race-condition loser: already disconnected
         if (!authInProgress.add(relayUrl)) return  // already in progress for this relay
 
         val pubKey = getPublicKey() ?: run { authInProgress.remove(relayUrl); return }
@@ -166,9 +167,10 @@ class SessionManager(
 
             client.send(message)
 
-            // Re-request groups after authentication
+            // Give the relay 500 ms to process the AUTH before we send subscriptions.
+            // requestGroups() is handled by the caller (resubscribeAfterAuth) so it only
+            // fires when this client is the primary relay.
             kotlinx.coroutines.delay(500)
-            client.requestGroups()
         } catch (_: Throwable) {
         } finally {
             authInProgress.remove(relayUrl)

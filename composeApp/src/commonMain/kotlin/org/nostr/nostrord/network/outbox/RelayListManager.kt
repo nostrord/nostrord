@@ -1,15 +1,13 @@
 package org.nostr.nostrord.network.outbox
 
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
-import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.utils.epochMillis
 
 /**
@@ -25,15 +23,23 @@ import org.nostr.nostrord.utils.epochMillis
  */
 class RelayListManager(
     override val bootstrapRelays: List<String> = DEFAULT_BOOTSTRAP_RELAYS,
-    private val connectionProvider: (suspend (String) -> NostrGroupClient?)? = null
+    private val connectionManager: ConnectionManager? = null
 ) : OutboxModel {
 
     companion object {
+        // Discovery relays (both serve kind:0, kind:10002, kind:10009)
         val DEFAULT_BOOTSTRAP_RELAYS = listOf(
+            "wss://purplepag.es",       // specialized NIP-65 index
+            "wss://relay.primal.net"    // general-purpose, high availability
+        )
+
+        // Used when a user has no NIP-65 relay list: content-rich relays with high retention
+        val DEFAULT_FALLBACK_RELAYS = listOf(
             "wss://relay.damus.io",
             "wss://nos.lol",
-            "wss://relay.nostr.net",
-            "wss://purplepag.es"  // Specialized for NIP-65
+            "wss://relay.primal.net",
+            "wss://relay.snort.social",
+            "wss://www.nostr.ltd"
         )
 
         const val CACHE_TTL_MS = 3600_000L  // 1 hour
@@ -57,29 +63,21 @@ class RelayListManager(
     private var myPubkey: String? = null
 
     /**
-     * Set the connection provider (called by NostrRepository after init)
-     */
-    private var _connectionProvider: (suspend (String) -> NostrGroupClient?)? = connectionProvider
-
-    fun setConnectionProvider(provider: suspend (String) -> NostrGroupClient?) {
-        _connectionProvider = provider
-    }
-
-    /**
      * Set the current user's pubkey and relay list
      */
-    fun setMyRelayList(pubkey: String, relays: List<Nip65Relay>) {
+    fun setMyRelayList(pubkey: String, relays: List<Nip65Relay>, eventCreatedAt: Long = 0) {
         myPubkey = pubkey
         _myRelayList.value = relays
         // Also cache it
-        cacheRelayList(pubkey, relays)
+        cacheRelayList(pubkey, relays, eventCreatedAt)
     }
 
     /**
-     * Cache relay list for any user (called when receiving kind:10002 events)
+     * Cache relay list for any user (called when receiving kind:10002 events).
+     * Only updates if [eventCreatedAt] is newer than the existing cached entry.
      */
-    fun cacheRelayListForUser(pubkey: String, relays: List<Nip65Relay>) {
-        cacheRelayList(pubkey, relays)
+    fun cacheRelayListForUser(pubkey: String, relays: List<Nip65Relay>, eventCreatedAt: Long = 0) {
+        cacheRelayList(pubkey, relays, eventCreatedAt)
     }
 
     /**
@@ -129,156 +127,66 @@ class RelayListManager(
     }
 
     /**
-     * Fetch relay list from bootstrap relays (parallel, returns first success)
+     * Fetch relay list from all discovery relays in parallel.
+     * Sends REQs to all bootstrap relays simultaneously; responses arrive via the global
+     * message handler → handleKind10002Event → cacheRelayListForUser which keeps the
+     * latest event (by created_at). Returns as soon as the cache is populated or timeout.
      */
     private suspend fun fetchRelayListFromBootstrap(pubkey: String): List<Nip65Relay> {
-
-        // Fetch from all bootstrap relays in parallel
-        val results = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
-            coroutineScope {
-                val deferred = bootstrapRelays.map { relayUrl ->
-                    async {
-                        try {
-                            fetchFromRelay(relayUrl, pubkey)
-                        } catch (e: Exception) {
-                            emptyList()
-                        }
-                    }
-                }
-
-                // Return first non-empty result
-                for (d in deferred) {
-                    val result = d.await()
-                    if (result.isNotEmpty()) {
-                        return@coroutineScope result
-                    }
-                }
-                emptyList<Nip65Relay>()
-            }
-        } ?: emptyList()
-
-        if (results.isEmpty()) {
-        }
-        return results
-    }
-
-    /**
-     * Fetch relay list from a specific relay
-     */
-    private suspend fun fetchFromRelay(relayUrl: String, pubkey: String): List<Nip65Relay> {
-        val client = getRelayConnection(relayUrl) ?: return emptyList()
-
         val filter = buildJsonObject {
             putJsonArray("kinds") { add(10002) }
             putJsonArray("authors") { add(pubkey) }
             put("limit", 1)
         }
 
-        val subId = "nip65-${pubkey.take(8)}-${epochMillis()}"
-        val message = buildJsonArray {
-            add("REQ")
-            add(subId)
-            add(filter)
-        }.toString()
+        // Send REQs to all bootstrap relays in parallel
+        val activeSubs = bootstrapRelays.mapNotNull { relayUrl ->
+            val client = connectionManager?.getClientForRelay(relayUrl) ?: return@mapNotNull null
+            if (!client.isConnected()) return@mapNotNull null
+            val subId = "nip65-${pubkey.take(8)}-${relayUrl.substringAfterLast("/").take(6)}"
+            try {
+                client.send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+                client.send(buildJsonArray { add("REQ"); add(subId); add(filter) }.toString())
+                subId to client
+            } catch (_: Exception) { null }
+        }
+        if (activeSubs.isEmpty()) return emptyList()
 
-        var relays: List<Nip65Relay> = emptyList()
-        var eoseReceived = false
-
-        // Set up one-time message handler
-        val originalHandler = client.messageHandler
-        client.messageHandler = { msg ->
-            val parsed = parseRelayListResponse(msg, subId)
-            if (parsed != null) {
-                relays = parsed
+        // Poll cache — both relays feed it via handleKind10002Event, latest wins
+        val startTime = epochMillis()
+        var result: List<Nip65Relay> = emptyList()
+        while (epochMillis() - startTime < FETCH_TIMEOUT_MS) {
+            val cached = cacheMutex.withLock { relayListCache[pubkey] }
+            if (cached != null && !cached.isExpired(epochMillis())) {
+                result = cached.relays
+                break
             }
-            if (isEose(msg, subId)) {
-                eoseReceived = true
-            }
-            originalHandler?.invoke(msg)
+            delay(100)
         }
 
-        try {
-            client.send(message)
-
-            // Wait for response with timeout
-            val startTime = epochMillis()
-            while (!eoseReceived && epochMillis() - startTime < FETCH_TIMEOUT_MS) {
-                kotlinx.coroutines.delay(50)
-            }
-
-            // Close subscription
-            val closeMsg = buildJsonArray {
-                add("CLOSE")
-                add(subId)
-            }.toString()
-            client.send(closeMsg)
-
-        } finally {
-            client.messageHandler = originalHandler
+        // Close all subscriptions
+        activeSubs.forEach { (subId, client) ->
+            try { client.send(buildJsonArray { add("CLOSE"); add(subId) }.toString()) } catch (_: Exception) {}
         }
-
-        return relays
+        return result
     }
 
     /**
-     * Parse relay list from EVENT response
+     * Cache a relay list. Only overwrites if [eventCreatedAt] is newer than
+     * the existing entry (or if no entry exists), ensuring the latest
+     * kind:10002 event always wins when multiple relays respond.
      */
-    private fun parseRelayListResponse(msg: String, expectedSubId: String): List<Nip65Relay>? {
-        return try {
-            val json = Json { ignoreUnknownKeys = true }
-            val arr = json.parseToJsonElement(msg).jsonArray
-
-            if (arr.size >= 3 &&
-                arr[0].jsonPrimitive.content == "EVENT" &&
-                arr[1].jsonPrimitive.content == expectedSubId
-            ) {
-                val event = arr[2].jsonObject
-                val kind = event["kind"]?.jsonPrimitive?.int
-                if (kind == 10002) {
-                    val tags = event["tags"]?.jsonArray ?: return null
-                    tags.mapNotNull { tag ->
-                        Nip65Relay.fromTag(tag.jsonArray.map { it.jsonPrimitive.content })
-                    }
-                } else null
-            } else null
-        } catch (e: Exception) {
-            null
+    private fun cacheRelayList(pubkey: String, relays: List<Nip65Relay>, eventCreatedAt: Long = 0) {
+        val existing = relayListCache[pubkey]
+        if (existing != null && eventCreatedAt > 0 && existing.eventCreatedAt >= eventCreatedAt) {
+            return // existing is same or newer, skip
         }
-    }
 
-    /**
-     * Check if message is EOSE for subscription
-     */
-    private fun isEose(msg: String, subId: String): Boolean {
-        return try {
-            val json = Json { ignoreUnknownKeys = true }
-            val arr = json.parseToJsonElement(msg).jsonArray
-            arr.size >= 2 &&
-                    arr[0].jsonPrimitive.content == "EOSE" &&
-                    arr[1].jsonPrimitive.content == subId
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    /**
-     * Get a connection to a relay via the connection provider
-     */
-    private suspend fun getRelayConnection(relayUrl: String): NostrGroupClient? {
-        val provider = _connectionProvider ?: run {
-            return null
-        }
-        return provider(relayUrl)
-    }
-
-    /**
-     * Cache a relay list
-     */
-    private fun cacheRelayList(pubkey: String, relays: List<Nip65Relay>) {
         val now = epochMillis()
         val cached = CachedRelayList(
             pubkey = pubkey,
             relays = relays,
+            eventCreatedAt = eventCreatedAt,
             fetchedAt = now,
             expiresAt = now + CACHE_TTL_MS
         )
@@ -293,21 +201,6 @@ class RelayListManager(
     }
 
     /**
-     * Select relays for fetching events from an author.
-     * Uses author's WRITE relays (their outbox).
-     */
-    override fun selectFetchRelays(authorPubkey: String): List<String> {
-        val authorRelays = relayListCache[authorPubkey]?.relays ?: emptyList()
-        val writeRelays = authorRelays.filter { it.write }.map { it.url }
-
-        return if (writeRelays.isNotEmpty()) {
-            writeRelays + bootstrapRelays // Add bootstrap as fallback
-        } else {
-            bootstrapRelays
-        }
-    }
-
-    /**
      * Select relays for publishing events.
      * Uses current user's WRITE relays.
      */
@@ -317,27 +210,7 @@ class RelayListManager(
         return if (writeRelays.isNotEmpty()) {
             writeRelays
         } else {
-            bootstrapRelays
-        }
-    }
-
-    /**
-     * Select relays for fetching mentions/replies.
-     * Uses target user's READ relays (their inbox).
-     */
-    override fun selectInboxRelays(pubkey: String): List<String> {
-        val relays = if (pubkey == myPubkey) {
-            _myRelayList.value
-        } else {
-            relayListCache[pubkey]?.relays ?: emptyList()
-        }
-
-        val readRelays = relays.filter { it.read }.map { it.url }
-
-        return if (readRelays.isNotEmpty()) {
-            readRelays + bootstrapRelays
-        } else {
-            bootstrapRelays
+            DEFAULT_FALLBACK_RELAYS
         }
     }
 
@@ -375,8 +248,3 @@ class RelayListManager(
         myPubkey = null
     }
 }
-
-// Extension property for NostrGroupClient to support message handler
-private var NostrGroupClient.messageHandler: ((String) -> Unit)?
-    get() = null  // Stored externally
-    set(value) {}  // Stored externally

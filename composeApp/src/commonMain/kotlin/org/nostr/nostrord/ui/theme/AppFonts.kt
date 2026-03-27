@@ -1,6 +1,11 @@
 package org.nostr.nostrord.ui.theme
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.text.font.FontFamily
+import org.jetbrains.compose.resources.Font
+import nostrord.composeapp.generated.resources.NotoColorEmoji
+import nostrord.composeapp.generated.resources.Res
 
 /**
  * Application font configuration for Compose Web Canvas rendering.
@@ -42,4 +47,14 @@ object AppFonts {
     fun setMonospaceFontFamily(fontFamily: FontFamily) {
         monospaceFontFamily = fontFamily
     }
+}
+
+/**
+ * NotoColorEmoji FontFamily for rendering color emojis on desktop/web (Skia).
+ * Must be called from @Composable context since it loads from Compose Resources.
+ */
+@Composable
+fun rememberEmojiFontFamily(): FontFamily {
+    val font = Font(Res.font.NotoColorEmoji)
+    return remember(font) { FontFamily(font) }
 }

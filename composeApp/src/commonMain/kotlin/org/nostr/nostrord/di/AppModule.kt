@@ -3,15 +3,20 @@ package org.nostr.nostrord.di
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.PendingEventManager
+import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
+import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.storage.SecureStorage
 
@@ -23,17 +28,25 @@ object AppModule {
     // Coroutine scope for the entire app
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // Bootstrap relays for NIP-65
-    private val bootstrapRelays = listOf(
-        "wss://relay.damus.io",
-        "wss://nos.lol",
-        "wss://relay.nostr.net",
-        "wss://purplepag.es"
-    )
+    // Global event deduplicator — single instance shared across all managers.
+    // Runs TTL eviction once per hour so long sessions don't accumulate stale entries.
+    val eventDeduplicator: EventDeduplicator by lazy {
+        EventDeduplicator().also { dedup ->
+            appScope.launch {
+                while (true) {
+                    delay(60 * 60 * 1000L) // 1 hour
+                    dedup.evictExpired()
+                }
+            }
+        }
+    }
 
     // Lazy initialization of dependencies
     val relayListManager: RelayListManager by lazy {
-        RelayListManager(bootstrapRelays = bootstrapRelays)
+        RelayListManager(
+            bootstrapRelays = RelayListManager.DEFAULT_BOOTSTRAP_RELAYS,
+            connectionManager = connectionManager
+        )
     }
 
     val connectionManager: ConnectionManager by lazy {
@@ -62,11 +75,16 @@ object AppModule {
         )
     }
 
+    val liveCursorStore: LiveCursorStore by lazy {
+        LiveCursorStore()
+    }
+
     val groupManager: GroupManager by lazy {
         GroupManager(
             connectionManager = connectionManager,
             scope = appScope,
-            pendingEventManager = pendingEventManager
+            pendingEventManager = pendingEventManager,
+            liveCursorStore = liveCursorStore
         )
     }
 
@@ -82,6 +100,10 @@ object AppModule {
         UnreadManager()
     }
 
+    val relayMetadataManager: RelayMetadataManager by lazy {
+        RelayMetadataManager(scope = appScope)
+    }
+
     val nostrRepository: NostrRepository by lazy {
         NostrRepository(
             connectionManager = connectionManager,
@@ -91,6 +113,8 @@ object AppModule {
             outboxManager = outboxManager,
             unreadManager = unreadManager,
             pendingEventManager = pendingEventManager,
+            relayMetadataManager = relayMetadataManager,
+            liveCursorStore = liveCursorStore,
             scope = appScope
         )
     }

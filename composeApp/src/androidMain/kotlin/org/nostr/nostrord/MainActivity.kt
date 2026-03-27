@@ -6,15 +6,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
-import org.nostr.nostrord.storage.SecureStorage
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        
-        SecureStorage.initialize(applicationContext)
-        
+        // SecureStorage is initialized in NostrordApplication.onCreate()
         setContent {
             App()
         }

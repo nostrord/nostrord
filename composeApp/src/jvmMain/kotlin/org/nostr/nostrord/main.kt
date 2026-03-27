@@ -17,11 +17,56 @@ import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpRedirect
+import io.ktor.client.plugins.HttpTimeout
+import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.ui.window.DesktopWindowControls
 import org.nostr.nostrord.ui.window.LocalAwtWindow
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
+import java.io.File
 
-fun main() = application {
+fun main() {
+    // Configure Coil before the window opens so the first frame is already using the
+    // persistent cache. Without this, Coil defaults to a temp-dir disk cache (wiped on
+    // reboot) and a short-lived Ktor client — causing relay icons to flicker on cold starts.
+    SingletonImageLoader.setSafe { context ->
+        val cacheDir = File(System.getProperty("user.home"), ".nostrord/image-cache")
+        val httpClient = HttpClient(CIO) {
+            install(HttpTimeout) {
+                connectTimeoutMillis = 15_000
+                requestTimeoutMillis = 30_000
+                socketTimeoutMillis = 30_000
+            }
+            install(HttpRedirect) {
+                checkHttpMethod = false
+            }
+        }
+        ImageLoader.Builder(context)
+            .components {
+                add(KtorNetworkFetcherFactory(httpClient))
+            }
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizeBytes(64L * 1024 * 1024)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.toOkioPath())
+                    .maxSizeBytes(100L * 1024 * 1024)
+                    .build()
+            }
+            .build()
+    }
+
+    application {
     val windowState = rememberWindowState(
         width = 1280.dp,
         height = 800.dp,
@@ -70,5 +115,6 @@ fun main() = application {
         ) {
             App()
         }
+    }
     }
 }

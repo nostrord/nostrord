@@ -23,14 +23,22 @@ class EventDeduplicator(
     private val ttlMs: Long = DEFAULT_TTL_MS
 ) {
     companion object {
-        const val DEFAULT_MAX_SIZE = 10_000
+        // 20k covers ~50 groups × 3 relays × many events in a long session.
+        // Memory: 20k × 64 bytes (hex ID + map overhead) ≈ 1.3 MB — acceptable on all targets.
+        const val DEFAULT_MAX_SIZE = 20_000
         const val DEFAULT_TTL_MS = 24 * 60 * 60 * 1000L // 24 hours
+
+        // Run TTL eviction at most once every 10 minutes — keeps the hot-path O(1).
+        private const val EVICT_INTERVAL_MS = 10 * 60 * 1000L
     }
 
-    // Simple map for seen events (eventId -> timestamp)
     private val seenEvents = mutableMapOf<String, Long>()
     private val insertionOrder = mutableListOf<String>()
     private val mutex = Mutex()
+
+    // TTL eviction runs lazily — only when at capacity, at most every EVICT_INTERVAL_MS.
+    // This keeps tryAddSync() O(1) in the steady state instead of scanning on every call.
+    private var lastEvictAt = 0L
 
     // Statistics
     private var totalEvents = 0L
@@ -46,29 +54,39 @@ class EventDeduplicator(
             totalEvents++
             val now = epochMillis()
 
-            // Evict expired entries first
-            evictExpired(now)
-
             if (seenEvents.containsKey(eventId)) {
                 duplicateEvents++
-                false
-            } else {
-                // Evict oldest if at capacity
+                return@withLock false
+            }
+
+            // At capacity: try TTL eviction first (rate-limited), then LRU fallback
+            if (seenEvents.size >= maxSize) {
+                if (now - lastEvictAt >= EVICT_INTERVAL_MS) {
+                    evictExpired(now)
+                    lastEvictAt = now
+                }
+                // If still at capacity after eviction, remove oldest insertion
                 if (seenEvents.size >= maxSize && insertionOrder.isNotEmpty()) {
                     val oldest = insertionOrder.removeAt(0)
                     seenEvents.remove(oldest)
                 }
-
-                seenEvents[eventId] = now
-                insertionOrder.add(eventId)
-                true
             }
+
+            seenEvents[eventId] = now
+            insertionOrder.add(eventId)
+            true
         }
     }
 
     /**
-     * Evict entries older than TTL
+     * Public TTL eviction — called from AppModule's hourly cleanup coroutine.
+     * Removes all entries older than [ttlMs] while holding the mutex.
      */
+    suspend fun evictExpired() = mutex.withLock {
+        evictExpired(epochMillis())
+        lastEvictAt = epochMillis()
+    }
+
     private fun evictExpired(now: Long) {
         val expiredBefore = now - ttlMs
         val iterator = insertionOrder.iterator()
@@ -135,23 +153,25 @@ class EventDeduplicator(
         totalEvents++
         val now = epochMillis()
 
-        // Evict expired entries first
-        evictExpiredSync(now)
-
-        return if (seenEvents.containsKey(eventId)) {
+        if (seenEvents.containsKey(eventId)) {
             duplicateEvents++
-            false
-        } else {
-            // Evict oldest if at capacity
+            return false
+        }
+
+        if (seenEvents.size >= maxSize) {
+            if (now - lastEvictAt >= EVICT_INTERVAL_MS) {
+                evictExpiredSync(now)
+                lastEvictAt = now
+            }
             if (seenEvents.size >= maxSize && insertionOrder.isNotEmpty()) {
                 val oldest = insertionOrder.removeAt(0)
                 seenEvents.remove(oldest)
             }
-
-            seenEvents[eventId] = now
-            insertionOrder.add(eventId)
-            true
         }
+
+        seenEvents[eventId] = now
+        insertionOrder.add(eventId)
+        return true
     }
 
     /**

@@ -1,6 +1,7 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -41,33 +42,35 @@ class OutboxManager(
     // Timestamp of the last accepted kind:10009; older arrivals are discarded.
     private var latestKind10009CreatedAt: Long = 0
 
-    init {
-        // Share relay pool with RelayListManager
-        relayListManager.setConnectionProvider { relayUrl ->
-            // This will be connected via ConnectionManager when needed
-            null // Placeholder - actual connection happens through requestRelayLists
-        }
-    }
-
     /**
-     * Initialize outbox model for the current user
+     * Initialize outbox model for the current user.
+     *
+     * Connects purplepag.es (single discovery relay) for NIP-65, kind:0, and kind:10009.
+     * purplepag.es stays connected for the session — no disconnect step.
+     * Result: 2 WebSockets at rest (primary NIP-29 + purplepag.es).
      */
-    suspend fun initialize(
+    fun initialize(
         pubKey: String,
-        messageHandler: (String, NostrGroupClient) -> Unit
+        messageHandler: (String, NostrGroupClient) -> Unit,
+        onDiscoveryComplete: (() -> Unit)? = null
     ) {
-        // Connect to bootstrap relays immediately
-        val bootstrapToConnect = bootstrapRelays.take(3)
-        connectionManager.connectToRelaysParallel(bootstrapToConnect, messageHandler)
-
-        // Fetch NIP-65 relay list in background
         scope.launch {
-            loadUserRelayList(pubKey, messageHandler)
-        }
+            // Step 1: Connect discovery relays (purplepag.es + relay.primal.net)
+            coroutineScope {
+                bootstrapRelays.forEach { url ->
+                    launch {
+                        try { connectionManager.getOrConnectRelay(url, messageHandler) } catch (_: Exception) {}
+                    }
+                }
+            }
 
-        // Load joined groups in background
-        scope.launch {
-            loadJoinedGroupsFromNostr(pubKey, messageHandler)
+            // Step 2: Run both discovery phases in parallel.
+            coroutineScope {
+                launch { loadUserRelayList(pubKey, messageHandler) }
+                launch { loadJoinedGroupsFromNostr(pubKey, messageHandler) }
+            }
+            // purplepag.es stays connected — no disconnect step
+            onDiscoveryComplete?.invoke()
         }
     }
 
@@ -113,12 +116,16 @@ class OutboxManager(
         }.toString()
 
         val connectedClients = mutableListOf<NostrGroupClient>()
+        val connectedUrls = mutableListOf<String>()
         for (relayUrl in relaysToQuery) {
             try {
-                val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                if (client != null) {
+                // Use only already-connected relays — bootstrap relays are connected
+                // by initialize() before this runs; no new WebSocket connections.
+                val client = connectionManager.getClientForRelay(relayUrl)
+                if (client != null && client.isConnected()) {
                     client.send(reqMessage)
                     connectedClients.add(client)
+                    connectedUrls.add(relayUrl)
                 }
             } catch (_: Exception) {}
         }
@@ -152,6 +159,7 @@ class OutboxManager(
         pubKey: String,
         joinedGroups: Set<String>,
         currentRelayUrl: String,
+        nip29Relays: List<String>,
         signEvent: suspend (Event) -> Event,
         messageHandler: (String, NostrGroupClient) -> Unit
     ): Result<Unit> {
@@ -160,10 +168,15 @@ class OutboxManager(
                 allRelayGroups = allRelayGroups + (currentRelayUrl to joinedGroups)
 
                 val tagsList = mutableListOf<List<String>>()
+                // ["group", groupId, relayUrl] for each joined group
                 allRelayGroups.forEach { (relayUrl, groupIds) ->
                     groupIds.forEach { groupId ->
                         tagsList.add(listOf("group", groupId, relayUrl))
                     }
+                }
+                // ["r", relayUrl] for each NIP-29 relay the user has added
+                nip29Relays.filter { it.isNotBlank() }.distinct().forEach { relayUrl ->
+                    tagsList.add(listOf("r", relayUrl))
                 }
                 tagsList
             }
@@ -184,14 +197,18 @@ class OutboxManager(
                 add(signedEvent.toJsonObject())
             }.toString()
 
-            val targets = relayListManager.selectPublishRelays()
-            targets.forEach { relayUrl ->
+            // Publish to write relays + bootstrap relays so other clients (and our own
+            // discovery on next login) can find the joined groups list.
+            val targets = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
+            val published = targets.mapNotNull { relayUrl ->
+                connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+            }
+            val clients = if (published.isEmpty()) {
+                listOfNotNull(connectionManager.getPrimaryClient())
+            } else published
+            clients.forEach { client ->
                 scope.launch {
-                    try {
-                        val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                            ?: return@launch
-                        client.sendAndAwaitOk(message, eventId)
-                    } catch (_: Exception) {}
+                    try { client.sendAndAwaitOk(message, eventId) } catch (_: Exception) {}
                 }
             }
 
@@ -208,41 +225,86 @@ class OutboxManager(
         event: JsonObject,
         currentRelayUrl: String,
         pubKey: String,
-        onGroupsUpdated: (Set<String>) -> Unit
+        onGroupsUpdated: (Set<String>) -> Unit,
+        onRelaysRestored: suspend (List<String>) -> Unit = {},
+        onRelayGroupsUpdated: (Map<String, Set<String>>) -> Unit = {},
+        messageHandler: (String, NostrGroupClient) -> Unit = { _, _ -> }
     ) {
         kind10009Received = true
         val tags = event["tags"]?.jsonArray ?: return
 
-        // Discard if older than the last accepted event (stale relay response).
+        // Discard if older than OR equal to the last accepted event (deduplicates the same
+        // event arriving from multiple bootstrap relays, preventing redundant connection races).
         val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
         groupsMutex.withLock {
-            if (createdAt < latestKind10009CreatedAt) return
+            if (createdAt <= latestKind10009CreatedAt) return
             latestKind10009CreatedAt = createdAt
         }
 
         val newRelayGroups = mutableMapOf<String, MutableSet<String>>()
+        val explicitNip29Relays = mutableListOf<String>()
 
         tags.forEach { tag ->
             val tagArray = tag.jsonArray
-            if (tagArray.size >= 2 && tagArray[0].jsonPrimitive.content == "group") {
-                val groupId = tagArray[1].jsonPrimitive.content
-                val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content ?: currentRelayUrl
-                newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
+            val tagName = tagArray.getOrNull(0)?.jsonPrimitive?.content ?: return@forEach
+            when (tagName) {
+                "group" -> {
+                    val groupId = tagArray.getOrNull(1)?.jsonPrimitive?.content ?: return@forEach
+                    val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content ?: currentRelayUrl
+                    newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
+                }
+                "r" -> {
+                    val relayUrl = tagArray.getOrNull(1)?.jsonPrimitive?.content ?: return@forEach
+                    if (relayUrl.isNotBlank()) explicitNip29Relays.add(relayUrl)
+                }
             }
         }
 
+        val immutableRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
         groupsMutex.withLock {
-            allRelayGroups = newRelayGroups.mapValues { it.value.toSet() }
+            allRelayGroups = immutableRelayGroups
         }
 
-        val currentRelayGroups = newRelayGroups[currentRelayUrl] ?: emptySet()
-        SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, currentRelayGroups)
+        // Restore NIP-29 relay list from "r" tags if present; fall back to extracting
+        // from "group" tags for events published by older versions of the app.
+        val restoredRelays = if (explicitNip29Relays.isNotEmpty()) {
+            explicitNip29Relays.distinct()
+        } else {
+            newRelayGroups.keys.toList()
+        }
+        var newlyRestoredRelays = emptyList<String>()
+        if (restoredRelays.isNotEmpty()) {
+            val existing = SecureStorage.loadRelayList()
+            val merged = (existing + restoredRelays).distinct()
+            if (merged != existing) {
+                SecureStorage.saveRelayList(merged)
+                newlyRestoredRelays = merged.filter { it !in existing }
+            }
+        }
 
-        // Surface only current-relay groups to the UI; full map lives in allRelayGroups.
-        onGroupsUpdated(currentRelayGroups)
+        // Save joined groups for ALL relays found in the event so that switching
+        // relays later can load membership from storage without a network fetch.
+        immutableRelayGroups.forEach { (relayUrl, groups) ->
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, groups)
+        }
 
-        // Connect to relays from kind:10009
-        connectToKind10009Relays { _, _ -> }
+        // Update in-memory per-relay joined groups for ALL relays at once.
+        onRelayGroupsUpdated(immutableRelayGroups)
+
+        // Surface only current-relay groups to the active UI.
+        // Only call onGroupsUpdated when the current relay is actually in the event;
+        // avoid wiping the UI with an empty set when the event belongs to other relays.
+        val currentRelayGroups = immutableRelayGroups[currentRelayUrl]
+        if (currentRelayGroups != null) {
+            onGroupsUpdated(currentRelayGroups)
+        }
+
+        // Notify caller about newly discovered relays so it can connect and request groups.
+        if (newlyRestoredRelays.isNotEmpty()) {
+            onRelaysRestored(newlyRestoredRelays)
+        }
+
+        // Pool relays are connected lazily when the user selects them — no eager connect here.
     }
 
     /**
@@ -251,6 +313,7 @@ class OutboxManager(
     fun handleKind10002Event(event: JsonObject, currentUserPubkey: String?) {
         val eventPubkey = event["pubkey"]?.jsonPrimitive?.content
         val isCurrentUser = eventPubkey == currentUserPubkey
+        val eventCreatedAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
 
         val tags = event["tags"]?.jsonArray ?: return
 
@@ -272,9 +335,9 @@ class OutboxManager(
 
         if (eventPubkey != null && relays.isNotEmpty()) {
             if (isCurrentUser) {
-                relayListManager.setMyRelayList(eventPubkey, relays)
+                relayListManager.setMyRelayList(eventPubkey, relays, eventCreatedAt)
             } else {
-                relayListManager.cacheRelayListForUser(eventPubkey, relays)
+                relayListManager.cacheRelayListForUser(eventPubkey, relays, eventCreatedAt)
             }
         }
     }
@@ -285,23 +348,6 @@ class OutboxManager(
     fun handleEose(subId: String) {
         if (subId == kind10009SubId) {
             eoseReceived = true
-        }
-    }
-
-    /**
-     * Connect to relays discovered from kind:10009
-     */
-    private fun connectToKind10009Relays(messageHandler: (String, NostrGroupClient) -> Unit) {
-        // Take a snapshot of relay URLs to avoid holding the lock during connection
-        val relayUrls = allRelayGroups.keys.toList()
-        if (relayUrls.isEmpty()) return
-
-        relayUrls.forEach { relayUrl ->
-            scope.launch {
-                try {
-                    connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                } catch (_: Exception) {}
-            }
         }
     }
 
@@ -342,7 +388,6 @@ class OutboxManager(
         currentNip29Relay: String? = null
     ): List<String> {
         val relays = mutableListOf<String>()
-        var hasAuthorRelays = false
 
         // 1. Explicit relays always come first
         explicitRelays.forEach { relay ->
@@ -355,9 +400,6 @@ class OutboxManager(
         if (authors.isNotEmpty()) {
             authors.forEach { author ->
                 val authorRelays = getCachedRelayList(author)
-                if (authorRelays.isNotEmpty()) {
-                    hasAuthorRelays = true
-                }
                 authorRelays
                     .filter { it.write }
                     .forEach { relay ->
@@ -385,9 +427,6 @@ class OutboxManager(
         // 4. If no authors or tagged users, use current user's READ relays
         if (authors.isEmpty() && taggedPubkeys.isEmpty()) {
             val myRelays = relayListManager.myRelayList.value
-            if (myRelays.isNotEmpty()) {
-                hasAuthorRelays = true
-            }
             myRelays
                 .filter { it.read }
                 .forEach { relay ->
@@ -413,9 +452,30 @@ class OutboxManager(
     }
 
     /**
+     * Select outbox relays filtered to only those currently connected.
+     * Avoids iterating over relays that getClientForRelay will discard anyway.
+     */
+    suspend fun selectConnectedOutboxRelays(
+        authors: List<String> = emptyList(),
+        taggedPubkeys: List<String> = emptyList(),
+        explicitRelays: List<String> = emptyList(),
+        currentNip29Relay: String? = null
+    ): List<String> {
+        return selectOutboxRelays(authors, taggedPubkeys, explicitRelays, currentNip29Relay)
+            .filter { url ->
+                val client = connectionManager.getClientForRelay(url)
+                client != null && client.isConnected()
+            }
+    }
+
+    /**
      * Get write relays for publishing events
      */
     fun getWriteRelays(): List<String> = relayListManager.selectPublishRelays()
+
+    fun updateMyRelayList(pubkey: String, relays: List<Nip65Relay>) {
+        relayListManager.setMyRelayList(pubkey, relays)
+    }
 
     /**
      * Get joined groups for a specific relay from the in-memory cache.

@@ -5,6 +5,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,7 +29,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
@@ -45,6 +53,7 @@ import coil3.compose.AsyncImagePainter
 import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.loading.MemberSkeleton
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -57,6 +66,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 fun MemberSidebar(
     members: List<MemberInfo>,
     recentlyActiveMembers: Set<String> = emptySet(),
+    isLoading: Boolean = false,
     onMemberClick: (MemberInfo) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -143,8 +153,15 @@ fun MemberSidebar(
                     .padding(top = 8.dp, bottom = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
+                // Skeleton placeholder while members are loading
+                if (isLoading) {
+                    items(8) {
+                        MemberSkeleton()
+                    }
+                }
+
                 // Online section
-                if (onlineMembers.isNotEmpty()) {
+                if (!isLoading && onlineMembers.isNotEmpty()) {
                     item {
                         MemberSectionHeader(
                             title = "ONLINE",
@@ -166,7 +183,7 @@ fun MemberSidebar(
                 }
 
                 // Offline section
-                if (offlineMembers.isNotEmpty()) {
+                if (!isLoading && offlineMembers.isNotEmpty()) {
                     item {
                         Spacer(modifier = Modifier.height(8.dp))
                         MemberSectionHeader(
@@ -189,7 +206,7 @@ fun MemberSidebar(
                 }
 
                 // If no categorization needed (all shown as active)
-                if (onlineMembers.isEmpty() && offlineMembers.isEmpty() && filteredMembers.isNotEmpty()) {
+                if (!isLoading && onlineMembers.isEmpty() && offlineMembers.isEmpty() && filteredMembers.isNotEmpty()) {
                     item {
                         MemberSectionHeader(
                             title = "MEMBERS",
@@ -208,7 +225,7 @@ fun MemberSidebar(
                 }
 
                 // No results message when search has no matches
-                if (filteredMembers.isEmpty() && searchQuery.isNotBlank()) {
+                if (!isLoading && filteredMembers.isEmpty() && searchQuery.isNotBlank()) {
                     item {
                         Box(
                             modifier = Modifier
@@ -378,11 +395,17 @@ private fun MemberSearchField(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val focusRequester = remember { FocusRequester() }
+
     Box(
         modifier = modifier
             .height(36.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(NostrordColors.BackgroundDark)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { focusRequester.requestFocus() }
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.CenterStart
     ) {
@@ -417,11 +440,18 @@ private fun MemberSearchField(
                         fontSize = 14.sp
                     ),
                     cursorBrush = SolidColor(NostrordColors.Primary),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .onKeyEvent { event ->
+                            if (event.key == Key.Escape && event.type == KeyEventType.KeyUp && query.isNotEmpty()) {
+                                onQueryChange("")
+                                true
+                            } else false
+                        }
                 )
             }
 
-            // Clear button
             if (query.isNotEmpty()) {
                 IconButton(
                     onClick = { onQueryChange("") },

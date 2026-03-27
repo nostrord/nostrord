@@ -12,6 +12,7 @@ actual object SecureStorage {
     private const val PRIVATE_KEY_PREF = "nostr_private_key"
     private const val JOINED_GROUPS_PREFIX = "joined_groups_"
     private const val CURRENT_RELAY_URL = "current_relay_url"
+    private const val RELAY_LIST = "relay_list"
     private const val BUNKER_URL_PREF = "nostr_bunker_url"
     private const val BUNKER_USER_PUBKEY_PREF = "nostr_bunker_user_pubkey"
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
@@ -19,6 +20,9 @@ actual object SecureStorage {
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
+    private const val RELAY_GROUPS_PREFIX = "relay_groups_"
+    private const val RELAY_METADATA_KEY = "relay_metadata"
+    private const val LIVE_CURSORS_PREFIX = "live_cursors_"
 
     private lateinit var prefs: SharedPreferences
     
@@ -76,7 +80,18 @@ actual object SecureStorage {
         ensureInitialized()
         prefs.edit().remove(CURRENT_RELAY_URL).apply()
     }
-    
+
+    actual fun saveRelayList(relays: List<String>) {
+        ensureInitialized()
+        prefs.edit().putString(RELAY_LIST, relays.joinToString(",")).apply()
+    }
+
+    actual fun loadRelayList(): List<String> {
+        ensureInitialized()
+        val raw = prefs.getString(RELAY_LIST, null) ?: return emptyList()
+        return if (raw.isBlank()) emptyList() else raw.split(",").filter { it.isNotBlank() }
+    }
+
     actual fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>) {
         ensureInitialized()
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
@@ -285,6 +300,53 @@ actual object SecureStorage {
     actual fun clearPendingEvents(pubkey: String) {
         ensureInitialized()
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        prefs.edit().remove(key).apply()
+    }
+
+    // Group metadata cache
+    actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
+        ensureInitialized()
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
+        prefs.edit().putString(key, groupsJson).apply()
+    }
+
+    actual fun getGroupsForRelay(relayUrl: String): String? {
+        ensureInitialized()
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
+        return prefs.getString(key, null)
+    }
+
+    actual fun clearGroupsForRelay(relayUrl: String) {
+        ensureInitialized()
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
+        prefs.edit().remove(key).apply()
+    }
+
+    actual fun saveRelayMetadata(json: String) {
+        ensureInitialized()
+        prefs.edit().putString(RELAY_METADATA_KEY, json).apply()
+    }
+
+    actual fun getRelayMetadata(): String? {
+        ensureInitialized()
+        return prefs.getString(RELAY_METADATA_KEY, null)
+    }
+
+    actual fun saveLiveCursors(relayUrl: String, json: String) {
+        ensureInitialized()
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        prefs.edit().putString(key, json).apply()
+    }
+
+    actual fun getLiveCursors(relayUrl: String): String? {
+        ensureInitialized()
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        return prefs.getString(key, null)
+    }
+
+    actual fun clearLiveCursors(relayUrl: String) {
+        ensureInitialized()
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         prefs.edit().remove(key).apply()
     }
 }

@@ -317,19 +317,15 @@ class GroupLoadingController(
 
     /**
      * Handle connection lost.
+     * Resets ALL states to Idle because the WebSocket subscription is gone regardless
+     * of whether the group was loading or had already loaded messages.
+     * This allows startInitialLoad() to re-subscribe on reconnect.
      */
     suspend fun handleDisconnect() {
         mutex.withLock {
             timeoutJob?.cancel()
             timeoutJob = null
-
-            val currentState = _state.value
-            if (currentState.isLoading) {
-                _state.value = GroupLoadingState.Error(
-                    cursor = getCurrentCursor(),
-                    reason = GroupLoadingState.ErrorReason.DISCONNECTED
-                )
-            }
+            _state.value = GroupLoadingState.Idle
             currentTracker = null
         }
     }
@@ -554,6 +550,19 @@ class GroupLoadingRegistry(
         val snapshot = mutex.withLock {
             subscriptionToController.clear()  // Clear all pending subscriptions
             controllers.values.toList()
+        }
+        snapshot.forEach { it.handleDisconnect() }
+    }
+
+    /**
+     * Handle disconnect for a specific set of groups (e.g. when a pool relay drops).
+     * Resets only the affected groups to Idle so startInitialLoad() can re-subscribe.
+     */
+    suspend fun handleDisconnectForGroups(groupIds: List<String>) {
+        val snapshot = mutex.withLock {
+            groupIds.mapNotNull { controllers[it] }.also { affected ->
+                subscriptionToController.entries.removeAll { e -> e.value in affected }
+            }
         }
         snapshot.forEach { it.handleDisconnect() }
     }

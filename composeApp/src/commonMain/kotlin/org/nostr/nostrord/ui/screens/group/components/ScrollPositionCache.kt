@@ -13,6 +13,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 
 /**
  * Scroll position data using stable keys instead of indices.
@@ -161,11 +162,30 @@ fun <T> ScrollPositionEffect(
     // Track if we've done initial scroll
     var hasInitiallyScrolled by remember(groupId) { mutableStateOf(false) }
 
-    // === RESTORE: When entering group with saved position ===
+    // Whether the user has manually scrolled away from the bottom
+    var userScrolledAway by remember(groupId) { mutableStateOf(false) }
+
+    // === INITIAL SCROLL + STICK-TO-BOTTOM ===
     LaunchedEffect(groupId, items.size) {
         if (items.isEmpty()) return@LaunchedEffect
 
-        // Case 1: Restore from saved position
+        // For chat mode (initialScrollToEnd = true): ALWAYS go to the bottom on open.
+        // Skip any saved position — restoring a mid-conversation position is confusing
+        // because there are no unread markers to guide the user back.
+        if (initialScrollToEnd) {
+            if (!hasInitiallyScrolled) {
+                // Wait until the LazyColumn has laid out at least one item before scrolling,
+                // so the scroll target is calculated against real measured heights.
+                snapshotFlow { listState.layoutInfo.totalItemsCount }
+                    .first { it > 0 }
+                listState.scrollToItem(items.lastIndex, Int.MAX_VALUE)
+                stateHolder.markRestored()
+                hasInitiallyScrolled = true
+            }
+            return@LaunchedEffect
+        }
+
+        // Case 1 (non-chat mode): Restore from saved position
         if (stateHolder.isRestorationPending) {
             val saved = stateHolder.savedPosition
             if (saved != null) {
@@ -175,21 +195,49 @@ fun <T> ScrollPositionEffect(
                     stateHolder.markRestored()
                     hasInitiallyScrolled = true
                 } else {
-                    // Anchor not found - message deleted or not loaded yet
-                    // Wait for more items or give up after initial load
-                    if (hasInitiallyScrolled) {
-                        stateHolder.markRestorationFailed()
-                    }
+                    if (hasInitiallyScrolled) stateHolder.markRestorationFailed()
                 }
             }
             return@LaunchedEffect
         }
 
-        // Case 2: Initial scroll to end (for chat apps)
-        if (!hasInitiallyScrolled && initialScrollToEnd) {
-            listState.scrollToItem(items.lastIndex)
+        // Case 2 (non-chat mode): Scroll to end if requested
+        if (!hasInitiallyScrolled) {
+            listState.scrollToItem(items.lastIndex, Int.MAX_VALUE)
             hasInitiallyScrolled = true
         }
+    }
+
+    // === STICK-TO-BOTTOM after content height grows (e.g. images loading) ===
+    // When a visible item's image loads, total content height increases and
+    // canScrollForward flips true even though the user didn't scroll away.
+    // Re-anchor to the true bottom whenever that happens while near the end.
+    LaunchedEffect(groupId, listState) {
+        if (!initialScrollToEnd) return@LaunchedEffect
+        snapshotFlow {
+            listState.canScrollForward to listState.firstVisibleItemIndex
+        }
+            .distinctUntilChanged()
+            .collect { (canScrollFwd, firstVisible) ->
+                if (!hasInitiallyScrolled) return@collect
+                val nearBottom = items.isNotEmpty() && firstVisible >= items.size - 5
+                if (canScrollFwd && nearBottom && !userScrolledAway) {
+                    listState.scrollToItem(items.lastIndex, Int.MAX_VALUE)
+                }
+            }
+    }
+
+    // Track when the user intentionally scrolls away from the bottom
+    LaunchedEffect(groupId, listState) {
+        if (!initialScrollToEnd) return@LaunchedEffect
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .distinctUntilChanged()
+            .collect { firstVisible ->
+                val nearBottom = items.isNotEmpty() && firstVisible >= items.size - 5
+                if (hasInitiallyScrolled) {
+                    userScrolledAway = !nearBottom
+                }
+            }
     }
 
     // === SAVE: Continuously track position while viewing ===
@@ -225,34 +273,58 @@ fun <T> ScrollPositionEffect(
 
 /**
  * Handles auto-scroll behavior for new messages in a chat.
- * Only scrolls to bottom if user was already near the bottom.
+ * Only scrolls to bottom when a genuinely new message is APPENDED (not when
+ * older messages are prepended during pagination).
+ *
+ * @param getItemKey stable key function — used to distinguish append vs. prepend
  */
 @Composable
 fun <T> AutoScrollEffect(
     listState: LazyListState,
     items: List<T>,
+    getItemKey: ((T) -> String)? = null,
     enabled: Boolean = true,
-    nearBottomThreshold: Int = 3 // Within 3 items of bottom
+    nearBottomThreshold: Int = 3
 ) {
+    var previousLastKey by remember { mutableStateOf<String?>(null) }
     var previousSize by remember { mutableStateOf(items.size) }
 
     LaunchedEffect(items.size) {
         if (!enabled || items.isEmpty()) {
             previousSize = items.size
+            previousLastKey = items.lastOrNull()?.let { getItemKey?.invoke(it) }
             return@LaunchedEffect
         }
 
-        val newItemsCount = items.size - previousSize
-        if (newItemsCount > 0 && previousSize > 0) {
-            // Check if user was near bottom before new items arrived
+        val currentLastKey = items.lastOrNull()?.let { getItemKey?.invoke(it) }
+
+        // Only auto-scroll when the last item changed — that means a new message
+        // was appended.  If the last item is the same (pagination prepended older
+        // messages), do NOT scroll, so the user stays where they were reading.
+        val newMessageAppended = getItemKey != null &&
+            currentLastKey != null &&
+            currentLastKey != previousLastKey &&
+            previousSize > 0
+
+        if (newMessageAppended) {
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val wasNearBottom = lastVisibleIndex >= previousSize - nearBottomThreshold
-
             if (wasNearBottom) {
                 listState.animateScrollToItem(items.lastIndex)
+            }
+        } else if (getItemKey == null) {
+            // Fallback for callers that don't provide a key function (legacy)
+            val newItemsCount = items.size - previousSize
+            if (newItemsCount > 0 && previousSize > 0) {
+                val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+                val wasNearBottom = lastVisibleIndex >= previousSize - nearBottomThreshold
+                if (wasNearBottom) {
+                    listState.animateScrollToItem(items.lastIndex)
+                }
             }
         }
 
         previousSize = items.size
+        previousLastKey = currentLastKey
     }
 }

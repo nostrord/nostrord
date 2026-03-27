@@ -8,9 +8,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.utils.epochMillis
 
+@Serializable
 @Immutable
 data class GroupMetadata(
     val id: String,
@@ -108,6 +110,22 @@ class NostrGroupClient(
     // Track if this was a graceful disconnect
     private var isDisconnecting = false
 
+    // Timestamp of the last WebSocket frame received — used by the heartbeat to detect
+    // relays that stop sending events without closing the connection ("frozen" relays).
+    private var lastMessageReceivedAt = 0L
+
+    // Open subscription IDs tracked for diagnostic logging.
+    // Updated in send() on every REQ/CLOSE. Not synchronised — count may be off by ±1
+    // under concurrent sends, which is acceptable for logging purposes.
+    private val openSubscriptions = mutableSetOf<String>()
+
+    companion object {
+        /** How often the heartbeat checks for stale connections. */
+        private const val HEARTBEAT_CHECK_INTERVAL_MS = 30_000L
+        /** If no frame arrives within this window, the connection is considered frozen. */
+        private const val HEARTBEAT_STALE_MS = 90_000L
+    }
+
     fun getRelayUrl(): String = relayUrl
 
     /**
@@ -135,6 +153,8 @@ class NostrGroupClient(
     suspend fun connect(onMessage: (String) -> Unit) {
         isDisconnecting = false
         connectionJob = clientScope.launch {
+            val connectedAt = epochMillis()
+            lastMessageReceivedAt = connectedAt
             try {
                 client.webSocket(relayUrl) {
                     session = this
@@ -142,28 +162,59 @@ class NostrGroupClient(
                     // Signal that connection is ready
                     connectionReady.trySend(Unit)
 
-                    // Listen to incoming messages
-                    for (frame in incoming) {
-                        if (frame is Frame.Text) {
-                            val text = frame.readText()
-                            onMessage(text)
+                    // Heartbeat: detect relays that stop sending without closing the WebSocket.
+                    // Ktor handles WebSocket-level ping/pong, but some relays freeze at the
+                    // application layer — the socket stays open but events stop arriving.
+                    // If no frame arrives for HEARTBEAT_STALE_MS, close gracefully so that
+                    // onConnectionLost fires and the reconnect loop re-establishes the session.
+                    val wsSession = this
+                    launch {
+                        while (isActive) {
+                            delay(HEARTBEAT_CHECK_INTERVAL_MS)
+                            val idleMs = epochMillis() - lastMessageReceivedAt
+                            if (idleMs > HEARTBEAT_STALE_MS) {
+                                wsSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "heartbeat-stale"))
+                                break
+                            }
                         }
                     }
+
+                    // Listen to incoming messages
+                    for (frame in incoming) {
+                        when (frame) {
+                            is Frame.Text -> {
+                                lastMessageReceivedAt = epochMillis()
+                                onMessage(frame.readText())
+                            }
+                            is Frame.Close -> {} // CLOSED event below captures code + reason
+                            else -> {} // ping/pong handled by Ktor
+                        }
+                    }
+                    val durationSec = (epochMillis() - connectedAt) / 1000
+                    val reason = closeReason.await()
                 }
             } catch (e: Exception) {
-                // Connection error occurred
+                val durationSec = (epochMillis() - connectedAt) / 1000
+                // JobCancellationException = graceful disconnect or race-condition loser in
+                // getOrConnectRelay (expected, not an error). Only log real failures.
+                if (e is kotlinx.coroutines.CancellationException) {
+                    if (!isDisconnecting) {
+                    }
+                    // else: graceful disconnect — silent
+                } else {
+                }
             } finally {
                 val wasConnected = session != null
                 session = null
-                // Notify if connection was lost unexpectedly (not a graceful disconnect)
                 if (wasConnected && !isDisconnecting) {
                     onConnectionLost?.invoke()
+                } else if (!wasConnected && !isDisconnecting) {
                 }
             }
         }
     }
 
-    suspend fun waitForConnection(timeoutMs: Long = 15000): Boolean {
+    suspend fun waitForConnection(timeoutMs: Long = 7_000): Boolean {
         return withTimeoutOrNull(timeoutMs) {
             connectionReady.receive()
             true
@@ -173,13 +224,31 @@ class NostrGroupClient(
     }
 
     suspend fun send(message: String) {
+        trackSubLifecycle(message)
+        val currentSession = session ?: run {
+            throw IllegalStateException("Not connected to $relayUrl")
+        }
         try {
-            val currentSession = session ?: run {
-                return
-            }
             currentSession.send(Frame.Text(message))
         } catch (e: Exception) {
+            throw e  // Propagate so callers (GroupManager) can transition to Error state
         }
+    }
+
+    /**
+     * Tracks open/closed subscriptions for slot-count diagnostics.
+     * No per-sub logging here — mux subs are logged at the call site in sendMuxSubscriptions.
+     */
+    private fun trackSubLifecycle(message: String) {
+        try {
+            if (!message.startsWith("""["REQ"""") && !message.startsWith("""["CLOSE"""")) return
+            val arr = json.parseToJsonElement(message).jsonArray
+            val subId = arr[1].jsonPrimitive.content
+            when (arr[0].jsonPrimitive.content) {
+                "REQ" -> openSubscriptions.add(subId)
+                "CLOSE" -> openSubscriptions.remove(subId)
+            }
+        } catch (_: Exception) {}
     }
 
     /**
@@ -371,9 +440,13 @@ class NostrGroupClient(
     }
 
     suspend fun requestGroups() {
+        // Use a relay-specific subscription ID to avoid collisions when multiple
+        // relay clients are active concurrently. The ID must be stable per relay
+        // so the EOSE handler can map it back to the originating relay URL.
+        val subId = "group-list-${relayUrl.hashCode().toUInt()}"
         val req = buildJsonArray {
             add("REQ")
-            add("group-list")
+            add(subId)
             add(
                 buildJsonObject {
                     putJsonArray("kinds") { add(39000) }
@@ -384,19 +457,33 @@ class NostrGroupClient(
     }
 
     /**
+     * Returns the subscription ID that requestGroups() uses for this relay.
+     * Used by callers (e.g., EOSE handler) to identify the originating relay.
+     */
+    fun groupListSubscriptionId(): String = "group-list-${relayUrl.hashCode().toUInt()}"
+
+    /**
      * Subscribe for kind:39000 metadata for a specific group.
      * Called when entering a group screen to ensure metadata is fresh.
+     *
+     * Uses a short deterministic sub ID (same pattern as admins/members) so repeated
+     * calls reuse the same relay slot instead of leaking a new subscription each time.
+     * Sends CLOSE before REQ so the relay resets and re-delivers the latest state.
+     * Returns the sub ID so the caller can send CLOSE after EOSE.
      */
-    suspend fun requestGroupMetadata(groupId: String) {
+    suspend fun requestGroupMetadata(groupId: String): String {
+        val subId = "meta_${groupId.take(8)}"
+        send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
         val req = buildJsonArray {
             add("REQ")
-            add("meta_${groupId}")
+            add(subId)
             add(buildJsonObject {
                 putJsonArray("kinds") { add(39000) }
                 put("#d", buildJsonArray { add(groupId) })
             })
         }
         sendJson(req)
+        return subId
     }
 
 suspend fun requestGroupMessages(
@@ -407,13 +494,16 @@ suspend fun requestGroupMessages(
     subscriptionId: String? = null
 ): String {
     val subId = subscriptionId ?: "msg_${epochMillis()}"
+
+    // CHAT + ADMIN subscription: kinds that are paginated and count against the limit.
+    // Reactions (kind 7) and zaps (kind 9321) are covered by the relay-level mux_reactions sub
+    // so they are intentionally omitted here to preserve the per-group limit budget.
     val subscription = buildJsonArray {
         add("REQ")
         add(subId)
         add(buildJsonObject {
             put("kinds", buildJsonArray {
                 add(5)      // Deletion requests (NIP-09)
-                add(7)      // Reactions
                 add(9)      // Chat messages (NIP-29)
                 add(9000)   // Group admin: add user (NIP-29)
                 add(9001)   // Group admin: remove user (NIP-29)
@@ -421,7 +511,6 @@ suspend fun requestGroupMessages(
                 add(9003)   // Group admin: delete event (NIP-29)
                 add(9021)   // Join request
                 add(9022)   // Leave request
-                add(9321)   // Zap request (NIP-57)
             })
             put("#h", buildJsonArray {
                 add(groupId)
@@ -440,16 +529,124 @@ suspend fun requestGroupMessages(
         })
     }.toString()
 
-    send(subscription)
+    send(subscription)  // may throw — caller (GroupManager) catches and handles via state machine
     return subId
 }
 
+/**
+ * Deterministic sub ID for the relay-level multiplexed chat subscription.
+ * Using the relay URL hash makes it stable across reconnects so the relay doesn't
+ * accumulate duplicate slots.
+ */
+fun muxChatSubId(): String = "mux_chat_${relayUrl.hashCode().toUInt()}"
+
+/**
+ * Deterministic sub ID for the relay-level multiplexed reactions subscription.
+ */
+fun muxReactionsSubId(): String = "mux_reactions_${relayUrl.hashCode().toUInt()}"
+
+/**
+ * Deterministic sub ID for the relay-level multiplexed group-metadata subscription.
+ */
+fun muxMetaSubId(): String = "mux_meta_${relayUrl.hashCode().toUInt()}"
+
+/**
+ * Send (or refresh) the three relay-level multiplexed subscriptions.
+ *
+ * Replaces per-group `live_<id>` + `reactions_<id>` with three relay-scoped REQs that cover
+ * ALL joined/loaded groups on this relay simultaneously.  Benefits:
+ *
+ * - N×3 per-group subs → 3 per-relay subs regardless of group count
+ * - A single reconnect re-subscribes everything with one round-trip
+ * - `since = min(cursors)` ensures no group misses events during the offline window
+ *
+ * Idempotent: sends CLOSE before REQ so calling it multiple times is safe.
+ *
+ * @param metadataGroupIds Group IDs for the metadata mux (kind:39000 — all joined groups).
+ * @param chatGroupIds     Group IDs for chat + reactions mux (active group only, or empty).
+ * @param sinceSeconds     Unix-seconds `since` value (use min cursor across all groups).
+ */
+suspend fun sendMuxSubscriptions(
+    metadataGroupIds: List<String>,
+    chatGroupIds: List<String>,
+    sinceSeconds: Long
+) {
+    if (metadataGroupIds.isEmpty() && chatGroupIds.isEmpty()) return
+    val chatSubId = muxChatSubId()
+    val reactSubId = muxReactionsSubId()
+    val metaSubId = muxMetaSubId()
+
+    // Close the previous mux slots first (idempotent — no-op if not open).
+    send(buildJsonArray { add("CLOSE"); add(chatSubId) }.toString())
+    send(buildJsonArray { add("CLOSE"); add(reactSubId) }.toString())
+    send(buildJsonArray { add("CLOSE"); add(metaSubId) }.toString())
+
+    // Chat + admin events for the active group(s) only.
+    if (chatGroupIds.isNotEmpty()) {
+        send(buildJsonArray {
+            add("REQ"); add(chatSubId)
+            add(buildJsonObject {
+                putJsonArray("kinds") {
+                    add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
+                }
+                putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
+                put("since", sinceSeconds)
+            })
+        }.toString())
+
+        // Reactions / zaps for the active group(s) only.
+        send(buildJsonArray {
+            add("REQ"); add(reactSubId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(7); add(9321) }
+                putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
+                put("since", sinceSeconds)
+            })
+        }.toString())
+    }
+
+    // Group metadata (kind 39000) for all joined groups on this relay.
+    if (metadataGroupIds.isNotEmpty()) {
+        send(buildJsonArray {
+            add("REQ"); add(metaSubId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(39000) }
+                putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
+                put("since", sinceSeconds)
+            })
+        }.toString())
+    }
+}
+
+/**
+ * Superseded by [sendMuxSubscriptions] — kept as a single-group fallback.
+ * @param sinceSeconds  Cursor-based Unix-seconds since value from [LiveCursorStore].
+ */
+suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
+    val subId = "live_${groupId.take(8)}"
+    val since = sinceSeconds ?: (epochMillis() / 1000 - 60)
+    send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+    send(buildJsonArray {
+        add("REQ")
+        add(subId)
+        add(buildJsonObject {
+            putJsonArray("kinds") {
+                add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
+            }
+            put("#h", buildJsonArray { add(groupId) })
+            put("since", since)
+        })
+    }.toString())
+}
+
     private suspend fun sendJson(jsonElement: JsonElement) {
-        val currentSession = session ?: run {
-            return
-        }
         val text = json.encodeToString(JsonElement.serializer(), jsonElement)
-        currentSession.send(Frame.Text(text))
+        try {
+            send(text)
+        } catch (_: Exception) {
+            // sendJson is used for fire-and-forget subscriptions (group list, metadata, members).
+            // Failures here are non-fatal — the caller will retry on next reconnect.
+        }
     }
 
     fun parseGroupMetadata(message: String): GroupMetadata? {
@@ -474,8 +671,8 @@ suspend fun requestGroupMessages(
                 name = tagMap["name"],
                 about = tagMap["about"],
                 picture = tagMap["picture"],
-                isPublic = tagNames.contains("public"),
-                isOpen = tagNames.contains("open")
+                isPublic = !tagNames.contains("private"),
+                isOpen = !tagNames.contains("closed")
             )
         } catch (e: Exception) {
             null
@@ -545,9 +742,16 @@ suspend fun requestGroupMessages(
 
     /**
      * Request group admins (kind 39001) for a specific group.
+     *
+     * Uses a deterministic subscription ID so repeated calls reuse the same relay slot
+     * instead of leaking a new subscription each time. Without this, 5 groups × 4
+     * reconnects = 20 admin subscriptions — most relays cap at 20–30 total.
      */
     suspend fun requestGroupAdmins(groupId: String): String {
-        val subId = "admins_${epochMillis()}"
+        val subId = "admins_${groupId.take(8)}"
+        // Close any existing subscription for this group before re-opening to signal
+        // to the relay that it should reset and re-send the latest state.
+        send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
         val req = buildJsonArray {
             add("REQ")
             add(subId)
@@ -562,9 +766,13 @@ suspend fun requestGroupMessages(
 
     /**
      * Request group members (kind 39002) for a specific group.
+     *
+     * Same deterministic ID rationale as requestGroupAdmins.
      */
     suspend fun requestGroupMembers(groupId: String): String {
-        val subId = "members_${epochMillis()}"
+        val subId = "members_${groupId.take(8)}"
+        // Close existing subscription before re-opening.
+        send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
         val req = buildJsonArray {
             add("REQ")
             add(subId)
@@ -756,9 +964,13 @@ suspend fun requestGroupMessages(
     }
 
     suspend fun requestMetadata(pubkeys: List<String>) {
+        if (pubkeys.isEmpty()) return
+        val subId = "metadata_${pubkeys.first().take(8)}"
+        // CLOSE any previous subscription for this pubkey before re-subscribing
+        sendJson(buildJsonArray { add("CLOSE"); add(subId) })
         val req = buildJsonArray {
             add("REQ")
-            add("metadata_${epochMillis()}")
+            add(subId)
             add(buildJsonObject {
                 putJsonArray("kinds") { add(0) } // kind 0 = metadata
                 putJsonArray("authors") {
@@ -812,5 +1024,20 @@ suspend fun requestGroupMessages(
         connectionJob?.cancel()
         session?.close()
         client.close()
+    }
+
+    /**
+     * Non-graceful cleanup for abandoned clients (timeout, error).
+     * Closes the HttpClient and cancels coroutines WITHOUT touching session
+     * (which may be null or mid-close). Does NOT send any frames.
+     * Call this instead of disconnect() when the connection was never established
+     * or when orphaning a client after a concurrent connect succeeded first.
+     */
+    fun cancelAndClose() {
+        onConnectionLost = null   // prevent any further callbacks
+        isDisconnecting = true
+        connectionJob?.cancel()
+        clientScope.coroutineContext.cancelChildren()
+        try { client.close() } catch (_: Exception) {}
     }
 }

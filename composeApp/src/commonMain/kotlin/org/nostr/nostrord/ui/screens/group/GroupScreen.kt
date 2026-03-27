@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
@@ -25,7 +26,8 @@ fun GroupScreen(
     groupName: String?,
     onNavigateHome: () -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
-    showServerRail: Boolean = true // When false, server rail is handled by parent shell
+    showServerRail: Boolean = true, // When false, server rail is handled by parent shell
+    onOpenDrawer: () -> Unit = {}
 ) {
     val vm = viewModel(key = groupId) { GroupViewModel(AppModule.nostrRepository, groupId) }
 
@@ -47,6 +49,7 @@ fun GroupScreen(
     }
 
     val deleteMessageError by vm.deleteMessageError.collectAsState()
+    val reactionError by vm.reactionError.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
     val joinedGroups by vm.joinedGroups.collectAsState()
     val groups by vm.groups.collectAsState()
@@ -132,12 +135,22 @@ fun GroupScreen(
         buildChatItems(messages)
     }
 
+    val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
+
     LaunchedEffect(groupId) {
         vm.requestGroupMessages(selectedChannel)
     }
 
     LaunchedEffect(selectedChannel) {
         vm.requestGroupMessages(selectedChannel)
+    }
+
+    // Re-request messages when connection is restored so the open group reloads after
+    // a reconnect, even if it wasn't in the joined list or messages cache.
+    LaunchedEffect(connectionState) {
+        if (connectionState is ConnectionManager.ConnectionState.Connected) {
+            vm.requestGroupMessages(selectedChannel)
+        }
     }
 
     // Group info modal
@@ -231,6 +244,43 @@ fun GroupScreen(
         )
     }
 
+    // Reaction error dialog (relay rejected kind 7)
+    reactionError?.let { error ->
+        val isUnknownMember = error.contains("unknown member", ignoreCase = true)
+        AlertDialog(
+            onDismissRequest = { vm.clearReactionError() },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text(if (isUnknownMember) "Join Required" else "Cannot React") },
+            text = {
+                Text(
+                    if (isUnknownMember) "You need to join this group before you can react to messages."
+                    else "This relay does not support reactions.\n\n$error"
+                )
+            },
+            confirmButton = {
+                if (isUnknownMember) {
+                    TextButton(onClick = {
+                        vm.clearReactionError()
+                        vm.joinGroup()
+                    }) {
+                        Text("Join Group", color = NostrordColors.Primary)
+                    }
+                } else {
+                    TextButton(onClick = { vm.clearReactionError() }) {
+                        Text("OK", color = NostrordColors.Primary)
+                    }
+                }
+            },
+            dismissButton = if (isUnknownMember) {
+                { TextButton(onClick = { vm.clearReactionError() }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                } }
+            } else null
+        )
+    }
+
     // User profile modal
     selectedUserPubkey?.let { pubkey ->
         UserProfileModal(
@@ -269,6 +319,10 @@ fun GroupScreen(
     }
 
     // Responsive layout
+    val parentHidden = LocalAnimatedImageHidden.current
+    val anyDialogOpen = parentHidden || showLeaveDialog || showGroupInfoModal || showEditGroupModal ||
+        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null
+    CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isCompact = maxWidth < 600.dp
 
@@ -279,6 +333,7 @@ fun GroupScreen(
                 groupMetadata = currentGroupMetadata,
                 selectedChannel = selectedChannel,
                 onChannelSelect = { selectedChannel = it },
+                onOpenDrawer = onOpenDrawer,
                 messages = messages,
                 chatItems = chatItems,
                 connectionStatus = connectionStatus,
@@ -308,7 +363,14 @@ fun GroupScreen(
                 replyingToMessage = replyingToMessage,
                 onReplyClick = { message -> replyingToMessage = message },
                 onDeleteMessage = { message -> messageToDelete = message },
+                onReactionBadgeClick = { messageId, emoji ->
+                    val targetMessage = messages.find { it.id == messageId }
+                    if (targetMessage != null) {
+                        vm.sendReaction(messageId, targetMessage.pubkey, emoji)
+                    }
+                },
                 onCancelReply = { replyingToMessage = null },
+                isInitialLoading = isInitialLoading,
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
                 onLoadMore = { vm.loadMoreMessages(selectedChannel) },
@@ -355,7 +417,14 @@ fun GroupScreen(
                 replyingToMessage = replyingToMessage,
                 onReplyClick = { message -> replyingToMessage = message },
                 onDeleteMessage = { message -> messageToDelete = message },
+                onReactionBadgeClick = { messageId, emoji ->
+                    val targetMessage = messages.find { it.id == messageId }
+                    if (targetMessage != null) {
+                        vm.sendReaction(messageId, targetMessage.pubkey, emoji)
+                    }
+                },
                 onCancelReply = { replyingToMessage = null },
+                isInitialLoading = isInitialLoading,
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
                 onLoadMore = { vm.loadMoreMessages(selectedChannel) },
@@ -368,4 +437,5 @@ fun GroupScreen(
             )
         }
     }
+    } // CompositionLocalProvider
 }

@@ -38,6 +38,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.getImageUrl
+import org.nostr.nostrord.utils.isAnimatedImageUrl
 
 /**
  * Full-screen image viewer modal with zoom and pan support.
@@ -56,6 +57,7 @@ fun ImageViewerModal(
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalPlatformContext.current
+    val isAnimated = isAnimatedImageUrl(imageUrl)
 
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
 
@@ -123,30 +125,42 @@ fun ImageViewerModal(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(getImageUrl(imageUrl))
-                        .crossfade(true)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .build(),
-                    contentDescription = "Full size image",
-                    contentScale = ContentScale.Fit,
-                    filterQuality = FilterQuality.High,
-                    modifier = Modifier
-                        .fillMaxWidth(0.95f)
-                        .fillMaxHeight(0.85f)
-                        // Stop click propagation to prevent closing when clicking image
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { /* consume click */ },
-                    onState = { imageState = it }
-                )
+                if (isAnimated) {
+                    // Animated GIF/WebP: delegate to platform renderer so frames play
+                    AnimatedImage(
+                        url = imageUrl,
+                        modifier = Modifier
+                            .fillMaxWidth(0.95f)
+                            .fillMaxHeight(0.85f),
+                        contentScale = ContentScale.Fit,
+                        onClick = { /* consume — prevent backdrop dismiss */ }
+                    )
+                } else {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(getImageUrl(imageUrl))
+                            .crossfade(true)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        contentDescription = "Full size image",
+                        contentScale = ContentScale.Fit,
+                        filterQuality = FilterQuality.High,
+                        modifier = Modifier
+                            .fillMaxWidth(0.95f)
+                            .fillMaxHeight(0.85f)
+                            // Stop click propagation to prevent closing when clicking image
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { /* consume click */ },
+                        onState = { imageState = it }
+                    )
+                }
             }
 
-            // Loading indicator
-            if (imageState is AsyncImagePainter.State.Loading) {
+            // Loading indicator — only for static images; AnimatedImage manages its own
+            if (!isAnimated && imageState is AsyncImagePainter.State.Loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(48.dp),
                     color = NostrordColors.Primary,

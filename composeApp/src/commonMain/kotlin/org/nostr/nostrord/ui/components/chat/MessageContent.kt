@@ -54,6 +54,7 @@ import coil3.size.Size
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.getImageUrl
+import org.nostr.nostrord.utils.isAnimatedImageUrl
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
@@ -62,6 +63,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 
 // Type alias to bridge new parser to existing rendering code
 private typealias ContentPart = MessageContentParser.ParsedPart
@@ -88,6 +90,58 @@ private typealias CashuRequestPart = MessageContentParser.ParsedPart.CashuReques
  */
 private fun parseContent(content: String, emojiMap: Map<String, String> = emptyMap()): List<ContentPart> {
     return MessageContentParser.parse(content, emojiMap)
+}
+
+// Regex matching emoji codepoints: emoticons, dingbats, symbols, supplemental, flags, etc.
+private val emojiRegex = Regex(
+    "[" +
+        "\u00A9\u00AE" +                         // ©®
+        "\u200D" +                                // ZWJ
+        "\u203C\u2049" +                          // ‼⁉
+        "\u2122\u2139" +                          // ™ℹ
+        "\u2194-\u21AA" +                         // arrows
+        "\u231A-\u23FF" +                         // misc technical
+        "\u2460-\u24FF" +                         // enclosed alphanumerics
+        "\u25AA-\u27BF" +                         // geometric shapes, misc symbols
+        "\u2934-\u2935" +                         // arrows
+        "\u2B05-\u2B55" +                         // misc symbols
+        "\u3030\u303D\u3297\u3299" +              // CJK symbols
+        "\uD83C\uDC04-\uD83D\uDEFF" +            // misc symbols & pictographs, emoticons, transport
+        "\uD83E\uDD00-\uD83E\uDDFF" +            // supplemental symbols
+        "\uD83E\uDE00-\uD83E\uDEFF" +            // extended-A
+        "\uD83C\uDDE6-\uD83C\uDDFF" +            // regional indicator symbols (flags)
+        "\uD83C\uDF00-\uD83C\uDFFF" +            // misc symbols
+        "\uD83D\uDE00-\uD83D\uDE4F" +            // emoticons
+        "\uD83D\uDE80-\uD83D\uDEFF" +            // transport & map
+        "\uFE0E\uFE0F" +                         // variation selectors
+        "\u20E3" +                                // combining enclosing keycap
+        "]+"
+)
+
+/**
+ * Appends text to an AnnotatedString, applying [emojiFontFamily] only to emoji segments.
+ * Non-emoji text is appended without any font override (inherits from the Text style).
+ */
+private fun AnnotatedString.Builder.appendWithEmojiFont(
+    text: String,
+    emojiFontFamily: FontFamily
+) {
+    var lastEnd = 0
+    emojiRegex.findAll(text).forEach { match ->
+        // Append non-emoji text before this match
+        if (match.range.first > lastEnd) {
+            append(text.substring(lastEnd, match.range.first))
+        }
+        // Append emoji with NotoColorEmoji font
+        withStyle(SpanStyle(fontFamily = emojiFontFamily)) {
+            append(match.value)
+        }
+        lastEnd = match.range.last + 1
+    }
+    // Append remaining non-emoji text
+    if (lastEnd < text.length) {
+        append(text.substring(lastEnd))
+    }
 }
 
 /**
@@ -206,6 +260,8 @@ fun MessageContent(
         }
     }
 
+    val parentHidden = LocalAnimatedImageHidden.current
+    CompositionLocalProvider(LocalAnimatedImageHidden provides (parentHidden || selectedImageUrl != null)) {
     Column(modifier = modifier) {
         groups.forEach { group ->
             val firstPart = group.firstOrNull()
@@ -314,6 +370,7 @@ fun MessageContent(
             }
         }
     }
+    } // CompositionLocalProvider
 
     // Image viewer modal
     selectedImageUrl?.let { imageUrl ->
@@ -415,12 +472,13 @@ private fun InlineContentWithEmojis(
     }
 
     // Build the annotated string with matching sequential emoji IDs
-    val annotatedString = remember(parts, userMetadata) {
+    val emojiFontFamily = rememberEmojiFontFamily()
+    val annotatedString = remember(parts, userMetadata, emojiFontFamily) {
         var emojiIndex = 0
         buildAnnotatedString {
             parts.forEach { part ->
                 when (part) {
-                    is TextPart -> append(part.content)
+                    is TextPart -> appendWithEmojiFont(part.content, emojiFontFamily)
                     is LinkPart -> {
                         withLink(
                             LinkAnnotation.Url(
@@ -540,11 +598,12 @@ private fun InlineContentTextOnly(
     onMentionClick: (String) -> Unit = {},
     onHashtagClick: (String) -> Unit = {}
 ) {
-    val annotatedString = remember(parts, userMetadata) {
+    val emojiFontFamily = rememberEmojiFontFamily()
+    val annotatedString = remember(parts, userMetadata, emojiFontFamily) {
         buildAnnotatedString {
             parts.forEach { part ->
                 when (part) {
-                    is TextPart -> append(part.content)
+                    is TextPart -> appendWithEmojiFont(part.content, emojiFontFamily)
                     is LinkPart -> {
                         withLink(
                             LinkAnnotation.Url(
@@ -832,6 +891,21 @@ private fun ChatImage(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Animated GIF and animated WebP need a platform-specific renderer.
+    // On Android, Coil's AnimatedImageDecoder (API 28+) handles both formats automatically.
+    // On JVM Desktop, we decode frame-by-frame via ImageIO (GIF) or Skia Codec (WebP).
+    if (isAnimatedImageUrl(imageUrl)) {
+        AnimatedImage(
+            url = imageUrl,
+            modifier = modifier
+                .widthIn(max = 400.dp)
+                .heightIn(max = 300.dp)
+                .clip(NostrordShapes.imageShape),
+            onClick = onClick
+        )
+        return
+    }
+
     val context = LocalPlatformContext.current
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
     var showError by remember { mutableStateOf(false) }
@@ -1690,13 +1764,14 @@ private fun QuotedInlineContentGroup(
             }
     }
 
-    val annotatedString = remember(parts, userMetadata) {
+    val emojiFontFamily = rememberEmojiFontFamily()
+    val annotatedString = remember(parts, userMetadata, emojiFontFamily) {
         var emojiIndex = 0
         buildAnnotatedString {
             parts.forEach { part ->
                 when (part) {
                     is TextPart -> {
-                        append(part.content)
+                        appendWithEmojiFont(part.content, emojiFontFamily)
                     }
                     is LinkPart -> {
                         withLink(

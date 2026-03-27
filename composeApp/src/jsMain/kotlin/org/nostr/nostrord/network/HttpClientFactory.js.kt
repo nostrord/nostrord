@@ -2,6 +2,7 @@ package org.nostr.nostrord.network
 
 import io.ktor.client.*
 import io.ktor.client.engine.js.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.serialization.kotlinx.json.*
@@ -14,5 +15,11 @@ actual fun createHttpClient(): HttpClient = HttpClient(Js) {
             ignoreUnknownKeys = true
             isLenient = true
         })
+    }
+}
+
+actual fun createNip11HttpClient(): HttpClient = HttpClient(Js) {
+    install(HttpTimeout) {
+        requestTimeoutMillis = 8_000
     }
 }

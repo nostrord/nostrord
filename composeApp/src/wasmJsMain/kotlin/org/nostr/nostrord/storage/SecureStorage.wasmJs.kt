@@ -22,6 +22,7 @@ actual object SecureStorage {
     private const val PRIVATE_KEY_PREF = "nostr_private_key"
     private const val JOINED_GROUPS_PREFIX = "joined_groups_"
     private const val CURRENT_RELAY_URL = "current_relay_url"
+    private const val RELAY_LIST = "relay_list"
     private const val BUNKER_URL_PREF = "nostr_bunker_url"
     private const val BUNKER_USER_PUBKEY_PREF = "nostr_bunker_user_pubkey"
     private const val BUNKER_CLIENT_PRIVATE_KEY_PREF = "nostr_bunker_client_private_key"
@@ -30,6 +31,9 @@ actual object SecureStorage {
     private const val LAST_VIEWED_GROUP_PREFIX = "last_viewed_group_"
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
+    private const val RELAY_GROUPS_PREFIX = "relay_groups_"
+    private const val RELAY_METADATA_KEY = "relay_metadata"
+    private const val LIVE_CURSORS_PREFIX = "live_cursors_"
 
     actual fun savePrivateKey(privateKeyHex: String) {
         jsSetItem(PRIVATE_KEY_PREF, privateKeyHex)
@@ -58,7 +62,16 @@ actual object SecureStorage {
     actual fun clearCurrentRelayUrl() {
         jsRemoveItem(CURRENT_RELAY_URL)
     }
-    
+
+    actual fun saveRelayList(relays: List<String>) {
+        jsSetItem(RELAY_LIST, relays.joinToString(","))
+    }
+
+    actual fun loadRelayList(): List<String> {
+        val raw = jsGetItem(RELAY_LIST) ?: return emptyList()
+        return if (raw.isBlank()) emptyList() else raw.split(",").filter { it.isNotBlank() }
+    }
+
     actual fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>) {
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = groupIds.joinToString(",")
@@ -234,6 +247,45 @@ actual object SecureStorage {
 
     actual fun clearPendingEvents(pubkey: String) {
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
+        jsRemoveItem(key)
+    }
+
+    // Group metadata cache
+    actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
+        jsSetItem(key, groupsJson)
+    }
+
+    actual fun getGroupsForRelay(relayUrl: String): String? {
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
+        return jsGetItem(key)
+    }
+
+    actual fun clearGroupsForRelay(relayUrl: String) {
+        val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
+        jsRemoveItem(key)
+    }
+
+    actual fun saveRelayMetadata(json: String) {
+        jsSetItem(RELAY_METADATA_KEY, json)
+    }
+
+    actual fun getRelayMetadata(): String? {
+        return jsGetItem(RELAY_METADATA_KEY)
+    }
+
+    actual fun saveLiveCursors(relayUrl: String, json: String) {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        jsSetItem(key, json)
+    }
+
+    actual fun getLiveCursors(relayUrl: String): String? {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
+        return jsGetItem(key)
+    }
+
+    actual fun clearLiveCursors(relayUrl: String) {
+        val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         jsRemoveItem(key)
     }
 }

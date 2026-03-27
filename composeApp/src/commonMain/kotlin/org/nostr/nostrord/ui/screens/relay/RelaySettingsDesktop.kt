@@ -27,7 +27,6 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 fun RelaySettingsDesktop(
     listState: LazyListState,
     relays: List<RelayInfo>,
-    currentRelay: String,
     onNavigate: (Screen) -> Unit,
     onSelectRelay: (String) -> Unit,
     onAddRelay: () -> Unit,
@@ -118,12 +117,9 @@ fun RelaySettingsDesktop(
                     items(relays) { relay ->
                         RelayCard(
                             relay = relay,
-                            isActive = relay.url == currentRelay,
                             isCompact = false,
                             onSelectRelay = { onSelectRelay(relay.url) },
-                            onDeleteRelay = if (onDeleteRelay != null && relay.url != currentRelay) {
-                                { onDeleteRelay(relay.url) }
-                            } else null
+                            onDeleteRelay = onDeleteRelay?.let { cb -> { cb(relay.url) } }
                         )
                     }
 

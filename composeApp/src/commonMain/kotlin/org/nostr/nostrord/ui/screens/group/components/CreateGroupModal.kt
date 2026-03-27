@@ -32,6 +32,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -57,6 +58,7 @@ fun CreateGroupModal(
 
     var name by remember { mutableStateOf("") }
     var about by remember { mutableStateOf("") }
+    var picture by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
     var isClosed by remember { mutableStateOf(false) }
     var isCreating by remember { mutableStateOf(false) }
@@ -270,6 +272,16 @@ fun CreateGroupModal(
                         shape = RoundedCornerShape(8.dp)
                     )
 
+                    Spacer(modifier = Modifier.height(Spacing.lg))
+
+                    UploadImageField(
+                        label = "Group Image URL",
+                        value = picture,
+                        onValueChange = { picture = it },
+                        placeholder = "https://example.com/image.jpg",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
                     Spacer(modifier = Modifier.height(Spacing.xxl))
 
                     // Access settings
@@ -366,7 +378,8 @@ fun CreateGroupModal(
                                             about = about.trim().ifBlank { null },
                                             relayUrl = selectedRelay,
                                             isPrivate = isPrivate,
-                                            isClosed = isClosed
+                                            isClosed = isClosed,
+                                            picture = picture.trim().ifBlank { null }
                                         )
                                         isCreating = false
                                         creatingJob = null

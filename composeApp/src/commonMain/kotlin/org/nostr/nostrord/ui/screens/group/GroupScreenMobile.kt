@@ -8,10 +8,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,6 +40,7 @@ import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
+import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -64,6 +66,7 @@ fun GroupScreenMobile(
     groupMetadata: GroupMetadata?,
     selectedChannel: String,
     onChannelSelect: (String) -> Unit,
+    onOpenDrawer: () -> Unit = {},
     messages: List<NostrGroupClient.NostrMessage>,
     chatItems: List<ChatItem>,
     connectionStatus: String,
@@ -88,7 +91,9 @@ fun GroupScreenMobile(
     replyingToMessage: NostrMessage? = null,
     onReplyClick: (NostrMessage) -> Unit = {},
     onDeleteMessage: (NostrMessage) -> Unit = {},
+    onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onCancelReply: () -> Unit = {},
+    isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -107,6 +112,8 @@ fun GroupScreenMobile(
     var dragStartX by remember { mutableStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
 
+    val parentHidden = LocalAnimatedImageHidden.current
+    CompositionLocalProvider(LocalAnimatedImageHidden provides (parentHidden || showMemberSheet)) {
     Scaffold(
         topBar = {
             MobileGroupTopBar(
@@ -114,6 +121,7 @@ fun GroupScreenMobile(
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
                 isAdmin = isAdmin,
+                onOpenDrawer = onOpenDrawer,
                 onTitleClick = onShowGroupInfo,
                 onMembersClick = { showMemberSheet = true },
                 onJoinClick = onJoinGroup,
@@ -178,12 +186,14 @@ fun GroupScreenMobile(
                         reactions = reactions,
                         currentUserPubkey = currentUserPubkey,
                         isJoined = isJoined,
+                        isInitialLoading = isInitialLoading,
                         isLoadingMore = isLoadingMore,
                         hasMoreMessages = hasMoreMessages,
                         onLoadMore = onLoadMore,
                         onUsernameClick = onUserClick,
                         onReplyClick = onReplyClick,
                         onDeleteMessage = onDeleteMessage,
+                        onReactionBadgeClick = onReactionBadgeClick,
                         onNavigateToGroup = { targetGroupId, targetGroupName, targetRelayUrl ->
                             if (targetRelayUrl != null) onSwitchRelay(targetRelayUrl)
                             onNavigateToGroup(targetGroupId, targetGroupName)
@@ -211,6 +221,7 @@ fun GroupScreenMobile(
             }
         }
     }
+    } // CompositionLocalProvider
 
     // Member list bottom sheet
     if (showMemberSheet) {
@@ -223,6 +234,7 @@ fun GroupScreenMobile(
             MemberSidebar(
                 members = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
+                isLoading = isInitialLoading && groupMembers.isEmpty(),
                 onMemberClick = { member ->
                     showMemberSheet = false
                     onUserClick(member.pubkey)
@@ -245,6 +257,7 @@ private fun MobileGroupTopBar(
     groupMetadata: GroupMetadata?,
     isJoined: Boolean,
     isAdmin: Boolean = false,
+    onOpenDrawer: () -> Unit = {},
     onTitleClick: () -> Unit,
     onMembersClick: () -> Unit,
     onJoinClick: () -> Unit,
@@ -253,6 +266,18 @@ private fun MobileGroupTopBar(
     onDeleteClick: () -> Unit = {}
 ) {
     TopAppBar(
+        navigationIcon = {
+            IconButton(
+                onClick = onOpenDrawer,
+                modifier = Modifier.size(Spacing.touchTargetMin)
+            ) {
+                Icon(
+                    Icons.Default.Menu,
+                    contentDescription = "Open sidebar",
+                    tint = Color.White
+                )
+            }
+        },
         title = {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -343,21 +368,6 @@ private fun MobileGroupTopBar(
                         onDismissRequest = { menuExpanded = false },
                         containerColor = NostrordColors.Surface
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Settings", color = NostrordColors.TextPrimary) },
-                            onClick = {
-                                menuExpanded = false
-                                // TODO: Navigate to group settings
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Settings,
-                                    contentDescription = null,
-                                    tint = NostrordColors.TextSecondary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        )
                         if (isAdmin) {
                             DropdownMenuItem(
                                 text = { Text("Edit Group", color = NostrordColors.TextPrimary) },
