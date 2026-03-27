@@ -81,6 +81,10 @@ class GroupManager(
         _loadingRelays.update { it + relayUrl }
     }
 
+    fun markRelayLoaded(relayUrl: String) {
+        _loadingRelays.update { it - relayUrl }
+    }
+
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages.asStateFlow()
 

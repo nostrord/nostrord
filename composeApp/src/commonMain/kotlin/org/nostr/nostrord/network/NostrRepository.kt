@@ -504,6 +504,10 @@ class NostrRepository(
         }
         _relayMetadataManager.fetch(newRelayUrl)
 
+        // Mark the new relay as loading BEFORE clearing groups so the UI
+        // shows skeleton loaders immediately instead of a flash of empty state.
+        groupManager.markRelayLoading(newRelayUrl)
+
         // Clears messages/state but NOT the group metadata cache (_groupsByRelay).
         groupManager.clearForRelaySwitch()
 
@@ -527,9 +531,15 @@ class NostrRepository(
             sessionManager.sendAuthIfNeeded(client)
             // Skip re-fetch if cached; re-fetching races against restored state.
             if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
-                groupManager.markRelayLoading(newRelayUrl)
+                // Loading was already marked above; request fresh groups from relay.
                 client.requestGroups()
+            } else {
+                // Cache was restored — no EOSE will arrive, so unmark loading now.
+                groupManager.markRelayLoaded(newRelayUrl)
             }
+        } else if (groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
+            // No connection yet but cache was restored — unmark loading.
+            groupManager.markRelayLoaded(newRelayUrl)
         }
 
         outboxManager.resetKind10009State()
