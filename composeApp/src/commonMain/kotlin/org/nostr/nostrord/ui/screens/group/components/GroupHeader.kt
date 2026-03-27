@@ -3,6 +3,7 @@ package org.nostr.nostrord.ui.screens.group.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Delete
@@ -16,15 +17,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.util.generateColorFromString
+import org.nostr.nostrord.utils.getImageUrl
 
 /**
  * Enhanced group header with description, member count, and status indicators.
@@ -70,11 +81,11 @@ fun GroupHeader(
                     .padding(end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Group avatar
-                ProfileAvatar(
-                    imageUrl = groupMetadata?.picture,
+                // Group avatar — matches sidebar/card style
+                GroupHeaderIcon(
+                    pictureUrl = groupMetadata?.picture,
+                    groupId = groupMetadata?.id ?: "",
                     displayName = groupName ?: "Group",
-                    pubkey = groupMetadata?.id ?: "",
                     size = 36.dp
                 )
 
@@ -196,6 +207,54 @@ fun GroupHeader(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GroupHeaderIcon(
+    pictureUrl: String?,
+    groupId: String,
+    displayName: String,
+    size: androidx.compose.ui.unit.Dp
+) {
+    val context = LocalPlatformContext.current
+    val iconShape = RoundedCornerShape(8.dp)
+    var imageState by remember(pictureUrl) {
+        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+    val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(iconShape)
+            .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!showImage) {
+            Text(
+                text = displayName.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (!pictureUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(getImageUrl(pictureUrl))
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = displayName,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(iconShape),
+                contentScale = ContentScale.Crop,
+                onState = { imageState = it }
+            )
         }
     }
 }
