@@ -52,7 +52,7 @@ import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
 import org.nostr.nostrord.ui.components.chat.ZapEventItem
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
-import org.nostr.nostrord.ui.components.loading.MessagesListSkeleton
+import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -204,12 +204,21 @@ fun MessagesList(
         isInitialLoading && chatItems.isEmpty() -> {
             Box(
                 modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.BottomCenter
+                contentAlignment = Alignment.Center
             ) {
-                MessagesListSkeleton(
-                    count = 8,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        color = NostrordColors.Primary,
+                        strokeWidth = 2.5.dp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Loading messages…",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 13.sp
+                    )
+                }
             }
         }
         chatItems.isEmpty() -> {
