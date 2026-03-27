@@ -32,16 +32,17 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import org.nostr.nostrord.getPlatform
-import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
+import androidx.compose.ui.text.font.FontFamily
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 
 /**
  * Message input field with Discord-style keyboard behavior.
@@ -381,15 +382,14 @@ fun MessageInput(
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent
                     ),
-                    textStyle = NostrordTypography.Input.copy(
-                        fontFamily = rememberEmojiFontFamily()
-                    ),
+                    textStyle = NostrordTypography.Input,
                     shape = NostrordShapes.inputShape,
                     singleLine = false,
                     maxLines = 4,
                     visualTransformation = MentionVisualTransformation(
                         mentionedNames = mentions.keys,
-                        mentionColor = NostrordColors.MentionText
+                        mentionColor = NostrordColors.MentionText,
+                        emojiFontFamily = rememberEmojiFontFamily()
                     )
                 )
 
@@ -624,11 +624,41 @@ private fun ReplyingToBar(
 }
 
 /**
- * Visual transformation that highlights @mentions with a distinct color.
+ * Regex matching emoji codepoints — same pattern used in MessageContent for display.
+ */
+private val emojiRegex = Regex(
+    "[" +
+        "\u00A9\u00AE" +
+        "\u200D" +
+        "\u203C\u2049" +
+        "\u2122\u2139" +
+        "\u2194-\u21AA" +
+        "\u231A-\u23FF" +
+        "\u2460-\u24FF" +
+        "\u25AA-\u27BF" +
+        "\u2934-\u2935" +
+        "\u2B05-\u2B55" +
+        "\u3030\u303D\u3297\u3299" +
+        "\uD83C\uDC04-\uD83D\uDEFF" +
+        "\uD83E\uDD00-\uD83E\uDDFF" +
+        "\uD83E\uDE00-\uD83E\uDEFF" +
+        "\uD83C\uDDE6-\uD83C\uDDFF" +
+        "\uD83C\uDF00-\uD83C\uDFFF" +
+        "\uD83D\uDE00-\uD83D\uDE4F" +
+        "\uD83D\uDE80-\uD83D\uDEFF" +
+        "\uFE0E\uFE0F" +
+        "\u20E3" +
+        "]+"
+)
+
+/**
+ * Visual transformation that highlights @mentions and applies
+ * NotoColorEmoji font selectively to emoji segments.
  */
 private class MentionVisualTransformation(
     private val mentionedNames: Set<String>,
-    private val mentionColor: Color
+    private val mentionColor: Color,
+    private val emojiFontFamily: FontFamily? = null
 ) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val builder = AnnotatedString.Builder(text)
@@ -646,6 +676,17 @@ private class MentionVisualTransformation(
                     index + mentionText.length
                 )
                 startIndex = index + mentionText.length
+            }
+        }
+
+        // Apply emoji font only to emoji segments
+        if (emojiFontFamily != null) {
+            emojiRegex.findAll(text.text).forEach { match ->
+                builder.addStyle(
+                    SpanStyle(fontFamily = emojiFontFamily),
+                    match.range.first,
+                    match.range.last + 1
+                )
             }
         }
 
