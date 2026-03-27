@@ -41,6 +41,7 @@ fun DesktopShell(
     onAddRelayClick: () -> Unit,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
+    onAddRelayFromSidebar: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     userAvatarUrl: String? = null,
     userDisplayName: String? = null,
@@ -83,7 +84,8 @@ fun DesktopShell(
                     relayName = relayMetadata[activeRelayUrl]?.name,
                     isLoading = isGroupsLoading,
                     onGroupClick = onGroupClick,
-                    onCreateGroupClick = onCreateGroupClick
+                    onCreateGroupClick = onCreateGroupClick,
+                    onAddRelay = onAddRelayFromSidebar
                 )
             }
 

@@ -51,7 +51,8 @@ class OutboxManager(
      */
     fun initialize(
         pubKey: String,
-        messageHandler: (String, NostrGroupClient) -> Unit
+        messageHandler: (String, NostrGroupClient) -> Unit,
+        onDiscoveryComplete: (() -> Unit)? = null
     ) {
         scope.launch {
             // Step 1: Connect discovery relays (purplepag.es + relay.primal.net)
@@ -62,7 +63,6 @@ class OutboxManager(
                     }
                 }
             }
-            println("[Bootstrap] connected ${bootstrapRelays.size} discovery relays")
 
             // Step 2: Run both discovery phases in parallel.
             coroutineScope {
@@ -70,6 +70,7 @@ class OutboxManager(
                 launch { loadJoinedGroupsFromNostr(pubKey, messageHandler) }
             }
             // purplepag.es stays connected — no disconnect step
+            onDiscoveryComplete?.invoke()
         }
     }
 
@@ -128,7 +129,6 @@ class OutboxManager(
                 }
             } catch (_: Exception) {}
         }
-        println("[Discovery] kind:10009  candidates=${relaysToQuery.size}  connected=${connectedClients.size}  relays=$connectedUrls")
 
         if (connectedClients.isNotEmpty()) {
             // Exit as soon as event arrives; 5s timeout for accounts with no kind:10009.

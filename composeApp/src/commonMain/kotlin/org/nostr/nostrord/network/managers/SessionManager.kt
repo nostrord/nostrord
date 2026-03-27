@@ -146,7 +146,6 @@ class SessionManager(
 
         val pubKey = getPublicKey() ?: run { authInProgress.remove(relayUrl); return }
 
-        println("[Auth] challenge  relay=$relayUrl")
         try {
             val authEvent = Event(
                 pubkey = pubKey,
@@ -167,7 +166,6 @@ class SessionManager(
             }.toString()
 
             client.send(message)
-            println("[Auth] sent  relay=$relayUrl")
 
             // Give the relay 500 ms to process the AUTH before we send subscriptions.
             // requestGroups() is handled by the caller (resubscribeAfterAuth) so it only

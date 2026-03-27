@@ -120,7 +120,6 @@ class MetadataManager(
                 } catch (_: Exception) { false }
             }
 
-            println("[Meta] fetch  pubkey=${pubkey.take(8)}  attempt=${attempt + 1}  candidates=${candidates.size}  sent=$sent")
             if (sent > 0) return
 
             if (attempt < MAX_FETCH_ATTEMPTS - 1) {
@@ -167,7 +166,6 @@ class MetadataManager(
             if (primary != null && primary.isConnected()) {
                 try { primary.requestEventById(eventId); sent++ } catch (_: Exception) {}
             }
-            println("[Event] requestById  id=${eventId.take(8)}  connected=${relaysToTry.size}  sent=$sent")
         } finally {
             // Remove after a delay to allow the response to arrive and be cached.
             // If not cached after 10s, subsequent requests can try again.
@@ -221,7 +219,6 @@ class MetadataManager(
             if (primary != null && primary.isConnected()) {
                 try { primary.requestAddressableEvent(kind, pubkey, identifier); sent++ } catch (_: Exception) {}
             }
-            println("[Event] requestAddr  key=$addressKey  connected=${relaysToTry.size}  sent=$sent")
         } finally {
             scope.launch {
                 delay(10_000)

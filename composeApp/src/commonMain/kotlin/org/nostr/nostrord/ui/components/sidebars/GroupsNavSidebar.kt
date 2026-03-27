@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +57,7 @@ fun GroupsNavSidebar(
     isLoading: Boolean = false,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
+    onAddRelay: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // Reset when relay changes
@@ -79,7 +81,6 @@ fun GroupsNavSidebar(
             .fillMaxHeight()
             .background(NostrordColors.Surface)
     ) {
-        // Header — relay domain name
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -89,7 +90,7 @@ fun GroupsNavSidebar(
             contentAlignment = Alignment.CenterStart
         ) {
             Text(
-                text = (relayName?.takeIf { it.isNotBlank() } ?: relayUrl).uppercase(),
+                text = if (relayUrl.isBlank()) "No Relay" else (relayName?.takeIf { it.isNotBlank() } ?: relayUrl).uppercase(),
                 color = NostrordColors.TextSecondary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
@@ -107,11 +108,56 @@ fun GroupsNavSidebar(
                 .background(NostrordColors.BackgroundDark)
         )
 
-        // Groups list
         Box(modifier = Modifier.weight(1f)) {
             val listState = rememberLazyListState()
 
-            if (isLoading && groups.isEmpty()) {
+            if (groups.isEmpty() && onAddRelay != null && relayUrl.isBlank()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = Spacing.lg),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "#",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "No groups yet",
+                        color = NostrordColors.TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Add a relay first, then you can browse and join groups or create your own.",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(NostrordColors.Primary)
+                            .clickable(onClick = onAddRelay)
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Add a Relay",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            } else if (isLoading && groups.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -236,29 +282,30 @@ fun GroupsNavSidebar(
             }
         }
 
-        // Create Group button at bottom
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(NostrordColors.Surface)
-                .padding(Spacing.md)
-        ) {
+        if (onAddRelay == null || relayUrl.isNotBlank()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(NostrordColors.Primary)
-                    .clickable(onClick = onCreateGroupClick)
-                    .pointerHoverIcon(PointerIcon.Hand)
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center
+                    .background(NostrordColors.Surface)
+                    .padding(Spacing.md)
             ) {
-                Text(
-                    text = "Create Group",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(NostrordColors.Primary)
+                        .clickable(onClick = onCreateGroupClick)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Create Group",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }

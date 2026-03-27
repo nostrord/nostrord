@@ -30,7 +30,6 @@ import androidx.compose.ui.unit.sp
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
-import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 @Composable
@@ -40,8 +39,6 @@ fun OnboardingScreen(onAddRelay: () -> Unit, onAddRelayCustomUrl: () -> Unit = o
             .fillMaxSize()
             .background(NostrordColors.Background)
     ) {
-        MinimalTitleBar()
-
         BoxWithConstraints(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentAlignment = Alignment.Center

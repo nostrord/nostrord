@@ -102,7 +102,6 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
             // inProgress so subsequent fetch() calls are not permanently blocked.
             var nextAttemptLaunched = false
             try {
-                println("[NIP-11] fetching $relayUrl (attempt $attempt)")
                 val info = fetchNip11RelayInfo(relayUrl)
 
                 if (info != null) {
@@ -118,11 +117,9 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
                         // Non-critical — cache write failure doesn't break anything
                     }
                 } else {
-                    println("[NIP-11] fetch failed for $relayUrl (attempt $attempt/$MAX_RETRIES)")
                     if (attempt < MAX_RETRIES) {
                         // Exponential backoff: 10s, 20s, 40s, 80s … cap at 5 min
                         val backoffMs = minOf(BACKOFF_BASE_MS * (1L shl minOf(attempt - 1, 8)), BACKOFF_CAP_MS)
-                        println("[NIP-11] will retry $relayUrl in ${backoffMs}ms")
                         delay(backoffMs)
                         // Re-check under lock: another coroutine may have succeeded in the meantime
                         val stillNeeded = mutex.withLock { !succeeded.contains(relayUrl) }
@@ -133,7 +130,6 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
                             mutex.withLock { inProgress.remove(relayUrl) }
                         }
                     } else {
-                        println("[NIP-11] giving up on $relayUrl after $MAX_RETRIES attempts")
                         mutex.withLock { inProgress.remove(relayUrl) }
                     }
                 }

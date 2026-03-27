@@ -24,6 +24,7 @@ interface NostrRepositoryApi {
     // --- Connection state ---
     val currentRelayUrl: StateFlow<String>
     val connectionState: StateFlow<ConnectionManager.ConnectionState>
+    val isDiscoveringRelays: StateFlow<Boolean>
 
     // --- Group state ---
     val groups: StateFlow<List<GroupMetadata>>

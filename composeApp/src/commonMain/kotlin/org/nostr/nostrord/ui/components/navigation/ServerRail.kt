@@ -194,7 +194,6 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
     LaunchedEffect(loadError, retryCount) {
         if (loadError && !imageLoaded) {
             val backoffMs = minOf(3_000L * (1 shl minOf(retryCount, 7)), 5 * 60_000L)
-            println("[RelayIcon] will retry $iconUrl in ${backoffMs}ms (attempt ${retryCount + 2})")
             delay(backoffMs)
             retryCount++
             loadError = false
@@ -254,12 +253,10 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
                             is AsyncImagePainter.State.Success -> {
                                 imageLoaded = true
                                 loadError = false
-                                println("[RelayIcon] loaded $iconUrl (attempt ${retryCount + 1})")
                             }
                             is AsyncImagePainter.State.Error -> {
                                 imageLoaded = false
                                 loadError = true
-                                println("[RelayIcon] error $iconUrl attempt=${retryCount + 1}: ${state.result.throwable?.message}")
                             }
                             else -> {}
                         }

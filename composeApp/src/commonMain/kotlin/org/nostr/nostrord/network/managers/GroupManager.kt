@@ -177,7 +177,6 @@ class GroupManager(
                 client == null -> connectionManager.getPrimaryClient() // relay not in pool yet
                 client.isConnected() -> client                         // healthy pool client ✓
                 else -> {
-                    println("[GroupManager] DEAD-CLIENT  relay=$relayUrl  group=$groupId — skipping send, reconnect pending")
                     null  // dead pool client — reconnect is pending, don't send to it
                 }
             }
@@ -814,12 +813,10 @@ class GroupManager(
                 completeGroupLoadRelays.add(relay)
                 _loadingRelays.update { it - relay }
                 val count = _groupsByRelay.value[relay]?.size ?: 0
-                println("[Groups] EOSE  relay=$relay  groups=$count")
                 // Send mux subscriptions now that we know the group list.
                 // For auth-required relays, resubscribeAfterAuth will send/refresh them later.
                 refreshMuxSubscriptionsForRelay(relay)
             } else {
-                println("[Groups] EOSE  subId=$subscriptionId  relay=unknown  knownRelays=${_groupsByRelay.value.keys}")
             }
             return true
         }
@@ -1054,7 +1051,6 @@ class GroupManager(
             val eventId = signedEvent.id
                 ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
 
-            println("[GroupManager] sendReaction  group=$groupId  target=$targetEventId  emoji=$emoji  relay=$groupRelayUrl")
 
             // Optimistic update: show reaction in UI immediately
             handleReaction(NostrGroupClient.NostrReaction(
@@ -1071,28 +1067,23 @@ class GroupManager(
 
             when (publishResult) {
                 is org.nostr.nostrord.network.PublishResult.Success -> {
-                    println("[GroupManager] sendReaction OK  eventId=$eventId")
                     Result.Success(Unit)
                 }
                 is org.nostr.nostrord.network.PublishResult.Rejected -> {
-                    println("[GroupManager] sendReaction REJECTED: ${publishResult.reason}")
                     // Rollback optimistic update
                     removeReaction(targetEventId, emoji, pubKey)
                     Result.Error(AppError.Group.SendFailed(groupId, Exception(publishResult.reason)))
                 }
                 is org.nostr.nostrord.network.PublishResult.Timeout -> {
-                    println("[GroupManager] sendReaction TIMEOUT")
                     Result.Error(AppError.Group.SendFailed(groupId, Exception("timeout")))
                 }
                 is org.nostr.nostrord.network.PublishResult.Error -> {
-                    println("[GroupManager] sendReaction ERROR: ${publishResult.exception.message}")
                     // Rollback optimistic update
                     removeReaction(targetEventId, emoji, pubKey)
                     Result.Error(AppError.Group.SendFailed(groupId, publishResult.exception))
                 }
             }
         } catch (e: Throwable) {
-            println("[GroupManager] sendReaction EXCEPTION  $e")
             Result.Error(AppError.Group.SendFailed(groupId, e))
         }
     }

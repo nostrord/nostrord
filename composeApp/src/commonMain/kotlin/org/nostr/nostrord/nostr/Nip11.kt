@@ -67,27 +67,23 @@ suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
             header(HttpHeaders.UserAgent, "Nostrord/1.0 (Nostr client)")
         }
         if (!response.status.isSuccess()) {
-            println("[NIP-11] HTTP ${response.status} for $httpUrl")
             return null
         }
         // Reject obvious HTML pages before wasting time parsing them
         val contentType = response.headers[HttpHeaders.ContentType] ?: ""
         if (contentType.contains("text/html", ignoreCase = true)) {
-            println("[NIP-11] HTML response rejected for $httpUrl (Content-Type: $contentType)")
             return null
         }
         val body = response.bodyAsText()
         val obj = try {
             Json.parseToJsonElement(body).jsonObject
         } catch (e: Exception) {
-            println("[NIP-11] Not JSON at $httpUrl — ${body.take(80)}")
             return null
         }
         val limitation = obj["limitation"]?.jsonObject
         val rawIcon = obj["icon"]?.jsonPrimitive?.contentOrNull
         val icon = rawIcon?.takeIf { isValidIconUrl(it) }
         if (rawIcon != null && icon == null) {
-            println("[NIP-11] icon rejected for $httpUrl — not a valid HTTPS URL: $rawIcon")
         }
         val info = Nip11RelayInfo(
             name = obj["name"]?.jsonPrimitive?.contentOrNull,
@@ -102,10 +98,8 @@ suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
             authRequired = limitation?.get("auth_required")?.jsonPrimitive?.content?.toBooleanStrictOrNull(),
             paymentRequired = limitation?.get("payment_required")?.jsonPrimitive?.content?.toBooleanStrictOrNull(),
         )
-        println("[NIP-11] OK $httpUrl → name=${info.name} icon=${info.icon}")
         info
     } catch (e: Exception) {
-        println("[NIP-11] Error fetching $httpUrl: ${e::class.simpleName}: ${e.message}")
         null
     } finally {
         client.close()

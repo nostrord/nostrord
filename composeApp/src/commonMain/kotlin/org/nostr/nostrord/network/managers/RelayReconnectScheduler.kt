@@ -68,7 +68,6 @@ class RelayReconnectScheduler(
 
             // In the slow-retry phase, stop if the relay was removed from the user's list.
             if (attempt > MAX_FAST_ATTEMPTS && !isRelayActive(relayUrl)) {
-                println("[Pool] abandoned  relay=$relayUrl  reason=removed-from-list")
                 return@launch
             }
 
@@ -77,7 +76,6 @@ class RelayReconnectScheduler(
             }
 
             if (!success) {
-                println("[Pool] retry  relay=$relayUrl  attempt=$attempt")
                 schedule(relayUrl, attempt + 1, priority)
             }
         }

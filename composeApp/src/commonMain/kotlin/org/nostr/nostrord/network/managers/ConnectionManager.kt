@@ -114,13 +114,13 @@ class ConnectionManager(
         relayUrl: String = _currentRelayUrl.value,
         onMessage: (String, NostrGroupClient) -> Unit
     ): Boolean = connectMutex.withLock {
+        if (relayUrl.isBlank()) return@withLock false
         if (primaryClient != null) return@withLock false
 
         currentMessageHandler = onMessage
         _connectionState.value = ConnectionState.Connecting
 
         try {
-            println("[NIP29] connecting  relay=$relayUrl")
             val newClient = NostrGroupClient(relayUrl)
             primaryClient = newClient
 
@@ -131,7 +131,6 @@ class ConnectionManager(
             newClient.connect { msg -> onMessage(msg, newClient) }
             val opened = newClient.waitForConnection()
             if (!opened) {
-                println("[NIP29] timeout  relay=$relayUrl")
                 // CRITICAL: detach onConnectionLost BEFORE nulling primaryClient.
                 // Without this, the orphaned client's WebSocket may open then close later
                 // and fire handleConnectionLost(), killing any primary that was connected
@@ -144,10 +143,8 @@ class ConnectionManager(
             }
             _connectionState.value = ConnectionState.Connected
             reconnectAttempts = 0
-            println("[NIP29] connected  relay=$relayUrl")
             true
         } catch (e: Exception) {
-            println("[NIP29] error  relay=$relayUrl  error=${e.message}")
             _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
             primaryClient?.let { it.onConnectionLost = null; it.cancelAndClose() }
             primaryClient = null
@@ -200,7 +197,6 @@ class ConnectionManager(
                     INITIAL_RECONNECT_DELAY_MS * (1L shl (reconnectAttempts - 1)),
                     MAX_RECONNECT_DELAY_MS
                 )
-                println("[NIP29] reconnecting  relay=${_currentRelayUrl.value}  attempt=$reconnectAttempts/${MAX_RECONNECT_ATTEMPTS}  delay=${delayMs}ms")
                 delay(delayMs)
 
                 val handler = currentMessageHandler ?: break
@@ -216,7 +212,6 @@ class ConnectionManager(
             // Phase 2: persistent slow retry every 30 s — never give up.
             // The UI already shows "Tap to retry" so the user can force an immediate attempt,
             // but the background loop ensures automatic recovery without any user action.
-            println("[NIP29] slow-retry  relay=${_currentRelayUrl.value}  interval=${MAX_RECONNECT_DELAY_MS}ms")
             _connectionState.value = ConnectionState.Error("Connection lost. Tap to retry.")
 
             while (autoReconnectEnabled) {
@@ -224,7 +219,6 @@ class ConnectionManager(
                 if (!autoReconnectEnabled) break
 
                 val handler = currentMessageHandler ?: break
-                println("[NIP29] slow-retry attempt  relay=${_currentRelayUrl.value}")
                 val success = connectPrimary(_currentRelayUrl.value, handler)
 
                 if (success) {
@@ -285,7 +279,6 @@ class ConnectionManager(
             oldPrimary.onConnectionLost = {
                 scope.launch {
                     poolMutex.withLock { relayPool.remove(oldUrl) }
-                    println("[Pool] lost  relay=$oldUrl")
                     onPoolRelayLost?.invoke(oldUrl)
                 }
             }
@@ -354,7 +347,6 @@ class ConnectionManager(
             newClient.onConnectionLost = {
                 scope.launch {
                     poolMutex.withLock { relayPool.remove(relayUrl) }
-                    println("[Pool] lost  relay=$relayUrl")
                     onPoolRelayLost?.invoke(relayUrl)
                 }
             }
@@ -363,11 +355,9 @@ class ConnectionManager(
             }
             val connected = newClient.waitForConnection()
             if (!connected) {
-                println("[Pool] timeout  relay=$relayUrl")
                 newClient.disconnect()
                 return null
             }
-            println("[Pool] connected  relay=$relayUrl")
 
             // Add to pool with lock, but check again in case another coroutine added it
             poolMutex.withLock {

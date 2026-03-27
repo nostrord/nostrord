@@ -70,7 +70,7 @@ fun HomeScreen(
             else -> 3
         }
 
-        val isLoading = displayRelayUrl in loadingRelays
+        val isLoading = displayRelayUrl in loadingRelays || displayRelayUrl.isBlank()
         val connectionState by vm.connectionState.collectAsState()
         val hasError = connectionState is ConnectionManager.ConnectionState.Error
 

@@ -158,7 +158,6 @@ class NostrGroupClient(
             try {
                 client.webSocket(relayUrl) {
                     session = this
-                    println("[WS] OPEN  relay=$relayUrl")
 
                     // Signal that connection is ready
                     connectionReady.trySend(Unit)
@@ -174,7 +173,6 @@ class NostrGroupClient(
                             delay(HEARTBEAT_CHECK_INTERVAL_MS)
                             val idleMs = epochMillis() - lastMessageReceivedAt
                             if (idleMs > HEARTBEAT_STALE_MS) {
-                                println("[WS] STALE  relay=$relayUrl  idle=${idleMs / 1000}s — closing for reconnect")
                                 wsSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "heartbeat-stale"))
                                 break
                             }
@@ -194,7 +192,6 @@ class NostrGroupClient(
                     }
                     val durationSec = (epochMillis() - connectedAt) / 1000
                     val reason = closeReason.await()
-                    println("[WS] CLOSED  relay=$relayUrl  duration=${durationSec}s  code=${reason?.code}  reason='${reason?.message}'")
                 }
             } catch (e: Exception) {
                 val durationSec = (epochMillis() - connectedAt) / 1000
@@ -202,20 +199,16 @@ class NostrGroupClient(
                 // getOrConnectRelay (expected, not an error). Only log real failures.
                 if (e is kotlinx.coroutines.CancellationException) {
                     if (!isDisconnecting) {
-                        println("[WS] CANCELLED (unexpected)  relay=$relayUrl  duration=${durationSec}s")
                     }
                     // else: graceful disconnect — silent
                 } else {
-                    println("[WS] ERROR  relay=$relayUrl  duration=${durationSec}s  error=${e::class.simpleName}: ${e.message}")
                 }
             } finally {
                 val wasConnected = session != null
                 session = null
                 if (wasConnected && !isDisconnecting) {
-                    println("[WS] LOST (unexpected)  relay=$relayUrl  hasLostCallback=${onConnectionLost != null}")
                     onConnectionLost?.invoke()
                 } else if (!wasConnected && !isDisconnecting) {
-                    println("[WS] FAILED-TO-OPEN  relay=$relayUrl")
                 }
             }
         }
@@ -233,13 +226,11 @@ class NostrGroupClient(
     suspend fun send(message: String) {
         trackSubLifecycle(message)
         val currentSession = session ?: run {
-            println("[WS] SEND-DROPPED  relay=$relayUrl  reason=no-session  msg=${message.take(80)}")
             throw IllegalStateException("Not connected to $relayUrl")
         }
         try {
             currentSession.send(Frame.Text(message))
         } catch (e: Exception) {
-            println("[WS] SEND-ERROR  relay=$relayUrl  error=${e.message}  msg=${message.take(80)}")
             throw e  // Propagate so callers (GroupManager) can transition to Error state
         }
     }
@@ -453,7 +444,6 @@ class NostrGroupClient(
         // relay clients are active concurrently. The ID must be stable per relay
         // so the EOSE handler can map it back to the originating relay URL.
         val subId = "group-list-${relayUrl.hashCode().toUInt()}"
-        println("[Groups] REQ  relay=$relayUrl")
         val req = buildJsonArray {
             add("REQ")
             add(subId)
@@ -626,7 +616,6 @@ suspend fun sendMuxSubscriptions(
             })
         }.toString())
     }
-    println("[Mux] OPEN  relay=$relayUrl  meta=${metadataGroupIds.size}  chat=${chatGroupIds.size}  since=$sinceSeconds  subs=${openSubscriptions.size}")
 }
 
 /**
