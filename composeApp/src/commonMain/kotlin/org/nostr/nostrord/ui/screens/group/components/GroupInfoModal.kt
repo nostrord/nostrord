@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
@@ -37,10 +38,10 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.utils.getImageUrl
-import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.util.generateColorFromString
 
 /**
  * Group info modal displaying group details and cover image.
@@ -287,14 +288,14 @@ private fun BannerSection(
             Box(
                 modifier = Modifier
                     .size(88.dp)
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(16.dp))
                     .background(NostrordColors.Surface)
                     .padding(4.dp)
             ) {
-                ProfileAvatar(
-                    imageUrl = coverImageUrl,
+                GroupInfoIcon(
+                    pictureUrl = coverImageUrl,
+                    groupId = groupId,
                     displayName = groupName ?: "Group",
-                    pubkey = groupId,
                     size = 80.dp
                 )
             }
@@ -336,6 +337,54 @@ private fun StatusBadge(
                 style = NostrordTypography.Caption,
                 color = color,
                 fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun GroupInfoIcon(
+    pictureUrl: String?,
+    groupId: String,
+    displayName: String,
+    size: androidx.compose.ui.unit.Dp
+) {
+    val context = LocalPlatformContext.current
+    val iconShape = RoundedCornerShape(12.dp)
+    var imageState by remember(pictureUrl) {
+        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+    val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(iconShape)
+            .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!showImage) {
+            Text(
+                text = displayName.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (!pictureUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(getImageUrl(pictureUrl))
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = displayName,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(iconShape),
+                contentScale = ContentScale.Crop,
+                onState = { imageState = it }
             )
         }
     }
