@@ -37,9 +37,18 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.components.loading.shimmerEffect
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
@@ -451,22 +460,8 @@ private fun GroupItem(
             .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Channel icon — 22x22 rounded square with first letter
         val groupName = group.name ?: group.id
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(generateColorFromString(group.id)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = groupName.take(1).uppercase(),
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        GroupNavIcon(group = group, size = 22.dp)
 
         Spacer(modifier = Modifier.width(6.dp))
 
@@ -483,6 +478,51 @@ private fun GroupItem(
         if (hasUnread && !isActive) {
             Spacer(modifier = Modifier.width(4.dp))
             UnreadBadge(count = unreadCount, size = 16.dp)
+        }
+    }
+}
+
+@Composable
+private fun GroupNavIcon(group: GroupMetadata, size: Dp) {
+    val context = LocalPlatformContext.current
+    val pictureUrl = group.picture
+    val iconShape = RoundedCornerShape(4.dp)
+    var imageState by remember(pictureUrl) {
+        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+    val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
+    val displayName = group.name ?: group.id
+
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(iconShape)
+            .background(if (!showImage) generateColorFromString(group.id) else NostrordColors.BackgroundDark),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!showImage) {
+            Text(
+                text = displayName.take(1).uppercase(),
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        if (!pictureUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(getImageUrl(pictureUrl))
+                    .crossfade(true)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = displayName,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(iconShape),
+                contentScale = ContentScale.Crop,
+                onState = { imageState = it }
+            )
         }
     }
 }
