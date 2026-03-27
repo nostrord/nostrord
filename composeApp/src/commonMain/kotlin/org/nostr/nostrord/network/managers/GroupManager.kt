@@ -65,6 +65,13 @@ class GroupManager(
     private var currentRelayUrl: String? = null
     private val completeGroupLoadRelays = mutableSetOf<String>()
 
+    // The group currently being viewed by the user.
+    // Mux chat/reactions subscriptions are scoped to this group only.
+    private var _activeGroupId: String? = null
+
+    // Debounce mux refresh: coalesces rapid calls (auth + EOSE + CLOSED) into one.
+    private val muxRefreshJobs = mutableMapOf<String, Job>()
+
     // Relays for which requestGroups() was sent but EOSE hasn't arrived yet.
     // Used by the UI to show skeleton loaders while groups are being fetched.
     private val _loadingRelays = MutableStateFlow<Set<String>>(emptySet())
@@ -208,20 +215,64 @@ class GroupManager(
     }
 
     /**
+     * Set the group currently being viewed by the user.
+     * Triggers a mux refresh so chat/reactions are scoped to the active group.
+     */
+    fun setActiveGroupId(groupId: String?) {
+        _activeGroupId = groupId
+        // Refresh mux on the relay that hosts this group (or primary if clearing).
+        val relayUrl = if (groupId != null) getRelayForGroup(groupId) else currentRelayUrl
+        if (relayUrl != null) {
+            scope.launch { refreshMuxSubscriptionsForRelay(relayUrl) }
+        }
+    }
+
+    /**
      * Send (or refresh) the relay-level multiplexed subscriptions for [relayUrl].
+     *
+     * Metadata mux covers ALL joined groups on this relay (lightweight, addressable).
+     * Chat + reactions mux covers only the active group (on-demand).
      *
      * Uses [LiveCursorStore.getMinSince] to pick the oldest per-group cursor — guarantees
      * no group misses events during the offline window.
      * No-ops if there are no groups for that relay or the client is not connected.
      */
     suspend fun refreshMuxSubscriptionsForRelay(relayUrl: String) {
-        val groupIds = getGroupIdsForMux(relayUrl)
-        if (groupIds.isEmpty()) return
+        refreshMuxSubscriptionsForRelayImpl(relayUrl)
+    }
+
+    /**
+     * Debounced version: coalesces rapid calls within 300ms into a single mux refresh.
+     * Use this from callers that may fire in quick succession (auth, EOSE, CLOSED handlers).
+     */
+    fun refreshMuxDebounced(relayUrl: String) {
+        val wasCoalesced = muxRefreshJobs[relayUrl]?.isActive == true
+        muxRefreshJobs[relayUrl]?.cancel()
+        muxRefreshJobs[relayUrl] = scope.launch {
+            if (wasCoalesced) println("[Mux] debounce coalesced  relay=$relayUrl")
+            delay(300)
+            refreshMuxSubscriptionsForRelayImpl(relayUrl)
+            muxRefreshJobs.remove(relayUrl)
+        }
+    }
+
+    private suspend fun refreshMuxSubscriptionsForRelayImpl(relayUrl: String) {
+        val allGroupIds = getGroupIdsForMux(relayUrl)
+        if (allGroupIds.isEmpty()) return
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
-        val since = liveCursorStore.getMinSince(relayUrl, groupIds)
+
+        // Chat/reactions only for the active group on this relay.
+        val activeGroup = _activeGroupId
+        val chatGroupIds = if (activeGroup != null && activeGroup in allGroupIds) {
+            listOf(activeGroup)
+        } else {
+            emptyList()
+        }
+
+        val since = liveCursorStore.getMinSince(relayUrl, allGroupIds)
         try {
-            client.sendMuxSubscriptions(groupIds, since)
+            client.sendMuxSubscriptions(allGroupIds, chatGroupIds, since)
         } catch (_: Exception) {}
     }
 
@@ -760,6 +811,9 @@ class GroupManager(
                 _loadingRelays.update { it - relay }
                 val count = _groupsByRelay.value[relay]?.size ?: 0
                 println("[Groups] EOSE  relay=$relay  groups=$count")
+                // Send mux subscriptions now that we know the group list.
+                // For auth-required relays, resubscribeAfterAuth will send/refresh them later.
+                refreshMuxSubscriptionsForRelay(relay)
             } else {
                 println("[Groups] EOSE  subId=$subscriptionId  relay=unknown  knownRelays=${_groupsByRelay.value.keys}")
             }

@@ -572,11 +572,16 @@ fun muxMetaSubId(): String = "mux_meta_${relayUrl.hashCode().toUInt()}"
  *
  * Idempotent: sends CLOSE before REQ so calling it multiple times is safe.
  *
- * @param groupIds     All group IDs on this relay to include in the filter.
- * @param sinceSeconds Unix-seconds `since` value (use min cursor across all groups).
+ * @param metadataGroupIds Group IDs for the metadata mux (kind:39000 — all joined groups).
+ * @param chatGroupIds     Group IDs for chat + reactions mux (active group only, or empty).
+ * @param sinceSeconds     Unix-seconds `since` value (use min cursor across all groups).
  */
-suspend fun sendMuxSubscriptions(groupIds: List<String>, sinceSeconds: Long) {
-    if (groupIds.isEmpty()) return
+suspend fun sendMuxSubscriptions(
+    metadataGroupIds: List<String>,
+    chatGroupIds: List<String>,
+    sinceSeconds: Long
+) {
+    if (metadataGroupIds.isEmpty() && chatGroupIds.isEmpty()) return
     val chatSubId = muxChatSubId()
     val reactSubId = muxReactionsSubId()
     val metaSubId = muxMetaSubId()
@@ -586,41 +591,42 @@ suspend fun sendMuxSubscriptions(groupIds: List<String>, sinceSeconds: Long) {
     send(buildJsonArray { add("CLOSE"); add(reactSubId) }.toString())
     send(buildJsonArray { add("CLOSE"); add(metaSubId) }.toString())
 
-    // Chat + admin events for all groups on this relay.
-    send(buildJsonArray {
-        add("REQ"); add(chatSubId)
-        add(buildJsonObject {
-            putJsonArray("kinds") {
-                add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
-            }
-            putJsonArray("#h") { groupIds.forEach { add(it) } }
-            put("since", sinceSeconds)
-        })
-    }.toString())
+    // Chat + admin events for the active group(s) only.
+    if (chatGroupIds.isNotEmpty()) {
+        send(buildJsonArray {
+            add("REQ"); add(chatSubId)
+            add(buildJsonObject {
+                putJsonArray("kinds") {
+                    add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
+                }
+                putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
+                put("since", sinceSeconds)
+            })
+        }.toString())
 
-    // Reactions / zaps for all groups on this relay.
-    send(buildJsonArray {
-        add("REQ"); add(reactSubId)
-        add(buildJsonObject {
-            putJsonArray("kinds") { add(7); add(9321) }
-            putJsonArray("#h") { groupIds.forEach { add(it) } }
-            put("since", sinceSeconds)
-        })
-    }.toString())
+        // Reactions / zaps for the active group(s) only.
+        send(buildJsonArray {
+            add("REQ"); add(reactSubId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(7); add(9321) }
+                putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
+                put("since", sinceSeconds)
+            })
+        }.toString())
+    }
 
-    // Group metadata (kind 39000) for all groups on this relay.
-    // Uses the same `since` as chat/reactions — kind 39000 is addressable so relays
-    // always serve the latest version regardless; `since` just avoids re-delivering
-    // metadata that hasn't changed since the last refresh.
-    send(buildJsonArray {
-        add("REQ"); add(metaSubId)
-        add(buildJsonObject {
-            putJsonArray("kinds") { add(39000) }
-            putJsonArray("#h") { groupIds.forEach { add(it) } }
-            put("since", sinceSeconds)
-        })
-    }.toString())
-    println("[Mux] OPEN  relay=$relayUrl  groups=${groupIds.size}  since=$sinceSeconds  subs=${openSubscriptions.size}")
+    // Group metadata (kind 39000) for all joined groups on this relay.
+    if (metadataGroupIds.isNotEmpty()) {
+        send(buildJsonArray {
+            add("REQ"); add(metaSubId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(39000) }
+                putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
+                put("since", sinceSeconds)
+            })
+        }.toString())
+    }
+    println("[Mux] OPEN  relay=$relayUrl  meta=${metadataGroupIds.size}  chat=${chatGroupIds.size}  since=$sinceSeconds  subs=${openSubscriptions.size}")
 }
 
 /**

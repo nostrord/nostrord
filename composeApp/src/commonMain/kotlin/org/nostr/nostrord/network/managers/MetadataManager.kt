@@ -14,6 +14,7 @@ import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.epochMillis
 
@@ -57,6 +58,10 @@ class MetadataManager(
     private val inFlightPubkeys = mutableSetOf<String>()
     private val inFlightMutex = Mutex()
 
+    // Prevents duplicate concurrent fetches for the same event/addressable key
+    private val inFlightEvents = mutableSetOf<String>()
+    private val inFlightEventsMutex = Mutex()
+
     private val _userMetadata = MutableStateFlow<Map<String, UserMetadata>>(emptyMap())
     val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata.asStateFlow()
 
@@ -91,28 +96,33 @@ class MetadataManager(
     }
 
     private suspend fun fetchWithRetry(pubkey: String, messageHandler: (String, NostrGroupClient) -> Unit) {
-        val relays = outboxManager.getRelayList(pubkey)
-        val writeRelays = if (relays.isNotEmpty()) {
-            relays.filter { it.write }.map { it.url }
-        } else {
-            outboxManager.bootstrapRelays
-        }
+        // NIP-29 relays do NOT serve kind:0 — exclude them from candidates.
+        val nip29Relays = SecureStorage.loadRelayList().toSet() +
+            connectionManager.currentRelayUrl.value
+
+        // Use bootstrap relays directly for kind:0. NIP-65 write relays of the target user
+        // are almost never connected in a NIP-29 client, so the outbox lookup adds latency
+        // without changing the outcome. purplepag.es + relay.primal.net serve kind:0.
+        val candidates = outboxManager.bootstrapRelays
+            .filter { it !in nip29Relays }
 
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
-            // Stop retrying if metadata arrived while we were waiting
             if (metadataFetchedAt.get(pubkey) != null) return
 
-            val sent = writeRelays.take(3).count { relayUrl ->
+            // Try already-connected general-purpose relays only (no new WebSocket connections).
+            val sent = candidates.count { relayUrl ->
                 try {
-                    val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                    client?.requestMetadata(listOf(pubkey))
-                    client != null
+                    val client = connectionManager.getClientForRelay(relayUrl)
+                    if (client != null && client.isConnected()) {
+                        client.requestMetadata(listOf(pubkey))
+                        true
+                    } else false
                 } catch (_: Exception) { false }
             }
 
-            if (sent > 0) return  // request dispatched; wait for handleMetadataEvent
+            println("[Meta] fetch  pubkey=${pubkey.take(8)}  attempt=${attempt + 1}  candidates=${candidates.size}  sent=$sent")
+            if (sent > 0) return
 
-            // All relays failed — back off before retry (skip delay on last attempt)
             if (attempt < MAX_FETCH_ATTEMPTS - 1) {
                 delay(if (attempt == 0) 2_000L else 4_000L)
             }
@@ -120,7 +130,8 @@ class MetadataManager(
     }
 
     /**
-     * Request an event by ID using outbox model
+     * Request an event by ID using already-connected relays only.
+     * Does NOT create ephemeral WebSocket connections — uses pool/primary clients.
      */
     suspend fun requestEventById(
         eventId: String,
@@ -128,36 +139,41 @@ class MetadataManager(
         author: String? = null,
         messageHandler: (String, NostrGroupClient) -> Unit
     ) {
-        // Skip if already cached
-        if (_cachedEvents.value.containsKey(eventId)) {
-            return
+        // Skip if already cached or already in-flight
+        if (_cachedEvents.value.containsKey(eventId)) return
+        val shouldFetch = inFlightEventsMutex.withLock {
+            if (inFlightEvents.contains(eventId)) false
+            else { inFlightEvents.add(eventId); true }
         }
+        if (!shouldFetch) return
 
-        // If we have an author, try to get their relay list first
-        if (author != null && outboxManager.getCachedRelayList(author).isEmpty()) {
-            outboxManager.requestRelayLists(setOf(author), messageHandler)
-            kotlinx.coroutines.delay(200)
-        }
+        try {
+            // Use outbox model for relay selection
+            val relaysToTry = outboxManager.selectConnectedOutboxRelays(
+                authors = if (author != null) listOf(author) else emptyList(),
+                explicitRelays = relayHints
+            )
 
-        // Use outbox model for relay selection
-        val relaysToTry = outboxManager.selectOutboxRelays(
-            authors = if (author != null) listOf(author) else emptyList(),
-            explicitRelays = relayHints
-        )
-
-        // Request from all available relays using fresh connections
-        // (fresh connections ensure message handler is correctly bound)
-        for (relayUrl in relaysToTry) {
-            scope.launch {
+            // All relays in relaysToTry are already connected (pre-filtered).
+            var sent = relaysToTry.count { relayUrl ->
                 try {
-                    val client = NostrGroupClient(relayUrl)
-                    client.connect { msg -> messageHandler(msg, client) }
-                    if (!client.waitForConnection()) return@launch
-                    client.requestEventById(eventId)
-                    // Keep connection open to receive response
-                    kotlinx.coroutines.delay(5000)
-                    client.disconnect()
-                } catch (_: Exception) {}
+                    connectionManager.getClientForRelay(relayUrl)!!.requestEventById(eventId)
+                    true
+                } catch (_: Exception) { false }
+            }
+
+            // Always also try primary NIP-29 relay — it hosts the events being quoted.
+            val primary = connectionManager.getPrimaryClient()
+            if (primary != null && primary.isConnected()) {
+                try { primary.requestEventById(eventId); sent++ } catch (_: Exception) {}
+            }
+            println("[Event] requestById  id=${eventId.take(8)}  connected=${relaysToTry.size}  sent=$sent")
+        } finally {
+            // Remove after a delay to allow the response to arrive and be cached.
+            // If not cached after 10s, subsequent requests can try again.
+            scope.launch {
+                delay(10_000)
+                inFlightEventsMutex.withLock { inFlightEvents.remove(eventId) }
             }
         }
     }
@@ -165,6 +181,7 @@ class MetadataManager(
     /**
      * Request an addressable event (naddr) by its coordinates.
      * Addressable events use kind:pubkey:d-tag as their identifier.
+     * Does NOT create ephemeral WebSocket connections — uses pool/primary clients.
      */
     suspend fun requestAddressableEvent(
         kind: Int,
@@ -176,36 +193,39 @@ class MetadataManager(
         // Create composite key for caching
         val addressKey = "$kind:$pubkey:$identifier"
 
-        // Skip if already cached
-        if (_cachedEvents.value.containsKey(addressKey)) {
-            return
+        // Skip if already cached or already in-flight
+        if (_cachedEvents.value.containsKey(addressKey)) return
+        val shouldFetch = inFlightEventsMutex.withLock {
+            if (inFlightEvents.contains(addressKey)) false
+            else { inFlightEvents.add(addressKey); true }
         }
+        if (!shouldFetch) return
 
-        // Try to get author's relay list first
-        if (outboxManager.getCachedRelayList(pubkey).isEmpty()) {
-            outboxManager.requestRelayLists(setOf(pubkey), messageHandler)
-            kotlinx.coroutines.delay(200)
-        }
+        try {
+            // Use outbox model for relay selection
+            val relaysToTry = outboxManager.selectConnectedOutboxRelays(
+                authors = listOf(pubkey),
+                explicitRelays = relayHints
+            )
 
-        // Use outbox model for relay selection
-        val relaysToTry = outboxManager.selectOutboxRelays(
-            authors = listOf(pubkey),
-            explicitRelays = relayHints
-        )
-
-        // Request from all available relays using fresh connections
-        // (fresh connections ensure message handler is correctly bound)
-        for (relayUrl in relaysToTry) {
-            scope.launch {
+            // All relays in relaysToTry are already connected (pre-filtered).
+            var sent = relaysToTry.count { relayUrl ->
                 try {
-                    val client = NostrGroupClient(relayUrl)
-                    client.connect { msg -> messageHandler(msg, client) }
-                    if (!client.waitForConnection()) return@launch
-                    client.requestAddressableEvent(kind, pubkey, identifier)
-                    // Keep connection open to receive response
-                    kotlinx.coroutines.delay(5000)
-                    client.disconnect()
-                } catch (_: Exception) {}
+                    connectionManager.getClientForRelay(relayUrl)!!.requestAddressableEvent(kind, pubkey, identifier)
+                    true
+                } catch (_: Exception) { false }
+            }
+
+            // Always also try primary NIP-29 relay — it hosts the addressable events.
+            val primary = connectionManager.getPrimaryClient()
+            if (primary != null && primary.isConnected()) {
+                try { primary.requestAddressableEvent(kind, pubkey, identifier); sent++ } catch (_: Exception) {}
+            }
+            println("[Event] requestAddr  key=$addressKey  connected=${relaysToTry.size}  sent=$sent")
+        } finally {
+            scope.launch {
+                delay(10_000)
+                inFlightEventsMutex.withLock { inFlightEvents.remove(addressKey) }
             }
         }
     }

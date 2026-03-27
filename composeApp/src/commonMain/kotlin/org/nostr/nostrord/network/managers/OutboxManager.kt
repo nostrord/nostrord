@@ -1,6 +1,7 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -42,29 +43,33 @@ class OutboxManager(
     private var latestKind10009CreatedAt: Long = 0
 
     /**
-     * Initialize outbox model for the current user
+     * Initialize outbox model for the current user.
+     *
+     * Connects purplepag.es (single discovery relay) for NIP-65, kind:0, and kind:10009.
+     * purplepag.es stays connected for the session — no disconnect step.
+     * Result: 2 WebSockets at rest (primary NIP-29 + purplepag.es).
      */
     fun initialize(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit
     ) {
-        // Connect to bootstrap relays in background — loadJoinedGroupsFromNostr connects
-        // to these same relays itself via getOrConnectRelay, so no need to await them here.
-        val bootstrapToConnect = bootstrapRelays.take(3)
-        bootstrapToConnect.forEach { url ->
-            scope.launch {
-                try { connectionManager.getOrConnectRelay(url, messageHandler) } catch (_: Exception) {}
+        scope.launch {
+            // Step 1: Connect discovery relays (purplepag.es + relay.primal.net)
+            coroutineScope {
+                bootstrapRelays.forEach { url ->
+                    launch {
+                        try { connectionManager.getOrConnectRelay(url, messageHandler) } catch (_: Exception) {}
+                    }
+                }
             }
-        }
+            println("[Bootstrap] connected ${bootstrapRelays.size} discovery relays")
 
-        // Fetch NIP-65 relay list in background
-        scope.launch {
-            loadUserRelayList(pubKey, messageHandler)
-        }
-
-        // Load joined groups in background
-        scope.launch {
-            loadJoinedGroupsFromNostr(pubKey, messageHandler)
+            // Step 2: Run both discovery phases in parallel.
+            coroutineScope {
+                launch { loadUserRelayList(pubKey, messageHandler) }
+                launch { loadJoinedGroupsFromNostr(pubKey, messageHandler) }
+            }
+            // purplepag.es stays connected — no disconnect step
         }
     }
 
@@ -110,15 +115,20 @@ class OutboxManager(
         }.toString()
 
         val connectedClients = mutableListOf<NostrGroupClient>()
+        val connectedUrls = mutableListOf<String>()
         for (relayUrl in relaysToQuery) {
             try {
-                val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                if (client != null) {
+                // Use only already-connected relays — bootstrap relays are connected
+                // by initialize() before this runs; no new WebSocket connections.
+                val client = connectionManager.getClientForRelay(relayUrl)
+                if (client != null && client.isConnected()) {
                     client.send(reqMessage)
                     connectedClients.add(client)
+                    connectedUrls.add(relayUrl)
                 }
             } catch (_: Exception) {}
         }
+        println("[Discovery] kind:10009  candidates=${relaysToQuery.size}  connected=${connectedClients.size}  relays=$connectedUrls")
 
         if (connectedClients.isNotEmpty()) {
             // Exit as soon as event arrives; 5s timeout for accounts with no kind:10009.
@@ -187,14 +197,18 @@ class OutboxManager(
                 add(signedEvent.toJsonObject())
             }.toString()
 
-            val targets = relayListManager.selectPublishRelays()
-            targets.forEach { relayUrl ->
+            // Publish to write relays + bootstrap relays so other clients (and our own
+            // discovery on next login) can find the joined groups list.
+            val targets = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
+            val published = targets.mapNotNull { relayUrl ->
+                connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+            }
+            val clients = if (published.isEmpty()) {
+                listOfNotNull(connectionManager.getPrimaryClient())
+            } else published
+            clients.forEach { client ->
                 scope.launch {
-                    try {
-                        val client = connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                            ?: return@launch
-                        client.sendAndAwaitOk(message, eventId)
-                    } catch (_: Exception) {}
+                    try { client.sendAndAwaitOk(message, eventId) } catch (_: Exception) {}
                 }
             }
 
@@ -290,9 +304,7 @@ class OutboxManager(
             onRelaysRestored(newlyRestoredRelays)
         }
 
-        // Connect to relays from kind:10009 using the caller's message handler so that
-        // group events (kind 39000) are not silently dropped by a no-op handler.
-        connectToKind10009Relays(messageHandler)
+        // Pool relays are connected lazily when the user selects them — no eager connect here.
     }
 
     /**
@@ -301,6 +313,7 @@ class OutboxManager(
     fun handleKind10002Event(event: JsonObject, currentUserPubkey: String?) {
         val eventPubkey = event["pubkey"]?.jsonPrimitive?.content
         val isCurrentUser = eventPubkey == currentUserPubkey
+        val eventCreatedAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
 
         val tags = event["tags"]?.jsonArray ?: return
 
@@ -322,9 +335,9 @@ class OutboxManager(
 
         if (eventPubkey != null && relays.isNotEmpty()) {
             if (isCurrentUser) {
-                relayListManager.setMyRelayList(eventPubkey, relays)
+                relayListManager.setMyRelayList(eventPubkey, relays, eventCreatedAt)
             } else {
-                relayListManager.cacheRelayListForUser(eventPubkey, relays)
+                relayListManager.cacheRelayListForUser(eventPubkey, relays, eventCreatedAt)
             }
         }
     }
@@ -335,23 +348,6 @@ class OutboxManager(
     fun handleEose(subId: String) {
         if (subId == kind10009SubId) {
             eoseReceived = true
-        }
-    }
-
-    /**
-     * Connect to relays discovered from kind:10009
-     */
-    private fun connectToKind10009Relays(messageHandler: (String, NostrGroupClient) -> Unit) {
-        // Take a snapshot of relay URLs to avoid holding the lock during connection
-        val relayUrls = allRelayGroups.keys.toList()
-        if (relayUrls.isEmpty()) return
-
-        relayUrls.forEach { relayUrl ->
-            scope.launch {
-                try {
-                    connectionManager.getOrConnectRelay(relayUrl, messageHandler)
-                } catch (_: Exception) {}
-            }
         }
     }
 
@@ -392,7 +388,6 @@ class OutboxManager(
         currentNip29Relay: String? = null
     ): List<String> {
         val relays = mutableListOf<String>()
-        var hasAuthorRelays = false
 
         // 1. Explicit relays always come first
         explicitRelays.forEach { relay ->
@@ -405,9 +400,6 @@ class OutboxManager(
         if (authors.isNotEmpty()) {
             authors.forEach { author ->
                 val authorRelays = getCachedRelayList(author)
-                if (authorRelays.isNotEmpty()) {
-                    hasAuthorRelays = true
-                }
                 authorRelays
                     .filter { it.write }
                     .forEach { relay ->
@@ -435,9 +427,6 @@ class OutboxManager(
         // 4. If no authors or tagged users, use current user's READ relays
         if (authors.isEmpty() && taggedPubkeys.isEmpty()) {
             val myRelays = relayListManager.myRelayList.value
-            if (myRelays.isNotEmpty()) {
-                hasAuthorRelays = true
-            }
             myRelays
                 .filter { it.read }
                 .forEach { relay ->
@@ -460,6 +449,23 @@ class OutboxManager(
         }
 
         return relays
+    }
+
+    /**
+     * Select outbox relays filtered to only those currently connected.
+     * Avoids iterating over relays that getClientForRelay will discard anyway.
+     */
+    suspend fun selectConnectedOutboxRelays(
+        authors: List<String> = emptyList(),
+        taggedPubkeys: List<String> = emptyList(),
+        explicitRelays: List<String> = emptyList(),
+        currentNip29Relay: String? = null
+    ): List<String> {
+        return selectOutboxRelays(authors, taggedPubkeys, explicitRelays, currentNip29Relay)
+            .filter { url ->
+                val client = connectionManager.getClientForRelay(url)
+                client != null && client.isConnected()
+            }
     }
 
     /**

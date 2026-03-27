@@ -12,12 +12,11 @@ package org.nostr.nostrord.network.outbox
  * │                        OUTBOX MODEL                              │
  * ├─────────────────────────────────────────────────────────────────┤
  * │                                                                  │
- * │  BOOTSTRAP RELAYS (Discovery Only)                              │
- * │  ├── wss://relay.damus.io                                       │
- * │  ├── wss://nos.lol                                              │
- * │  └── wss://relay.nostr.net                                      │
- * │      │                                                          │
- * │      └──> Fetch kind:10002 (relay lists)                        │
+ * │  DISCOVERY RELAY (purplepag.es)                                  │
+ * │  ├── kind:0    (user profiles/metadata)                         │
+ * │  ├── kind:10002 (NIP-65 relay lists)                            │
+ * │  └── kind:10009 (joined groups)                                 │
+ * │      Fallback: wss://relay.primal.net                           │
  * │                                                                  │
  * │  USER'S WRITE RELAYS (Outbox - Publishing)                      │
  * │  ├── Author publishes their events here                         │
@@ -152,6 +151,7 @@ data class Nip65Relay(
 data class CachedRelayList(
     val pubkey: String,
     val relays: List<Nip65Relay>,
+    val eventCreatedAt: Long = 0,
     val fetchedAt: Long,
     val expiresAt: Long
 ) {
@@ -160,14 +160,6 @@ data class CachedRelayList(
     companion object {
         const val DEFAULT_TTL_MS = 3600_000L // 1 hour
     }
-}
-
-/**
- * Result of a relay operation
- */
-sealed class RelayResult<T> {
-    data class Success<T>(val data: T, val relay: String) : RelayResult<T>()
-    data class Error<T>(val message: String, val relay: String) : RelayResult<T>()
 }
 
 /**
@@ -190,17 +182,7 @@ interface OutboxModel {
     suspend fun getRelayList(pubkey: String): List<Nip65Relay>
 
     /**
-     * Select relays for fetching events from an author
-     */
-    fun selectFetchRelays(authorPubkey: String): List<String>
-
-    /**
      * Select relays for publishing events
      */
     fun selectPublishRelays(): List<String>
-
-    /**
-     * Select relays for fetching mentions/replies to a user
-     */
-    fun selectInboxRelays(pubkey: String): List<String>
 }
