@@ -408,6 +408,7 @@ private fun AuthenticatedApp(
     if (showCreateGroupModal) {
         CreateGroupModal(
             currentRelayUrl = selectedRelayUrl,
+            userRelays = kind10009Relays,
             onDismiss = { showCreateGroupModal = false },
             onGroupCreated = { groupId, groupName ->
                 showCreateGroupModal = false

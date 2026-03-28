@@ -38,18 +38,12 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
 
-private val KNOWN_RELAYS = listOf(
-    "wss://groups.0xchat.com",
-    "wss://groups.fiatjaf.com",
-    "wss://relay.groups.nip29.com",
-    "wss://groups.hzrd149.com",
-    "wss://pyramid.fiatjaf.com"
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateGroupModal(
     currentRelayUrl: String,
+    userRelays: Set<String> = emptySet(),
     onDismiss: () -> Unit,
     onGroupCreated: (groupId: String, groupName: String) -> Unit
 ) {
@@ -65,9 +59,15 @@ fun CreateGroupModal(
     var creatingJob by remember { mutableStateOf<Job?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val relayOptions = remember(currentRelayUrl) {
-        if (currentRelayUrl in KNOWN_RELAYS) KNOWN_RELAYS
-        else listOf(currentRelayUrl) + KNOWN_RELAYS
+    val relayOptions = remember(currentRelayUrl, userRelays) {
+        val list = userRelays.toMutableList()
+        if (currentRelayUrl.isNotBlank() && currentRelayUrl !in list) {
+            list.add(0, currentRelayUrl)
+        } else if (currentRelayUrl.isNotBlank()) {
+            list.remove(currentRelayUrl)
+            list.add(0, currentRelayUrl)
+        }
+        list.filter { it.isNotBlank() }.distinct()
     }
     var selectedRelay by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
     var relayDropdownExpanded by remember { mutableStateOf(false) }
