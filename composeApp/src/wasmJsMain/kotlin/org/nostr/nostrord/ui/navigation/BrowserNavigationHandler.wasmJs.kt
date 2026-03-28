@@ -5,63 +5,95 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import kotlin.js.ExperimentalWasmJsInterop
 import org.nostr.nostrord.ui.Screen
 
-@JsFun("(depth) => window.history.replaceState(depth, '')")
-private external fun jsHistoryReplaceState(depth: Int)
+@JsFun("(url) => window.history.replaceState(null, '', url)")
+private external fun jsHistoryReplaceState(url: String)
 
-@JsFun("(depth) => window.history.pushState(depth, '')")
-private external fun jsHistoryPushState(depth: Int)
+@JsFun("(url) => window.history.pushState(null, '', url)")
+private external fun jsHistoryPushState(url: String)
+
+@JsFun("() => window.location.search")
+private external fun jsGetSearch(): String
+
+@JsFun("() => window.location.pathname")
+private external fun jsGetPathname(): String
 
 /**
- * Registers a popstate listener that calls back with the state depth (Int).
+ * Registers a popstate listener that calls back with the current search string.
  * Returns a function that removes the listener when called.
  */
 @JsFun("""(callback) => {
-    const listener = (event) => {
-        const depth = (typeof event.state === 'number') ? event.state : 0;
-        callback(depth);
+    const listener = () => {
+        callback(window.location.search || '');
     };
     window.addEventListener('popstate', listener);
     return () => window.removeEventListener('popstate', listener);
 }""")
-private external fun jsAddPopStateListener(callback: (Int) -> Unit): () -> Unit
+private external fun jsAddPopStateListener(callback: (String) -> Unit): () -> Unit
+
+private fun buildUrlQuery(relayUrl: String, screen: Screen): String {
+    if (relayUrl.isBlank()) return jsGetPathname()
+    val relay = relayUrl
+        .removePrefix("wss://")
+        .removePrefix("ws://")
+    return when (screen) {
+        is Screen.Group -> "?relay=$relay&group=${screen.groupId}"
+        else -> "?relay=$relay"
+    }
+}
+
+/**
+ * Parse relay and group from a URL search string like "?relay=host&group=id".
+ */
+private fun parseUrlQuery(search: String): Pair<String, String?> {
+    val params = search.removePrefix("?").split("&").associate { param ->
+        val idx = param.indexOf("=")
+        if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1)
+        else param to ""
+    }
+    val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: ""
+    val relayUrl = if (relay.isNotBlank() && "://" !in relay) "wss://$relay" else relay
+    val groupId = params["group"]?.takeIf { it.isNotBlank() }
+    return relayUrl to groupId
+}
 
 @Composable
 actual fun BrowserNavigationHandler(
     currentScreen: Screen,
-    onBack: () -> Unit,
-    onForward: () -> Unit
+    selectedRelayUrl: String,
+    onUrlNavigation: (relayUrl: String, groupId: String?) -> Unit
 ) {
-    // Keep callbacks up-to-date without re-registering the listener
-    val currentOnBack by rememberUpdatedState(onBack)
-    val currentOnForward by rememberUpdatedState(onForward)
+    val currentOnUrlNavigation by rememberUpdatedState(onUrlNavigation)
 
-    val depth = remember { mutableIntStateOf(0) }
     val skipNextPush = remember { mutableStateOf(false) }
-    val isFirstScreen = remember { mutableStateOf(true) }
+    val isFirstRender = remember { mutableStateOf(true) }
+
+    // Track last pushed URL to avoid duplicate pushes
+    val lastPushedUrl = remember { mutableStateOf("") }
 
     // Register popstate listener once
     DisposableEffect(Unit) {
-        jsHistoryReplaceState(0)
+        // Preserve the current browser URL if relay isn't resolved yet (e.g. during login).
+        // This prevents deep link URLs like /?relay=X&group=Y from being wiped to /.
+        if (selectedRelayUrl.isNotBlank()) {
+            val initialUrl = buildUrlQuery(selectedRelayUrl, currentScreen)
+            jsHistoryReplaceState(initialUrl)
+            lastPushedUrl.value = initialUrl
+        } else {
+            lastPushedUrl.value = jsGetSearch().ifBlank { jsGetPathname() }
+        }
 
-        val removeListener = jsAddPopStateListener { newDepth ->
-            val oldDepth = depth.intValue
-
-            if (newDepth != oldDepth) {
-                skipNextPush.value = true
-                depth.intValue = newDepth
-
-                if (newDepth < oldDepth) {
-                    currentOnBack()
-                } else {
-                    currentOnForward()
-                }
+        val removeListener = jsAddPopStateListener { search ->
+            val (relayUrl, groupId) = parseUrlQuery(search)
+            skipNextPush.value = true
+            lastPushedUrl.value = search.ifBlank { jsGetPathname() }
+            if (relayUrl.isNotBlank()) {
+                currentOnUrlNavigation(relayUrl, groupId)
             }
         }
 
@@ -70,20 +102,27 @@ actual fun BrowserNavigationHandler(
         }
     }
 
-    // Push state when screen changes from in-app navigation (not browser back/forward)
-    LaunchedEffect(currentScreen) {
-        if (isFirstScreen.value) {
-            isFirstScreen.value = false
+    // Push state when screen or relay changes from in-app navigation
+    LaunchedEffect(currentScreen, selectedRelayUrl) {
+        if (isFirstRender.value) {
+            isFirstRender.value = false
             return@LaunchedEffect
         }
+
+        val url = buildUrlQuery(selectedRelayUrl, currentScreen)
 
         if (skipNextPush.value) {
+            // Browser navigated (back/forward) — just sync URL without pushing
             skipNextPush.value = false
+            jsHistoryReplaceState(url)
+            lastPushedUrl.value = url
             return@LaunchedEffect
         }
 
-        val newDepth = depth.intValue + 1
-        depth.intValue = newDepth
-        jsHistoryPushState(newDepth)
+        // Avoid duplicate push if URL hasn't changed
+        if (url == lastPushedUrl.value) return@LaunchedEffect
+
+        jsHistoryPushState(url)
+        lastPushedUrl.value = url
     }
 }

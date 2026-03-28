@@ -20,6 +20,7 @@ import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
@@ -124,6 +125,8 @@ class NostrRepository(
     override val connectionState: StateFlow<ConnectionManager.ConnectionState> = connectionManager.connectionState
     private val _isDiscoveringRelays = MutableStateFlow(false)
     override val isDiscoveringRelays: StateFlow<Boolean> = _isDiscoveringRelays.asStateFlow()
+    private val _pendingDeepLinkRelay = MutableStateFlow<String?>(null)
+    override val pendingDeepLinkRelay: StateFlow<String?> = _pendingDeepLinkRelay.asStateFlow()
 
     // Expose group state
     override val groups: StateFlow<List<GroupMetadata>> = groupManager.groups
@@ -157,6 +160,7 @@ class NostrRepository(
     // Expose NIP-11 relay metadata
     private val _relayMetadataManager = relayMetadataManager ?: RelayMetadataManager(scope)
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadataManager.relayMetadata
+    override val kind10009Relays: StateFlow<Set<String>> = outboxManager.kind10009Relays
 
     override fun forceInitialized() {
         _isInitialized.value = true
@@ -183,6 +187,9 @@ class NostrRepository(
 
         connectionManager.loadSavedRelay()
 
+        // Deep link relay from URL query params (web) — merge into relay list
+        val deepLinkRelay = StartupResolver.deepLinkRelayUrl
+
         val restored = sessionManager.restoreSession()
         if (restored) {
             val pubkey = sessionManager.getPublicKey()
@@ -194,7 +201,7 @@ class NostrRepository(
             // No NIP-29 relays saved locally — fetch kind:10009 from bootstrap
             // relays so "r" tags can restore the user's relay list automatically.
             // Once relays are discovered, connect to the first one as primary.
-            if (activeRelay.isBlank() && savedRelays.isEmpty()) {
+            if (activeRelay.isBlank() && savedRelays.isEmpty() && deepLinkRelay == null) {
                 if (pubkey != null) {
                     unreadManager.initialize(pubkey)
                     initializeOutboxModel()
@@ -226,8 +233,20 @@ class NostrRepository(
                 return
             }
 
-            val allRelays = (if (activeRelay.isBlank()) savedRelays else (listOf(activeRelay) + savedRelays)).distinct()
-            val primaryRelay = allRelays.first()
+            // Merge deep link relay into the visible list (not persisted until user confirms)
+            val baseRelays = if (activeRelay.isBlank()) savedRelays else (listOf(activeRelay) + savedRelays)
+            val allRelays = (baseRelays + listOfNotNull(deepLinkRelay)).distinct()
+            // Deep link relay becomes primary; otherwise use the first saved relay
+            val primaryRelay = deepLinkRelay ?: allRelays.first()
+            if (deepLinkRelay != null) {
+                // Only set as current relay for this session — don't save to relay list
+                SecureStorage.saveCurrentRelayUrl(primaryRelay)
+                connectionManager.loadSavedRelay()
+                // Signal UI to offer adding this relay if it's not already saved
+                if (deepLinkRelay !in baseRelays) {
+                    _pendingDeepLinkRelay.value = deepLinkRelay
+                }
+            }
             liveCursorStore?.loadAll(allRelays)
             groupManager.prePopulateRelayList(allRelays)
             groupManager.restoreAllGroupsFromStorage(allRelays)
@@ -419,12 +438,23 @@ class NostrRepository(
     override fun onForeground() {
         scope.launch {
             val state = connectionManager.connectionState.value
-            if (state is ConnectionManager.ConnectionState.Disconnected ||
-                state is ConnectionManager.ConnectionState.Error) {
-                reconnect()
-            } else {
-                groupManager.refreshLiveSubscriptions()
-                reconnectDroppedNip29PoolRelays()
+            when (state) {
+                // Only force reconnect if fully disconnected (no auto-reconnect running).
+                // Error state means auto-reconnect exhausted Phase 1 — force a fresh attempt.
+                is ConnectionManager.ConnectionState.Disconnected,
+                is ConnectionManager.ConnectionState.Error -> reconnect()
+
+                // Auto-reconnect or initial connect in progress — don't interrupt.
+                is ConnectionManager.ConnectionState.Reconnecting,
+                is ConnectionManager.ConnectionState.Connecting -> {
+                    reconnectDroppedNip29PoolRelays()
+                }
+
+                // Already connected — refresh subscriptions and pool relays.
+                is ConnectionManager.ConnectionState.Connected -> {
+                    groupManager.refreshLiveSubscriptions()
+                    reconnectDroppedNip29PoolRelays()
+                }
             }
         }
     }
@@ -545,12 +575,12 @@ class NostrRepository(
     }
 
     override suspend fun switchRelay(newRelayUrl: String) {
-        // Persist the new relay so it reappears in the rail after restart
-        val existing = SecureStorage.loadRelayList()
-        val isNewRelay = newRelayUrl !in existing
-        if (isNewRelay) {
-            SecureStorage.saveRelayList((existing + newRelayUrl).distinct())
+        // Skip if already on this relay — avoids unnecessary disconnect/reconnect/AUTH cycle.
+        if (newRelayUrl == connectionManager.currentRelayUrl.value &&
+            connectionManager.getPrimaryClient()?.isConnected() == true) {
+            return
         }
+
         _relayMetadataManager.fetch(newRelayUrl)
 
         // Mark the new relay as loading BEFORE clearing groups so the UI
@@ -604,18 +634,31 @@ class NostrRepository(
             }
         }
 
-        // Publish updated kind:10009 so the new relay appears in the "r" tags
-        if (isNewRelay && pubKey.isNotEmpty()) {
-            scope.launch { publishJoinedGroupsList() }
-        }
     }
 
     override suspend fun removeRelay(url: String) {
         val existing = SecureStorage.loadRelayList()
         val remaining = existing.filter { it != url }
+        val pubKey = sessionManager.getPublicKey()
+
+        // Publish kind:10009 first — only persist removal on success
+        if (pubKey != null) {
+            val result = publishJoinedGroupsListWith(pubKey, nip29Relays = remaining)
+            if (result !is Result.Success) {
+                return // signer denied or publish failed — don't remove
+            }
+        }
+
         SecureStorage.saveRelayList(remaining)
-        // Remove from in-memory map so the rail updates immediately
+
+        // Clean up persisted joined groups for this relay
+        if (pubKey != null) {
+            SecureStorage.clearJoinedGroupsForRelay(pubKey, url)
+        }
+
+        // Remove from in-memory maps so the rail and kind:10009 cache update immediately
         groupManager.removeRelayEntry(url)
+        outboxManager.removeRelayFromCache(url)
         // Switch to first remaining relay, or clear persisted relay if none left
         val fallback = remaining.firstOrNull()
         if (fallback != null && fallback != connectionManager.currentRelayUrl.value) {
@@ -627,17 +670,41 @@ class NostrRepository(
         // Disconnect the removed relay (pool or primary)
         connectionManager.disconnectRelay(url)
         connectedPoolRelays.remove(url)
-
-        // Publish updated kind:10009 so the removed relay is dropped from "r" tags
-        val pubKey = sessionManager.getPublicKey()
-        if (pubKey != null && remaining.isNotEmpty()) {
-            scope.launch { publishJoinedGroupsList() }
-        }
     }
 
     override suspend fun disconnect() {
         connectionManager.disconnectPrimary()
         groupManager.clear()
+    }
+
+    override suspend fun addRelay(url: String) {
+        // Check against kind:10009 "r" tags, not localStorage — the relay may be in
+        // localStorage (imported from "group" tags) but missing from "r" tags.
+        val alreadyInKind10009 = url in outboxManager.kind10009Relays.value
+        if (!alreadyInKind10009) {
+            val existing = SecureStorage.loadRelayList()
+            val newList = (existing + url).distinct()
+            val pubKey = sessionManager.getPublicKey()
+            if (!pubKey.isNullOrEmpty()) {
+                // Publish kind:10009 first — only persist to localStorage on success
+                val result = publishJoinedGroupsListWith(pubKey, nip29Relays = newList)
+                if (result is Result.Success) {
+                    SecureStorage.saveRelayList(newList)
+                } else {
+                    return // signer denied or publish failed — don't save
+                }
+            } else {
+                SecureStorage.saveRelayList(newList)
+            }
+        }
+        // Clear deep link prompt if this was the pending relay
+        if (_pendingDeepLinkRelay.value == url) {
+            _pendingDeepLinkRelay.value = null
+        }
+    }
+
+    override fun dismissDeepLinkRelay() {
+        _pendingDeepLinkRelay.value = null
     }
 
     // Auth delegation
@@ -1037,11 +1104,29 @@ class NostrRepository(
 
     private suspend fun publishJoinedGroupsList() {
         val pubKey = sessionManager.getPublicKey() ?: return
-        outboxManager.publishJoinedGroupsList(
+        publishJoinedGroupsListWith(pubKey)
+    }
+
+    /**
+     * Publish kind:10009 with an optional custom relay list.
+     * Returns the result so callers can check if the signer approved.
+     */
+    private suspend fun publishJoinedGroupsListWith(
+        pubKey: String,
+        nip29Relays: List<String> = SecureStorage.loadRelayList()
+    ): Result<Unit> {
+        val currentRelay = connectionManager.currentRelayUrl.value
+        val perRelay = groupManager.joinedGroupsByRelay.value.toMutableMap()
+        if (currentRelay.isNotBlank()) {
+            val current = groupManager.joinedGroups.value
+            if (current.isNotEmpty()) {
+                perRelay[currentRelay] = current
+            }
+        }
+        return outboxManager.publishJoinedGroupsList(
             pubKey = pubKey,
-            joinedGroups = groupManager.joinedGroups.value,
-            currentRelayUrl = connectionManager.currentRelayUrl.value,
-            nip29Relays = SecureStorage.loadRelayList(),
+            joinedGroupsByRelay = perRelay,
+            nip29Relays = nip29Relays,
             signEvent = { sessionManager.signEvent(it) },
             messageHandler = { msg, client -> handleRelayMessage(msg, client) }
         )

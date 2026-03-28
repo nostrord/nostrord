@@ -24,12 +24,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -90,7 +91,9 @@ fun HomeScreenDesktop(
     isLoading: Boolean = false,
     hasError: Boolean = false,
     onRetry: () -> Unit = {},
-    onRemoveRelay: () -> Unit = {}
+    onRemoveRelay: () -> Unit = {},
+    onAddRelay: () -> Unit = {},
+    isRelaySaved: Boolean = true
 ) {
     Column(
         modifier = Modifier
@@ -141,6 +144,8 @@ fun HomeScreenDesktop(
             // Relay options menu — position:absolute; top:8px; right:8px
             RelayOptionsMenu(
                 relayUrl = currentRelayUrl,
+                isRelaySaved = isRelaySaved,
+                onAddRelay = onAddRelay,
                 onRemoveRelay = onRemoveRelay,
                 modifier = Modifier.align(Alignment.TopEnd)
             )
@@ -368,6 +373,8 @@ private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
 @Composable
 internal fun RelayOptionsMenu(
     relayUrl: String,
+    isRelaySaved: Boolean,
+    onAddRelay: () -> Unit,
     onRemoveRelay: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -399,8 +406,24 @@ internal fun RelayOptionsMenu(
         )
     }
 
-    // Box wraps IconButton + DropdownMenu so the dropdown anchors to the button
-    Box(modifier = modifier.wrapContentSize(Alignment.TopEnd)) {
+    Row(modifier = modifier.wrapContentSize(Alignment.TopEnd)) {
+        if (isRelaySaved) {
+            IconButton(onClick = { showConfirm = true }) {
+                Icon(
+                    Icons.Default.Remove,
+                    contentDescription = "Remove relay from your list",
+                    tint = NostrordColors.Error
+                )
+            }
+        } else {
+            IconButton(onClick = onAddRelay) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = "Add relay to your list",
+                    tint = NostrordColors.Primary
+                )
+            }
+        }
         IconButton(onClick = { expanded = true }) {
             Icon(
                 Icons.Default.MoreVert,
@@ -423,19 +446,6 @@ internal fun RelayOptionsMenu(
                 onClick = {
                     copyToClipboard(relayUrl)
                     expanded = false
-                }
-            )
-            HorizontalDivider(color = NostrordColors.Divider)
-            DropdownMenuItem(
-                text = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("✕", fontSize = 14.sp, color = NostrordColors.Error)
-                        Text("Remove relay", color = NostrordColors.Error, fontSize = 14.sp)
-                    }
-                },
-                onClick = {
-                    expanded = false
-                    showConfirm = true
                 }
             )
         }

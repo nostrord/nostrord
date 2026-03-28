@@ -29,6 +29,8 @@ fun HomeScreen(
     val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
     val loadingRelays by vm.loadingRelays.collectAsState()
+    val pendingDeepLinkRelay by vm.pendingDeepLinkRelay.collectAsState()
+    val kind10009Relays by vm.kind10009Relays.collectAsState()
 
     val displayRelayUrl = relayUrl ?: currentRelayUrl
     val relayMeta: Nip11RelayInfo? = relayMetadata[displayRelayUrl]
@@ -74,6 +76,11 @@ fun HomeScreen(
         val connectionState by vm.connectionState.collectAsState()
         val hasError = connectionState is ConnectionManager.ConnectionState.Error
 
+        // Check if current relay is in the user's kind:10009 event.
+        val isRelaySaved = remember(displayRelayUrl, kind10009Relays) {
+            displayRelayUrl.isNotBlank() && displayRelayUrl in kind10009Relays
+        }
+
         if (isCompact) {
             HomeScreenMobile(
                 gridState = gridState,
@@ -95,7 +102,9 @@ fun HomeScreen(
                 onRemoveRelay = {
                     vm.removeRelay(displayRelayUrl)
                     onNavigate(Screen.Home)
-                }
+                },
+                onAddRelay = { vm.addRelay(displayRelayUrl) },
+                isRelaySaved = isRelaySaved
             )
         } else {
             HomeScreenDesktop(
@@ -117,7 +126,9 @@ fun HomeScreen(
                 onRemoveRelay = {
                     vm.removeRelay(displayRelayUrl)
                     onNavigate(Screen.Home)
-                }
+                },
+                onAddRelay = { vm.addRelay(displayRelayUrl) },
+                isRelaySaved = isRelaySaved
             )
         }
     }

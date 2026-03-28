@@ -8,23 +8,31 @@ import androidx.compose.runtime.setValue
 import org.nostr.nostrord.ui.Screen
 
 /**
+ * A navigation entry storing both the screen and the relay that was active.
+ */
+data class NavEntry(val screen: Screen, val relayUrl: String)
+
+/**
  * Browser-like navigation history with back/forward support.
  *
- * Maintains an ordered list of visited screens and a cursor pointing
- * to the current position. Navigating to a new screen truncates any
- * forward history. The history is capped at [MAX_HISTORY_SIZE] entries.
+ * Maintains an ordered list of visited screens (with associated relay URLs)
+ * and a cursor pointing to the current position. Navigating to a new screen
+ * truncates any forward history. The history is capped at [MAX_HISTORY_SIZE] entries.
  */
-class NavigationHistory(initialScreen: Screen) {
+class NavigationHistory(initialScreen: Screen, initialRelayUrl: String = "") {
 
     companion object {
         private const val MAX_HISTORY_SIZE = 50
     }
 
-    private val history = mutableStateListOf(initialScreen)
+    private val history = mutableStateListOf(NavEntry(initialScreen, initialRelayUrl))
     private var cursorIndex by mutableIntStateOf(0)
 
     val currentScreen: Screen
-        get() = history[cursorIndex]
+        get() = history[cursorIndex].screen
+
+    val currentRelayUrl: String
+        get() = history[cursorIndex].relayUrl
 
     val canGoBack: Boolean by derivedStateOf { cursorIndex > 0 }
 
@@ -32,17 +40,18 @@ class NavigationHistory(initialScreen: Screen) {
 
     /**
      * Navigate to a new screen. Truncates forward history and appends.
-     * Skips if [screen] is the same as the current screen.
+     * Skips if [screen] and [relayUrl] are the same as the current entry.
      */
-    fun navigate(screen: Screen) {
-        if (screen == currentScreen) return
+    fun navigate(screen: Screen, relayUrl: String = "") {
+        val current = history[cursorIndex]
+        if (screen == current.screen && relayUrl == current.relayUrl) return
 
         // Truncate forward history
         while (history.lastIndex > cursorIndex) {
             history.removeAt(history.lastIndex)
         }
 
-        history.add(screen)
+        history.add(NavEntry(screen, relayUrl))
         cursorIndex = history.lastIndex
 
         // Cap history size by removing oldest entries
@@ -53,21 +62,21 @@ class NavigationHistory(initialScreen: Screen) {
     }
 
     /**
-     * Move back in history. Returns the new current screen, or null if already at the start.
+     * Move back in history. Returns the new entry, or null if already at the start.
      */
-    fun goBack(): Screen? {
+    fun goBack(): NavEntry? {
         if (!canGoBack) return null
         cursorIndex--
-        return currentScreen
+        return history[cursorIndex]
     }
 
     /**
-     * Move forward in history. Returns the new current screen, or null if already at the end.
+     * Move forward in history. Returns the new entry, or null if already at the end.
      */
-    fun goForward(): Screen? {
+    fun goForward(): NavEntry? {
         if (!canGoForward) return null
         cursorIndex++
-        return currentScreen
+        return history[cursorIndex]
     }
 
     /**
@@ -75,8 +84,8 @@ class NavigationHistory(initialScreen: Screen) {
      * returns to Home instead of closing the app (e.g. after restore).
      */
     fun ensureHomeBase() {
-        if (history.firstOrNull() !is Screen.Home) {
-            history.add(0, Screen.Home)
+        if (history.firstOrNull()?.screen !is Screen.Home) {
+            history.add(0, NavEntry(Screen.Home, history.firstOrNull()?.relayUrl ?: ""))
             cursorIndex++
         }
     }

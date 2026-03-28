@@ -134,7 +134,8 @@ fun App() {
                 // Now we can create the navigation state with the correct initial value
                 AuthenticatedApp(
                     initialScreen = startupState.initialScreen,
-                    restoredFromPersistence = startupState.restoredFromPersistence
+                    restoredFromPersistence = startupState.restoredFromPersistence,
+                    deepLinkRelayUrl = startupState.deepLinkRelayUrl
                 )
             }
         }
@@ -176,10 +177,14 @@ private fun LoadingScreen(modifier: Modifier = Modifier, message: String? = null
  * @param initialScreen The screen to start with - computed during bootstrap
  */
 @Composable
-private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boolean) {
+private fun AuthenticatedApp(
+    initialScreen: Screen,
+    restoredFromPersistence: Boolean,
+    deepLinkRelayUrl: String? = null
+) {
     // Initialize navigation history with the resolved initial screen
     val navHistory = remember {
-        NavigationHistory(initialScreen).also { history ->
+        NavigationHistory(initialScreen, "").also { history ->
             if (restoredFromPersistence && initialScreen !is Screen.Home) {
                 history.ensureHomeBase()
             }
@@ -195,6 +200,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+    val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
     val isLoggedIn by AppModule.nostrRepository.isLoggedIn.collectAsState()
 
     // Get pubKey reactively
@@ -210,6 +216,15 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     val isDiscoveringRelays by AppModule.nostrRepository.isDiscoveringRelays.collectAsState()
 
     var selectedRelayUrl by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
+
+    // Connect to deep link relay if provided (e.g. login via /?relay=X&group=Y).
+    // initialize() may have skipped the deep link because the user wasn't logged in yet.
+    LaunchedEffect(deepLinkRelayUrl) {
+        if (deepLinkRelayUrl != null && deepLinkRelayUrl != currentRelayUrl) {
+            selectedRelayUrl = deepLinkRelayUrl
+            AppModule.nostrRepository.switchRelay(deepLinkRelayUrl)
+        }
+    }
 
     var showCreateGroupModal by remember { mutableStateOf(false) }
     var showAddRelayModal by remember { mutableStateOf(false) }
@@ -280,7 +295,7 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
             addRelayInitialTab = 0
             showAddRelayModal = true
         } else {
-            navHistory.navigate(newScreen)
+            navHistory.navigate(newScreen, selectedRelayUrl)
             persistScreenState(newScreen)
             // Promote the relay of the opened group to ACTIVE priority for faster reconnect backoff.
             // Clear it when navigating away from a group so the relay reverts to BACKGROUND.
@@ -290,13 +305,26 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
         }
     }
 
-    // Direct history navigation — called by native platforms and by BrowserNavigationHandler
+    // Direct history navigation — called by native platforms and by BrowserNavigationHandler.
+    // Restores the relay that was active when the entry was pushed.
     val onDirectHistoryBack: () -> Unit = {
-        navHistory.goBack()?.let { screen -> persistScreenState(screen) }
+        navHistory.goBack()?.let { entry ->
+            persistScreenState(entry.screen)
+            if (entry.relayUrl.isNotBlank() && entry.relayUrl != selectedRelayUrl) {
+                selectedRelayUrl = entry.relayUrl
+                scope.launch { AppModule.nostrRepository.switchRelay(entry.relayUrl) }
+            }
+        }
     }
 
     val onDirectHistoryForward: () -> Unit = {
-        navHistory.goForward()?.let { screen -> persistScreenState(screen) }
+        navHistory.goForward()?.let { entry ->
+            persistScreenState(entry.screen)
+            if (entry.relayUrl.isNotBlank() && entry.relayUrl != selectedRelayUrl) {
+                selectedRelayUrl = entry.relayUrl
+                scope.launch { AppModule.nostrRepository.switchRelay(entry.relayUrl) }
+            }
+        }
     }
 
     // In-app back/forward — used by UI buttons and keyboard shortcuts.
@@ -323,11 +351,27 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
     PlatformBackHandler(enabled = navHistory.canGoBack) { onHistoryBack() }
 
     // Browser back/forward buttons (JS/WasmJS only, no-op on other platforms).
-    // Uses onDirect* callbacks to avoid circular routing through browserGoBack/Forward.
+    // Uses URL-based navigation: on popstate, the URL is parsed and applied directly.
     BrowserNavigationHandler(
         currentScreen = currentScreen,
-        onBack = onDirectHistoryBack,
-        onForward = onDirectHistoryForward
+        selectedRelayUrl = selectedRelayUrl,
+        onUrlNavigation = { relayUrl, groupId ->
+            // Switch relay if different
+            if (relayUrl != selectedRelayUrl) {
+                selectedRelayUrl = relayUrl
+                scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
+            }
+            // Navigate to the correct screen
+            val targetScreen = if (groupId != null) {
+                Screen.Group(groupId, null)
+            } else {
+                Screen.Home
+            }
+            if (targetScreen != currentScreen) {
+                navHistory.navigate(targetScreen, relayUrl)
+                persistScreenState(targetScreen)
+            }
+        }
     )
 
     // Determine current active group ID for server rail highlighting
@@ -374,12 +418,16 @@ private fun AuthenticatedApp(initialScreen: Screen, restoredFromPersistence: Boo
 
     if (showAddRelayModal) {
         AddRelayModal(
-            connectedRelays = relayList.toSet(),
+            connectedRelays = kind10009Relays,
             relayMetadata = relayMetadata,
             onSwitchRelay = { url ->
-                scope.launch { AppModule.nostrRepository.switchRelay(url) }
-                selectedRelayUrl = url
-                onNavigate(Screen.Home)
+                scope.launch {
+                    AppModule.nostrRepository.addRelay(url)
+                    AppModule.nostrRepository.switchRelay(url)
+                    selectedRelayUrl = url
+                    onNavigate(Screen.Home)
+                    showAddRelayModal = false
+                }
             },
             onDismiss = { showAddRelayModal = false },
             initialTab = addRelayInitialTab,

@@ -17,6 +17,8 @@ class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
     val userMetadata = repo.userMetadata
     val unreadCounts = repo.unreadCounts
     val relayMetadata = repo.relayMetadata
+    val pendingDeepLinkRelay = repo.pendingDeepLinkRelay
+    val kind10009Relays = repo.kind10009Relays
 
     fun getPublicKey() = repo.getPublicKey()
 
@@ -26,5 +28,9 @@ class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
 
     fun removeRelay(url: String) {
         viewModelScope.launch { repo.removeRelay(url) }
+    }
+
+    fun addRelay(url: String) {
+        viewModelScope.launch { repo.addRelay(url) }
     }
 }

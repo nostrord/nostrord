@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -12,39 +11,65 @@ import kotlinx.browser.window
 import org.nostr.nostrord.ui.Screen
 import org.w3c.dom.PopStateEvent
 
+private fun buildUrlQuery(relayUrl: String, screen: Screen): String {
+    if (relayUrl.isBlank()) return window.location.pathname
+    val relay = relayUrl
+        .removePrefix("wss://")
+        .removePrefix("ws://")
+    return when (screen) {
+        is Screen.Group -> "?relay=$relay&group=${screen.groupId}"
+        else -> "?relay=$relay"
+    }
+}
+
+/**
+ * Parse relay and group from a URL search string like "?relay=host&group=id".
+ */
+private fun parseUrlQuery(search: String): Pair<String, String?> {
+    val params = search.removePrefix("?").split("&").associate { param ->
+        val idx = param.indexOf("=")
+        if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1)
+        else param to ""
+    }
+    val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: ""
+    val relayUrl = if (relay.isNotBlank() && "://" !in relay) "wss://$relay" else relay
+    val groupId = params["group"]?.takeIf { it.isNotBlank() }
+    return relayUrl to groupId
+}
+
 @Composable
 actual fun BrowserNavigationHandler(
     currentScreen: Screen,
-    onBack: () -> Unit,
-    onForward: () -> Unit
+    selectedRelayUrl: String,
+    onUrlNavigation: (relayUrl: String, groupId: String?) -> Unit
 ) {
-    // Keep callbacks up-to-date without re-registering the listener
-    val currentOnBack by rememberUpdatedState(onBack)
-    val currentOnForward by rememberUpdatedState(onForward)
+    val currentOnUrlNavigation by rememberUpdatedState(onUrlNavigation)
 
-    val depth = remember { mutableIntStateOf(0) }
     val skipNextPush = remember { mutableStateOf(false) }
-    val isFirstScreen = remember { mutableStateOf(true) }
+    val isFirstRender = remember { mutableStateOf(true) }
+
+    // Track last pushed URL to avoid duplicate pushes
+    val lastPushedUrl = remember { mutableStateOf("") }
 
     // Register popstate listener once
     DisposableEffect(Unit) {
-        // Set initial state with depth 0
-        window.history.replaceState(0, "")
+        // Preserve the current browser URL if relay isn't resolved yet (e.g. during login).
+        // This prevents deep link URLs like /?relay=X&group=Y from being wiped to /.
+        if (selectedRelayUrl.isNotBlank()) {
+            val initialUrl = buildUrlQuery(selectedRelayUrl, currentScreen)
+            window.history.replaceState(null, "", initialUrl)
+            lastPushedUrl.value = initialUrl
+        } else {
+            lastPushedUrl.value = window.location.search.ifBlank { window.location.pathname }
+        }
 
-        val listener: (org.w3c.dom.events.Event) -> Unit = { event ->
-            val popEvent = event as PopStateEvent
-            val newDepth = (popEvent.state as? Number)?.toInt() ?: 0
-            val oldDepth = depth.intValue
-
-            if (newDepth != oldDepth) {
-                skipNextPush.value = true
-                depth.intValue = newDepth
-
-                if (newDepth < oldDepth) {
-                    currentOnBack()
-                } else {
-                    currentOnForward()
-                }
+        val listener: (org.w3c.dom.events.Event) -> Unit = { _ ->
+            // Parse the URL the browser navigated to
+            val (relayUrl, groupId) = parseUrlQuery(window.location.search)
+            skipNextPush.value = true
+            lastPushedUrl.value = window.location.search.ifBlank { window.location.pathname }
+            if (relayUrl.isNotBlank()) {
+                currentOnUrlNavigation(relayUrl, groupId)
             }
         }
 
@@ -54,20 +79,27 @@ actual fun BrowserNavigationHandler(
         }
     }
 
-    // Push state when screen changes from in-app navigation (not browser back/forward)
-    LaunchedEffect(currentScreen) {
-        if (isFirstScreen.value) {
-            isFirstScreen.value = false
+    // Push state when screen or relay changes from in-app navigation
+    LaunchedEffect(currentScreen, selectedRelayUrl) {
+        if (isFirstRender.value) {
+            isFirstRender.value = false
             return@LaunchedEffect
         }
+
+        val url = buildUrlQuery(selectedRelayUrl, currentScreen)
 
         if (skipNextPush.value) {
+            // Browser navigated (back/forward) — just sync URL without pushing
             skipNextPush.value = false
+            window.history.replaceState(null, "", url)
+            lastPushedUrl.value = url
             return@LaunchedEffect
         }
 
-        val newDepth = depth.intValue + 1
-        depth.intValue = newDepth
-        window.history.pushState(newDepth, "")
+        // Avoid duplicate push if URL hasn't changed
+        if (url == lastPushedUrl.value) return@LaunchedEffect
+
+        window.history.pushState(null, "", url)
+        lastPushedUrl.value = url
     }
 }

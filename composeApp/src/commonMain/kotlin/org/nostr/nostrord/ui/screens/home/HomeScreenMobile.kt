@@ -69,7 +69,9 @@ fun HomeScreenMobile(
     onRetry: () -> Unit = {},
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
-    onRemoveRelay: () -> Unit = {}
+    onRemoveRelay: () -> Unit = {},
+    onAddRelay: () -> Unit = {},
+    isRelaySaved: Boolean = true
 ) {
     Scaffold(
         topBar = {
@@ -105,6 +107,8 @@ fun HomeScreenMobile(
                 actions = {
                     RelayOptionsMenu(
                         relayUrl = currentRelayUrl,
+                        isRelaySaved = isRelaySaved,
+                        onAddRelay = onAddRelay,
                         onRemoveRelay = onRemoveRelay
                     )
                 },

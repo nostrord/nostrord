@@ -6,8 +6,8 @@ import org.nostr.nostrord.ui.Screen
 @Composable
 actual fun BrowserNavigationHandler(
     currentScreen: Screen,
-    onBack: () -> Unit,
-    onForward: () -> Unit
+    selectedRelayUrl: String,
+    onUrlNavigation: (relayUrl: String, groupId: String?) -> Unit
 ) {
     // No browser history on Android
 }

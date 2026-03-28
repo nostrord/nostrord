@@ -3,7 +3,9 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -41,6 +43,10 @@ class OutboxManager(
     private var allRelayGroups: Map<String, Set<String>> = emptyMap()
     // Timestamp of the last accepted kind:10009; older arrivals are discarded.
     private var latestKind10009CreatedAt: Long = 0
+
+    // Relay URLs present in the user's kind:10009 event (from "r" tags + "group" relay URLs).
+    private val _kind10009Relays = MutableStateFlow<Set<String>>(emptySet())
+    val kind10009Relays: StateFlow<Set<String>> = _kind10009Relays.asStateFlow()
 
     /**
      * Initialize outbox model for the current user.
@@ -157,15 +163,19 @@ class OutboxManager(
      */
     suspend fun publishJoinedGroupsList(
         pubKey: String,
-        joinedGroups: Set<String>,
-        currentRelayUrl: String,
+        joinedGroupsByRelay: Map<String, Set<String>>,
         nip29Relays: List<String>,
         signEvent: suspend (Event) -> Event,
         messageHandler: (String, NostrGroupClient) -> Unit
     ): Result<Unit> {
         return try {
             val tags = groupsMutex.withLock {
-                allRelayGroups = allRelayGroups + (currentRelayUrl to joinedGroups)
+                // Merge caller's per-relay joined groups into the cached map
+                joinedGroupsByRelay.forEach { (relay, groups) ->
+                    if (groups.isNotEmpty()) {
+                        allRelayGroups = allRelayGroups + (relay to groups)
+                    }
+                }
 
                 val tagsList = mutableListOf<List<String>>()
                 // ["group", groupId, relayUrl] for each joined group
@@ -175,9 +185,11 @@ class OutboxManager(
                     }
                 }
                 // ["r", relayUrl] for each NIP-29 relay the user has added
-                nip29Relays.filter { it.isNotBlank() }.distinct().forEach { relayUrl ->
+                val distinctRelays = nip29Relays.filter { it.isNotBlank() }.distinct()
+                distinctRelays.forEach { relayUrl ->
                     tagsList.add(listOf("r", relayUrl))
                 }
+
                 tagsList
             }
 
@@ -190,6 +202,10 @@ class OutboxManager(
             )
 
             val signedEvent = signEvent(event)
+
+            // Update kind:10009 relay set only AFTER signing succeeds (signer approved).
+            // Only "r" tag relays count as the user's saved list.
+            _kind10009Relays.value = nip29Relays.filter { it.isNotBlank() }.toSet()
             val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
 
             val message = buildJsonArray {
@@ -264,6 +280,11 @@ class OutboxManager(
         groupsMutex.withLock {
             allRelayGroups = immutableRelayGroups
         }
+
+        // Emit only the explicit "r" tag relays — these represent the user's saved relay list.
+        // Relays from "group" tags are NOT included; having a group on a relay doesn't mean
+        // the user explicitly added that relay.
+        _kind10009Relays.value = explicitNip29Relays.toSet()
 
         // Restore NIP-29 relay list from "r" tags if present; fall back to extracting
         // from "group" tags for events published by older versions of the app.
@@ -486,6 +507,17 @@ class OutboxManager(
         return groupsMutex.withLock {
             allRelayGroups[relayUrl] ?: emptySet()
         }
+    }
+
+    /**
+     * Remove a relay from the in-memory kind:10009 cache.
+     * Called when the user removes a relay so it won't appear in the next publish.
+     */
+    suspend fun removeRelayFromCache(relayUrl: String) {
+        groupsMutex.withLock {
+            allRelayGroups = allRelayGroups - relayUrl
+        }
+        _kind10009Relays.value = _kind10009Relays.value - relayUrl
     }
 
     /**

@@ -16,7 +16,36 @@ import androidx.compose.ui.window.ComposeViewport
 import nostrord.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.preloadFont
+import org.nostr.nostrord.startup.ExternalLaunchContext
+import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.ui.theme.AppFonts
+
+/**
+ * Parse URL query parameters for deep linking.
+ * Supports: /?relay=groups.hzrd149.com&group=a45b2f
+ *           /?relay=groups.hzrd149.com
+ */
+private fun parseDeepLinkFromUrl() {
+    val search = kotlinx.browser.window.location.search
+    if (search.isBlank()) return
+
+    val params = search.removePrefix("?").split("&").associate { param ->
+        val idx = param.indexOf("=")
+        if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1)
+        else param to ""
+    }
+
+    val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return
+    val relayUrl = if ("://" in relay) relay else "wss://$relay"
+    val groupId = params["group"]?.takeIf { it.isNotBlank() }
+
+    val context = if (groupId != null) {
+        ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl)
+    } else {
+        ExternalLaunchContext.OpenRelay(relayUrl)
+    }
+    StartupResolver.setExternalLaunchContext(context)
+}
 
 /**
  * Web entry point with PROGRESSIVE font loading for Canvas-based rendering.
@@ -35,6 +64,7 @@ import org.nostr.nostrord.ui.theme.AppFonts
  */
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
+    parseDeepLinkFromUrl()
     ComposeViewport {
         WebAppWithFontPreloading()
     }

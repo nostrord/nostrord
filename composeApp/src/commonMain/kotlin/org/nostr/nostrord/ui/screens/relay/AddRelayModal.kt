@@ -180,13 +180,11 @@ fun AddRelayModal(
                             relayMetadata = relayMetadata,
                             onSelect = { url ->
                                 onSwitchRelay(url)
-                                onDismiss()
                             }
                         )
                         else -> CustomUrlTab(
                             onAdd = { url ->
                                 onSwitchRelay(url)
-                                onDismiss()
                             },
                             onCancel = onDismiss
                         )

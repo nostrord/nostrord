@@ -40,6 +40,17 @@ object StartupResolver {
     }
 
     /**
+     * Relay URL from external launch context (if any).
+     * Read by NostrRepository.initialize() to merge into relay list before connecting.
+     */
+    val deepLinkRelayUrl: String?
+        get() = when (val ctx = externalLaunchContext) {
+            is ExternalLaunchContext.OpenGroup -> ctx.relayUrl
+            is ExternalLaunchContext.OpenRelay -> ctx.relayUrl
+            else -> null
+        }
+
+    /**
      * Resolves the initial screen for an authenticated user.
      *
      * Precedence:
@@ -48,19 +59,22 @@ object StartupResolver {
      * 3. Default home screen
      *
      * @param pubkey The authenticated user's public key
-     * @return Pair of (Screen, restoredFromPersistence)
+     * @return Triple of (Screen, restoredFromPersistence, deepLinkRelayUrl?)
      */
-    fun resolveInitialScreen(pubkey: String): Pair<Screen, Boolean> {
+    fun resolveInitialScreen(pubkey: String): Triple<Screen, Boolean, String?> {
         // Priority 1: External launch context overrides everything
         val external = externalLaunchContext
         if (external != null) {
             clearExternalLaunchContext() // Consume it
             return when (external) {
                 is ExternalLaunchContext.OpenGroup -> {
-                    Pair(Screen.Group(external.groupId, external.groupName), false)
+                    Triple(Screen.Group(external.groupId, external.groupName), false, external.relayUrl)
+                }
+                is ExternalLaunchContext.OpenRelay -> {
+                    Triple(Screen.Home, false, external.relayUrl)
                 }
                 is ExternalLaunchContext.OpenHome -> {
-                    Pair(Screen.Home, false)
+                    Triple(Screen.Home, false, null)
                 }
             }
         }
@@ -72,7 +86,7 @@ object StartupResolver {
                 val (groupId, groupName) = lastGroup
                 // Validate the group ID is not empty/corrupted
                 if (groupId.isNotBlank()) {
-                    return Pair(Screen.Group(groupId, groupName), true)
+                    return Triple(Screen.Group(groupId, groupName), true, null)
                 }
             }
         } catch (e: Exception) {
@@ -85,7 +99,7 @@ object StartupResolver {
         }
 
         // Priority 3: Default to home screen
-        return Pair(Screen.Home, false)
+        return Triple(Screen.Home, false, null)
     }
 
     /**
@@ -116,10 +130,11 @@ object StartupResolver {
             )
         }
 
-        val (screen, restored) = resolveInitialScreen(pubkey)
+        val (screen, restored, deepLinkRelay) = resolveInitialScreen(pubkey)
         return AppStartState.Authenticated(
             initialScreen = screen,
-            restoredFromPersistence = restored
+            restoredFromPersistence = restored,
+            deepLinkRelayUrl = deepLinkRelay
         )
     }
 }
@@ -128,6 +143,11 @@ object StartupResolver {
  * External launch contexts that override persisted state.
  */
 sealed class ExternalLaunchContext {
-    data class OpenGroup(val groupId: String, val groupName: String?) : ExternalLaunchContext()
+    data class OpenGroup(
+        val groupId: String,
+        val groupName: String?,
+        val relayUrl: String? = null
+    ) : ExternalLaunchContext()
+    data class OpenRelay(val relayUrl: String) : ExternalLaunchContext()
     data object OpenHome : ExternalLaunchContext()
 }

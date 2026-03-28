@@ -25,6 +25,8 @@ interface NostrRepositoryApi {
     val currentRelayUrl: StateFlow<String>
     val connectionState: StateFlow<ConnectionManager.ConnectionState>
     val isDiscoveringRelays: StateFlow<Boolean>
+    /** Non-null when a deep link opened a relay not in the user's saved list. */
+    val pendingDeepLinkRelay: StateFlow<String?>
 
     // --- Group state ---
     val groups: StateFlow<List<GroupMetadata>>
@@ -45,6 +47,8 @@ interface NostrRepositoryApi {
     val unreadCounts: StateFlow<Map<String, Int>>
     val userRelayList: StateFlow<List<Nip65Relay>>
     val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>>
+    /** Relay URLs present in the user's kind:10009 event. */
+    val kind10009Relays: StateFlow<Set<String>>
 
     // --- Initialization ---
     fun forceInitialized()
@@ -71,6 +75,10 @@ interface NostrRepositoryApi {
     suspend fun switchRelay(newRelayUrl: String)
     suspend fun removeRelay(url: String)
     suspend fun disconnect()
+    /** Add a relay to the user's saved list and publish kind:10009. */
+    suspend fun addRelay(url: String)
+    /** Dismiss the deep link relay prompt without saving. */
+    fun dismissDeepLinkRelay()
 
     // --- Lifecycle ---
     /** Called when the app returns to the foreground. Re-establishes connections and refreshes subscriptions. */
