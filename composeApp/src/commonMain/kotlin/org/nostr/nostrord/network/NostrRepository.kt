@@ -733,7 +733,8 @@ class NostrRepository(
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
-        picture: String?
+        picture: String?,
+        customGroupId: String?
     ): Result<String> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -746,6 +747,7 @@ class NostrRepository(
             picture = picture,
             isPrivate = isPrivate,
             isClosed = isClosed,
+            customGroupId = customGroupId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },

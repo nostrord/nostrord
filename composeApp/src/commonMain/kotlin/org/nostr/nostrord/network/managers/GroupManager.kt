@@ -408,6 +408,7 @@ class GroupManager(
         picture: String? = null,
         isPrivate: Boolean,
         isClosed: Boolean,
+        customGroupId: String? = null,
         pubKey: String,
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
@@ -417,9 +418,13 @@ class GroupManager(
             ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
 
         return try {
-            // Generate a suggested group ID
-            val suggestedId = buildString {
-                repeat(32) { append("0123456789abcdef"[kotlin.random.Random.nextInt(16)]) }
+            // Use custom ID if provided, otherwise generate a random one
+            val suggestedId = if (!customGroupId.isNullOrBlank()) {
+                customGroupId.trim().lowercase()
+            } else {
+                buildString {
+                    repeat(32) { append("0123456789abcdef"[kotlin.random.Random.nextInt(16)]) }
+                }
             }
 
             // kind 9007: create-group — sign and build the full message first so

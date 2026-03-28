@@ -51,6 +51,7 @@ fun CreateGroupModal(
     val uriHandler = LocalUriHandler.current
 
     var name by remember { mutableStateOf("") }
+    var customGroupId by remember { mutableStateOf("") }
     var about by remember { mutableStateOf("") }
     var picture by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
@@ -176,6 +177,33 @@ fun CreateGroupModal(
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors(),
                         shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.lg))
+
+                    // Custom Group ID (optional)
+                    FieldLabel("Group ID (optional)")
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    OutlinedTextField(
+                        value = customGroupId,
+                        onValueChange = { customGroupId = it.lowercase().filter { c -> c.isLetterOrDigit() || c == '-' || c == '_' }; errorMessage = null },
+                        placeholder = {
+                            Text(
+                                "my-group",
+                                color = NostrordColors.TextMuted,
+                                style = NostrordTypography.MessageBody
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = fieldColors(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Text(
+                        text = "Leave empty for a random ID. The relay may override your choice.",
+                        style = NostrordTypography.Caption,
+                        color = NostrordColors.TextMuted
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
@@ -379,7 +407,8 @@ fun CreateGroupModal(
                                             relayUrl = selectedRelay,
                                             isPrivate = isPrivate,
                                             isClosed = isClosed,
-                                            picture = picture.trim().ifBlank { null }
+                                            picture = picture.trim().ifBlank { null },
+                                            customGroupId = customGroupId.trim().ifBlank { null }
                                         )
                                         isCreating = false
                                         creatingJob = null

@@ -125,8 +125,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun removeRelay(url: String) {}
     override suspend fun disconnect() {}
 
-    override suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean): Result<String> =
-        Result.Success("fake-group-id")
+    override suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String?, customGroupId: String?): Result<String> =
+        Result.Success(customGroupId ?: "fake-group-id")
 
     override suspend fun joinGroup(groupId: String): Result<Unit> = Result.Success(Unit)
     override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> = leaveGroupAction(groupId, reason)
