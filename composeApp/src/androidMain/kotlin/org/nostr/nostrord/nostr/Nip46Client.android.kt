@@ -15,6 +15,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
 
     private var remoteSignerPubkey: String? = null
     private var relayClients: MutableList<NostrGroupClient> = mutableListOf()
+    private var relayUrls: List<String> = emptyList()
     private val pendingRequests: MutableMap<String, CompletableDeferred<String>> = java.util.concurrent.ConcurrentHashMap()
     private var listenSubscriptionId: String? = null
     private var nostrConnectSecret: String? = null
@@ -49,14 +50,27 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             }.awaitAll().filterNotNull()
         }
 
+    private suspend fun ensureRelaysConnected() {
+        val dead = relayClients.filter { !it.isConnected() }
+        if (dead.isNotEmpty()) {
+            dead.forEach { try { it.disconnect() } catch (_: Exception) {} }
+            relayClients.removeAll(dead)
+        }
+        if (relayClients.isNotEmpty()) return
+        if (relayUrls.isEmpty()) return
+        relayClients.addAll(connectRelaysParallel(relayUrls))
+    }
+
     actual suspend fun connectRelaysOnly(remoteSignerPubkey: String, relays: List<String>) {
         this.remoteSignerPubkey = remoteSignerPubkey
+        this.relayUrls = relays.map { it.trimEnd('/') }
         relayClients.addAll(connectRelaysParallel(relays))
         if (relayClients.isEmpty()) throw Exception("Failed to connect to any bunker relay")
     }
 
     actual suspend fun startListeningForConnection(relays: List<String>, secret: String?) {
         nostrConnectSecret = secret ?: generateRequestId().take(16)
+        this.relayUrls = relays.map { it.trimEnd('/') }
 
         relayClients.addAll(connectRelaysParallel(relays))
 
@@ -112,6 +126,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         secret: String?
     ): String {
         this.remoteSignerPubkey = remoteSignerPubkey
+        this.relayUrls = relays.map { it.trimEnd('/') }
 
         relayClients.addAll(connectRelaysParallel(relays))
 
@@ -148,6 +163,11 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     ): String = withTimeout(120_000) {
         val signerPubkey = remoteSignerPubkey
             ?: throw Exception("Not connected to signer")
+
+        ensureRelaysConnected()
+        if (relayClients.isEmpty()) {
+            throw Exception("No bunker relay connections available")
+        }
 
         val requestJson = buildJsonObject {
             put("id", requestId)
@@ -188,8 +208,9 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             add(filter)
         }.toString()
 
+        var sentToAny = false
         relayClients.forEach { client ->
-            try { client.send(subMessage) } catch (_: Exception) {}
+            try { client.send(subMessage); sentToAny = true } catch (_: Exception) {}
         }
 
         delay(100)
@@ -200,7 +221,12 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         }.toString()
 
         relayClients.forEach { client ->
-            try { client.send(eventMessage) } catch (_: Exception) {}
+            try { client.send(eventMessage); sentToAny = true } catch (_: Exception) {}
+        }
+
+        if (!sentToAny) {
+            pendingRequests.remove(requestId)
+            throw Exception("Failed to send signing request to any relay")
         }
 
         try {

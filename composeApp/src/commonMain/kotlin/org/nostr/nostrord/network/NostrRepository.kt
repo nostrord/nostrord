@@ -1218,7 +1218,6 @@ class NostrRepository(
         if (authChallenge != null) {
             scope.launch {
                 sessionManager.handleAuthChallenge(client, authChallenge)
-                // After AUTH, re-subscribe for any groups that were blocked or are loaded
                 resubscribeAfterAuth(client)
             }
             return
@@ -1537,31 +1536,21 @@ class NostrRepository(
             client.requestGroups()
         }
 
-        // Re-subscribe only groups on the PRIMARY relay.
-        // Pool relay groups are NOT affected by a primary-relay drop — their WebSocket
-        // subscriptions are still live. Using getGroupsForRelay() instead of
-        // messages.value.keys avoids accidentally resetting and double-subscribing
-        // groups that live on other NIP-29 relays in the pool.
-        val primaryGroupIds = groupManager.getGroupsForRelay(relayUrl).map { it.id }
-        // joinedGroups is always scoped to the active relay (set from kind:10009 currentRelay slot)
-        val joinedGroupIds = groupManager.joinedGroups.value.toList()
-        val groupIds = (primaryGroupIds + joinedGroupIds).distinct()
+        // Only re-subscribe messages/members/admins for groups the user has actually opened.
+        // Metadata mux (kind:39000) covers ALL joined groups for the sidebar listing.
+        val openedGroupIds = groupManager.getOpenedGroupIds()
+            .filter { groupManager.getRelayForGroup(it) == relayUrl }
 
-        if (groupIds.isEmpty()) return
-
-        // Explicitly reset to Idle — don't rely on onConnectionDropped timing.
-        // handleConnectionLost() runs in a separate coroutine; if the connection bounced
-        // very quickly it may not have completed before we reach here.
-        groupManager.handleConnectionLostForGroups(groupIds.toList())
-
-        for (groupId in groupIds) {
-            groupManager.requestGroupMessages(groupId)
-            groupManager.requestGroupMembers(groupId)
-            groupManager.requestGroupAdmins(groupId)
-            client.requestGroupMetadata(groupId)
+        if (openedGroupIds.isNotEmpty()) {
+            groupManager.handleConnectionLostForGroups(openedGroupIds.toList())
+            for (groupId in openedGroupIds) {
+                groupManager.requestGroupMessages(groupId)
+                groupManager.requestGroupMembers(groupId)
+                groupManager.requestGroupAdmins(groupId)
+                client.requestGroupMetadata(groupId)
+            }
         }
 
-        // Send the relay-level mux subscription covering all primary-relay groups.
         groupManager.refreshMuxDebounced(relayUrl)
     }
 
@@ -1576,14 +1565,8 @@ class NostrRepository(
      */
     private suspend fun resubscribeAfterAuth(client: NostrGroupClient) {
         val relayUrl = client.getRelayUrl()
-
-        // Guard: if this client lost the getOrConnectRelay race (displaced by a concurrent
-        // connection attempt), its WebSocket session is already gone. Proceeding would crash
-        // with "Not connected" when requestGroupMetadata sends CLOSE/REQ on a null session.
         if (!client.isConnected()) return
 
-        // Only re-fetch the group list for the primary relay, and only if connect()
-        // didn't already send one in the last 10 seconds (auth fires right after connect).
         if (connectionManager.getPrimaryClient() === client) {
             val now = epochSeconds()
             val lastAt = lastRequestGroupsAt[relayUrl] ?: 0L
@@ -1594,31 +1577,24 @@ class NostrRepository(
             }
         }
 
-        // Only re-subscribe groups that live on this relay.
-        // getGroupIdsForMux filters by relay via _joinedGroupsByRelay and getRelayForGroup().
-        val groupIdsOnRelay = groupManager.getGroupIdsForMux(relayUrl).toSet()
-        // Drain only the closed subs that belong to this relay; leave others for their relay.
-        val closedOnRelay = closedGroupSubscriptions.filter { it in groupIdsOnRelay }
+        // Only re-subscribe messages/members/admins for opened groups + auth-closed groups.
+        val openedOnRelay = groupManager.getOpenedGroupIds()
+            .filter { groupManager.getRelayForGroup(it) == relayUrl }
+        val closedOnRelay = closedGroupSubscriptions.filter {
+            groupManager.getRelayForGroup(it) == relayUrl
+        }
         closedGroupSubscriptions.removeAll(closedOnRelay.toSet())
 
-        val groupIds = (closedOnRelay + groupIdsOnRelay).distinct()
-        if (groupIds.isEmpty()) return
+        val groupIds = (openedOnRelay + closedOnRelay).distinct()
 
-
-        // CRITICAL: auth-CLOSED put groups in Exhausted state (0 messages from CLOSED event).
-        // GroupManager.requestGroupMessages calls startInitialLoad() which only proceeds from
-        // Idle or Error — it returns null for Exhausted, so the group never reloads.
-        // Reset to Idle first so re-subscription can proceed through the state machine.
-        groupManager.handleConnectionLostForGroups(groupIds)
-
-        for (groupId in groupIds) {
-            // Route through GroupManager (state machine) instead of calling client directly.
-            // Direct client calls bypass subscription registration → EOSE never tracked →
-            // loading state never transitions → UI stuck forever.
-            groupManager.requestGroupMessages(groupId)
-            groupManager.requestGroupMembers(groupId)
-            groupManager.requestGroupAdmins(groupId)
-            client.requestGroupMetadata(groupId)
+        if (groupIds.isNotEmpty()) {
+            groupManager.handleConnectionLostForGroups(groupIds)
+            for (groupId in groupIds) {
+                groupManager.requestGroupMessages(groupId)
+                groupManager.requestGroupMembers(groupId)
+                groupManager.requestGroupAdmins(groupId)
+                client.requestGroupMetadata(groupId)
+            }
         }
 
         groupManager.refreshMuxDebounced(relayUrl)

@@ -123,7 +123,7 @@ class NostrGroupClient(
         /** How often the heartbeat checks for stale connections. */
         private const val HEARTBEAT_CHECK_INTERVAL_MS = 30_000L
         /** If no frame arrives within this window, the connection is considered frozen. */
-        private const val HEARTBEAT_STALE_MS = 90_000L
+        private const val HEARTBEAT_STALE_MS = 180_000L
     }
 
     fun getRelayUrl(): String = relayUrl
@@ -153,8 +153,7 @@ class NostrGroupClient(
     suspend fun connect(onMessage: (String) -> Unit) {
         isDisconnecting = false
         connectionJob = clientScope.launch {
-            val connectedAt = epochMillis()
-            lastMessageReceivedAt = connectedAt
+            lastMessageReceivedAt = epochMillis()
             try {
                 client.webSocket(relayUrl) {
                     session = this
@@ -167,6 +166,11 @@ class NostrGroupClient(
                     // application layer — the socket stays open but events stop arriving.
                     // If no frame arrives for HEARTBEAT_STALE_MS, close gracefully so that
                     // onConnectionLost fires and the reconnect loop re-establishes the session.
+                    //
+                    // Application-level keepalive: browser WebSocket doesn't expose ping/pong,
+                    // so we send a cheap REQ+CLOSE probe every check interval when idle for
+                    // more than 60s. The EOSE/CLOSED response resets lastMessageReceivedAt,
+                    // preventing false-positive stale detection on quiet relays.
                     val wsSession = this
                     launch {
                         while (isActive) {
@@ -175,6 +179,17 @@ class NostrGroupClient(
                             if (idleMs > HEARTBEAT_STALE_MS) {
                                 wsSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "heartbeat-stale"))
                                 break
+                            }
+                            // Probe: if idle for >60s, send a minimal REQ+CLOSE to provoke
+                            // a relay response (EOSE or CLOSED) that resets the heartbeat.
+                            if (idleMs > 60_000L) {
+                                try {
+                                    val probeId = "_hb"
+                                    wsSession.send(Frame.Text("""["REQ","$probeId",{"kinds":[0],"limit":1}]"""))
+                                    wsSession.send(Frame.Text("""["CLOSE","$probeId"]"""))
+                                } catch (_: Exception) {
+                                    // Send failed — connection is dead, next tick will close it.
+                                }
                             }
                         }
                     }
@@ -190,25 +205,15 @@ class NostrGroupClient(
                             else -> {} // ping/pong handled by Ktor
                         }
                     }
-                    val durationSec = (epochMillis() - connectedAt) / 1000
-                    val reason = closeReason.await()
+                    closeReason.await()
                 }
             } catch (e: Exception) {
-                val durationSec = (epochMillis() - connectedAt) / 1000
-                // JobCancellationException = graceful disconnect or race-condition loser in
-                // getOrConnectRelay (expected, not an error). Only log real failures.
-                if (e is kotlinx.coroutines.CancellationException) {
-                    if (!isDisconnecting) {
-                    }
-                    // else: graceful disconnect — silent
-                } else {
-                }
+                if (e is kotlinx.coroutines.CancellationException) throw e
             } finally {
                 val wasConnected = session != null
                 session = null
                 if (wasConnected && !isDisconnecting) {
                     onConnectionLost?.invoke()
-                } else if (!wasConnected && !isDisconnecting) {
                 }
             }
         }
@@ -225,14 +230,9 @@ class NostrGroupClient(
 
     suspend fun send(message: String) {
         trackSubLifecycle(message)
-        val currentSession = session ?: run {
-            throw IllegalStateException("Not connected to $relayUrl")
-        }
-        try {
-            currentSession.send(Frame.Text(message))
-        } catch (e: Exception) {
-            throw e  // Propagate so callers (GroupManager) can transition to Error state
-        }
+        val currentSession = session
+            ?: throw IllegalStateException("Not connected to $relayUrl")
+        currentSession.send(Frame.Text(message))
     }
 
     /**
@@ -287,6 +287,7 @@ class NostrGroupClient(
             PublishResult.Timeout(eventId)
         } catch (e: Exception) {
             pendingOkMutex.withLock { pendingOkResponses.remove(eventId) }
+            if (e is kotlinx.coroutines.CancellationException) throw e
             PublishResult.Error(eventId, e)
         }
     }
@@ -563,13 +564,13 @@ fun muxMetaSubId(): String = "mux_meta_${relayUrl.hashCode().toUInt()}"
  * Idempotent: sends CLOSE before REQ so calling it multiple times is safe.
  *
  * @param metadataGroupIds Group IDs for the metadata mux (kind:39000 — all joined groups).
- * @param chatGroupIds     Group IDs for chat + reactions mux (active group only, or empty).
- * @param sinceSeconds     Unix-seconds `since` value (use min cursor across all groups).
+ * @param chatGroupIds     Group IDs for chat + reactions mux (opened groups).
+ * @param chatSinceSeconds Unix-seconds `since` for chat/reactions (cursor for opened groups).
  */
 suspend fun sendMuxSubscriptions(
     metadataGroupIds: List<String>,
     chatGroupIds: List<String>,
-    sinceSeconds: Long
+    chatSinceSeconds: Long
 ) {
     if (metadataGroupIds.isEmpty() && chatGroupIds.isEmpty()) return
     val chatSubId = muxChatSubId()
@@ -581,7 +582,7 @@ suspend fun sendMuxSubscriptions(
     send(buildJsonArray { add("CLOSE"); add(reactSubId) }.toString())
     send(buildJsonArray { add("CLOSE"); add(metaSubId) }.toString())
 
-    // Chat + admin events for the active group(s) only.
+    // Chat + admin events for opened groups.
     if (chatGroupIds.isNotEmpty()) {
         send(buildJsonArray {
             add("REQ"); add(chatSubId)
@@ -590,29 +591,31 @@ suspend fun sendMuxSubscriptions(
                     add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
                 }
                 putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
-                put("since", sinceSeconds)
+                put("since", chatSinceSeconds)
             })
         }.toString())
 
-        // Reactions / zaps for the active group(s) only.
+        // Reactions / zaps for opened groups.
         send(buildJsonArray {
             add("REQ"); add(reactSubId)
             add(buildJsonObject {
                 putJsonArray("kinds") { add(7); add(9321) }
                 putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
-                put("since", sinceSeconds)
+                put("since", chatSinceSeconds)
             })
         }.toString())
     }
 
-    // Group metadata (kind 39000) for all joined groups on this relay.
+    // Group metadata (kind 39000) for all joined groups — no `since` filter.
+    // kind:39000 is addressable (replaceable), so the relay always returns the
+    // latest state. Using `since` here caused massive backfill traffic on relays
+    // with many groups.
     if (metadataGroupIds.isNotEmpty()) {
         send(buildJsonArray {
             add("REQ"); add(metaSubId)
             add(buildJsonObject {
                 putJsonArray("kinds") { add(39000) }
                 putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
-                put("since", sinceSeconds)
             })
         }.toString())
     }

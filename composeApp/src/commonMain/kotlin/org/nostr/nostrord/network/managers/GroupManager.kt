@@ -69,6 +69,12 @@ class GroupManager(
     // Mux chat/reactions subscriptions are scoped to this group only.
     private var _activeGroupId: String? = null
 
+    // Groups that have been opened (clicked) by the user during this session.
+    // Chat/reactions mux covers these groups so they keep receiving live messages.
+    // Only cleared on full disconnect/logout, NOT on relay switch.
+    // Backed by StateFlow for thread-safe reads/writes from any dispatcher.
+    private val _openedGroupIds = MutableStateFlow<Set<String>>(emptySet())
+
     // Debounce mux refresh: coalesces rapid calls (auth + EOSE + CLOSED) into one.
     private val muxRefreshJobs = mutableMapOf<String, Job>()
 
@@ -219,16 +225,43 @@ class GroupManager(
 
     /**
      * Set the group currently being viewed by the user.
-     * Triggers a mux refresh so chat/reactions are scoped to the active group.
+     * If this group hasn't been opened before, triggers on-demand subscriptions
+     * (messages, members, admins, metadata). Refreshes the mux so chat/reactions
+     * include this group.
      */
     fun setActiveGroupId(groupId: String?) {
         _activeGroupId = groupId
-        // Refresh mux on the relay that hosts this group (or primary if clearing).
         val relayUrl = if (groupId != null) getRelayForGroup(groupId) else currentRelayUrl
-        if (relayUrl != null) {
+
+        // On-demand: first time opening this group, fetch its data.
+        val isNew = if (groupId != null) {
+            val current = _openedGroupIds.value
+            if (groupId !in current) {
+                _openedGroupIds.value = current + groupId
+                true
+            } else false
+        } else false
+
+        if (isNew) {
+            scope.launch {
+                val client = connectionManager.getClientForRelay(relayUrl ?: return@launch)
+                if (client != null) {
+                    requestGroupMessages(groupId!!)
+                    requestGroupMembers(groupId)
+                    requestGroupAdmins(groupId)
+                    client.requestGroupMetadata(groupId)
+                }
+                refreshMuxSubscriptionsForRelay(relayUrl!!)
+            }
+        } else if (relayUrl != null) {
             scope.launch { refreshMuxSubscriptionsForRelay(relayUrl) }
         }
     }
+
+    /**
+     * Get the set of groups opened by the user this session.
+     */
+    fun getOpenedGroupIds(): Set<String> = _openedGroupIds.value
 
     /**
      * Send (or refresh) the relay-level multiplexed subscriptions for [relayUrl].
@@ -252,7 +285,6 @@ class GroupManager(
         val wasCoalesced = muxRefreshJobs[relayUrl]?.isActive == true
         muxRefreshJobs[relayUrl]?.cancel()
         muxRefreshJobs[relayUrl] = scope.launch {
-            if (wasCoalesced) println("[Mux] debounce coalesced  relay=$relayUrl")
             delay(300)
             refreshMuxSubscriptionsForRelayImpl(relayUrl)
             muxRefreshJobs.remove(relayUrl)
@@ -265,17 +297,23 @@ class GroupManager(
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
 
-        // Chat/reactions only for the active group on this relay.
-        val activeGroup = _activeGroupId
-        val chatGroupIds = if (activeGroup != null && activeGroup in allGroupIds) {
-            listOf(activeGroup)
+        // Chat/reactions mux covers all groups the user has opened this session
+        // (not just the active one), so previously opened groups keep receiving live messages.
+        val chatGroupIds = _openedGroupIds.value
+            .filter { it in allGroupIds }
+            .ifEmpty {
+                val active = _activeGroupId
+                if (active != null && active in allGroupIds) listOf(active) else emptyList()
+            }
+
+        val chatSince = if (chatGroupIds.isNotEmpty()) {
+            liveCursorStore.getMinSince(relayUrl, chatGroupIds)
         } else {
-            emptyList()
+            0L
         }
 
-        val since = liveCursorStore.getMinSince(relayUrl, allGroupIds)
         try {
-            client.sendMuxSubscriptions(allGroupIds, chatGroupIds, since)
+            client.sendMuxSubscriptions(allGroupIds, chatGroupIds, chatSince)
         } catch (_: Exception) {}
     }
 
@@ -991,7 +1029,6 @@ class GroupManager(
             val eventId = signedEvent.id
                 ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
 
-            // Send and wait for OK response from relay
             val publishResult = currentClient.sendAndAwaitOk(message, eventId)
 
             when (publishResult) {
@@ -1513,6 +1550,7 @@ class GroupManager(
         completeGroupLoadRelays.clear()
         _loadingRelays.value = emptySet()
         _groupsByRelay.value = emptyMap()
+        _openedGroupIds.value = emptySet()
         clearForRelaySwitch()
     }
 

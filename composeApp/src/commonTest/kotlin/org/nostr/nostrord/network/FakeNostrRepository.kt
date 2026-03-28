@@ -130,7 +130,7 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun joinGroup(groupId: String): Result<Unit> = Result.Success(Unit)
     override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> = leaveGroupAction(groupId, reason)
-    override suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean): Result<Unit> = Result.Success(Unit)
+    override suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String?): Result<Unit> = Result.Success(Unit)
     override suspend fun deleteGroup(groupId: String): Result<Unit> = Result.Success(Unit)
     override fun isGroupJoined(groupId: String): Boolean = joinedGroups.value.contains(groupId)
     override suspend fun requestGroupMessages(groupId: String, channel: String?) {}
@@ -161,4 +161,17 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun requestRelayLists(pubkeys: Set<String>) {}
     override fun getRelayListForPubkey(pubkey: String): List<Nip65Relay>? = null
     override fun selectOutboxRelays(authors: List<String>, taggedPubkeys: List<String>, explicitRelays: List<String>): List<String> = emptyList()
+
+    override suspend fun addRelay(url: String) {}
+    override fun dismissDeepLinkRelay() {}
+    override fun onForeground() {}
+    override fun onBackground() {}
+    override fun onDestroy() {}
+    override fun setActiveGroup(groupId: String?) {}
+    override suspend fun sendReaction(groupId: String, targetEventId: String, targetPubkey: String, emoji: String): Result<Unit> = Result.Success(Unit)
+    override suspend fun publishRelayList(relays: List<Nip65Relay>): Result<Unit> = Result.Success(Unit)
+    override val isDiscoveringRelays: StateFlow<Boolean> = MutableStateFlow(false)
+    override val pendingDeepLinkRelay: StateFlow<String?> = MutableStateFlow(null)
+    override val loadingRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    override val kind10009Relays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 }

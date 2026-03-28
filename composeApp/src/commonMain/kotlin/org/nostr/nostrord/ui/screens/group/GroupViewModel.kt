@@ -24,12 +24,19 @@ class GroupViewModel(
     val isLoadingMore = repo.isLoadingMore
     val hasMoreMessages = repo.hasMoreMessages
 
+    private val _isSending = MutableStateFlow(false)
+    val isSending: StateFlow<Boolean> = _isSending
+
+    private val _sendError = MutableStateFlow<String?>(null)
+    val sendError: StateFlow<String?> = _sendError
+
     private val _deleteMessageError = MutableStateFlow<String?>(null)
     val deleteMessageError: StateFlow<String?> = _deleteMessageError
 
     private val _reactionError = MutableStateFlow<String?>(null)
     val reactionError: StateFlow<String?> = _reactionError
 
+    fun clearSendError() { _sendError.value = null }
     fun clearDeleteMessageError() { _deleteMessageError.value = null }
     fun clearReactionError() { _reactionError.value = null }
 
@@ -40,7 +47,20 @@ class GroupViewModel(
     }
 
     fun sendMessage(content: String, channel: String?, mentions: Map<String, String>, replyToId: String?) {
-        viewModelScope.launch { repo.sendMessage(groupId, content, channel, mentions, replyToId) }
+        _isSending.value = true
+        _sendError.value = null
+        viewModelScope.launch {
+            when (val result = repo.sendMessage(groupId, content, channel, mentions, replyToId)) {
+                is Result.Error -> {
+                    val raw = result.error.cause?.message ?: result.error.toString()
+                    val friendly = raw.removePrefix("blocked: ").removePrefix("error: ")
+                        .replaceFirstChar { it.uppercaseChar() }
+                    _sendError.value = friendly
+                }
+                is Result.Success -> {}
+            }
+            _isSending.value = false
+        }
     }
 
     fun joinGroup() {

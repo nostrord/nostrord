@@ -102,7 +102,8 @@ fun GroupScreenMobile(
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
     onSwitchRelay: (String) -> Unit = {},
     onUserClick: (String) -> Unit = {},
-    onReconnect: () -> Unit = {}
+    onReconnect: () -> Unit = {},
+    isSending: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -216,7 +217,8 @@ fun GroupScreenMobile(
                     replyingToMessage = replyingToMessage,
                     replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
                     userMetadata = userMetadata,
-                    onCancelReply = onCancelReply
+                    onCancelReply = onCancelReply,
+                    isSending = isSending
                 )
             }
         }

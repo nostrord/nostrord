@@ -48,6 +48,8 @@ fun GroupScreen(
         }
     }
 
+    val isSending by vm.isSending.collectAsState()
+    val sendError by vm.sendError.collectAsState()
     val deleteMessageError by vm.deleteMessageError.collectAsState()
     val reactionError by vm.reactionError.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
@@ -281,6 +283,23 @@ fun GroupScreen(
         )
     }
 
+    // Send message error dialog
+    sendError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { vm.clearSendError() },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Message Not Sent") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(onClick = { vm.clearSendError() }) {
+                    Text("OK", color = NostrordColors.Primary)
+                }
+            }
+        )
+    }
+
     // User profile modal
     selectedUserPubkey?.let { pubkey ->
         UserProfileModal(
@@ -379,7 +398,8 @@ fun GroupScreen(
                 onNavigateToGroup = onNavigateToGroup,
                 onSwitchRelay = { vm.switchRelay(it) },
                 onUserClick = { pubkey -> selectedUserPubkey = pubkey },
-                onReconnect = { vm.reconnect() }
+                onReconnect = { vm.reconnect() },
+                isSending = isSending
             )
         } else {
             GroupScreenDesktop(
@@ -433,7 +453,8 @@ fun GroupScreen(
                 onNavigateToGroup = onNavigateToGroup,
                 onSwitchRelay = { vm.switchRelay(it) },
                 onUserClick = { pubkey -> selectedUserPubkey = pubkey },
-                onReconnect = { vm.reconnect() }
+                onReconnect = { vm.reconnect() },
+                isSending = isSending
             )
         }
     }

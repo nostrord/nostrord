@@ -74,7 +74,8 @@ fun GroupScreenDesktop(
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
     onSwitchRelay: (String) -> Unit = {},
     onUserClick: (String) -> Unit = {},
-    onReconnect: () -> Unit = {}
+    onReconnect: () -> Unit = {},
+    isSending: Boolean = false
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         // Main content area (messages)
@@ -147,7 +148,8 @@ fun GroupScreenDesktop(
                 replyingToMessage = replyingToMessage,
                 replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
                 userMetadata = userMetadata,
-                onCancelReply = onCancelReply
+                onCancelReply = onCancelReply,
+                isSending = isSending
             )
         }
 
