@@ -137,8 +137,6 @@
         const nonceArr = new Uint8Array(nonce);
         const dataArr = new Uint8Array(data);
         
-        console.log('chacha20 (pure JS) - key:', keyArr.length, 'nonce:', nonceArr.length, 'data:', dataArr.length);
-        
         const output = new Uint8Array(dataArr.length);
         let counter = 0;
         
@@ -270,9 +268,6 @@
         return nobleHmac(nobleSha256, keyArr, dataArr);
     };
 
-    console.log('✅ NIP-04 crypto helpers ready');
-    console.log('✅ NIP-44 crypto helpers ready');
-    
     const script = document.createElement('script');
     script.src = 'composeApp.js';
     document.body.appendChild(script);
