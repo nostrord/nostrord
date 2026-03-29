@@ -3,10 +3,12 @@ package org.nostr.nostrord.ui.components.layout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.navigation.ServerRail
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -26,16 +28,15 @@ import org.nostr.nostrord.ui.theme.Spacing
  * Column 1: Relay Rail — one icon per NIP-29 relay. Clicking switches the active relay.
  * Column 2: Groups Nav Sidebar — joined groups for the active relay. Clicking opens the chat.
  * Column 3: Content — the active screen (group chat, home, settings, etc.)
+ *
+ * Collects its own sidebar state (groups, members, metadata, unread counts) so that
+ * sidebar-only updates do NOT recompose the content area or the parent App composable.
  */
 @Composable
 fun DesktopShell(
     relays: List<String>,
     activeRelayUrl: String,
-    groupsForRelay: List<GroupMetadata>,
-    joinedGroupIds: Set<String>,
     activeGroupId: String?,
-    unreadCounts: Map<String, Int> = emptyMap(),
-    relayMetadata: Map<String, Nip11RelayInfo> = emptyMap(),
     isGroupsLoading: Boolean = false,
     onRelayClick: (String) -> Unit,
     onAddRelayClick: () -> Unit,
@@ -43,13 +44,30 @@ fun DesktopShell(
     onCreateGroupClick: () -> Unit,
     onAddRelayFromSidebar: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    userAvatarUrl: String? = null,
-    userDisplayName: String? = null,
-    userPubkey: String? = null,
     onUserClick: () -> Unit = {},
     isProfileActive: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    // Sidebar-scoped state — changes here only recompose the sidebar columns,
+    // not the content area or the parent AuthenticatedApp.
+    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
+    val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
+    val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
+    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+
+    val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
+        groupsByRelay[activeRelayUrl] ?: emptyList()
+    }
+    val joinedGroupIds = remember(activeRelayUrl, joinedGroupsByRelay) {
+        joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
+    }
+
+    val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
+    val currentUserMetadata = remember(pubKey, userMetadata) {
+        pubKey?.let { userMetadata[it] }
+    }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -66,9 +84,9 @@ fun DesktopShell(
                 onRelayClick = onRelayClick,
                 onAddRelayClick = onAddRelayClick,
                 relayMetadata = relayMetadata,
-                userAvatarUrl = userAvatarUrl,
-                userDisplayName = userDisplayName,
-                userPubkey = userPubkey,
+                userAvatarUrl = currentUserMetadata?.picture,
+                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
+                userPubkey = pubKey,
                 onUserClick = onUserClick,
                 isProfileActive = isProfileActive
             )

@@ -192,22 +192,15 @@ private fun AuthenticatedApp(
     }
     val currentScreen = navHistory.currentScreen
 
-    // Collect state needed for UI
-    val groups by AppModule.nostrRepository.groups.collectAsState()
+    // Collect only the state needed at the root level.
+    // Sidebar-specific state (groups, joinedGroups, unreadCounts, userMetadata) is
+    // collected inside DesktopShell / MobileDrawerContent to avoid root recomposition.
     val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
-    val joinedGroups by AppModule.nostrRepository.joinedGroups.collectAsState()
-    val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
-    val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
-    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
-    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
     val isLoggedIn by AppModule.nostrRepository.isLoggedIn.collectAsState()
 
-    // Get pubKey reactively
+    // Get pubKey reactively (needed for persistScreenState)
     val pubKey = remember(isLoggedIn) { AppModule.nostrRepository.getPublicKey() }
-    val currentUserMetadata = remember(pubKey, userMetadata) {
-        pubKey?.let { userMetadata[it] }
-    }
 
     // Remember scroll states across navigation
     val homeGridState = rememberLazyGridState()
@@ -260,16 +253,6 @@ private fun AuthenticatedApp(
 
     val loadingRelays by AppModule.nostrRepository.loadingRelays.collectAsState()
     val isGroupsLoading = selectedRelayUrl in loadingRelays || selectedRelayUrl.isBlank()
-
-    // All groups for the relay selected in the rail (not just joined ones)
-    val groupsForSelectedRelay = remember(selectedRelayUrl, groupsByRelay) {
-        groupsByRelay[selectedRelayUrl] ?: emptyList()
-    }
-
-    // Joined groups for the selected relay (from persistent per-relay cache)
-    val joinedGroupIdsForSelectedRelay = remember(selectedRelayUrl, joinedGroupsByRelay) {
-        joinedGroupsByRelay[selectedRelayUrl] ?: emptySet()
-    }
 
     // Persist screen state for next app launch
     fun persistScreenState(screen: Screen) {
@@ -420,7 +403,6 @@ private fun AuthenticatedApp(
     if (showAddRelayModal) {
         AddRelayModal(
             connectedRelays = kind10009Relays,
-            relayMetadata = relayMetadata,
             onSwitchRelay = { url ->
                 scope.launch {
                     AppModule.nostrRepository.addRelay(url)
@@ -454,11 +436,7 @@ private fun AuthenticatedApp(
                 DesktopShell(
                     relays = relayList,
                     activeRelayUrl = selectedRelayUrl,
-                    groupsForRelay = groupsForSelectedRelay,
-                    joinedGroupIds = joinedGroupIdsForSelectedRelay,
                     activeGroupId = activeGroupId,
-                    unreadCounts = unreadCounts,
-                    relayMetadata = relayMetadata,
                     isGroupsLoading = isGroupsLoading,
                     onRelayClick = { url ->
                         selectedRelayUrl = url
@@ -471,9 +449,6 @@ private fun AuthenticatedApp(
                     },
                     onCreateGroupClick = { showCreateGroupModal = true },
                     onAddRelayFromSidebar = if (hasNoRelays) {{ addRelayInitialTab = 0; showAddRelayModal = true }} else null,
-                    userAvatarUrl = currentUserMetadata?.picture,
-                    userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
-                    userPubkey = pubKey,
                     onUserClick = { onNavigate(Screen.Profile) },
                     isProfileActive = currentScreen is Screen.Profile,
                     modifier = Modifier.weight(1f)
@@ -494,59 +469,46 @@ private fun AuthenticatedApp(
             ModalNavigationDrawer(
                 drawerState = drawerState,
                 drawerContent = {
-                    // Relay rail (72dp) + Groups sidebar fill the drawer sheet
                     ModalDrawerSheet(
                         modifier = Modifier.width(312.dp),
                         drawerContainerColor = NostrordColors.BackgroundDark
                     ) {
-                        Row(Modifier.fillMaxSize()) {
-                            ServerRail(
-                                relays = relayList,
-                                activeRelayUrl = selectedRelayUrl,
-                                onRelayClick = { url ->
-                                    selectedRelayUrl = url
-                                    scope.launch {
-                                        drawerState.close()
-                                        AppModule.nostrRepository.switchRelay(url)
-                                    }
-                                    onNavigate(Screen.Home)
-                                },
-                                onAddRelayClick = {
-                                    scope.launch { drawerState.close() }
-                                    onNavigate(Screen.RelaySettings)
-                                },
-                                relayMetadata = relayMetadata,
-                                userAvatarUrl = currentUserMetadata?.picture,
-                                userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
-                                userPubkey = pubKey,
-                                onUserClick = {
-                                    scope.launch { drawerState.close() }
-                                    onNavigate(Screen.Profile)
-                                },
-                                isProfileActive = currentScreen is Screen.Profile
-                            )
-                            GroupsNavSidebar(
-                                relayUrl = selectedRelayUrl,
-                                groups = groupsForSelectedRelay,
-                                joinedGroupIds = joinedGroupIdsForSelectedRelay,
-                                activeGroupId = activeGroupId,
-                                unreadCounts = unreadCounts,
-                                relayName = relayMetadata[selectedRelayUrl]?.name,
-                                isLoading = isGroupsLoading,
-                                onGroupClick = { groupId, groupName ->
-                                    scope.launch { drawerState.close() }
-                                    onNavigate(Screen.Group(groupId, groupName))
-                                },
-                                onCreateGroupClick = {
-                                    scope.launch { drawerState.close() }
-                                    showCreateGroupModal = true
-                                },
-                                onAddRelay = if (hasNoRelays) {{
-                                    scope.launch { drawerState.close() }
-                                    addRelayInitialTab = 0; showAddRelayModal = true
-                                }} else null
-                            )
-                        }
+                        MobileDrawerContent(
+                            relays = relayList,
+                            activeRelayUrl = selectedRelayUrl,
+                            activeGroupId = activeGroupId,
+                            isGroupsLoading = isGroupsLoading,
+                            hasNoRelays = hasNoRelays,
+                            isProfileActive = currentScreen is Screen.Profile,
+                            onRelayClick = { url ->
+                                selectedRelayUrl = url
+                                scope.launch {
+                                    drawerState.close()
+                                    AppModule.nostrRepository.switchRelay(url)
+                                }
+                                onNavigate(Screen.Home)
+                            },
+                            onAddRelayClick = {
+                                scope.launch { drawerState.close() }
+                                onNavigate(Screen.RelaySettings)
+                            },
+                            onGroupClick = { groupId, groupName ->
+                                scope.launch { drawerState.close() }
+                                onNavigate(Screen.Group(groupId, groupName))
+                            },
+                            onCreateGroupClick = {
+                                scope.launch { drawerState.close() }
+                                showCreateGroupModal = true
+                            },
+                            onAddRelayFromSidebar = if (hasNoRelays) {{
+                                scope.launch { drawerState.close() }
+                                addRelayInitialTab = 0; showAddRelayModal = true
+                            }} else null,
+                            onUserClick = {
+                                scope.launch { drawerState.close() }
+                                onNavigate(Screen.Profile)
+                            }
+                        )
                     }
                 }
             ) {
@@ -703,6 +665,71 @@ private fun MobileContent(
             onNavigate = onNavigate,
             onCreateGroupClick = onCreateGroupClick,
             onOpenDrawer = onOpenDrawer
+        )
+    }
+}
+
+/**
+ * Mobile drawer content — collects its own sidebar state so changes don't
+ * recompose the parent AuthenticatedApp or the content area.
+ */
+@Composable
+private fun MobileDrawerContent(
+    relays: List<String>,
+    activeRelayUrl: String,
+    activeGroupId: String?,
+    isGroupsLoading: Boolean,
+    hasNoRelays: Boolean,
+    isProfileActive: Boolean,
+    onRelayClick: (String) -> Unit,
+    onAddRelayClick: () -> Unit,
+    onGroupClick: (groupId: String, groupName: String?) -> Unit,
+    onCreateGroupClick: () -> Unit,
+    onAddRelayFromSidebar: (() -> Unit)? = null,
+    onUserClick: () -> Unit = {}
+) {
+    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
+    val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
+    val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
+    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+
+    val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
+        groupsByRelay[activeRelayUrl] ?: emptyList()
+    }
+    val joinedGroupIds = remember(activeRelayUrl, joinedGroupsByRelay) {
+        joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
+    }
+
+    val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
+    val currentUserMetadata = remember(pubKey, userMetadata) {
+        pubKey?.let { userMetadata[it] }
+    }
+
+    Row(Modifier.fillMaxSize()) {
+        ServerRail(
+            relays = relays,
+            activeRelayUrl = activeRelayUrl,
+            onRelayClick = onRelayClick,
+            onAddRelayClick = onAddRelayClick,
+            relayMetadata = relayMetadata,
+            userAvatarUrl = currentUserMetadata?.picture,
+            userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
+            userPubkey = pubKey,
+            onUserClick = onUserClick,
+            isProfileActive = isProfileActive
+        )
+        GroupsNavSidebar(
+            relayUrl = activeRelayUrl,
+            groups = groupsForRelay,
+            joinedGroupIds = joinedGroupIds,
+            activeGroupId = activeGroupId,
+            unreadCounts = unreadCounts,
+            relayName = relayMetadata[activeRelayUrl]?.name,
+            isLoading = isGroupsLoading,
+            onGroupClick = onGroupClick,
+            onCreateGroupClick = onCreateGroupClick,
+            onAddRelay = onAddRelayFromSidebar
         )
     }
 }

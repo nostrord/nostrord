@@ -58,11 +58,11 @@ private val suggestedRelays = listOf(
 @Composable
 fun AddRelayModal(
     connectedRelays: Set<String>,
-    relayMetadata: Map<String, Nip11RelayInfo>,
     onSwitchRelay: (String) -> Unit,
     onDismiss: () -> Unit,
     initialTab: Int = 0,
 ) {
+    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
