@@ -49,6 +49,16 @@ import org.nostr.nostrord.nostr.Nip27
 object MessageContentParser {
 
     // ============================================================================
+    // PARSE CACHE — avoids re-running 8 regex passes for the same content
+    // ============================================================================
+
+    private const val CACHE_MAX_SIZE = 300
+
+    // LRU cache: key = "content\0emojiMapHash", value = parsed parts.
+    // Pure Kotlin — no JVM-only APIs. Manual eviction on insert.
+    private val parseCache = LinkedHashMap<String, List<ParsedPart>>()
+
+    // ============================================================================
     // PUBLIC API
     // ============================================================================
 
@@ -121,6 +131,10 @@ object MessageContentParser {
     fun parse(content: String, emojiMap: Map<String, String> = emptyMap()): List<ParsedPart> {
         if (content.isEmpty()) return emptyList()
 
+        // Check cache first — avoids 8 regex passes for previously seen messages
+        val cacheKey = if (emojiMap.isEmpty()) content else "$content\u0000${emojiMap.hashCode()}"
+        parseCache[cacheKey]?.let { return it }
+
         // Pass 1: Extract code blocks and replace with placeholders
         val (contentWithPlaceholders, codeBlockMatches) = extractCodeBlocks(content)
 
@@ -157,8 +171,14 @@ object MessageContentParser {
         val allMatches = (codeBlockMatches + urlMatches + relayMatches + cashuMatches + nostrMatches + formattingMatches + hashtagMatches + emojiMatches)
             .sortedBy { it.range.first }
 
-        // Step 7: Build parts list with text between matches
-        return buildParts(content, allMatches)
+        // Step 9: Build parts list with text between matches, cache, and return
+        val result = buildParts(content, allMatches)
+        parseCache[cacheKey] = result
+        // Evict oldest entries if over capacity
+        while (parseCache.size > CACHE_MAX_SIZE) {
+            parseCache.remove(parseCache.keys.first())
+        }
+        return result
     }
 
     /**
