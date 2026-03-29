@@ -1,9 +1,12 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -105,13 +108,11 @@ private suspend fun loadStaticImageBitmap(url: String): ImageBitmap? {
         // Check cache again after acquiring permit — another coroutine may have filled it.
         staticImageCache.get(url)?.let { return@withPermit it }
 
-        println("[StaticImage/JS] loading $url")
         try {
             // 1. Fetch the image as a Blob (browser handles network, non-blocking).
             val response = awaitDynamic(jsFetchUrl(url))
             if (response.ok != true) {
-                println("[StaticImage/JS] fetch HTTP error for $url: ${response.status}")
-                return@withPermit null
+                    return@withPermit null
             }
             val blob = awaitDynamic(responseToBlob(response))
             yield()
@@ -121,7 +122,6 @@ private suspend fun loadStaticImageBitmap(url: String): ImageBitmap? {
             val width = (nativeBitmap.width as? Int) ?: 0
             val height = (nativeBitmap.height as? Int) ?: 0
             if (width <= 0 || height <= 0) {
-                println("[StaticImage/JS] zero dimensions for $url")
                 return@withPermit null
             }
             yield()
@@ -144,10 +144,8 @@ private suspend fun loadStaticImageBitmap(url: String): ImageBitmap? {
             val imageBitmap = bitmap.asComposeImageBitmap()
 
             staticImageCache.put(url, imageBitmap)
-            println("[StaticImage/JS] decoded ${width}x${height} for $url")
             imageBitmap
         } catch (e: Exception) {
-            println("[StaticImage/JS] load error for $url: ${e::class.simpleName}: ${e.message}")
             null
         }
     }
@@ -194,11 +192,17 @@ actual fun StaticImage(
             )
         }
         bitmap == null -> {
-            Box(modifier = baseModifier, contentAlignment = Alignment.Center) {
+            Box(
+                modifier = baseModifier
+                    .widthIn(min = 200.dp)
+                    .heightIn(min = 100.dp)
+                    .background(NostrordColors.Surface),
+                contentAlignment = Alignment.Center
+            ) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(32.dp),
-                    color = NostrordColors.Primary,
-                    strokeWidth = 3.dp
+                    modifier = Modifier.size(28.dp),
+                    color = NostrordColors.TextMuted,
+                    strokeWidth = 2.5.dp
                 )
             }
         }
@@ -234,7 +238,6 @@ private fun CoilFallbackImage(
         modifier = modifier,
         onState = { state ->
             if (state is AsyncImagePainter.State.Error) {
-                println("[StaticImage/JS] Coil fallback error for $url: ${state.result.throwable?.message}")
                 onError()
             }
         }

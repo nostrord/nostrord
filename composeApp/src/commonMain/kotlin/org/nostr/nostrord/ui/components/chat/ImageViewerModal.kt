@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Close
@@ -40,16 +41,6 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.isAnimatedImageUrl
 
-/**
- * Full-screen image viewer modal with zoom and pan support.
- *
- * Features:
- * - Dark overlay background
- * - Close button in top-right corner
- * - Open in browser button
- * - Click outside to close
- * - Pinch-to-zoom and pan gestures
- */
 @Composable
 fun ImageViewerModal(
     imageUrl: String,
@@ -61,12 +52,10 @@ fun ImageViewerModal(
 
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
 
-    // Zoom and pan state
     var scale by remember { mutableStateOf(1f) }
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
 
-    // Animate scale for smooth reset
     val animatedScale by animateFloatAsState(
         targetValue = scale,
         animationSpec = tween(150)
@@ -88,7 +77,6 @@ fun ImageViewerModal(
                     detectTapGestures(
                         onTap = { onDismiss() },
                         onDoubleTap = {
-                            // Double-tap to toggle zoom
                             if (scale > 1f) {
                                 scale = 1f
                                 offsetX = 0f
@@ -101,7 +89,6 @@ fun ImageViewerModal(
                 },
             contentAlignment = Alignment.Center
         ) {
-            // Image with zoom/pan
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -126,14 +113,15 @@ fun ImageViewerModal(
                 contentAlignment = Alignment.Center
             ) {
                 if (isAnimated) {
-                    // Animated GIF/WebP: delegate to platform renderer so frames play
                     AnimatedImage(
                         url = imageUrl,
                         modifier = Modifier
+                            .widthIn(max = 1200.dp)
                             .fillMaxWidth(0.95f)
-                            .fillMaxHeight(0.85f),
+                            .fillMaxHeight(0.85f)
+                            .clip(RoundedCornerShape(12.dp)),
                         contentScale = ContentScale.Fit,
-                        onClick = { /* consume — prevent backdrop dismiss */ }
+                        onClick = { }
                     )
                 } else {
                     AsyncImage(
@@ -147,19 +135,19 @@ fun ImageViewerModal(
                         contentScale = ContentScale.Fit,
                         filterQuality = FilterQuality.High,
                         modifier = Modifier
+                            .widthIn(max = 1200.dp)
                             .fillMaxWidth(0.95f)
                             .fillMaxHeight(0.85f)
-                            // Stop click propagation to prevent closing when clicking image
+                            .clip(RoundedCornerShape(12.dp))
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null
-                            ) { /* consume click */ },
+                            ) { },
                         onState = { imageState = it }
                     )
                 }
             }
 
-            // Loading indicator — only for static images; AnimatedImage manages its own
             if (!isAnimated && imageState is AsyncImagePainter.State.Loading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(48.dp),
@@ -168,14 +156,12 @@ fun ImageViewerModal(
                 )
             }
 
-            // Top action bar
             Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Open in browser button
                 IconButton(
                     onClick = {
                         try {
@@ -196,7 +182,6 @@ fun ImageViewerModal(
                     )
                 }
 
-                // Close button
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier

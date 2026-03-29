@@ -891,27 +891,23 @@ private fun ChatImage(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Animated GIF and animated WebP need a platform-specific renderer.
-    // On Android, Coil's AnimatedImageDecoder (API 28+) handles both formats automatically.
-    // On JVM Desktop, we decode frame-by-frame via ImageIO (GIF) or Skia Codec (WebP).
+    val imageModifier = modifier
+        .widthIn(max = 400.dp)
+        .heightIn(max = 300.dp)
+        .clip(NostrordShapes.imageShape)
+
     if (isAnimatedImageUrl(imageUrl)) {
         AnimatedImage(
             url = imageUrl,
-            modifier = modifier
-                .widthIn(max = 400.dp)
-                .heightIn(max = 300.dp)
-                .clip(NostrordShapes.imageShape),
+            modifier = imageModifier,
             onClick = onClick
         )
         return
     }
 
-    val context = LocalPlatformContext.current
-    var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
-    var showError by remember { mutableStateOf(false) }
+    var showError by remember(imageUrl) { mutableStateOf(false) }
 
     if (showError) {
-        // Show URL as link if image fails to load
         Text(
             text = imageUrl,
             color = NostrordColors.TextLink,
@@ -919,52 +915,13 @@ private fun ChatImage(
             modifier = Modifier.clickable(onClick = onClick)
         )
     } else {
-        Box(
-            modifier = modifier
-                .clip(NostrordShapes.imageShape)
-                .background(NostrordColors.Surface)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(getImageUrl(imageUrl))
-                    .crossfade(true)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                contentDescription = "Image",
-                contentScale = ContentScale.FillWidth,
-                filterQuality = FilterQuality.High,
-                modifier = Modifier
-                    .widthIn(max = 400.dp)
-                    .heightIn(max = 300.dp)
-                    .clip(NostrordShapes.imageShape),
-                onState = { state ->
-                    imageState = state
-                    if (state is AsyncImagePainter.State.Error) {
-                        showError = true
-                    }
-                }
-            )
-
-            // Show loading indicator with placeholder
-            if (imageState is AsyncImagePainter.State.Loading) {
-                Box(
-                    modifier = Modifier
-                        .widthIn(min = 200.dp)
-                        .heightIn(min = 100.dp)
-                        .background(NostrordColors.Surface, NostrordShapes.imageShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(32.dp),
-                        color = NostrordColors.Primary,
-                        strokeWidth = 3.dp
-                    )
-                }
-            }
-        }
+        StaticImage(
+            url = imageUrl,
+            modifier = imageModifier,
+            contentScale = ContentScale.FillWidth,
+            onClick = onClick,
+            onError = { showError = true }
+        )
     }
 }
 

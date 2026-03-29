@@ -5,3 +5,13 @@ html, body {
     padding: 0;
     overflow: hidden;
 }
+
+/*
+ * Compose WebElementView wraps each native HTML element in an absolutely-positioned
+ * <div> appended to <body>. These wrappers sit above the Compose <canvas> and block
+ * wheel/scroll events from reaching it. pointer-events:none lets events pass through
+ * to the canvas layer; click handling is done via Compose's clickable modifier.
+ */
+body > div:not(#composeApplication)[style*="position: absolute"] {
+    pointer-events: none;
+}
