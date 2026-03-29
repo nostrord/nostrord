@@ -1162,83 +1162,82 @@ class NostrRepository(
      * handler so the first-connection handler always handles both NIP-29 and outbox events.
      */
     private fun handleUnifiedMessage(msg: String, client: NostrGroupClient) {
-        try {
-            val arr = json.parseToJsonElement(msg).jsonArray
-            if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
-                val subId = arr[1].jsonPrimitive.content
-                val url = client.getRelayUrl()
-                // Log only mux_chat_ EOSE — the key signal that live messages are flowing.
-                if (subId.startsWith("mux_chat_")) {
-                    val count = relayEventCounts[url] ?: 0
-                    relayEventCounts.remove(url)
-                }
-                // Notify outbox manager for outbox subscriptions, then fall through
-                // to handleMessage which notifies groupManager for group subscriptions.
-                outboxManager.handleEose(subId)
-                // Fall through — do NOT return
-            } else if (arr.size >= 3 && arr[0].jsonPrimitive.content == "EVENT") {
-                val event = arr[2].jsonObject
-                val kind = event["kind"]?.jsonPrimitive?.int
-                val url = client.getRelayUrl()
-                relayEventCounts[url] = (relayEventCounts[url] ?: 0) + 1
-                if (kind == 10009) {
-                    val pubKey = sessionManager.getPublicKey() ?: ""
-                    scope.launch {
-                        outboxManager.handleKind10009Event(
-                            event = event,
-                            currentRelayUrl = connectionManager.currentRelayUrl.value,
-                            pubKey = pubKey,
-                            onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) },
-                            onRelaysRestored = { newRelays ->
-                                groupManager.prePopulateRelayList(newRelays)
-                                _relayMetadataManager.fetchAll(newRelays)
-                                autoConnectFirstRelay(newRelays)
-                            },
-                            onRelayGroupsUpdated = { relayGroups ->
-                                groupManager.updateAllRelayJoinedGroups(relayGroups)
-                            },
-                            messageHandler = { m, c -> enqueueToRelayPipeline(m, c) }
-                        )
-                    }
-                    return
-                }
-                if (kind == 10002) {
-                    outboxManager.handleKind10002Event(event, sessionManager.getPublicKey())
-                    return
-                }
+        // Parse once — every downstream handler reuses this JsonArray.
+        val arr = try {
+            json.parseToJsonElement(msg).jsonArray
+        } catch (_: Exception) { return }
+
+        val msgType = arr.getOrNull(0)?.jsonPrimitive?.contentOrNull ?: return
+
+        // Outbox routing for EOSE
+        if (msgType == "EOSE" && arr.size >= 2) {
+            val subId = arr[1].jsonPrimitive.content
+            val url = client.getRelayUrl()
+            if (subId.startsWith("mux_chat_")) {
+                relayEventCounts.remove(url)
             }
-        } catch (_: Exception) {}
+            outboxManager.handleEose(subId)
+            // Fall through — handleMessage also needs EOSE for group pagination
+        }
+
+        // Outbox routing for EVENT kinds 10009/10002
+        if (msgType == "EVENT" && arr.size >= 3) {
+            val event = arr[2].jsonObject
+            val kind = event["kind"]?.jsonPrimitive?.int
+            val url = client.getRelayUrl()
+            relayEventCounts[url] = (relayEventCounts[url] ?: 0) + 1
+            if (kind == 10009) {
+                val pubKey = sessionManager.getPublicKey() ?: ""
+                scope.launch {
+                    outboxManager.handleKind10009Event(
+                        event = event,
+                        currentRelayUrl = connectionManager.currentRelayUrl.value,
+                        pubKey = pubKey,
+                        onGroupsUpdated = { groups -> groupManager.setJoinedGroups(groups) },
+                        onRelaysRestored = { newRelays ->
+                            groupManager.prePopulateRelayList(newRelays)
+                            _relayMetadataManager.fetchAll(newRelays)
+                            autoConnectFirstRelay(newRelays)
+                        },
+                        onRelayGroupsUpdated = { relayGroups ->
+                            groupManager.updateAllRelayJoinedGroups(relayGroups)
+                        },
+                        messageHandler = { m, c -> enqueueToRelayPipeline(m, c) }
+                    )
+                }
+                return
+            }
+            if (kind == 10002) {
+                outboxManager.handleKind10002Event(event, sessionManager.getPublicKey())
+                return
+            }
+        }
+
         // Delegate all other events (39000, 39001, 39002, 9, 7, 5, 0, AUTH, OK, CLOSED…)
-        handleMessage(msg, client)
+        handleMessage(msg, arr, msgType, client)
     }
 
-    private fun handleMessage(msg: String, client: NostrGroupClient) {
-        // Handle NIP-42 AUTH challenge first
-        val authChallenge = client.parseAuthChallenge(msg)
-        if (authChallenge != null) {
-            scope.launch {
-                sessionManager.handleAuthChallenge(client, authChallenge)
-                resubscribeAfterAuth(client)
+    private fun handleMessage(msg: String, arr: JsonArray, msgType: String, client: NostrGroupClient) {
+        when (msgType) {
+            "AUTH" -> {
+                val authChallenge = client.parseAuthChallenge(arr) ?: return
+                scope.launch {
+                    sessionManager.handleAuthChallenge(client, authChallenge)
+                    resubscribeAfterAuth(client)
+                }
             }
-            return
-        }
 
-        // Handle OK messages (NIP-01 relay response to published events)
-        val okResponse = client.parseOkMessage(msg)
-        if (okResponse != null) {
-            val (eventId, success, message) = okResponse
-            scope.launch {
-                client.handleOkResponse(eventId, success, message)
+            "OK" -> {
+                val (eventId, success, message) = client.parseOkMessage(arr) ?: return
+                scope.launch {
+                    client.handleOkResponse(eventId, success, message)
+                }
             }
-            return
-        }
 
-        // Handle EOSE for pagination
-        // CRITICAL: EOSE handling must be async to allow pending message tracking to complete
-        try {
-            val arr = json.parseToJsonElement(msg).jsonArray
-            if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
+            "EOSE" -> {
+                if (arr.size < 2) return
                 val subId = arr[1].jsonPrimitive.content
+                // CRITICAL: EOSE handling must be async to allow pending message tracking to complete
                 // yield() before EOSE so pending message-tracking coroutines (scope.launch
                 // blocks queued by handleMessage) get scheduled first, reducing the race
                 // window where messageCount is read before all tracking completes.
@@ -1263,11 +1262,10 @@ class NostrRepository(
                         try { client.send("""["CLOSE","$subId"]""") } catch (_: Exception) {}
                     }
                 }
-                return
             }
 
-            // Handle CLOSED (relay closed the subscription)
-            if (arr.size >= 2 && arr[0].jsonPrimitive.content == "CLOSED") {
+            "CLOSED" -> {
+                if (arr.size < 2) return
                 val subId = arr[1].jsonPrimitive.content
                 val reason = if (arr.size >= 3) arr[2].jsonPrimitive.contentOrNull ?: "" else ""
                 val isAuthRequired = reason.contains("auth-required") || reason.contains("restricted")
@@ -1294,14 +1292,16 @@ class NostrRepository(
                         groupManager.refreshMuxDebounced(relayUrl)
                     }
                 }
-                return
             }
 
-            // Handle event subscriptions (event_* or e_*) for quotes
-            if (arr.size >= 3 && arr[0].jsonPrimitive.content == "EVENT") {
+            "EVENT" -> {
+                if (arr.size < 3) return
                 val subId = arr[1].jsonPrimitive.content
+                val event = arr[2].jsonObject
+                val kind = event["kind"]?.jsonPrimitive?.int
+
+                // Handle event subscriptions (event_* or e_*) for quotes
                 if (subId.startsWith("event_") || subId.startsWith("e_")) {
-                    val event = arr[2].jsonObject
                     metadataManager.parseAndCacheEvent(event)?.let { cachedEvent ->
                         if (!metadataManager.hasMetadata(cachedEvent.pubkey)) {
                             scope.launch {
@@ -1311,80 +1311,56 @@ class NostrRepository(
                     }
                     return
                 }
-            }
-        } catch (_: Exception) {}
 
-        // Handle group metadata (kind:39000) — store under the source relay for per-relay caching.
-        val groupMetadataWithSub = client.parseGroupMetadataWithSubId(msg)
-        if (groupMetadataWithSub != null) {
-            val (subId, groupMetadata) = groupMetadataWithSub
-            groupManager.handleGroupMetadata(groupMetadata, client.getRelayUrl())
-            // Notify any pending group creation waiting for this subscription
-            scope.launch { client.handleGroupCreationEvent(subId, groupMetadata) }
-            return
-        }
+                // Dispatch by kind — each parser works on the pre-extracted JsonObject
+                when (kind) {
+                    39000 -> {
+                        val groupMetadata = client.parseGroupMetadata(event) ?: return
+                        groupManager.handleGroupMetadata(groupMetadata, client.getRelayUrl())
+                        scope.launch { client.handleGroupCreationEvent(subId, groupMetadata) }
+                    }
 
-        // Handle group members (kind 39002)
-        val groupMembers = client.parseGroupMembers(msg)
-        if (groupMembers != null) {
-            val memberPubkeys = groupManager.handleGroupMembers(groupMembers)
-            // Fetch metadata for all members
-            val pubkeysNeedingMetadata = memberPubkeys.filter { !metadataManager.hasMetadata(it) }
-            if (pubkeysNeedingMetadata.isNotEmpty()) {
-                scope.launch {
-                    requestUserMetadata(pubkeysNeedingMetadata.toSet())
-                }
-            }
-            return
-        }
+                    39002 -> {
+                        val groupMembers = client.parseGroupMembers(event) ?: return
+                        val memberPubkeys = groupManager.handleGroupMembers(groupMembers)
+                        val pubkeysNeedingMetadata = memberPubkeys.filter { !metadataManager.hasMetadata(it) }
+                        if (pubkeysNeedingMetadata.isNotEmpty()) {
+                            scope.launch {
+                                requestUserMetadata(pubkeysNeedingMetadata.toSet())
+                            }
+                        }
+                    }
 
-        // Handle group admins (kind 39001)
-        val groupAdmins = client.parseGroupAdmins(msg)
-        if (groupAdmins != null) {
-            groupManager.handleGroupAdmins(groupAdmins)
-            return
-        }
+                    39001 -> {
+                        val groupAdmins = client.parseGroupAdmins(event) ?: return
+                        groupManager.handleGroupAdmins(groupAdmins)
+                    }
 
-        // Handle user metadata
-        val userMetadata = client.parseUserMetadata(msg)
-        if (userMetadata != null) {
-            val (pubkey, metadata) = userMetadata
-            metadataManager.handleMetadataEvent(pubkey, metadata)
-            return
-        }
+                    0 -> {
+                        val (pubkey, metadata) = client.parseUserMetadata(event) ?: return
+                        metadataManager.handleMetadataEvent(pubkey, metadata)
+                    }
 
-        // Handle reactions (kind 7)
-        val reaction = client.parseReaction(msg)
-        if (reaction != null) {
-            val now = org.nostr.nostrord.utils.epochMillis() / 1000
-            val eventAge = now - reaction.createdAt
-            val reactorPubkey = groupManager.handleReaction(reaction)
-            if (reactorPubkey != null && !metadataManager.hasMetadata(reactorPubkey)) {
-                scope.launch {
-                    requestUserMetadata(setOf(reactorPubkey))
-                }
-            }
-            return
-        }
+                    7 -> {
+                        val reaction = client.parseReaction(event) ?: return
+                        val reactorPubkey = groupManager.handleReaction(reaction)
+                        if (reactorPubkey != null && !metadataManager.hasMetadata(reactorPubkey)) {
+                            scope.launch {
+                                requestUserMetadata(setOf(reactorPubkey))
+                            }
+                        }
+                    }
 
-        // Handle group messages
-        val message = client.parseMessage(msg)
-        if (message != null) {
-            // Extract subscription ID for state machine tracking
-            val subscriptionId = try {
-                val arr = json.parseToJsonElement(msg).jsonArray
-                if (arr.size >= 2) arr[1].jsonPrimitive.content else null
-            } catch (_: Exception) { null }
-
-            // Tracking is done inside GroupManager.handleMessage via trackMessageForSubscription.
-            // Do NOT add a second scope.launch here — double-tracking corrupts messageCount,
-            // causing pagination to never reach Exhausted state.
-
-            // Pass subscription ID to handleMessage for cursor tracking
-            val senderPubkey = groupManager.handleMessage(message, msg, subscriptionId, client.getRelayUrl())
-            if (senderPubkey != null && (!metadataManager.hasMetadata(senderPubkey) || metadataManager.isStale(senderPubkey))) {
-                scope.launch {
-                    requestUserMetadata(setOf(senderPubkey))
+                    else -> {
+                        // Chat messages (kind 9, 5, 9000-9003, 9021-9022, etc.)
+                        val message = client.parseMessage(event) ?: return
+                        val senderPubkey = groupManager.handleMessage(message, msg, subId, client.getRelayUrl())
+                        if (senderPubkey != null && (!metadataManager.hasMetadata(senderPubkey) || metadataManager.isStale(senderPubkey))) {
+                            scope.launch {
+                                requestUserMetadata(setOf(senderPubkey))
+                            }
+                        }
+                    }
                 }
             }
         }

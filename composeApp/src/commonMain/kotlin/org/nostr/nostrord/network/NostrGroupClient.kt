@@ -139,13 +139,16 @@ class NostrGroupClient(
      */
     fun parseAuthChallenge(message: String): String? {
         return try {
-            val arr = json.parseToJsonElement(message).jsonArray
-            if (arr.size >= 2 && arr[0].jsonPrimitive.content == "AUTH") {
-                arr[1].jsonPrimitive.content
-            } else {
-                null
-            }
+            parseAuthChallenge(json.parseToJsonElement(message).jsonArray)
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun parseAuthChallenge(arr: JsonArray): String? {
+        return if (arr.size >= 2 && arr[0].jsonPrimitive.content == "AUTH") {
+            arr[1].jsonPrimitive.content
+        } else {
             null
         }
     }
@@ -299,16 +302,19 @@ class NostrGroupClient(
      */
     fun parseOkMessage(message: String): Triple<String, Boolean, String?>? {
         return try {
-            val arr = json.parseToJsonElement(message).jsonArray
-            if (arr.size >= 3 && arr[0].jsonPrimitive.content == "OK") {
-                val eventId = arr[1].jsonPrimitive.content
-                val success = arr[2].jsonPrimitive.boolean
-                val okMessage = arr.getOrNull(3)?.jsonPrimitive?.contentOrNull
-                Triple(eventId, success, okMessage)
-            } else {
-                null
-            }
+            parseOkMessage(json.parseToJsonElement(message).jsonArray)
         } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun parseOkMessage(arr: JsonArray): Triple<String, Boolean, String?>? {
+        return if (arr.size >= 3 && arr[0].jsonPrimitive.content == "OK") {
+            val eventId = arr[1].jsonPrimitive.content
+            val success = arr[2].jsonPrimitive.boolean
+            val okMessage = arr.getOrNull(3)?.jsonPrimitive?.contentOrNull
+            Triple(eventId, success, okMessage)
+        } else {
             null
         }
     }
@@ -346,7 +352,18 @@ class NostrGroupClient(
             val arr = json.parseToJsonElement(message).jsonArray
             if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
             val subId = arr[1].jsonPrimitive.content
-            val metadata = parseGroupMetadata(message) ?: return null
+            val metadata = parseGroupMetadata(arr[2].jsonObject) ?: return null
+            Pair(subId, metadata)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun parseGroupMetadataWithSubId(arr: JsonArray): Pair<String, GroupMetadata>? {
+        return try {
+            if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
+            val subId = arr[1].jsonPrimitive.content
+            val metadata = parseGroupMetadata(arr[2].jsonObject) ?: return null
             Pair(subId, metadata)
         } catch (e: Exception) {
             null
@@ -656,7 +673,14 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         return try {
             val arr = json.parseToJsonElement(message).jsonArray
             if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
-            val event = arr[2].jsonObject
+            parseGroupMetadata(arr[2].jsonObject)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun parseGroupMetadata(event: JsonObject): GroupMetadata? {
+        return try {
             if (event["kind"]?.jsonPrimitive?.int != 39000) return null
 
             val tags = event["tags"]?.jsonArray ?: return null
@@ -690,18 +714,23 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         return try {
             val arr = json.parseToJsonElement(message).jsonArray
             if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
-            val event = arr[2].jsonObject
+            parseGroupMembers(arr[2].jsonObject)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun parseGroupMembers(event: JsonObject): GroupMembers? {
+        return try {
             if (event["kind"]?.jsonPrimitive?.int != 39002) return null
 
             val tags = event["tags"]?.jsonArray ?: return null
 
-            // Get group ID from "d" tag
             val groupId = tags
                 .firstOrNull { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "d" }
                 ?.jsonArray?.get(1)?.jsonPrimitive?.content
                 ?: return null
 
-            // Extract all pubkeys from "p" tags
             val members = tags
                 .filter { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "p" }
                 .map { it.jsonArray[1].jsonPrimitive.content }
@@ -723,7 +752,14 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         return try {
             val arr = json.parseToJsonElement(message).jsonArray
             if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
-            val event = arr[2].jsonObject
+            parseGroupAdmins(arr[2].jsonObject)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun parseGroupAdmins(event: JsonObject): GroupAdmins? {
+        return try {
             if (event["kind"]?.jsonPrimitive?.int != 39001) return null
 
             val tags = event["tags"]?.jsonArray ?: return null
@@ -792,14 +828,21 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         return try {
             val arr = json.parseToJsonElement(message).jsonArray
             if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
-            val event = arr[2].jsonObject
+            parseUserMetadata(arr[2].jsonObject)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun parseUserMetadata(event: JsonObject): Pair<String, UserMetadata>? {
+        return try {
             if (event["kind"]?.jsonPrimitive?.int != 0) return null
 
             val pubkey = event["pubkey"]?.jsonPrimitive?.content ?: return null
             val content = event["content"]?.jsonPrimitive?.content ?: "{}"
-            
+
             val metadata = json.parseToJsonElement(content).jsonObject
-            
+
             Pair(pubkey, UserMetadata(
                 pubkey = pubkey,
                 name = metadata["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
@@ -838,18 +881,22 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         return try {
             val arr = json.parseToJsonElement(message).jsonArray
             if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
-            val event = arr[2].jsonObject
-            
-            // Parse tags
+            parseMessage(arr[2].jsonObject)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun parseMessage(event: JsonObject): NostrMessage? {
+        return try {
             val tags = event["tags"]?.jsonArray?.map { tag ->
                 tag.jsonArray.map { it.jsonPrimitive.content }
             } ?: emptyList()
-            
+
             NostrMessage(
                 id = event["id"]?.jsonPrimitive?.content ?: return null,
                 pubkey = event["pubkey"]?.jsonPrimitive?.content ?: return null,
                 content = event["content"]?.jsonPrimitive?.content ?: "",
-                // Use current time if created_at is missing to avoid sorting issues
                 createdAt = event["created_at"]?.jsonPrimitive?.long ?: (epochMillis() / 1000),
                 kind = event["kind"]?.jsonPrimitive?.int ?: 0,
                 tags = tags
@@ -867,9 +914,14 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         return try {
             val arr = json.parseToJsonElement(message).jsonArray
             if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
-            val event = arr[2].jsonObject
+            parseReaction(arr[2].jsonObject)
+        } catch (e: Exception) {
+            null
+        }
+    }
 
-            // Only parse kind 7 (reaction) events
+    fun parseReaction(event: JsonObject): NostrReaction? {
+        return try {
             val kind = event["kind"]?.jsonPrimitive?.int ?: return null
             if (kind != 7) return null
 
@@ -877,14 +929,10 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                 tag.jsonArray.map { it.jsonPrimitive.content }
             } ?: emptyList()
 
-            // Find the "e" tag pointing to the target event
             val targetEventId = tags.firstOrNull { it.size >= 2 && it[0] == "e" }?.get(1) ?: return null
 
-            // The emoji is in the content field (commonly "+", "-", or an actual emoji like ":LUL:")
             val emoji = event["content"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: "+"
 
-            // Extract custom emoji URL from NIP-30 emoji tag: ["emoji", "shortcode", "url"]
-            // The shortcode in the tag should match the content without colons
             val shortcode = emoji.trim(':')
             val emojiUrl = tags.firstOrNull { tag ->
                 tag.size >= 3 && tag[0] == "emoji" && tag[1] == shortcode
@@ -896,7 +944,6 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                 emoji = emoji,
                 emojiUrl = emojiUrl,
                 targetEventId = targetEventId,
-                // Use current time if created_at is missing
                 createdAt = event["created_at"]?.jsonPrimitive?.long ?: (epochMillis() / 1000)
             )
         } catch (e: Exception) {
