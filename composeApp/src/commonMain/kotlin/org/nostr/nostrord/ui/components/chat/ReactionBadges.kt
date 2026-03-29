@@ -60,10 +60,13 @@ fun ReactionBadges(
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs)
     ) {
-        // Sort by count (highest first), then alphabetically
-        val sortedReactions = reactions.entries
-            .sortedWith(compareByDescending<Map.Entry<String, GroupManager.ReactionInfo>> { it.value.reactors.size }
-                .thenBy { it.key })
+        // Sort by count (highest first), then alphabetically — memoized to avoid
+        // re-sorting on every recomposition when the reactions map hasn't changed.
+        val sortedReactions = remember(reactions) {
+            reactions.entries
+                .sortedWith(compareByDescending<Map.Entry<String, GroupManager.ReactionInfo>> { it.value.reactors.size }
+                    .thenBy { it.key })
+        }
 
         sortedReactions.forEach { (emoji, info) ->
             val hasCurrentUserReacted = currentUserPubkey != null && currentUserPubkey in info.reactors

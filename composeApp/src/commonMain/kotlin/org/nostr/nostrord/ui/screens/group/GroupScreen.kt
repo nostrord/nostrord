@@ -34,16 +34,20 @@ fun GroupScreen(
     var selectedChannel by remember { mutableStateOf("general") }
 
     val allMessages by vm.messages.collectAsState()
-    val allGroupMessages = allMessages[groupId] ?: emptyList()
 
-    val messages = remember(allGroupMessages, selectedChannel) {
-        if (selectedChannel == "general") {
-            allGroupMessages.filter { message ->
-                !message.tags.any { it.size >= 2 && it[0] == "channel" }
-            }
-        } else {
-            allGroupMessages.filter { message ->
-                message.tags.any { it.size >= 2 && it[0] == "channel" && it[1] == selectedChannel }
+    // derivedStateOf: only recomposes downstream when the filtered result actually changes,
+    // not when unrelated state (reactions, metadata) triggers a recomposition pass.
+    val messages by remember(groupId) {
+        derivedStateOf {
+            val allGroupMessages = allMessages[groupId] ?: emptyList()
+            if (selectedChannel == "general") {
+                allGroupMessages.filter { message ->
+                    !message.tags.any { it.size >= 2 && it[0] == "channel" }
+                }
+            } else {
+                allGroupMessages.filter { message ->
+                    message.tags.any { it.size >= 2 && it[0] == "channel" && it[1] == selectedChannel }
+                }
             }
         }
     }
@@ -91,16 +95,18 @@ fun GroupScreen(
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     val isJoined = joinedGroups.contains(groupId)
 
-    // Use kind 39002 members if available, otherwise fall back to message-based members
-    val groupMembers = remember(kind39002Members, allGroupMessages, userMetadata) {
-        val memberPubkeys = if (kind39002Members.isNotEmpty()) {
-            kind39002Members
-        } else {
-            allGroupMessages.map { it.pubkey }.distinct()
-        }
+    // Stable member pubkey list — only changes when kind:39002 or messages change,
+    // NOT when metadata updates arrive.
+    val memberPubkeys = remember(kind39002Members, messages) {
+        if (kind39002Members.isNotEmpty()) kind39002Members
+        else messages.map { it.pubkey }.distinct()
+    }
 
-        memberPubkeys
-            .map { pubkey ->
+    // derivedStateOf: re-resolves display names when metadata arrives, but only
+    // recomposes the member sidebar when the resolved list actually differs.
+    val groupMembers by remember(groupId) {
+        derivedStateOf {
+            memberPubkeys.map { pubkey ->
                 val metadata = userMetadata[pubkey]
                 MemberInfo(
                     pubkey = pubkey,
@@ -109,14 +115,14 @@ fun GroupScreen(
                         ?: pubkey.take(8) + "...",
                     picture = metadata?.picture
                 )
-            }
-            .sortedBy { it.displayName.lowercase() }
+            }.sortedBy { it.displayName.lowercase() }
+        }
     }
 
     // Determine recently active members (messaged in last 10 minutes)
-    val recentlyActiveMembers = remember(allGroupMessages) {
+    val recentlyActiveMembers = remember(messages) {
         val tenMinutesAgo = epochSeconds() - (10 * 60)
-        allGroupMessages
+        messages
             .filter { it.createdAt >= tenMinutesAgo }
             .map { it.pubkey }
             .toSet()
