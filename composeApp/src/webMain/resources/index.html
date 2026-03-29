@@ -68,8 +68,12 @@
     if ('serviceWorker' in navigator) {
         // Use relative path to work with GitHub Pages subdirectory
         const swPath = new URL('./sw.js', window.location.href).href;
-        navigator.serviceWorker.register(swPath)
-            .then(reg => console.log('[SW] Registered:', reg.scope))
+        navigator.serviceWorker.register(swPath, { updateViaCache: 'none' })
+            .then(reg => {
+                console.log('[SW] Registered:', reg.scope);
+                // Check for SW updates on every page load
+                reg.update();
+            })
             .catch(err => console.warn('[SW] Registration failed:', err));
     }
 </script>
@@ -269,7 +273,7 @@
     };
 
     const script = document.createElement('script');
-    script.src = 'composeApp.js';
+    script.src = 'composeApp.js?v=__BUILD_VERSION__';
     document.body.appendChild(script);
 </script>
 </body>

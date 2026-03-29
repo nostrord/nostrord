@@ -296,6 +296,37 @@ tasks.register("fixDebPackage") {
     }
 }
 
+// Stamp build version into index.html and sw.js for cache busting
+abstract class StampBuildVersionTask : DefaultTask() {
+    @get:InputDirectory
+    abstract val distDir: DirectoryProperty
+
+    @TaskAction
+    fun stamp() {
+        val buildVersion = System.currentTimeMillis().toString()
+        val dir = distDir.get().asFile
+        listOf("index.html", "sw.js").forEach { filename ->
+            val file = File(dir, filename)
+            if (file.exists()) {
+                file.writeText(file.readText().replace("__BUILD_VERSION__", buildVersion))
+            }
+        }
+        println("Stamped build version $buildVersion into web assets")
+    }
+}
+
+tasks.register<StampBuildVersionTask>("stampWasmJsBuildVersion") {
+    dependsOn("wasmJsBrowserProductionWebpack")
+    mustRunAfter("copyWasmJsCompressedFiles")
+    distDir.set(layout.buildDirectory.dir("dist/wasmJs/productionExecutable"))
+}
+
+tasks.register<StampBuildVersionTask>("stampJsBuildVersion") {
+    dependsOn("jsBrowserProductionWebpack")
+    mustRunAfter("copyJsCompressedFiles")
+    distDir.set(layout.buildDirectory.dir("dist/js/productionExecutable"))
+}
+
 // Copy pre-compressed files (.gz, .br) to distribution folder for wasmJs
 tasks.register<Copy>("copyWasmJsCompressedFiles") {
     dependsOn("wasmJsBrowserProductionWebpack")
@@ -314,11 +345,11 @@ tasks.register<Copy>("copyJsCompressedFiles") {
     into(layout.buildDirectory.dir("dist/js/productionExecutable"))
 }
 
-// Make distribution tasks depend on copy tasks
+// Make distribution tasks depend on copy and stamp tasks
 tasks.matching { it.name == "wasmJsBrowserDistribution" }.configureEach {
-    finalizedBy("copyWasmJsCompressedFiles")
+    finalizedBy("copyWasmJsCompressedFiles", "stampWasmJsBuildVersion")
 }
 
 tasks.matching { it.name == "jsBrowserDistribution" }.configureEach {
-    finalizedBy("copyJsCompressedFiles")
+    finalizedBy("copyJsCompressedFiles", "stampJsBuildVersion")
 }

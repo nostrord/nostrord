@@ -10,7 +10,7 @@
  * - API/WebSocket: Network-only (not cached)
  */
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = '__BUILD_VERSION__';
 const STATIC_CACHE = `nostrord-static-${CACHE_VERSION}`;
 const FONT_CACHE = `nostrord-fonts-${CACHE_VERSION}`;
 
@@ -22,7 +22,6 @@ const PRECACHE_URLS = [
     '',
     'index.html',
     'styles.css',
-    'composeApp.js',
     'aes-js.min.js',
     'noble-crypto.min.js',
 ];
