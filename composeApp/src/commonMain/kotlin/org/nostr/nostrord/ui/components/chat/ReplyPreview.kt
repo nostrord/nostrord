@@ -143,7 +143,7 @@ fun isReply(message: NostrGroupClient.NostrMessage): Boolean {
 fun ReplyPreview(
     parentMessage: NostrGroupClient.NostrMessage?,
     parentMetadata: UserMetadata?,
-    userMetadata: Map<String, UserMetadata> = emptyMap(),
+    resolveMetadata: (String) -> UserMetadata? = { null },
     onReplyClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -170,7 +170,7 @@ fun ReplyPreview(
     // Request metadata for any pubkeys mentioned in the content
     LaunchedEffect(parentMessage.content) {
         val pubkeysToFetch = extractPubkeysFromContent(parentMessage.content)
-            .filter { !userMetadata.containsKey(it) }
+            .filter { resolveMetadata(it) == null }
             .toSet()
         if (pubkeysToFetch.isNotEmpty()) {
             AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
@@ -178,8 +178,8 @@ fun ReplyPreview(
     }
 
     // Process mentions in content to show @name instead of nostr:npub...
-    val processedContent = remember(parentMessage.content, userMetadata) {
-        processMentionsInContent(parentMessage.content, userMetadata)
+    val processedContent = remember(parentMessage.content) {
+        processMentionsInContent(parentMessage.content, resolveMetadata)
             .replace('\n', ' ')
     }
 

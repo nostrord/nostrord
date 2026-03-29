@@ -733,6 +733,11 @@ private fun getMentionDisplayText(
 fun processMentionsInContent(
     content: String,
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>
+): String = processMentionsInContent(content) { userMetadata[it] }
+
+fun processMentionsInContent(
+    content: String,
+    resolveMetadata: (String) -> org.nostr.nostrord.network.UserMetadata?
 ): String {
     // Regex to match nostr: URIs (npub, nprofile, note, nevent, naddr)
     val nostrUriRegex = Regex("""nostr:(npub1[a-z0-9]+|nprofile1[a-z0-9]+|note1[a-z0-9]+|nevent1[a-z0-9]+|naddr1[a-z0-9]+)""", RegexOption.IGNORE_CASE)
@@ -745,12 +750,12 @@ fun processMentionsInContent(
             val entity = Nip19.decode(bech32)
             when (entity) {
                 is Nip19.Entity.Npub -> {
-                    val metadata = userMetadata[entity.pubkey]
+                    val metadata = resolveMetadata(entity.pubkey)
                     val name = metadata?.displayName ?: metadata?.name
                     if (name != null) "@$name" else "@${entity.pubkey.take(8)}..."
                 }
                 is Nip19.Entity.Nprofile -> {
-                    val metadata = userMetadata[entity.pubkey]
+                    val metadata = resolveMetadata(entity.pubkey)
                     val name = metadata?.displayName ?: metadata?.name
                     if (name != null) "@$name" else "@${entity.pubkey.take(8)}..."
                 }

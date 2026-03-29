@@ -73,8 +73,8 @@ import org.nostr.nostrord.utils.formatTime
 fun MessageItem(
     message: NostrGroupClient.NostrMessage,
     metadata: UserMetadata? = null,
-    allMessages: List<NostrGroupClient.NostrMessage> = emptyList(),
-    allUserMetadata: Map<String, UserMetadata> = emptyMap(),
+    resolveReplyMessage: (String) -> NostrGroupClient.NostrMessage? = { null },
+    resolveMetadata: (String) -> UserMetadata? = { null },
     isFirstInGroup: Boolean = true,
     isLastInGroup: Boolean = true,
     isAuthor: Boolean = false,
@@ -117,11 +117,9 @@ fun MessageItem(
     // Collect cached events from repository for parent message lookup
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
 
-    // Look up parent in allMessages first, then in cachedEvents
-    val parentMessage = remember(replyParentId, allMessages) {
-        if (replyParentId != null) {
-            allMessages.find { it.id == replyParentId }
-        } else null
+    // Look up parent via caller-provided resolver, then in cachedEvents
+    val parentMessage = remember(replyParentId) {
+        if (replyParentId != null) resolveReplyMessage(replyParentId) else null
     }
 
     // If not in allMessages, check cachedEvents and convert to NostrMessage
@@ -160,8 +158,8 @@ fun MessageItem(
         }
     }
 
-    val parentMetadata = remember(resolvedParentMessage?.pubkey, allUserMetadata) {
-        resolvedParentMessage?.let { allUserMetadata[it.pubkey] }
+    val parentMetadata = remember(resolvedParentMessage?.pubkey) {
+        resolvedParentMessage?.let { resolveMetadata(it.pubkey) }
     }
 
     // Request metadata for parent message author if not available
@@ -273,7 +271,7 @@ fun MessageItem(
                     ReplyPreview(
                         parentMessage = resolvedParentMessage,
                         parentMetadata = parentMetadata,
-                        userMetadata = allUserMetadata,
+                        resolveMetadata = resolveMetadata,
                         onReplyClick = {
                             replyParentId?.let { onScrollToMessage(it) }
                         }

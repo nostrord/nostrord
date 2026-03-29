@@ -238,8 +238,8 @@ fun MessagesList(
                                 is ChatItem.Message -> MessageItem(
                                     message = item.message,
                                     metadata = userMetadata[item.message.pubkey],
-                                    allMessages = messages,
-                                    allUserMetadata = userMetadata,
+                                    resolveReplyMessage = { id -> messages.find { it.id == id } },
+                                    resolveMetadata = { pubkey -> userMetadata[pubkey] },
                                     isFirstInGroup = item.isFirstInGroup,
                                     isLastInGroup = item.isLastInGroup,
                                     reactions = reactions[item.message.id] ?: emptyMap(),
