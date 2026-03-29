@@ -378,7 +378,7 @@ object MessageContentParser {
 
         // Check file extensions (before query string)
         val pathPart = lowercase.substringBefore('?').substringBefore('#')
-        val imageExtensions = listOf(".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif")
+        val imageExtensions = listOf(".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".avif")
         if (imageExtensions.any { pathPart.endsWith(it) }) {
             return true
         }
