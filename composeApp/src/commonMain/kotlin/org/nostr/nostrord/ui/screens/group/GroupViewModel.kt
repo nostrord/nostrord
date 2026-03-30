@@ -21,6 +21,7 @@ class GroupViewModel(
     val reactions = repo.reactions
     val groupMembers = repo.groupMembers
     val groupAdmins = repo.groupAdmins
+    val loadingMembers = repo.loadingMembers
     val isLoadingMore = repo.isLoadingMore
     val hasMoreMessages = repo.hasMoreMessages
 

@@ -63,6 +63,7 @@ fun GroupScreen(
     val allReactions by vm.reactions.collectAsState()
     val allGroupMembers by vm.groupMembers.collectAsState()
     val allGroupAdmins by vm.groupAdmins.collectAsState()
+    val loadingMembersSet by vm.loadingMembers.collectAsState()
     val currentUserPubkey = vm.getPublicKey()
 
     // Get current group metadata
@@ -74,9 +75,6 @@ fun GroupScreen(
     val isAdmin = remember(allGroupAdmins, groupId, currentUserPubkey) {
         currentUserPubkey != null && currentUserPubkey in (allGroupAdmins[groupId] ?: emptyList())
     }
-
-    // Get members from kind 39002 for this group
-    val kind39002Members = allGroupMembers[groupId] ?: emptyList()
 
     // Pagination state
     val isLoadingMoreMap by vm.isLoadingMore.collectAsState()
@@ -95,15 +93,19 @@ fun GroupScreen(
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     val isJoined = joinedGroups.contains(groupId)
 
-    // Stable member pubkey list — only changes when kind:39002 or messages change,
-    // NOT when metadata updates arrive.
-    val memberPubkeys = remember(kind39002Members, messages) {
-        if (kind39002Members.isNotEmpty()) kind39002Members
-        else messages.map { it.pubkey }.distinct()
+    // Member pubkey source: prefer kind:39002 (authoritative), fall back to
+    // message-derived pubkeys. Wrapped in derivedStateOf so the downstream
+    // groupMembers derivation observes changes to both sources reactively.
+    val memberPubkeys by remember(groupId) {
+        derivedStateOf {
+            val k39002 = allGroupMembers[groupId] ?: emptyList()
+            if (k39002.isNotEmpty()) k39002
+            else (allMessages[groupId] ?: emptyList()).map { it.pubkey }.distinct()
+        }
     }
 
-    // derivedStateOf: re-resolves display names when metadata arrives, but only
-    // recomposes the member sidebar when the resolved list actually differs.
+    // Resolves display names/pictures when metadata arrives. Only emits a new
+    // list when the resolved content actually differs (structural equality).
     val groupMembers by remember(groupId) {
         derivedStateOf {
             memberPubkeys.map { pubkey ->
@@ -144,6 +146,7 @@ fun GroupScreen(
     }
 
     val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
+    val isMembersLoading = groupId in loadingMembersSet && groupMembers.isEmpty()
 
     LaunchedEffect(groupId) {
         vm.requestGroupMessages(selectedChannel)
@@ -395,6 +398,7 @@ fun GroupScreen(
                     }
                 },
                 onCancelReply = { replyingToMessage = null },
+                isMembersLoading = isMembersLoading,
                 isInitialLoading = isInitialLoading,
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,
@@ -450,6 +454,7 @@ fun GroupScreen(
                     }
                 },
                 onCancelReply = { replyingToMessage = null },
+                isMembersLoading = isMembersLoading,
                 isInitialLoading = isInitialLoading,
                 isLoadingMore = isLoadingMore,
                 hasMoreMessages = hasMoreMessages,

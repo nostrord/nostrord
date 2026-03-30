@@ -93,6 +93,7 @@ fun GroupScreenMobile(
     onDeleteMessage: (NostrMessage) -> Unit = {},
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onCancelReply: () -> Unit = {},
+    isMembersLoading: Boolean = false,
     isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
@@ -236,7 +237,7 @@ fun GroupScreenMobile(
             MemberSidebar(
                 members = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
-                isLoading = isInitialLoading && groupMembers.isEmpty(),
+                isLoading = isMembersLoading,
                 onMemberClick = { member ->
                     showMemberSheet = false
                     onUserClick(member.pubkey)

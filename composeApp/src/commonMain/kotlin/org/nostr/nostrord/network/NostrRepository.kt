@@ -140,6 +140,7 @@ class NostrRepository(
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
     override val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
     override val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
+    override val loadingMembers: StateFlow<Set<String>> = groupManager.loadingMembers
 
     // Expose auth state
     override val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn

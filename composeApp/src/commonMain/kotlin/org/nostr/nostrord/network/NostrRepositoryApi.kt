@@ -40,6 +40,7 @@ interface NostrRepositoryApi {
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>
     val groupMembers: StateFlow<Map<String, List<String>>>
     val groupAdmins: StateFlow<Map<String, List<String>>>
+    val loadingMembers: StateFlow<Set<String>>
 
     // --- Metadata state ---
     val userMetadata: StateFlow<Map<String, UserMetadata>>

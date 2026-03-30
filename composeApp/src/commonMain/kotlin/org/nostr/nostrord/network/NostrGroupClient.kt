@@ -491,7 +491,7 @@ class NostrGroupClient(
      */
     suspend fun requestGroupMetadata(groupId: String): String {
         val subId = "meta_${groupId.take(8)}"
-        send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+        trySendClose(subId)
         val req = buildJsonArray {
             add("REQ")
             add(subId)
@@ -623,16 +623,17 @@ suspend fun sendMuxSubscriptions(
         }.toString())
     }
 
-    // Group metadata (kind 39000) for all joined groups — no `since` filter.
-    // kind:39000 is addressable (replaceable), so the relay always returns the
-    // latest state. Using `since` here caused massive backfill traffic on relays
-    // with many groups.
+    // Group metadata + members + admins (kinds 39000, 39001, 39002) for all joined groups.
+    // All three are addressable (replaceable), so the relay always returns the latest
+    // state. No `since` filter — avoids massive backfill traffic on relays with many groups.
+    // Including 39001/39002 here makes member/admin lists arrive reliably via the mux
+    // instead of depending solely on individual per-group requests that can fail silently.
     if (metadataGroupIds.isNotEmpty()) {
         send(buildJsonArray {
             add("REQ"); add(metaSubId)
             add(buildJsonObject {
-                putJsonArray("kinds") { add(39000) }
-                putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
+                putJsonArray("kinds") { add(39000); add(39001); add(39002) }
+                putJsonArray("#d") { metadataGroupIds.forEach { add(it) } }
             })
         }.toString())
     }
@@ -658,6 +659,16 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         })
     }.toString())
 }
+
+    /** Best-effort CLOSE — swallows send failures so the subsequent REQ always runs. */
+    private suspend fun trySendClose(subId: String) {
+        try {
+            send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+        } catch (_: Exception) {
+            // Not connected yet or session gone — safe to ignore; relay will
+            // simply treat the next REQ as a fresh subscription.
+        }
+    }
 
     private suspend fun sendJson(jsonElement: JsonElement) {
         val text = json.encodeToString(JsonElement.serializer(), jsonElement)
@@ -788,9 +799,7 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
      */
     suspend fun requestGroupAdmins(groupId: String): String {
         val subId = "admins_${groupId.take(8)}"
-        // Close any existing subscription for this group before re-opening to signal
-        // to the relay that it should reset and re-send the latest state.
-        send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+        trySendClose(subId)
         val req = buildJsonArray {
             add("REQ")
             add(subId)
@@ -810,8 +819,7 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
      */
     suspend fun requestGroupMembers(groupId: String): String {
         val subId = "members_${groupId.take(8)}"
-        // Close existing subscription before re-opening.
-        send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+        trySendClose(subId)
         val req = buildJsonArray {
             add("REQ")
             add(subId)

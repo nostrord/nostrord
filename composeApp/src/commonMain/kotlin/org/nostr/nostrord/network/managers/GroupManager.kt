@@ -134,6 +134,11 @@ class GroupManager(
     private val _groupMembers = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val groupMembers: StateFlow<Map<String, List<String>>> = _groupMembers.asStateFlow()
 
+    // Groups whose member list request has been sent but no kind:39002 response yet.
+    // Cleared when handleGroupMembers stores the response, or after a timeout.
+    private val _loadingMembers = MutableStateFlow<Set<String>>(emptySet())
+    val loadingMembers: StateFlow<Set<String>> = _loadingMembers.asStateFlow()
+
     // Group admins from kind 39001: groupId -> list of admin pubkeys
     private val _groupAdmins = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val groupAdmins: StateFlow<Map<String, List<String>>> = _groupAdmins.asStateFlow()
@@ -142,6 +147,7 @@ class GroupManager(
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
         const val MAX_PERSISTED_MESSAGES = 100 // Limit messages per group for storage
+        const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
     }
 
     // Current user pubkey for storage scoping
@@ -244,14 +250,25 @@ class GroupManager(
 
         if (isNew) {
             scope.launch {
-                val client = connectionManager.getClientForRelay(relayUrl ?: return@launch)
-                if (client != null) {
+                val url = relayUrl ?: return@launch
+                // Wait briefly for the client to become connected (up to 3s).
+                // Avoids losing member/admin requests when the pool client exists
+                // but the WebSocket handshake hasn't completed yet.
+                var client = connectionManager.getClientForRelay(url)
+                if (client != null && !client.isConnected()) {
+                    repeat(6) {
+                        delay(500)
+                        if (client!!.isConnected()) return@repeat
+                    }
+                }
+                client = connectionManager.getClientForRelay(url)
+                if (client != null && client.isConnected()) {
                     requestGroupMessages(groupId!!)
                     requestGroupMembers(groupId)
                     requestGroupAdmins(groupId)
                     client.requestGroupMetadata(groupId)
                 }
-                refreshMuxSubscriptionsForRelay(relayUrl!!)
+                refreshMuxSubscriptionsForRelay(url)
             }
         } else if (relayUrl != null) {
             scope.launch { refreshMuxSubscriptionsForRelay(relayUrl) }
@@ -1255,15 +1272,24 @@ class GroupManager(
      */
     fun handleGroupMembers(members: GroupMembers): List<String> {
         _groupMembers.value = _groupMembers.value + (members.groupId to members.members)
+        _loadingMembers.value = _loadingMembers.value - members.groupId
         return members.members
     }
 
     /**
-     * Request group members (kind 39002)
+     * Request group members (kind 39002).
+     * Marks the group as loading so the UI can show skeletons.
+     * Auto-clears after [MEMBER_LOAD_TIMEOUT_MS] if no response arrives.
      */
     suspend fun requestGroupMembers(groupId: String): Boolean {
         val currentClient = clientForGroup(groupId) ?: return false
+        _loadingMembers.value = _loadingMembers.value + groupId
         currentClient.requestGroupMembers(groupId)
+        // Safety timeout: clear loading flag if relay never responds.
+        scope.launch {
+            delay(MEMBER_LOAD_TIMEOUT_MS)
+            _loadingMembers.value = _loadingMembers.value - groupId
+        }
         return true
     }
 

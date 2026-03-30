@@ -1,15 +1,14 @@
 package org.nostr.nostrord.network.managers
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
@@ -34,10 +33,12 @@ class MetadataManager(
         const val MAX_EVENTS_CACHE_SIZE = 500
         /** Metadata older than this is considered stale and will be re-fetched. */
         const val STALE_THRESHOLD_MS = 30 * 60 * 1000L
-        /** Maximum concurrent outbox relay connections for metadata fetching. */
-        const val MAX_FETCH_CONCURRENCY = 8
         /** Number of retry attempts before giving up on a metadata fetch. */
         const val MAX_FETCH_ATTEMPTS = 3
+        /** Max authors per REQ filter — keeps relay filter sizes reasonable. */
+        const val BATCH_SIZE = 50
+        /** Coalesce window for metadata StateFlow emissions (ms). */
+        const val METADATA_FLUSH_DELAY_MS = 100L
     }
 
     // LRU caches for bounded memory usage
@@ -46,13 +47,6 @@ class MetadataManager(
 
     /** Tracks when each pubkey's metadata was last successfully fetched (epoch ms). */
     private val metadataFetchedAt = LruCache<String, Long>(MAX_METADATA_CACHE_SIZE)
-
-    /** Limits concurrent outbox relay connections to avoid opening too many sockets. */
-    private val fetchConcurrency = Semaphore(MAX_FETCH_CONCURRENCY)
-
-    /** Token-bucket rate limiter: at most [MAX_FETCH_CONCURRENCY] fetches/second burst,
-     *  sustained at [MetadataRateLimiter.DEFAULT_REQUESTS_PER_SECOND] fetches/second. */
-    private val rateLimiter = MetadataRateLimiter(scope = scope)
 
     // Prevents duplicate concurrent fetches for the same pubkey
     private val inFlightPubkeys = mutableSetOf<String>()
@@ -69,63 +63,67 @@ class MetadataManager(
     val cachedEvents: StateFlow<Map<String, CachedEvent>> = _cachedEvents.asStateFlow()
 
     /**
-     * Request user metadata from their WRITE relays (Outbox model)
+     * Request user metadata from their WRITE relays (Outbox model).
+     *
+     * Sends a single batched REQ per connected bootstrap relay with all unknown
+     * pubkeys as `authors`, then falls back to individual retries for any that
+     * didn't arrive in the first pass. This cuts the typical wait from
+     * N × 1.5 s (serial per-pubkey) to a single ~2 s round-trip for the batch.
      */
     fun requestUserMetadata(pubkeys: Set<String>, messageHandler: (String, NostrGroupClient) -> Unit) {
         if (pubkeys.isEmpty()) return
 
-        pubkeys.forEach { pubkey ->
-            scope.launch {
-                // Skip if already fetching metadata for this pubkey
-                val shouldFetch = inFlightMutex.withLock {
-                    if (inFlightPubkeys.contains(pubkey)) false
-                    else { inFlightPubkeys.add(pubkey); true }
-                }
-                if (!shouldFetch) return@launch
+        scope.launch {
+            // Deduplicate: only fetch pubkeys not already cached or in-flight.
+            val toFetch = inFlightMutex.withLock {
+                pubkeys.filter { it !in inFlightPubkeys && metadataFetchedAt.get(it) == null }
+                    .also { inFlightPubkeys.addAll(it) }
+            }
+            if (toFetch.isEmpty()) return@launch
 
-                try {
-                    rateLimiter.acquire()
-                    fetchConcurrency.withPermit {
-                        fetchWithRetry(pubkey, messageHandler)
-                    }
-                } finally {
-                    inFlightMutex.withLock { inFlightPubkeys.remove(pubkey) }
-                }
+            try {
+                batchFetch(toFetch)
+            } finally {
+                inFlightMutex.withLock { inFlightPubkeys.removeAll(toFetch.toSet()) }
             }
         }
     }
 
-    private suspend fun fetchWithRetry(pubkey: String, messageHandler: (String, NostrGroupClient) -> Unit) {
-        // NIP-29 relays do NOT serve kind:0 — exclude them from candidates.
+    /**
+     * Batch-fetch: one REQ with all pubkeys per connected bootstrap relay,
+     * then a single retry pass for any that didn't arrive.
+     */
+    private suspend fun batchFetch(pubkeys: List<String>) {
         val nip29Relays = SecureStorage.loadRelayList().toSet() +
             connectionManager.currentRelayUrl.value
 
-        // Use bootstrap relays directly for kind:0.
         val candidates = outboxManager.bootstrapRelays
             .filter { it !in nip29Relays }
 
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
-            if (metadataFetchedAt.get(pubkey) != null) return
+            // Only request pubkeys we still don't have.
+            val missing = pubkeys.filter { metadataFetchedAt.get(it) == null }
+            if (missing.isEmpty()) return
 
-            // Try already-connected general-purpose relays only (no new WebSocket connections).
+            // Send one batched REQ per connected relay (all missing authors at once).
             val sent = candidates.count { relayUrl ->
                 try {
                     val client = connectionManager.getClientForRelay(relayUrl)
                     if (client != null && client.isConnected()) {
-                        client.requestMetadata(listOf(pubkey))
+                        // Batch into chunks of BATCH_SIZE to stay within relay filter limits.
+                        missing.chunked(BATCH_SIZE).forEach { chunk ->
+                            client.requestMetadata(chunk)
+                        }
                         true
                     } else false
                 } catch (_: Exception) { false }
             }
 
             if (sent > 0) {
-                // Wait for responses — relays may return EOSE without data.
-                // Short wait on first attempt, longer on retries.
-                delay(if (attempt == 0) 1_500L else 3_000L)
-                if (metadataFetchedAt.get(pubkey) != null) return
-                // Metadata didn't arrive — retry on next attempt.
+                // Wait for responses — short on first attempt, longer on retry.
+                delay(if (attempt == 0) 2_000L else 3_500L)
+                if (pubkeys.all { metadataFetchedAt.get(it) != null }) return
             } else if (attempt < MAX_FETCH_ATTEMPTS - 1) {
-                // No connected relay found — wait before retrying.
                 delay(if (attempt == 0) 2_000L else 4_000L)
             }
         }
@@ -230,12 +228,32 @@ class MetadataManager(
         }
     }
 
+    // Coalesces rapid-fire metadata events into a single StateFlow emission.
+    // When members arrive in bulk the cache is updated eagerly (O(1) lookup via hasMetadata)
+    // but the expensive toMap() + flow emission is batched.
+    private var metadataFlushJob: Job? = null
+
     /**
-     * Handle incoming metadata message
+     * Handle incoming metadata message.
+     * Cache is updated immediately; StateFlow emission is coalesced (≤100 ms).
      */
     fun handleMetadataEvent(pubkey: String, metadata: UserMetadata) {
         metadataCache.put(pubkey, metadata)
         metadataFetchedAt.put(pubkey, epochMillis())
+        scheduleMetadataFlush()
+    }
+
+    private fun scheduleMetadataFlush() {
+        metadataFlushJob?.cancel()
+        metadataFlushJob = scope.launch {
+            delay(METADATA_FLUSH_DELAY_MS)
+            _userMetadata.value = metadataCache.toMap()
+        }
+    }
+
+    /** Flush immediately — used when the caller needs the value visible right away. */
+    private fun flushMetadataNow() {
+        metadataFlushJob?.cancel()
         _userMetadata.value = metadataCache.toMap()
     }
 
@@ -244,7 +262,7 @@ class MetadataManager(
      */
     fun updateLocalMetadata(pubkey: String, metadata: UserMetadata) {
         metadataCache.put(pubkey, metadata)
-        _userMetadata.value = metadataCache.toMap()
+        flushMetadataNow()
     }
 
     /**
