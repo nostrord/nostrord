@@ -100,9 +100,7 @@ class MetadataManager(
         val nip29Relays = SecureStorage.loadRelayList().toSet() +
             connectionManager.currentRelayUrl.value
 
-        // Use bootstrap relays directly for kind:0. NIP-65 write relays of the target user
-        // are almost never connected in a NIP-29 client, so the outbox lookup adds latency
-        // without changing the outcome. purplepag.es + relay.primal.net serve kind:0.
+        // Use bootstrap relays directly for kind:0.
         val candidates = outboxManager.bootstrapRelays
             .filter { it !in nip29Relays }
 
@@ -120,9 +118,14 @@ class MetadataManager(
                 } catch (_: Exception) { false }
             }
 
-            if (sent > 0) return
-
-            if (attempt < MAX_FETCH_ATTEMPTS - 1) {
+            if (sent > 0) {
+                // Wait for responses — relays may return EOSE without data.
+                // Short wait on first attempt, longer on retries.
+                delay(if (attempt == 0) 1_500L else 3_000L)
+                if (metadataFetchedAt.get(pubkey) != null) return
+                // Metadata didn't arrive — retry on next attempt.
+            } else if (attempt < MAX_FETCH_ATTEMPTS - 1) {
+                // No connected relay found — wait before retrying.
                 delay(if (attempt == 0) 2_000L else 4_000L)
             }
         }

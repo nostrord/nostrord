@@ -27,10 +27,13 @@ class RelayListManager(
 ) : OutboxModel {
 
     companion object {
-        // Discovery relays (both serve kind:0, kind:10002, kind:10009)
+        // Discovery relays (serve kind:0, kind:10002, kind:10009)
+        // Multiple relays for resilience — if one is down, others still serve metadata.
         val DEFAULT_BOOTSTRAP_RELAYS = listOf(
             "wss://purplepag.es",       // specialized NIP-65 index
-            "wss://relay.primal.net"    // general-purpose, high availability
+            "wss://relay.primal.net",   // general-purpose, high availability
+            "wss://relay.damus.io",     // large relay, high retention
+            "wss://nos.lol"             // well-known, serves kind:0
         )
 
         // Used when a user has no NIP-65 relay list: content-rich relays with high retention
