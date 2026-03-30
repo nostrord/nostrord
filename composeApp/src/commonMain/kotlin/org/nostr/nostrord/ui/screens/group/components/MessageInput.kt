@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
@@ -377,6 +378,11 @@ fun MessageInput(
                         unfocusedContainerColor = NostrordColors.InputBackground,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.White,
+                        cursorColor = Color.White,
+                        selectionColors = TextSelectionColors(
+                            handleColor = Color.White,
+                            backgroundColor = Color.White.copy(alpha = 0.3f)
+                        ),
                         focusedPlaceholderColor = NostrordColors.TextMuted,
                         unfocusedPlaceholderColor = NostrordColors.TextMuted,
                         focusedIndicatorColor = Color.Transparent,
