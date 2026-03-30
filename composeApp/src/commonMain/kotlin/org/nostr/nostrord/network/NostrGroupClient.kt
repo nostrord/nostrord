@@ -51,7 +51,9 @@ data class UserMetadata(
     val picture: String?,
     val about: String?,
     val nip05: String?,
-    val banner: String? = null
+    val banner: String? = null,
+    /** Original kind:0 content JSON — preserved so updates can merge without losing unknown fields. */
+    val rawContentJson: String? = null
 )
 
 data class CachedEvent(
@@ -858,7 +860,8 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                 picture = metadata["picture"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                 about = metadata["about"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                 nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                banner = metadata["banner"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                banner = metadata["banner"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                rawContentJson = content
             ))
         } catch (e: Exception) {
             null

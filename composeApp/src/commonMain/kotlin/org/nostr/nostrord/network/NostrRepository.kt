@@ -954,16 +954,22 @@ class NostrRepository(
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
 
         return try {
-            // Build metadata content JSON
-            val content = buildJsonObject {
-                displayName?.let { put("display_name", it) }
-                name?.let { put("name", it) }
-                about?.let { put("about", it) }
-                picture?.let { put("picture", it) }
-                nip05?.let { put("nip05", it) }
-            }.toString()
+            // Start from the existing raw JSON so unknown fields (lud16, website, etc.) are preserved.
+            val existing = metadataManager.getMetadata(pubKey)
+            val base: Map<String, JsonElement> = existing?.rawContentJson?.let { raw ->
+                try { Json.parseToJsonElement(raw).jsonObject.toMap() } catch (_: Exception) { null }
+            } ?: emptyMap()
 
-            // Create kind 0 event
+            val merged = buildJsonObject {
+                base.forEach { (k, v) -> put(k, v) }
+                displayName?.let { put("display_name", JsonPrimitive(it)) }
+                name?.let { put("name", JsonPrimitive(it)) }
+                about?.let { put("about", JsonPrimitive(it)) }
+                picture?.let { put("picture", JsonPrimitive(it)) }
+                nip05?.let { put("nip05", JsonPrimitive(it)) }
+            }
+            val content = merged.toString()
+
             val event = org.nostr.nostrord.nostr.Event(
                 pubkey = pubKey,
                 createdAt = org.nostr.nostrord.utils.epochSeconds(),
@@ -999,16 +1005,17 @@ class NostrRepository(
                 }
             }
 
-            // Update local cache
-            val newMetadata = UserMetadata(
+            val updatedMetadata = UserMetadata(
                 pubkey = pubKey,
-                name = name,
-                displayName = displayName,
-                picture = picture,
-                about = about,
-                nip05 = nip05
+                name = name ?: existing?.name,
+                displayName = displayName ?: existing?.displayName,
+                picture = picture ?: existing?.picture,
+                about = about ?: existing?.about,
+                nip05 = nip05 ?: existing?.nip05,
+                banner = existing?.banner,
+                rawContentJson = content
             )
-            metadataManager.updateLocalMetadata(pubKey, newMetadata)
+            metadataManager.updateLocalMetadata(pubKey, updatedMetadata)
 
             Result.Success(Unit)
         } catch (e: Exception) {
