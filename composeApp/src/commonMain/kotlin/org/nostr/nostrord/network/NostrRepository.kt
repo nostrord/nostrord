@@ -25,6 +25,7 @@ import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.urlDecode
 
 /**
@@ -638,8 +639,9 @@ class NostrRepository(
     }
 
     override suspend fun removeRelay(url: String) {
-        val existing = SecureStorage.loadRelayList()
-        val remaining = existing.filter { it != url }
+        val normalized = url.normalizeRelayUrl()
+        val existing = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }
+        val remaining = existing.filter { it != normalized }
         val pubKey = sessionManager.getPublicKey()
 
         // Publish kind:10009 first — only persist removal on success
@@ -654,23 +656,23 @@ class NostrRepository(
 
         // Clean up persisted joined groups for this relay
         if (pubKey != null) {
-            SecureStorage.clearJoinedGroupsForRelay(pubKey, url)
+            SecureStorage.clearJoinedGroupsForRelay(pubKey, normalized)
         }
 
         // Remove from in-memory maps so the rail and kind:10009 cache update immediately
-        groupManager.removeRelayEntry(url)
-        outboxManager.removeRelayFromCache(url)
+        groupManager.removeRelayEntry(normalized)
+        outboxManager.removeRelayFromCache(normalized)
         // Switch to first remaining relay, or clear persisted relay if none left
         val fallback = remaining.firstOrNull()
-        if (fallback != null && fallback != connectionManager.currentRelayUrl.value) {
+        if (fallback != null && fallback != connectionManager.currentRelayUrl.value.normalizeRelayUrl()) {
             switchRelay(fallback)
         } else if (fallback == null) {
             SecureStorage.clearCurrentRelayUrl()
             connectionManager.clearCurrentRelay()
         }
         // Disconnect the removed relay (pool or primary)
-        connectionManager.disconnectRelay(url)
-        connectedPoolRelays.remove(url)
+        connectionManager.disconnectRelay(normalized)
+        connectedPoolRelays.remove(normalized)
     }
 
     override suspend fun disconnect() {
@@ -679,12 +681,13 @@ class NostrRepository(
     }
 
     override suspend fun addRelay(url: String) {
+        val normalized = url.normalizeRelayUrl()
         // Check against kind:10009 "r" tags, not localStorage — the relay may be in
         // localStorage (imported from "group" tags) but missing from "r" tags.
-        val alreadyInKind10009 = url in outboxManager.kind10009Relays.value
+        val alreadyInKind10009 = normalized in outboxManager.kind10009Relays.value
         if (!alreadyInKind10009) {
-            val existing = SecureStorage.loadRelayList()
-            val newList = (existing + url).distinct()
+            val existing = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }
+            val newList = (existing + normalized).distinct()
             val pubKey = sessionManager.getPublicKey()
             if (!pubKey.isNullOrEmpty()) {
                 // Publish kind:10009 first — only persist to localStorage on success
@@ -699,7 +702,7 @@ class NostrRepository(
             }
         }
         // Clear deep link prompt if this was the pending relay
-        if (_pendingDeepLinkRelay.value == url) {
+        if (_pendingDeepLinkRelay.value == normalized) {
             _pendingDeepLinkRelay.value = null
         }
     }

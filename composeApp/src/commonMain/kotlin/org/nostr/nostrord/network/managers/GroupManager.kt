@@ -26,6 +26,7 @@ import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
  * Manages group operations: join, leave, messages, and group metadata.
@@ -375,22 +376,25 @@ class GroupManager(
      */
     fun prePopulateRelayList(relayUrls: List<String>) {
         _groupsByRelay.update { current ->
-            val additions = relayUrls.filter { !current.containsKey(it) }
+            val additions = relayUrls.map { it.normalizeRelayUrl() }
+                .filter { !current.containsKey(it) }
                 .associateWith { emptyList<GroupMetadata>() }
             current + additions
         }
     }
 
     fun pruneRelaysNotIn(authoritativeRelays: Set<String>) {
+        val normalizedAuth = authoritativeRelays.map { it.normalizeRelayUrl() }.toSet()
         _groupsByRelay.update { current ->
-            current.filterKeys { it in authoritativeRelays }
+            current.filterKeys { it.normalizeRelayUrl() in normalizedAuth }
         }
     }
 
     fun setJoinedGroups(groups: Set<String>) {
         _joinedGroups.value = groups
         currentRelayUrl?.let { url ->
-            _joinedGroupsByRelay.update { it + (url to groups) }
+            val normalized = url.normalizeRelayUrl()
+            _joinedGroupsByRelay.update { it + (normalized to groups) }
         }
     }
 
@@ -399,7 +403,8 @@ class GroupManager(
         _joinedGroupsByRelay.value = relayGroups
         // Also sync _joinedGroups if the active relay is in the event
         currentRelayUrl?.let { url ->
-            relayGroups[url]?.let { groups -> _joinedGroups.value = groups }
+            val normalized = url.normalizeRelayUrl()
+            relayGroups[normalized]?.let { groups -> _joinedGroups.value = groups }
         }
     }
 
@@ -1560,8 +1565,9 @@ class GroupManager(
      * Remove a single relay entry from the in-memory cache so the rail updates immediately.
      */
     fun removeRelayEntry(url: String) {
-        completeGroupLoadRelays.remove(url)
-        _groupsByRelay.update { current -> current - url }
+        val normalized = url.normalizeRelayUrl()
+        completeGroupLoadRelays.remove(normalized)
+        _groupsByRelay.update { current -> current - normalized }
     }
 
     /**

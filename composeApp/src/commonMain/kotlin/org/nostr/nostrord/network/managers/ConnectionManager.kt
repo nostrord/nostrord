@@ -13,6 +13,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
  * Manages relay connections and connection pooling.
@@ -82,7 +83,7 @@ class ConnectionManager(
     suspend fun loadSavedRelay() {
         val savedRelayUrl = SecureStorage.getCurrentRelayUrl()
         if (savedRelayUrl != null) {
-            _currentRelayUrl.value = savedRelayUrl
+            _currentRelayUrl.value = savedRelayUrl.normalizeRelayUrl()
         }
     }
 
@@ -101,8 +102,9 @@ class ConnectionManager(
      * Does not create new connections — returns null if relay is not connected.
      */
     suspend fun getClientForRelay(relayUrl: String): NostrGroupClient? {
-        if (_currentRelayUrl.value == relayUrl) return primaryClient
-        return poolMutex.withLock { relayPool[relayUrl] }
+        val normalized = relayUrl.normalizeRelayUrl()
+        if (_currentRelayUrl.value == normalized) return primaryClient
+        return poolMutex.withLock { relayPool[normalized] }
     }
 
     /**
@@ -267,10 +269,11 @@ class ConnectionManager(
      * URL is already in the pool, that existing connection is promoted to primary.
      */
     suspend fun switchRelay(newRelayUrl: String, onMessage: (String, NostrGroupClient) -> Unit): Boolean {
+        val normalizedNewUrl = newRelayUrl.normalizeRelayUrl()
         // Move the current primary into the pool instead of disconnecting it.
         val oldPrimary = primaryClient
         val oldUrl = _currentRelayUrl.value
-        if (oldPrimary != null && oldUrl != newRelayUrl) {
+        if (oldPrimary != null && oldUrl != normalizedNewUrl) {
             // CRITICAL: re-wire onConnectionLost to the pool handler before adding to pool.
             // Without this, the demoted primary still fires handleConnectionLost() when it
             // drops, which triggers reconnection of the WRONG relay (_currentRelayUrl, which
@@ -290,7 +293,7 @@ class ConnectionManager(
         }
 
         // If the new relay is already in the pool, promote it to primary.
-        val existingPoolClient = poolMutex.withLock { relayPool.remove(newRelayUrl) }
+        val existingPoolClient = poolMutex.withLock { relayPool.remove(normalizedNewUrl) }
 
         // Clear the primary slot (without disconnecting the old client).
         primaryClient = null
@@ -298,8 +301,8 @@ class ConnectionManager(
         reconnectJob?.cancel()
         reconnectJob = null
 
-        _currentRelayUrl.value = newRelayUrl
-        SecureStorage.saveCurrentRelayUrl(newRelayUrl)
+        _currentRelayUrl.value = normalizedNewUrl
+        SecureStorage.saveCurrentRelayUrl(normalizedNewUrl)
 
         if (existingPoolClient != null) {
             // Re-use the already-connected pool client as the new primary.
@@ -320,10 +323,11 @@ class ConnectionManager(
      * Disconnect and remove a specific relay, whether it's in the pool or is the primary.
      */
     suspend fun disconnectRelay(url: String) {
+        val normalized = url.normalizeRelayUrl()
         poolMutex.withLock {
-            relayPool.remove(url)?.disconnect()
+            relayPool.remove(normalized)?.disconnect()
         }
-        if (_currentRelayUrl.value == url) {
+        if (_currentRelayUrl.value == normalized) {
             disconnectPrimary()
         }
     }
@@ -335,19 +339,21 @@ class ConnectionManager(
         relayUrl: String,
         onMessage: (String, NostrGroupClient) -> Unit
     ): NostrGroupClient? {
+        val normalized = relayUrl.normalizeRelayUrl()
         // Check if we already have a connection
         poolMutex.withLock {
-            relayPool[relayUrl]?.let { return it }
+            relayPool[normalized]?.let { return it }
         }
 
         // Create new connection outside the lock to avoid blocking other operations
+        // Note: NostrGroupClient receives the original URL for the actual WebSocket connection
         return try {
             val newClient = NostrGroupClient(relayUrl)
             // Wire up pool-relay drop detection so we can attempt reconnection.
             newClient.onConnectionLost = {
                 scope.launch {
-                    poolMutex.withLock { relayPool.remove(relayUrl) }
-                    onPoolRelayLost?.invoke(relayUrl)
+                    poolMutex.withLock { relayPool.remove(normalized) }
+                    onPoolRelayLost?.invoke(normalized)
                 }
             }
             newClient.connect { msg ->
@@ -361,12 +367,12 @@ class ConnectionManager(
 
             // Add to pool with lock, but check again in case another coroutine added it
             poolMutex.withLock {
-                relayPool[relayUrl]?.let {
+                relayPool[normalized]?.let {
                     // Another coroutine already added a connection, disconnect ours
                     newClient.disconnect()
                     return it
                 }
-                relayPool[relayUrl] = newClient
+                relayPool[normalized] = newClient
             }
             newClient
         } catch (e: Exception) {

@@ -13,6 +13,7 @@ import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.AppError
@@ -157,7 +158,13 @@ class OutboxManager(
     ): Result<Unit> {
         return try {
             val tags = groupsMutex.withLock {
-                allRelayGroups = joinedGroupsByRelay.filterValues { it.isNotEmpty() }
+                // Normalize and deduplicate relay URLs before publishing
+                val normalizedGroups = mutableMapOf<String, MutableSet<String>>()
+                joinedGroupsByRelay.filterValues { it.isNotEmpty() }.forEach { (relayUrl, groupIds) ->
+                    val normalized = relayUrl.normalizeRelayUrl()
+                    normalizedGroups.getOrPut(normalized) { mutableSetOf() }.addAll(groupIds)
+                }
+                allRelayGroups = normalizedGroups.mapValues { it.value.toSet() }
 
                 val tagsList = mutableListOf<List<String>>()
                 allRelayGroups.forEach { (relayUrl, groupIds) ->
@@ -165,7 +172,7 @@ class OutboxManager(
                         tagsList.add(listOf("group", groupId, relayUrl))
                     }
                 }
-                val distinctRelays = nip29Relays.filter { it.isNotBlank() }.distinct()
+                val distinctRelays = nip29Relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.distinct()
                 distinctRelays.forEach { relayUrl ->
                     tagsList.add(listOf("r", relayUrl))
                 }
@@ -187,7 +194,7 @@ class OutboxManager(
                 latestKind10009CreatedAt = event.createdAt
             }
 
-            _kind10009Relays.value = nip29Relays.filter { it.isNotBlank() }.toSet()
+            _kind10009Relays.value = nip29Relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.toSet()
             val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
 
             val message = buildJsonArray {
@@ -241,11 +248,11 @@ class OutboxManager(
             when (tagName) {
                 "group" -> {
                     val groupId = tagArray.getOrNull(1)?.jsonPrimitive?.content ?: return@forEach
-                    val relayUrl = tagArray.getOrNull(2)?.jsonPrimitive?.content ?: currentRelayUrl
+                    val relayUrl = (tagArray.getOrNull(2)?.jsonPrimitive?.content ?: currentRelayUrl).normalizeRelayUrl()
                     newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
                 }
                 "r" -> {
-                    val relayUrl = tagArray.getOrNull(1)?.jsonPrimitive?.content ?: return@forEach
+                    val relayUrl = tagArray.getOrNull(1)?.jsonPrimitive?.content?.normalizeRelayUrl() ?: return@forEach
                     if (relayUrl.isNotBlank()) explicitNip29Relays.add(relayUrl)
                 }
             }
@@ -266,7 +273,7 @@ class OutboxManager(
         }
         var newlyRestoredRelays = emptyList<String>()
         if (restoredRelays.isNotEmpty()) {
-            val existing = SecureStorage.loadRelayList()
+            val existing = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }
             if (restoredRelays.toSet() != existing.toSet()) {
                 SecureStorage.saveRelayList(restoredRelays)
                 newlyRestoredRelays = restoredRelays.filter { it !in existing }
@@ -279,7 +286,8 @@ class OutboxManager(
 
         onRelayGroupsUpdated(immutableRelayGroups)
 
-        val currentRelayGroups = immutableRelayGroups[currentRelayUrl]
+        val normalizedCurrentRelay = currentRelayUrl.normalizeRelayUrl()
+        val currentRelayGroups = immutableRelayGroups[normalizedCurrentRelay]
         if (currentRelayGroups != null) {
             onGroupsUpdated(currentRelayGroups)
         }
@@ -430,16 +438,18 @@ class OutboxManager(
     }
 
     suspend fun getJoinedGroupsForRelay(relayUrl: String): Set<String> {
+        val normalized = relayUrl.normalizeRelayUrl()
         return groupsMutex.withLock {
-            allRelayGroups[relayUrl] ?: emptySet()
+            allRelayGroups[normalized] ?: emptySet()
         }
     }
 
     suspend fun removeRelayFromCache(relayUrl: String) {
+        val normalized = relayUrl.normalizeRelayUrl()
         groupsMutex.withLock {
-            allRelayGroups = allRelayGroups - relayUrl
+            allRelayGroups = allRelayGroups - normalized
         }
-        _kind10009Relays.value = _kind10009Relays.value - relayUrl
+        _kind10009Relays.value = _kind10009Relays.value - normalized
     }
 
     suspend fun hasJoinedGroupsData(): Boolean {
