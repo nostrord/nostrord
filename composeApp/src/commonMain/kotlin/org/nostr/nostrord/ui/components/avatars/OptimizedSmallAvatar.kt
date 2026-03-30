@@ -31,7 +31,6 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
-import org.nostr.nostrord.utils.getImageUrl
 
 /**
  * Size category for avatar optimization.
@@ -140,7 +139,7 @@ fun OptimizedSmallAvatar(
         if (imageState !is AsyncImagePainter.State.Error) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(getImageUrl(imageUrl))
+                    .data(imageUrl)
                     .crossfade(150) // Quick crossfade
                     .size(Size(requestSizePx, requestSizePx))
                     .memoryCachePolicy(CachePolicy.ENABLED)

@@ -30,7 +30,6 @@ import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.generateColorFromString
-import org.nostr.nostrord.utils.getImageUrl
 
 private val cardShape = RoundedCornerShape(8.dp)
 private val iconShape = RoundedCornerShape(8.dp)
@@ -180,7 +179,7 @@ private fun GroupPickIcon(group: GroupMetadata, size: androidx.compose.ui.unit.D
         if (!pictureUrl.isNullOrBlank()) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(getImageUrl(pictureUrl))
+                    .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)

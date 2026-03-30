@@ -35,7 +35,6 @@ import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.generateColorFromString
-import org.nostr.nostrord.utils.getImageUrl
 
 /**
  * Enhanced group header with description, member count, and status indicators.
@@ -243,7 +242,7 @@ private fun GroupHeaderIcon(
         if (!pictureUrl.isNullOrBlank()) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(getImageUrl(pictureUrl))
+                    .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)

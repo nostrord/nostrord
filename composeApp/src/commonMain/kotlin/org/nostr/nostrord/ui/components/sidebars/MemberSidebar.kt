@@ -54,7 +54,6 @@ import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.components.loading.MemberSkeleton
-import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -369,7 +368,7 @@ private fun MemberAvatar(
         if (!member.picture.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(getImageUrl(member.picture!!))
+                    .data(member.picture!!)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)

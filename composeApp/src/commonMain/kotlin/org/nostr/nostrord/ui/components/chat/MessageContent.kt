@@ -1081,7 +1081,7 @@ fun ForwardedEventCard(
             if (sourceGroupPicture != null) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalPlatformContext.current)
-                        .data(getImageUrl(sourceGroupPicture))
+                        .data(sourceGroupPicture)
                         .crossfade(true)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
