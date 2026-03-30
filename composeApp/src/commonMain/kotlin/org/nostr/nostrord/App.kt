@@ -222,6 +222,7 @@ private fun AuthenticatedApp(
     var showCreateGroupModal by remember { mutableStateOf(false) }
     var showAddRelayModal by remember { mutableStateOf(false) }
     var addRelayInitialTab by remember { mutableIntStateOf(0) }
+    var showSettings by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -274,7 +275,9 @@ private fun AuthenticatedApp(
     // Navigation handler that records history and persists state.
     // Screen.RelaySettings is intercepted here and shown as a modal instead of navigating.
     val onNavigate: (Screen) -> Unit = { newScreen ->
-        if (newScreen is Screen.RelaySettings) {
+        if (newScreen is Screen.Profile) {
+            showSettings = true
+        } else if (newScreen is Screen.RelaySettings) {
             addRelayInitialTab = 0
             showAddRelayModal = true
         } else {
@@ -449,8 +452,8 @@ private fun AuthenticatedApp(
                     },
                     onCreateGroupClick = { showCreateGroupModal = true },
                     onAddRelayFromSidebar = if (hasNoRelays) {{ addRelayInitialTab = 0; showAddRelayModal = true }} else null,
-                    onUserClick = { onNavigate(Screen.Profile) },
-                    isProfileActive = currentScreen is Screen.Profile,
+                    onUserClick = { showSettings = true },
+                    isProfileActive = showSettings,
                     modifier = Modifier.weight(1f)
                 ) {
                     DesktopContent(
@@ -479,7 +482,7 @@ private fun AuthenticatedApp(
                             activeGroupId = activeGroupId,
                             isGroupsLoading = isGroupsLoading,
                             hasNoRelays = hasNoRelays,
-                            isProfileActive = currentScreen is Screen.Profile,
+                            isProfileActive = showSettings,
                             onRelayClick = { url ->
                                 selectedRelayUrl = url
                                 scope.launch {
@@ -506,7 +509,7 @@ private fun AuthenticatedApp(
                             }} else null,
                             onUserClick = {
                                 scope.launch { drawerState.close() }
-                                onNavigate(Screen.Profile)
+                                showSettings = true
                             }
                         )
                     }
@@ -531,14 +534,14 @@ private fun AuthenticatedApp(
     } // BoxWithConstraints
 
     // Settings overlay — covers the entire app (rail, sidebar, content) when active
-    if (currentScreen is Screen.Profile) {
+    if (showSettings) {
         SettingsScreen(
             showToolbar = !platformHasBrowserNavigation,
             canGoBack = navHistory.canGoBack,
             canGoForward = navHistory.canGoForward,
             onHistoryBack = onHistoryBack,
             onHistoryForward = onHistoryForward,
-            onClose = { onHistoryBack() },
+            onClose = { showSettings = false },
             onNavigate = onNavigate,
             onLogout = {
                 scope.launch {
