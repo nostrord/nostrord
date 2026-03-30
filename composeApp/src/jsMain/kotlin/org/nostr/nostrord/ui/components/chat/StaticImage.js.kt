@@ -20,13 +20,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
-import coil3.compose.AsyncImagePainter
-import coil3.compose.LocalPlatformContext
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.size.Size
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
@@ -47,6 +40,9 @@ import org.nostr.nostrord.utils.getImageUrl
  */
 private val staticImageCache = LruCache<String, ImageBitmap>(30)
 
+/** URLs that have already failed — avoids repeated network requests for broken images. */
+private val failedUrls = LruCache<String, Boolean>(100)
+
 /**
  * Semaphore limiting concurrent createImageBitmap decode pipelines to 3.
  * Prevents the JS event loop from being starved when many images appear at once.
@@ -65,11 +61,13 @@ private suspend fun awaitDynamic(promise: dynamic): dynamic = suspendCoroutine {
     )
 }
 
-private fun jsFetchUrl(url: String): dynamic = js("fetch(url)")
+private fun jsFetchWithTimeout(url: String, timeoutMs: Int): dynamic =
+    js("fetch(url, { signal: AbortSignal.timeout(timeoutMs) })")
 
 private fun responseToBlob(response: dynamic): dynamic = js("response.blob()")
 
-private fun createImageBitmapFromBlob(blob: dynamic): dynamic = js("createImageBitmap(blob)")
+private fun createImageBitmapCapped(blob: dynamic, maxW: Int): dynamic =
+    js("createImageBitmap(blob, { resizeWidth: maxW, resizeQuality: 'medium' })")
 
 private fun makOffscreenCanvas(w: Int, h: Int): dynamic = js("new OffscreenCanvas(w, h)")
 
@@ -94,60 +92,78 @@ private fun imageDataToByteArray(imageData: dynamic): ByteArray {
     return result
 }
 
+/** Max pixel width for decoded images (2x of 400dp chat image max). */
+private const val MAX_DECODE_WIDTH = 800
+
+/** Timeout for image fetch requests in milliseconds. */
+private const val FETCH_TIMEOUT_MS = 8_000
+
 /**
- * Fetches [url] via the browser Fetch API, decodes the bytes off-thread using
- * createImageBitmap(), reads RGBA pixels from an OffscreenCanvas, and installs them
- * into a Skia Bitmap that is wrapped as a Compose ImageBitmap.
+ * Fetches and decodes an image into a Compose ImageBitmap.
  *
- * This replaces the Coil/Skia on-main-thread decode path that caused UI freezes.
+ * 1. Tries the optimized URL (proxy/CDN-resized via [getImageUrl]) first.
+ * 2. If that fails (proxy blocked, 404), falls back to the original URL.
+ * 3. Uses a single-pass capped decode: createImageBitmap(blob, {resizeWidth})
+ *    lets the browser resize during decode without ever allocating the
+ *    full-resolution pixel buffer.
  */
 private suspend fun loadStaticImageBitmap(url: String): ImageBitmap? {
     staticImageCache.get(url)?.let { return it }
+    if (failedUrls.get(url) == true) return null
 
     return fetchPermits.withPermit {
-        // Check cache again after acquiring permit — another coroutine may have filled it.
         staticImageCache.get(url)?.let { return@withPermit it }
+        if (failedUrls.get(url) == true) return@withPermit null
 
-        try {
-            // 1. Fetch the image as a Blob (browser handles network, non-blocking).
-            val response = awaitDynamic(jsFetchUrl(url))
-            if (response.ok != true) {
-                    return@withPermit null
-            }
-            val blob = awaitDynamic(responseToBlob(response))
-            yield()
+        // Try optimized URL first, fall back to original on failure
+        val optimizedUrl = getImageUrl(url)
+        val result = fetchAndDecode(optimizedUrl)
+            ?: if (optimizedUrl != url) fetchAndDecode(url) else null
 
-            // 2. Decode off the JS thread via createImageBitmap (browser-native, non-blocking).
-            val nativeBitmap = awaitDynamic(createImageBitmapFromBlob(blob))
-            val width = (nativeBitmap.width as? Int) ?: 0
-            val height = (nativeBitmap.height as? Int) ?: 0
-            if (width <= 0 || height <= 0) {
-                return@withPermit null
-            }
-            yield()
-
-            // 3. Extract RGBA pixels via OffscreenCanvas — pure in-memory, very fast.
-            val canvas = makOffscreenCanvas(width, height)
-            val ctx = getContext2d(canvas)
-            drawImage(ctx, nativeBitmap)
-            val imageData = getImageData(ctx, width, height)
-            // imageData.data is RGBA, 8 bpp per channel, unpremultiplied.
-            val byteArray = imageDataToByteArray(imageData)
-            yield()
-
-            // 4. Install pixels into a Skia Bitmap and wrap as Compose ImageBitmap.
-            // Canvas getImageData returns RGBA_8888 unpremultiplied — use matching ImageInfo.
-            val info = ImageInfo(width, height, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL)
-            val bitmap = SkiaBitmap()
-            bitmap.allocPixels(info)
-            bitmap.installPixels(info, byteArray, width * 4)
-            val imageBitmap = bitmap.asComposeImageBitmap()
-
-            staticImageCache.put(url, imageBitmap)
-            imageBitmap
-        } catch (e: Exception) {
-            null
+        if (result != null) {
+            staticImageCache.put(url, result)
+        } else {
+            failedUrls.put(url, true)
         }
+        result
+    }
+}
+
+/**
+ * Fetches [fetchUrl], decodes with capped width via createImageBitmap,
+ * and converts to a Compose ImageBitmap. Returns null on any failure.
+ */
+private suspend fun fetchAndDecode(fetchUrl: String): ImageBitmap? {
+    return try {
+        val response = awaitDynamic(jsFetchWithTimeout(fetchUrl, FETCH_TIMEOUT_MS))
+        if (response.ok != true) return null
+        val blob = awaitDynamic(responseToBlob(response))
+        yield()
+
+        // Single-pass decode: resizeWidth caps the output, browser calculates
+        // proportional height and never allocates the full-resolution buffer.
+        val nativeBitmap = awaitDynamic(createImageBitmapCapped(blob, MAX_DECODE_WIDTH))
+        val width = (nativeBitmap.width as? Int) ?: 0
+        val height = (nativeBitmap.height as? Int) ?: 0
+        if (width <= 0 || height <= 0) return null
+        yield()
+
+        // Extract RGBA pixels via OffscreenCanvas.
+        val canvas = makOffscreenCanvas(width, height)
+        val ctx = getContext2d(canvas)
+        drawImage(ctx, nativeBitmap)
+        val imageData = getImageData(ctx, width, height)
+        val byteArray = imageDataToByteArray(imageData)
+        yield()
+
+        // Install into Skia Bitmap.
+        val info = ImageInfo(width, height, ColorType.RGBA_8888, ColorAlphaType.UNPREMUL)
+        val bitmap = SkiaBitmap()
+        bitmap.allocPixels(info)
+        bitmap.installPixels(info, byteArray, width * 4)
+        bitmap.asComposeImageBitmap()
+    } catch (_: Exception) {
+        null
     }
 }
 
@@ -163,19 +179,22 @@ actual fun StaticImage(
     onClick: () -> Unit,
     onError: () -> Unit
 ) {
-    // null  = still loading
-    // non-null empty sentinel (handled via separate flag) = load failed
+    val alreadyFailed = failedUrls.get(url) == true
     var bitmap by remember(url) { mutableStateOf(staticImageCache.get(url)) }
-    var loadFailed by remember(url) { mutableStateOf(false) }
+    var loadFailed by remember(url) { mutableStateOf(alreadyFailed) }
+
+    // Fire onError as a side-effect, not during composition
+    LaunchedEffect(loadFailed) {
+        if (loadFailed) onError()
+    }
 
     LaunchedEffect(url) {
-        if (bitmap != null) return@LaunchedEffect
+        if (bitmap != null || loadFailed) return@LaunchedEffect
         val result = loadStaticImageBitmap(url)
         if (result != null) {
             bitmap = result
         } else {
             loadFailed = true
-            onError()
         }
     }
 
@@ -183,13 +202,7 @@ actual fun StaticImage(
 
     when {
         loadFailed -> {
-            // Coil fallback so the user still sees something on decode failure.
-            CoilFallbackImage(
-                url = url,
-                modifier = baseModifier,
-                contentScale = contentScale,
-                onError = onError
-            )
+            // Nothing to render — onError triggers ChatImage to show text link
         }
         bitmap == null -> {
             Box(
@@ -215,31 +228,4 @@ actual fun StaticImage(
             )
         }
     }
-}
-
-@Composable
-private fun CoilFallbackImage(
-    url: String,
-    modifier: Modifier,
-    contentScale: ContentScale,
-    onError: () -> Unit
-) {
-    val context = LocalPlatformContext.current
-    AsyncImage(
-        model = ImageRequest.Builder(context)
-            .data(getImageUrl(url))
-            .crossfade(true)
-            .memoryCachePolicy(CachePolicy.ENABLED)
-            .diskCachePolicy(CachePolicy.ENABLED)
-            .size(Size(800, 600))
-            .build(),
-        contentDescription = "Image",
-        contentScale = contentScale,
-        modifier = modifier,
-        onState = { state ->
-            if (state is AsyncImagePainter.State.Error) {
-                onError()
-            }
-        }
-    )
 }

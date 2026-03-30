@@ -55,6 +55,7 @@ import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.isAnimatedImageUrl
+import org.nostr.nostrord.utils.isBlockedImageHost
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
@@ -829,7 +830,8 @@ private fun SafeEmojiImage(
         imageUrl.length <= 2048 &&
         (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) &&
         !imageUrl.lowercase().contains("javascript:") &&
-        !imageUrl.lowercase().contains("data:")
+        !imageUrl.lowercase().contains("data:") &&
+        !isBlockedImageHost(imageUrl)
     }
 
     // Track error state
@@ -1806,7 +1808,7 @@ private fun QuotedImage(
 ) {
     val context = LocalPlatformContext.current
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
-    var showError by remember { mutableStateOf(false) }
+    var showError by remember { mutableStateOf(isBlockedImageHost(imageUrl)) }
 
     if (showError) {
         Text(

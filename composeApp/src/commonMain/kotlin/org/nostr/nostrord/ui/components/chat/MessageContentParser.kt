@@ -396,6 +396,11 @@ object MessageContentParser {
     private fun isImageUrl(url: String): Boolean {
         val lowercase = url.lowercase()
 
+        // Hosts known to be unreliable — always show as clickable link
+        if (org.nostr.nostrord.utils.isBlockedImageHost(url)) {
+            return false
+        }
+
         // Check file extensions (before query string)
         val pathPart = lowercase.substringBefore('?').substringBefore('#')
         val imageExtensions = listOf(".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".ico", ".avif")
