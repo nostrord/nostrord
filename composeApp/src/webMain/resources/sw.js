@@ -5,7 +5,8 @@
  * Caching strategies:
  * - WASM modules: Cache-first (immutable, large files)
  * - Fonts: Cache-first (immutable)
- * - JS bundles: Cache-first with background update
+ * - App JS bundle: Network-first (ensures fresh code on deploy)
+ * - Other static assets: Stale-while-revalidate
  * - HTML: Network-first (for updates)
  * - API/WebSocket: Network-only (not cached)
  */
@@ -24,7 +25,6 @@ const PRECACHE_URLS = [
     'styles.css',
     'aes-js.min.js',
     'noble-crypto.min.js',
-    'composeApp.js',
 ];
 
 // Install event - precache critical resources
@@ -101,6 +101,9 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(cacheFirst(event.request, STATIC_CACHE));
     } else if (isFontRequest(url)) {
         event.respondWith(cacheFirst(event.request, FONT_CACHE));
+    } else if (isAppBundle(url)) {
+        // App bundle must be network-first so deploys are picked up immediately
+        event.respondWith(networkFirst(event.request, STATIC_CACHE));
     } else if (isStaticAsset(url)) {
         event.respondWith(staleWhileRevalidate(event.request, STATIC_CACHE));
     } else if (isHtmlRequest(event.request, url)) {
@@ -111,6 +114,12 @@ self.addEventListener('fetch', (event) => {
 });
 
 // Request type detection
+function isAppBundle(url) {
+    // Main Compose app bundle — always fetch fresh from network
+    return /composeApp[\.\-].*\.js/.test(url.pathname) ||
+           url.pathname.endsWith('/composeApp.js');
+}
+
 function isWasmRequest(url) {
     return url.pathname.endsWith('.wasm');
 }
@@ -157,10 +166,11 @@ async function cacheFirst(request, cacheName) {
     }
 }
 
-// Stale-while-revalidate strategy (for JS/CSS that may update)
+// Stale-while-revalidate strategy (for CSS/images that may update)
 async function staleWhileRevalidate(request, cacheName) {
     const cache = await caches.open(cacheName);
-    const cachedResponse = await cache.match(request);
+    // ignoreSearch: match regardless of query string (?v=...) differences
+    const cachedResponse = await cache.match(request, { ignoreSearch: true });
 
     const fetchPromise = fetch(request).then((networkResponse) => {
         if (networkResponse.ok) {
