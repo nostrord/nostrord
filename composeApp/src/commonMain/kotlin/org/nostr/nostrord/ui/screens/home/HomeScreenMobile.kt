@@ -43,6 +43,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
+import org.nostr.nostrord.ui.components.loading.RestrictedRelayState
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.screens.home.components.PickGroupCard
@@ -66,6 +67,7 @@ fun HomeScreenMobile(
     relayMeta: Nip11RelayInfo? = null,
     isLoading: Boolean = false,
     hasError: Boolean = false,
+    errorMessage: String? = null,
     onRetry: () -> Unit = {},
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
@@ -125,7 +127,11 @@ fun HomeScreenMobile(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentAlignment = Alignment.Center
                 ) {
-                    ConnectionErrorState(onRetry = onRetry)
+                    if (errorMessage != null && errorMessage.contains("restricted")) {
+                        RestrictedRelayState(message = errorMessage)
+                    } else {
+                        ConnectionErrorState(onRetry = onRetry)
+                    }
                 }
             }
             isLoading && filteredGroups.isEmpty() -> {

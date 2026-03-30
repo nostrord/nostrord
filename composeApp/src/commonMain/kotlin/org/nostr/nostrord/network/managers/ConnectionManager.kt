@@ -248,6 +248,17 @@ class ConnectionManager(
     }
 
     /**
+     * Set the connection state to Error and stop auto-reconnect.
+     * Used when the relay actively rejects access (e.g. "restricted").
+     */
+    fun setError(message: String) {
+        autoReconnectEnabled = false
+        reconnectJob?.cancel()
+        reconnectJob = null
+        _connectionState.value = ConnectionState.Error(message)
+    }
+
+    /**
      * Disconnect the primary relay
      */
     suspend fun disconnectPrimary() {

@@ -175,5 +175,6 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val isDiscoveringRelays: StateFlow<Boolean> = MutableStateFlow(false)
     override val pendingDeepLinkRelay: StateFlow<String?> = MutableStateFlow(null)
     override val loadingRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    override val restrictedRelays: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
     override val kind10009Relays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 }

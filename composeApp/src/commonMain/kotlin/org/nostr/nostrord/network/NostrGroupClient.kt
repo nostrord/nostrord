@@ -92,6 +92,10 @@ class NostrGroupClient(
     private var connectionJob: Job? = null
     private val connectionReady = Channel<Unit>(Channel.CONFLATED)
 
+    // Signalled after the relay's NIP-42 AUTH challenge has been answered.
+    // connect()/switchRelay() await this so REQs are not sent before auth.
+    private var authCompleted = CompletableDeferred<Unit>()
+
     // NIP-42 AUTH callback - set this to handle AUTH challenges
     var onAuthChallenge: ((challenge: String) -> Unit)? = null
 
@@ -157,6 +161,7 @@ class NostrGroupClient(
 
     suspend fun connect(onMessage: (String) -> Unit) {
         isDisconnecting = false
+        authCompleted = CompletableDeferred()
         connectionJob = clientScope.launch {
             lastMessageReceivedAt = epochMillis()
             try {
@@ -231,6 +236,23 @@ class NostrGroupClient(
         } ?: run {
             false
         }
+    }
+
+    /**
+     * Wait for the relay's NIP-42 AUTH challenge to be answered.
+     * Returns true if auth completed, false if the relay didn't send a challenge
+     * within [timeoutMs] (meaning it likely doesn't require auth).
+     */
+    suspend fun awaitAuthOrTimeout(timeoutMs: Long = 2_000): Boolean {
+        return withTimeoutOrNull(timeoutMs) {
+            authCompleted.await()
+            true
+        } ?: false
+    }
+
+    /** Called after the AUTH response has been sent to the relay. */
+    fun notifyAuthCompleted() {
+        authCompleted.complete(Unit)
     }
 
     suspend fun send(message: String) {

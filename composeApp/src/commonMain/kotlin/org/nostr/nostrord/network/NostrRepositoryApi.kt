@@ -35,6 +35,8 @@ interface NostrRepositoryApi {
     val joinedGroups: StateFlow<Set<String>>
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
     val loadingRelays: StateFlow<Set<String>>
+    /** Relays that returned CLOSED "restricted" — access permanently denied. */
+    val restrictedRelays: StateFlow<Map<String, String>>
     val isLoadingMore: StateFlow<Map<String, Boolean>>
     val hasMoreMessages: StateFlow<Map<String, Boolean>>
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>

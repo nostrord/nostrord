@@ -31,6 +31,7 @@ fun HomeScreen(
     val loadingRelays by vm.loadingRelays.collectAsState()
     val pendingDeepLinkRelay by vm.pendingDeepLinkRelay.collectAsState()
     val kind10009Relays by vm.kind10009Relays.collectAsState()
+    val restrictedRelays by vm.restrictedRelays.collectAsState()
 
     val displayRelayUrl = relayUrl ?: currentRelayUrl
     val relayMeta: Nip11RelayInfo? = relayMetadata[displayRelayUrl]
@@ -74,7 +75,9 @@ fun HomeScreen(
 
         val isLoading = displayRelayUrl in loadingRelays || displayRelayUrl.isBlank()
         val connectionState by vm.connectionState.collectAsState()
-        val hasError = connectionState is ConnectionManager.ConnectionState.Error
+        val restrictionMessage = restrictedRelays[displayRelayUrl]
+        val hasError = restrictionMessage != null || connectionState is ConnectionManager.ConnectionState.Error
+        val errorMessage = restrictionMessage ?: (connectionState as? ConnectionManager.ConnectionState.Error)?.message
 
         // Check if current relay is in the user's kind:10009 event.
         val isRelaySaved = remember(displayRelayUrl, kind10009Relays) {
@@ -96,6 +99,7 @@ fun HomeScreen(
                 relayMeta = relayMeta,
                 isLoading = isLoading,
                 hasError = hasError,
+                errorMessage = errorMessage,
                 onRetry = { vm.connect() },
                 onCreateGroupClick = onCreateGroupClick,
                 onOpenDrawer = onOpenDrawer,
@@ -122,6 +126,7 @@ fun HomeScreen(
                 relayMeta = relayMeta,
                 isLoading = isLoading,
                 hasError = hasError,
+                errorMessage = errorMessage,
                 onRetry = { vm.connect() },
                 onRemoveRelay = {
                     vm.removeRelay(displayRelayUrl)

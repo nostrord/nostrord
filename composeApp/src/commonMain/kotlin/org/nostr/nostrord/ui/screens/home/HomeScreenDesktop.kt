@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
+import org.nostr.nostrord.ui.components.loading.RestrictedRelayState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
@@ -90,6 +91,7 @@ fun HomeScreenDesktop(
     onFilterChange: (GroupFilter) -> Unit,
     isLoading: Boolean = false,
     hasError: Boolean = false,
+    errorMessage: String? = null,
     onRetry: () -> Unit = {},
     onRemoveRelay: () -> Unit = {},
     onAddRelay: () -> Unit = {},
@@ -156,7 +158,11 @@ fun HomeScreenDesktop(
             when {
                 hasError -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        ConnectionErrorState(onRetry = onRetry)
+                        if (errorMessage != null && errorMessage.contains("restricted")) {
+                            RestrictedRelayState(message = errorMessage)
+                        } else {
+                            ConnectionErrorState(onRetry = onRetry)
+                        }
                     }
                 }
                 isLoading && groups.isEmpty() -> {

@@ -3,6 +3,7 @@ package org.nostr.nostrord.ui.components.loading
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WifiOff
@@ -86,6 +87,49 @@ fun ConnectionErrorState(
         retryText = "Reconnect",
         modifier = modifier
     )
+}
+
+/**
+ * Shown when a relay returns "restricted" — access is permanently denied.
+ * No retry button because the restriction won't change without relay-side action.
+ */
+@Composable
+fun RestrictedRelayState(
+    message: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.Block,
+            contentDescription = null,
+            modifier = Modifier.size(48.dp),
+            tint = NostrordColors.Error
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Access denied by relay",
+            color = NostrordColors.TextPrimary,
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = message,
+            color = NostrordColors.TextSecondary,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
+        )
+    }
 }
 
 /**

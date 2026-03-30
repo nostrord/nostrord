@@ -19,6 +19,7 @@ class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
     val relayMetadata = repo.relayMetadata
     val pendingDeepLinkRelay = repo.pendingDeepLinkRelay
     val kind10009Relays = repo.kind10009Relays
+    val restrictedRelays = repo.restrictedRelays
 
     fun getPublicKey() = repo.getPublicKey()
 

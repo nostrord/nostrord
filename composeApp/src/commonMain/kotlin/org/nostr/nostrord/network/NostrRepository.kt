@@ -136,6 +136,8 @@ class NostrRepository(
     override val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
     override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = groupManager.joinedGroupsByRelay
     override val loadingRelays: StateFlow<Set<String>> = groupManager.loadingRelays
+    private val _restrictedRelays = MutableStateFlow<Map<String, String>>(emptyMap())
+    override val restrictedRelays: StateFlow<Map<String, String>> = _restrictedRelays.asStateFlow()
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
@@ -545,12 +547,19 @@ class NostrRepository(
         if (connected) {
             val client = connectionManager.getPrimaryClient()
             if (client != null) {
-                sessionManager.sendAuthIfNeeded(client)
+                // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
+                // Relays like meta.spaces.coracle.social require auth first; sending
+                // REQ before AUTH results in CLOSED "auth-required".
+                val authHandled = client.awaitAuthOrTimeout()
                 groupManager.restoreGroupsForRelay(relayUrl)
                 if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
-                    lastRequestGroupsAt[relayUrl] = epochSeconds()
-                    groupManager.markRelayLoading(relayUrl)
-                    client.requestGroups()
+                    // If auth was handled, resubscribeAfterAuth already called
+                    // requestGroups(); only request if auth was not needed.
+                    if (!authHandled) {
+                        lastRequestGroupsAt[relayUrl] = epochSeconds()
+                        groupManager.markRelayLoading(relayUrl)
+                        client.requestGroups()
+                    }
                 }
             }
         }
@@ -583,6 +592,19 @@ class NostrRepository(
             return
         }
 
+        val normalized = newRelayUrl.normalizeRelayUrl()
+
+        // If this relay previously returned "restricted", show the cached
+        // error immediately instead of reconnecting and skeleton-loading.
+        val restriction = _restrictedRelays.value[normalized]
+        if (restriction != null) {
+            connectionManager.switchRelay(newRelayUrl) { msg, client ->
+                enqueueToRelayPipeline(msg, client)
+            }
+            connectionManager.setError(restriction)
+            return
+        }
+
         _relayMetadataManager.fetch(newRelayUrl)
 
         // Mark the new relay as loading BEFORE clearing groups so the UI
@@ -609,11 +631,15 @@ class NostrRepository(
 
         val client = connectionManager.getPrimaryClient()
         if (client != null) {
-            sessionManager.sendAuthIfNeeded(client)
+            // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
+            val authHandled = client.awaitAuthOrTimeout()
             // Skip re-fetch if cached; re-fetching races against restored state.
             if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
-                // Loading was already marked above; request fresh groups from relay.
-                client.requestGroups()
+                // If auth was handled, resubscribeAfterAuth already called
+                // requestGroups(); only request if auth was not needed.
+                if (!authHandled) {
+                    client.requestGroups()
+                }
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
@@ -1248,6 +1274,9 @@ class NostrRepository(
                 val authChallenge = client.parseAuthChallenge(arr) ?: return
                 scope.launch {
                     sessionManager.handleAuthChallenge(client, authChallenge)
+                    // Signal that AUTH is done so connect()/switchRelay() can
+                    // proceed with requestGroups() after the relay accepted auth.
+                    client.notifyAuthCompleted()
                     resubscribeAfterAuth(client)
                 }
             }
@@ -1293,7 +1322,18 @@ class NostrRepository(
                 if (arr.size < 2) return
                 val subId = arr[1].jsonPrimitive.content
                 val reason = if (arr.size >= 3) arr[2].jsonPrimitive.contentOrNull ?: "" else ""
-                val isAuthRequired = reason.contains("auth-required") || reason.contains("restricted")
+                val isRestricted = reason.contains("restricted")
+                val isAuthRequired = reason.contains("auth-required")
+
+                // "restricted" on the group-list subscription means the relay
+                // actively denies access — stop loading, show error, disconnect.
+                if (isRestricted && subId.startsWith("group-list")) {
+                    val relayUrl = client.getRelayUrl()
+                    _restrictedRelays.value = _restrictedRelays.value + (relayUrl to reason)
+                    groupManager.markRelayLoaded(relayUrl)
+                    connectionManager.setError(reason)
+                    return
+                }
 
                 if (isAuthRequired) {
                     // Only record groups that belong to THIS relay so resubscribeAfterAuth
@@ -1308,7 +1348,7 @@ class NostrRepository(
 
                 // Re-open the mux subscription when the relay closes it for non-auth reasons.
                 // pyramid.fiatjaf.com and similar relays drop idle subs without closing the WS.
-                if (!isAuthRequired &&
+                if (!isAuthRequired && !isRestricted &&
                     (subId.startsWith("mux_chat_") || subId.startsWith("mux_reactions_") ||
                      subId.startsWith("mux_meta_"))) {
                     val relayUrl = client.getRelayUrl()
