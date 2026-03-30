@@ -24,6 +24,7 @@ const PRECACHE_URLS = [
     'styles.css',
     'aes-js.min.js',
     'noble-crypto.min.js',
+    'composeApp.js',
 ];
 
 // Install event - precache critical resources
@@ -58,6 +59,21 @@ self.addEventListener('activate', (event) => {
                     })
             );
         }).then(() => self.clients.claim())
+          .then(async () => {
+              // Pre-warm WASM cache — fetch .wasm files referenced in index.html
+              // so second visit loads instantly from SW cache
+              try {
+                  const cache = await caches.open(STATIC_CACHE);
+                  const html = await (await fetch(BASE_PATH + 'index.html')).text();
+                  const wasmUrls = [...html.matchAll(/["']([^"']*\.wasm)["']/g)]
+                      .map(m => new URL(m[1], self.location).href);
+                  await Promise.allSettled(wasmUrls.map(url =>
+                      cache.match(url).then(r => r || cache.add(url))
+                  ));
+              } catch (e) {
+                  console.warn('[SW] WASM pre-warm failed:', e);
+              }
+          })
     );
 });
 

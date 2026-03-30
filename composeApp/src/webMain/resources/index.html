@@ -77,12 +77,47 @@
             .catch(err => console.warn('[SW] Registration failed:', err));
     }
 </script>
+<!-- Loading shell — visible immediately while WASM downloads/compiles (3-8s on mobile) -->
+<div id="loading-shell" style="
+    position:fixed; inset:0; z-index:9999;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    background:#1E1F22; color:#B5BAC1;
+    font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+">
+    <svg width="48" height="48" viewBox="0 0 48 48" style="animation:spin 1s linear infinite">
+        <circle cx="24" cy="24" r="20" fill="none" stroke="#5865F2"
+                stroke-width="4" stroke-dasharray="80 40"
+                stroke-linecap="round"/>
+    </svg>
+    <p style="margin-top:16px;font-size:14px">Loading Nostrord…</p>
+</div>
+<style>@keyframes spin { to { transform: rotate(360deg) } }</style>
 <div id="composeApplication"></div>
+<script>
+// Remove loading shell when Compose renders its canvas
+const _obs = new MutationObserver(() => {
+    const canvas = document.querySelector('#composeApplication canvas');
+    if (canvas) {
+        document.getElementById('loading-shell')?.remove();
+        _obs.disconnect();
+    }
+});
+_obs.observe(document.getElementById('composeApplication'),
+    { childList: true, subtree: true });
+// Fallback: remove shell after 30s regardless
+setTimeout(() => document.getElementById('loading-shell')?.remove(), 30000);
+</script>
 <script type="module">
-    // Wait for deferred scripts to load
+    // Wait for crypto library specifically — don't wait for `load` event
+    // which blocks until ALL resources (including prefetched fonts) finish
     await new Promise(resolve => {
-        if (globalThis.nobleSecp256k1) resolve();
-        else window.addEventListener('load', resolve);
+        if (globalThis.nobleSecp256k1) return resolve();
+        const check = setInterval(() => {
+            if (globalThis.nobleSecp256k1) { clearInterval(check); resolve(); }
+        }, 10);
+        // Fallback: don't block app forever if crypto lib fails
+        setTimeout(() => { clearInterval(check); resolve(); }, 5000);
     });
 
     // ============================================
