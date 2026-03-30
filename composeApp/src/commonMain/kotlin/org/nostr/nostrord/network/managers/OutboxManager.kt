@@ -263,14 +263,12 @@ class OutboxManager(
             allRelayGroups = immutableRelayGroups
         }
 
-        _kind10009Relays.value = explicitNip29Relays.toSet()
+        // Merge "r" tag relays with relay URLs from "group" tags so relays that
+        // only appear in "group" tags (no corresponding "r" tag) are not lost.
+        val allNip29Relays = (explicitNip29Relays + newRelayGroups.keys).distinct()
+        _kind10009Relays.value = allNip29Relays.toSet()
 
-        // Fall back to "group" tag relay URLs for events without "r" tags (older app versions).
-        val restoredRelays = if (explicitNip29Relays.isNotEmpty()) {
-            explicitNip29Relays.distinct()
-        } else {
-            newRelayGroups.keys.toList()
-        }
+        val restoredRelays = allNip29Relays
         var newlyRestoredRelays = emptyList<String>()
         if (restoredRelays.isNotEmpty()) {
             val existing = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }
