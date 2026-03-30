@@ -983,17 +983,20 @@ class NostrRepository(
 
             // Publish to write relays + bootstrap relays so other clients can discover
             // the updated profile (kind:0) via general-purpose relays.
+            val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
             val targets = (outboxManager.getWriteRelays() + outboxManager.bootstrapRelays).distinct()
-
-            if (targets.isEmpty()) {
-                val client = connectionManager.getPrimaryClient()
-                if (client != null) {
-                    client.send(message)
-                } else {
-                    return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
+            val clients = targets.mapNotNull { relayUrl ->
+                connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+            }.ifEmpty {
+                listOfNotNull(connectionManager.getPrimaryClient())
+            }
+            if (clients.isEmpty()) {
+                return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
+            }
+            clients.forEach { client ->
+                scope.launch {
+                    try { client.sendAndAwaitOk(message, eventId) } catch (_: Exception) {}
                 }
-            } else {
-                connectionManager.sendToRelays(targets, message) { _, _ -> }
             }
 
             // Update local cache
@@ -1025,6 +1028,7 @@ class NostrRepository(
                 content = ""
             )
             val signedEvent = sessionManager.signEvent(event)
+            val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
             val message = buildJsonArray {
                 add("EVENT")
                 add(signedEvent.toJsonObject())
@@ -1033,12 +1037,18 @@ class NostrRepository(
             // Publish to current write relays + bootstrap to ensure the new list is
             // discoverable even when switching relay sets entirely.
             val targets = (outboxManager.getWriteRelays() + outboxManager.bootstrapRelays).distinct()
-            if (targets.isEmpty()) {
-                val client = connectionManager.getPrimaryClient()
-                    ?: return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
-                client.send(message)
-            } else {
-                connectionManager.sendToRelays(targets, message) { _, _ -> }
+            val clients = targets.mapNotNull { relayUrl ->
+                connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+            }.ifEmpty {
+                listOfNotNull(connectionManager.getPrimaryClient())
+            }
+            if (clients.isEmpty()) {
+                return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
+            }
+            clients.forEach { client ->
+                scope.launch {
+                    try { client.sendAndAwaitOk(message, eventId) } catch (_: Exception) {}
+                }
             }
 
             outboxManager.updateMyRelayList(pubKey, relays)
