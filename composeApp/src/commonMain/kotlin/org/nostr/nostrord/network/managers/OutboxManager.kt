@@ -28,40 +28,32 @@ class OutboxManager(
     private val relayListManager: RelayListManager,
     private val scope: CoroutineScope
 ) {
+    companion object {
+        /** How long to wait after the first kind:10009 event for slower relays to respond with newer versions. */
+        const val DISCOVERY_SETTLE_MS = 1_500L
+    }
+
     val bootstrapRelays: List<String> = relayListManager.bootstrapRelays
 
-    // Expose user's relay list
     val userRelayList: StateFlow<List<Nip65Relay>> = relayListManager.myRelayList
 
-    // Track kind:10009 subscription state - simple flags for coroutine coordination
     private var kind10009SubId: String? = null
     private var kind10009Received = false
     private var eoseReceived = false
 
-    // All groups across all relays (for kind:10009) - protected by groupsMutex
     private val groupsMutex = Mutex()
     private var allRelayGroups: Map<String, Set<String>> = emptyMap()
-    // Timestamp of the last accepted kind:10009; older arrivals are discarded.
     private var latestKind10009CreatedAt: Long = 0
 
-    // Relay URLs present in the user's kind:10009 event (from "r" tags + "group" relay URLs).
     private val _kind10009Relays = MutableStateFlow<Set<String>>(emptySet())
     val kind10009Relays: StateFlow<Set<String>> = _kind10009Relays.asStateFlow()
 
-    /**
-     * Initialize outbox model for the current user.
-     *
-     * Connects purplepag.es (single discovery relay) for NIP-65, kind:0, and kind:10009.
-     * purplepag.es stays connected for the session — no disconnect step.
-     * Result: 2 WebSockets at rest (primary NIP-29 + purplepag.es).
-     */
     fun initialize(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit,
         onDiscoveryComplete: (() -> Unit)? = null
     ) {
         scope.launch {
-            // Step 1: Connect discovery relays (purplepag.es + relay.primal.net)
             coroutineScope {
                 bootstrapRelays.forEach { url ->
                     launch {
@@ -70,19 +62,14 @@ class OutboxManager(
                 }
             }
 
-            // Step 2: Run both discovery phases in parallel.
             coroutineScope {
                 launch { loadUserRelayList(pubKey, messageHandler) }
                 launch { loadJoinedGroupsFromNostr(pubKey, messageHandler) }
             }
-            // purplepag.es stays connected — no disconnect step
             onDiscoveryComplete?.invoke()
         }
     }
 
-    /**
-     * Load user's NIP-65 relay list (kind:10002)
-     */
     private suspend fun loadUserRelayList(pubKey: String, messageHandler: (String, NostrGroupClient) -> Unit) {
         try {
             val relays = getRelayList(pubKey)
@@ -122,26 +109,29 @@ class OutboxManager(
         }.toString()
 
         val connectedClients = mutableListOf<NostrGroupClient>()
-        val connectedUrls = mutableListOf<String>()
         for (relayUrl in relaysToQuery) {
             try {
-                // Use only already-connected relays — bootstrap relays are connected
-                // by initialize() before this runs; no new WebSocket connections.
                 val client = connectionManager.getClientForRelay(relayUrl)
                 if (client != null && client.isConnected()) {
                     client.send(reqMessage)
                     connectedClients.add(client)
-                    connectedUrls.add(relayUrl)
                 }
             } catch (_: Exception) {}
         }
 
         if (connectedClients.isNotEmpty()) {
-            // Exit as soon as event arrives; 5s timeout for accounts with no kind:10009.
+            // Wait for the first event, then keep listening briefly so slower relays
+            // that may hold a NEWER version can still deliver it. The timestamp guard
+            // in handleKind10009Event ensures only the latest event wins.
             var waitTime = 0
             while (!kind10009Received && waitTime < 5000) {
                 delay(100)
                 waitTime += 100
+            }
+            // After the first event, wait a short window for other relays to respond
+            // with potentially newer versions before closing.
+            if (kind10009Received) {
+                delay(DISCOVERY_SETTLE_MS)
             }
 
             val closeMsg = buildJsonArray {
@@ -158,9 +148,6 @@ class OutboxManager(
         }
     }
 
-    /**
-     * Publish joined groups list (kind:10009)
-     */
     suspend fun publishJoinedGroupsList(
         pubKey: String,
         joinedGroupsByRelay: Map<String, Set<String>>,
@@ -170,21 +157,14 @@ class OutboxManager(
     ): Result<Unit> {
         return try {
             val tags = groupsMutex.withLock {
-                // Merge caller's per-relay joined groups into the cached map
-                joinedGroupsByRelay.forEach { (relay, groups) ->
-                    if (groups.isNotEmpty()) {
-                        allRelayGroups = allRelayGroups + (relay to groups)
-                    }
-                }
+                allRelayGroups = joinedGroupsByRelay.filterValues { it.isNotEmpty() }
 
                 val tagsList = mutableListOf<List<String>>()
-                // ["group", groupId, relayUrl] for each joined group
                 allRelayGroups.forEach { (relayUrl, groupIds) ->
                     groupIds.forEach { groupId ->
                         tagsList.add(listOf("group", groupId, relayUrl))
                     }
                 }
-                // ["r", relayUrl] for each NIP-29 relay the user has added
                 val distinctRelays = nip29Relays.filter { it.isNotBlank() }.distinct()
                 distinctRelays.forEach { relayUrl ->
                     tagsList.add(listOf("r", relayUrl))
@@ -203,8 +183,10 @@ class OutboxManager(
 
             val signedEvent = signEvent(event)
 
-            // Update kind:10009 relay set only AFTER signing succeeds (signer approved).
-            // Only "r" tag relays count as the user's saved list.
+            groupsMutex.withLock {
+                latestKind10009CreatedAt = event.createdAt
+            }
+
             _kind10009Relays.value = nip29Relays.filter { it.isNotBlank() }.toSet()
             val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
 
@@ -213,8 +195,6 @@ class OutboxManager(
                 add(signedEvent.toJsonObject())
             }.toString()
 
-            // Publish to write relays + bootstrap relays so other clients (and our own
-            // discovery on next login) can find the joined groups list.
             val targets = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
             val published = targets.mapNotNull { relayUrl ->
                 connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
@@ -234,9 +214,6 @@ class OutboxManager(
         }
     }
 
-    /**
-     * Handle kind:10009 event (joined groups)
-     */
     suspend fun handleKind10009Event(
         event: JsonObject,
         currentRelayUrl: String,
@@ -249,8 +226,6 @@ class OutboxManager(
         kind10009Received = true
         val tags = event["tags"]?.jsonArray ?: return
 
-        // Discard if older than OR equal to the last accepted event (deduplicates the same
-        // event arriving from multiple bootstrap relays, preventing redundant connection races).
         val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
         groupsMutex.withLock {
             if (createdAt <= latestKind10009CreatedAt) return
@@ -281,13 +256,9 @@ class OutboxManager(
             allRelayGroups = immutableRelayGroups
         }
 
-        // Emit only the explicit "r" tag relays — these represent the user's saved relay list.
-        // Relays from "group" tags are NOT included; having a group on a relay doesn't mean
-        // the user explicitly added that relay.
         _kind10009Relays.value = explicitNip29Relays.toSet()
 
-        // Restore NIP-29 relay list from "r" tags if present; fall back to extracting
-        // from "group" tags for events published by older versions of the app.
+        // Fall back to "group" tag relay URLs for events without "r" tags (older app versions).
         val restoredRelays = if (explicitNip29Relays.isNotEmpty()) {
             explicitNip29Relays.distinct()
         } else {
@@ -296,41 +267,28 @@ class OutboxManager(
         var newlyRestoredRelays = emptyList<String>()
         if (restoredRelays.isNotEmpty()) {
             val existing = SecureStorage.loadRelayList()
-            val merged = (existing + restoredRelays).distinct()
-            if (merged != existing) {
-                SecureStorage.saveRelayList(merged)
-                newlyRestoredRelays = merged.filter { it !in existing }
+            if (restoredRelays.toSet() != existing.toSet()) {
+                SecureStorage.saveRelayList(restoredRelays)
+                newlyRestoredRelays = restoredRelays.filter { it !in existing }
             }
         }
 
-        // Save joined groups for ALL relays found in the event so that switching
-        // relays later can load membership from storage without a network fetch.
         immutableRelayGroups.forEach { (relayUrl, groups) ->
             SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, groups)
         }
 
-        // Update in-memory per-relay joined groups for ALL relays at once.
         onRelayGroupsUpdated(immutableRelayGroups)
 
-        // Surface only current-relay groups to the active UI.
-        // Only call onGroupsUpdated when the current relay is actually in the event;
-        // avoid wiping the UI with an empty set when the event belongs to other relays.
         val currentRelayGroups = immutableRelayGroups[currentRelayUrl]
         if (currentRelayGroups != null) {
             onGroupsUpdated(currentRelayGroups)
         }
 
-        // Notify caller about newly discovered relays so it can connect and request groups.
         if (newlyRestoredRelays.isNotEmpty()) {
             onRelaysRestored(newlyRestoredRelays)
         }
-
-        // Pool relays are connected lazily when the user selects them — no eager connect here.
     }
 
-    /**
-     * Handle kind:10002 event (NIP-65 relay list)
-     */
     fun handleKind10002Event(event: JsonObject, currentUserPubkey: String?) {
         val eventPubkey = event["pubkey"]?.jsonPrimitive?.content
         val isCurrentUser = eventPubkey == currentUserPubkey
@@ -363,32 +321,20 @@ class OutboxManager(
         }
     }
 
-    /**
-     * Handle EOSE for kind:10009 subscription
-     */
     fun handleEose(subId: String) {
         if (subId == kind10009SubId) {
             eoseReceived = true
         }
     }
 
-    /**
-     * Get relay list for a pubkey (with caching)
-     */
     suspend fun getRelayList(pubkey: String): List<Nip65Relay> {
         return relayListManager.getRelayList(pubkey)
     }
 
-    /**
-     * Get cached relay list for a pubkey
-     */
     fun getCachedRelayList(pubkey: String): List<Nip65Relay> {
         return relayListManager.getCachedRelayList(pubkey)
     }
 
-    /**
-     * Request relay lists for given pubkeys
-     */
     fun requestRelayLists(pubkeys: Set<String>, messageHandler: (String, NostrGroupClient) -> Unit) {
         pubkeys.forEach { pubkey ->
             scope.launch {
@@ -399,9 +345,6 @@ class OutboxManager(
         }
     }
 
-    /**
-     * Select relays based on outbox model (NIP-65)
-     */
     fun selectOutboxRelays(
         authors: List<String> = emptyList(),
         taggedPubkeys: List<String> = emptyList(),
@@ -417,7 +360,6 @@ class OutboxManager(
             }
         }
 
-        // 2. If we have authors, use their WRITE relays (outbox)
         if (authors.isNotEmpty()) {
             authors.forEach { author ->
                 val authorRelays = getCachedRelayList(author)
@@ -431,7 +373,6 @@ class OutboxManager(
             }
         }
 
-        // 3. If we have tagged pubkeys, use their READ relays (inbox)
         if (taggedPubkeys.isNotEmpty()) {
             taggedPubkeys.forEach { pubkey ->
                 val pubkeyRelays = getCachedRelayList(pubkey)
@@ -445,7 +386,6 @@ class OutboxManager(
             }
         }
 
-        // 4. If no authors or tagged users, use current user's READ relays
         if (authors.isEmpty() && taggedPubkeys.isEmpty()) {
             val myRelays = relayListManager.myRelayList.value
             myRelays
@@ -457,12 +397,10 @@ class OutboxManager(
                 }
         }
 
-        // 5. Add current NIP-29 relay as fallback
         if (currentNip29Relay != null && currentNip29Relay !in relays) {
             relays.add(currentNip29Relay)
         }
 
-        // 6. Always add fallback bootstrap relays
         bootstrapRelays.forEach { relay ->
             if (relay !in relays) {
                 relays.add(relay)
@@ -472,10 +410,6 @@ class OutboxManager(
         return relays
     }
 
-    /**
-     * Select outbox relays filtered to only those currently connected.
-     * Avoids iterating over relays that getClientForRelay will discard anyway.
-     */
     suspend fun selectConnectedOutboxRelays(
         authors: List<String> = emptyList(),
         taggedPubkeys: List<String> = emptyList(),
@@ -489,30 +423,18 @@ class OutboxManager(
             }
     }
 
-    /**
-     * Get write relays for publishing events
-     */
     fun getWriteRelays(): List<String> = relayListManager.selectPublishRelays()
 
     fun updateMyRelayList(pubkey: String, relays: List<Nip65Relay>) {
         relayListManager.setMyRelayList(pubkey, relays)
     }
 
-    /**
-     * Get joined groups for a specific relay from the in-memory cache.
-     * Used when switching relays to instantly restore membership state without
-     * waiting for a new kind:10009 network fetch.
-     */
     suspend fun getJoinedGroupsForRelay(relayUrl: String): Set<String> {
         return groupsMutex.withLock {
             allRelayGroups[relayUrl] ?: emptySet()
         }
     }
 
-    /**
-     * Remove a relay from the in-memory kind:10009 cache.
-     * Called when the user removes a relay so it won't appear in the next publish.
-     */
     suspend fun removeRelayFromCache(relayUrl: String) {
         groupsMutex.withLock {
             allRelayGroups = allRelayGroups - relayUrl
@@ -520,25 +442,15 @@ class OutboxManager(
         _kind10009Relays.value = _kind10009Relays.value - relayUrl
     }
 
-    /**
-     * Returns true if kind:10009 data has already been loaded from the network.
-     * Used to skip redundant re-fetches on relay switch.
-     */
     suspend fun hasJoinedGroupsData(): Boolean {
         return groupsMutex.withLock { allRelayGroups.isNotEmpty() }
     }
 
-    /**
-     * Reset kind:10009 state
-     */
     fun resetKind10009State() {
         kind10009Received = false
         eoseReceived = false
     }
 
-    /**
-     * Clear all state
-     */
     suspend fun clear() {
         relayListManager.clear()
         groupsMutex.withLock {

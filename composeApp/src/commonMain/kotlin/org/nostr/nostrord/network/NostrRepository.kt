@@ -1128,14 +1128,10 @@ class NostrRepository(
         pubKey: String,
         nip29Relays: List<String> = SecureStorage.loadRelayList()
     ): Result<Unit> {
-        val currentRelay = connectionManager.currentRelayUrl.value
-        val perRelay = groupManager.joinedGroupsByRelay.value.toMutableMap()
-        if (currentRelay.isNotBlank()) {
-            val current = groupManager.joinedGroups.value
-            if (current.isNotEmpty()) {
-                perRelay[currentRelay] = current
-            }
-        }
+        // _joinedGroupsByRelay is the single authoritative per-relay membership map.
+        // DO NOT merge _joinedGroups (the active-relay view) — it only reflects a
+        // single relay and would overwrite correct per-relay data on cross-relay ops.
+        val perRelay = groupManager.joinedGroupsByRelay.value
         return outboxManager.publishJoinedGroupsList(
             pubKey = pubKey,
             joinedGroupsByRelay = perRelay,
@@ -1212,6 +1208,14 @@ class NostrRepository(
                         },
                         onRelayGroupsUpdated = { relayGroups ->
                             groupManager.updateAllRelayJoinedGroups(relayGroups)
+                            // Prune relays from the rail that are not in the authoritative
+                            // kind:10009 event — prevents stale relays from a previous
+                            // session's SecureStorage from staying in _groupsByRelay.
+                            val authoritativeRelays = outboxManager.kind10009Relays.value +
+                                relayGroups.keys
+                            if (authoritativeRelays.isNotEmpty()) {
+                                groupManager.pruneRelaysNotIn(authoritativeRelays)
+                            }
                         },
                         messageHandler = { m, c -> enqueueToRelayPipeline(m, c) }
                     )
@@ -1435,6 +1439,11 @@ class NostrRepository(
                             },
                             onRelayGroupsUpdated = { relayGroups ->
                                 groupManager.updateAllRelayJoinedGroups(relayGroups)
+                                val authoritativeRelays = outboxManager.kind10009Relays.value +
+                                    relayGroups.keys
+                                if (authoritativeRelays.isNotEmpty()) {
+                                    groupManager.pruneRelaysNotIn(authoritativeRelays)
+                                }
                             },
                             messageHandler = { m, c -> enqueueToRelayPipeline(m, c) }
                         )

@@ -381,9 +381,12 @@ class GroupManager(
         }
     }
 
-    /**
-     * Set joined groups (from kind:10009)
-     */
+    fun pruneRelaysNotIn(authoritativeRelays: Set<String>) {
+        _groupsByRelay.update { current ->
+            current.filterKeys { it in authoritativeRelays }
+        }
+    }
+
     fun setJoinedGroups(groups: Set<String>) {
         _joinedGroups.value = groups
         currentRelayUrl?.let { url ->
@@ -391,14 +394,9 @@ class GroupManager(
         }
     }
 
-    /**
-     * Update joined groups for all relays at once from a kind:10009 event.
-     * Called when a kind:10009 arrives so every relay's membership is reflected
-     * in the UI immediately — not just the currently active relay.
-     */
     fun updateAllRelayJoinedGroups(relayGroups: Map<String, Set<String>>) {
         if (relayGroups.isEmpty()) return
-        _joinedGroupsByRelay.update { it + relayGroups }
+        _joinedGroupsByRelay.value = relayGroups
         // Also sync _joinedGroups if the active relay is in the event
         currentRelayUrl?.let { url ->
             relayGroups[url]?.let { groups -> _joinedGroups.value = groups }
@@ -438,10 +436,16 @@ class GroupManager(
 
             currentClient.send(message)
 
-            val updated = _joinedGroups.value + groupId
-            _joinedGroups.value = updated
+            // Use the TARGET relay's group set, not the active-view _joinedGroups,
+            // because the group may live on a different relay than the one being viewed.
+            val relayGroups = _joinedGroupsByRelay.value[groupRelayUrl] ?: emptySet()
+            val updated = relayGroups + groupId
             SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updated)
             _joinedGroupsByRelay.update { it + (groupRelayUrl to updated) }
+            // Keep the active-relay view in sync if this group is on the current relay.
+            if (groupRelayUrl == currentRelayUrl) {
+                _joinedGroups.value = updated
+            }
 
             publishJoinedGroups()
 
@@ -527,8 +531,9 @@ class GroupManager(
                 add(signedMeta.toJsonObject())
             }.toString())
 
-            // Auto-join with the confirmed ID
-            val updatedAfterCreate = _joinedGroups.value + confirmedGroupId
+            // Auto-join with the confirmed ID — use per-relay set, not active view.
+            val relayGroups = _joinedGroupsByRelay.value[currentRelayUrl] ?: emptySet()
+            val updatedAfterCreate = relayGroups + confirmedGroupId
             _joinedGroups.value = updatedAfterCreate
             SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterCreate)
             _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterCreate) }
@@ -696,35 +701,27 @@ class GroupManager(
 
             currentClient.send(message)
 
-            val updatedAfterLeave2 = _joinedGroups.value - groupId
-            _joinedGroups.value = updatedAfterLeave2
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave2)
-            _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave2) }
+            // Use the TARGET relay's group set, not the active-view _joinedGroups,
+            // because the group may live on a different relay than the one being viewed.
+            val relayGroups = _joinedGroupsByRelay.value[groupRelayUrl] ?: emptySet()
+            val updatedAfterLeave = relayGroups - groupId
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave)
+            _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave) }
+            // Keep the active-relay view in sync if this group is on the current relay.
+            if (groupRelayUrl == currentRelayUrl) {
+                _joinedGroups.value = updatedAfterLeave
+            }
 
             publishJoinedGroups()
 
-            // Clear messages for this group
             _messages.update { it - groupId }
-
-            // Clear pagination state for this group (use atomic updates)
             _isLoadingMore.update { it - groupId }
             _hasMoreMessages.update { it - groupId }
             _groupStates.update { it - groupId }
-
-            // Remove from observed groups tracking
-            observedGroupsMutex.withLock {
-                observedGroups.remove(groupId)
-            }
-
-            // Clear state machine for this group
+            observedGroupsMutex.withLock { observedGroups.remove(groupId) }
             loadingRegistry.remove(groupId)
-
-            // Do NOT clear the full deduplicator here — that would wipe the seen-event
-            // history for every other loaded group and allow their events to be re-processed
-            // as duplicates on the next delivery.  The message list for this group is already
-            // removed above; when the user rejoins and messages are re-fetched the deduplicator
-            // will correctly admit them as new (they will have been evicted by LRU/TTL by then,
-            // or they are genuinely the same events and should not appear twice).
+            // Reset opened tracking so setActiveGroupId() re-fetches on rejoin.
+            _openedGroupIds.update { it - groupId }
 
             Result.Success(Unit)
         } catch (e: Throwable) {

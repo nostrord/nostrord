@@ -17,10 +17,6 @@ import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.epochMillis
 
-/**
- * Manages user metadata (profiles) and cached events.
- * Handles fetching and caching of kind:0 metadata events.
- */
 class MetadataManager(
     private val connectionManager: ConnectionManager,
     private val outboxManager: OutboxManager,
@@ -41,18 +37,12 @@ class MetadataManager(
         const val METADATA_FLUSH_DELAY_MS = 100L
     }
 
-    // LRU caches for bounded memory usage
     private val metadataCache = LruCache<String, UserMetadata>(MAX_METADATA_CACHE_SIZE)
     private val eventsCache = LruCache<String, CachedEvent>(MAX_EVENTS_CACHE_SIZE)
-
-    /** Tracks when each pubkey's metadata was last successfully fetched (epoch ms). */
     private val metadataFetchedAt = LruCache<String, Long>(MAX_METADATA_CACHE_SIZE)
 
-    // Prevents duplicate concurrent fetches for the same pubkey
     private val inFlightPubkeys = mutableSetOf<String>()
     private val inFlightMutex = Mutex()
-
-    // Prevents duplicate concurrent fetches for the same event/addressable key
     private val inFlightEvents = mutableSetOf<String>()
     private val inFlightEventsMutex = Mutex()
 
@@ -62,14 +52,6 @@ class MetadataManager(
     private val _cachedEvents = MutableStateFlow<Map<String, CachedEvent>>(emptyMap())
     val cachedEvents: StateFlow<Map<String, CachedEvent>> = _cachedEvents.asStateFlow()
 
-    /**
-     * Request user metadata from their WRITE relays (Outbox model).
-     *
-     * Sends a single batched REQ per connected bootstrap relay with all unknown
-     * pubkeys as `authors`, then falls back to individual retries for any that
-     * didn't arrive in the first pass. This cuts the typical wait from
-     * N × 1.5 s (serial per-pubkey) to a single ~2 s round-trip for the batch.
-     */
     fun requestUserMetadata(pubkeys: Set<String>, messageHandler: (String, NostrGroupClient) -> Unit) {
         if (pubkeys.isEmpty()) return
 
@@ -89,10 +71,6 @@ class MetadataManager(
         }
     }
 
-    /**
-     * Batch-fetch: one REQ with all pubkeys per connected bootstrap relay,
-     * then a single retry pass for any that didn't arrive.
-     */
     private suspend fun batchFetch(pubkeys: List<String>) {
         val nip29Relays = SecureStorage.loadRelayList().toSet() +
             connectionManager.currentRelayUrl.value
@@ -129,10 +107,6 @@ class MetadataManager(
         }
     }
 
-    /**
-     * Request an event by ID using already-connected relays only.
-     * Does NOT create ephemeral WebSocket connections — uses pool/primary clients.
-     */
     suspend fun requestEventById(
         eventId: String,
         relayHints: List<String> = emptyList(),
@@ -177,11 +151,6 @@ class MetadataManager(
         }
     }
 
-    /**
-     * Request an addressable event (naddr) by its coordinates.
-     * Addressable events use kind:pubkey:d-tag as their identifier.
-     * Does NOT create ephemeral WebSocket connections — uses pool/primary clients.
-     */
     suspend fun requestAddressableEvent(
         kind: Int,
         pubkey: String,
@@ -228,15 +197,8 @@ class MetadataManager(
         }
     }
 
-    // Coalesces rapid-fire metadata events into a single StateFlow emission.
-    // When members arrive in bulk the cache is updated eagerly (O(1) lookup via hasMetadata)
-    // but the expensive toMap() + flow emission is batched.
     private var metadataFlushJob: Job? = null
 
-    /**
-     * Handle incoming metadata message.
-     * Cache is updated immediately; StateFlow emission is coalesced (≤100 ms).
-     */
     fun handleMetadataEvent(pubkey: String, metadata: UserMetadata) {
         metadataCache.put(pubkey, metadata)
         metadataFetchedAt.put(pubkey, epochMillis())
@@ -251,36 +213,25 @@ class MetadataManager(
         }
     }
 
-    /** Flush immediately — used when the caller needs the value visible right away. */
     private fun flushMetadataNow() {
         metadataFlushJob?.cancel()
         _userMetadata.value = metadataCache.toMap()
     }
 
-    /**
-     * Update local metadata cache directly (for optimistic UI updates)
-     */
     fun updateLocalMetadata(pubkey: String, metadata: UserMetadata) {
         metadataCache.put(pubkey, metadata)
         flushMetadataNow()
     }
 
-    /**
-     * Handle incoming cached event
-     */
     fun handleCachedEvent(event: CachedEvent) {
         eventsCache.put(event.id, event)
         _cachedEvents.value = eventsCache.toMap()
     }
 
-    /**
-     * Parse and cache event from JSON
-     */
     fun parseAndCacheEvent(eventJson: JsonObject): CachedEvent? {
         return try {
             val eventId = eventJson["id"]?.jsonPrimitive?.content ?: return null
 
-            // Skip if already cached
             eventsCache.get(eventId)?.let { return it }
 
             val pubkey = eventJson["pubkey"]?.jsonPrimitive?.content ?: return null
@@ -308,10 +259,6 @@ class MetadataManager(
         }
     }
 
-    /**
-     * Parse and cache addressable event from JSON using composite key.
-     * Addressable events are cached with key format: kind:pubkey:d-tag
-     */
     fun parseAndCacheAddressableEvent(eventJson: JsonObject): CachedEvent? {
         return try {
             val eventId = eventJson["id"]?.jsonPrimitive?.content ?: return null
@@ -323,13 +270,8 @@ class MetadataManager(
                 tagArray.jsonArray.map { it.jsonPrimitive.content }
             } ?: emptyList()
 
-            // Extract d-tag (identifier) for addressable events
             val identifier = tags.find { it.firstOrNull() == "d" }?.getOrNull(1) ?: ""
-
-            // Create composite key for addressable events
             val addressKey = "$kind:$pubkey:$identifier"
-
-            // Skip if already cached (check by address key)
             eventsCache.get(addressKey)?.let { return it }
 
             val cachedEvent = CachedEvent(
@@ -341,7 +283,6 @@ class MetadataManager(
                 tags = tags
             )
 
-            // Cache with both the event ID and the address key
             eventsCache.put(eventId, cachedEvent)
             eventsCache.put(addressKey, cachedEvent)
             _cachedEvents.value = eventsCache.toMap()
@@ -351,35 +292,19 @@ class MetadataManager(
         }
     }
 
-    /**
-     * Check if we have metadata for a pubkey
-     */
     fun hasMetadata(pubkey: String): Boolean = metadataCache.containsKey(pubkey)
 
-    /** Returns true if metadata for [pubkey] was never fetched or is older than [STALE_THRESHOLD_MS]. */
     fun isStale(pubkey: String): Boolean {
         val fetchedAt = metadataFetchedAt.get(pubkey) ?: return true
         return (epochMillis() - fetchedAt) > STALE_THRESHOLD_MS
     }
 
-    /**
-     * Check if we have a cached event
-     */
     fun hasCachedEvent(eventId: String): Boolean = eventsCache.containsKey(eventId)
 
-    /**
-     * Get metadata for a pubkey
-     */
     fun getMetadata(pubkey: String): UserMetadata? = metadataCache.get(pubkey)
 
-    /**
-     * Get cached event by ID
-     */
     fun getCachedEvent(eventId: String): CachedEvent? = eventsCache.get(eventId)
 
-    /**
-     * Clear all cached data
-     */
     fun clear() {
         metadataCache.clear()
         eventsCache.clear()
