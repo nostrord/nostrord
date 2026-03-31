@@ -1,13 +1,17 @@
 package org.nostr.nostrord
 
+import android.app.ActivityManager
 import android.app.Application
+import android.content.Context
 import android.os.Build.VERSION.SDK_INT
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
+import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.network.managers.AndroidNetworkMonitorInit
 import org.nostr.nostrord.storage.SecureStorage
 
@@ -47,12 +51,21 @@ class NostrordApplication : Application(), SingletonImageLoader.Factory {
                     add(GifDecoder.Factory())
                 }
             }
-            // Keep up to 128 MB of decoded bitmaps in RAM so chat images that scroll
-            // off-screen are served from memory on scroll-back instead of re-fetching
-            // from disk (which shows the loading spinner briefly).
+            // Adaptive memory cache: use 1/6 of available app memory (clamped 64–256 MB).
+            // Low-RAM devices get a smaller cache; high-end devices benefit from more.
             .memoryCache {
+                val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                val memoryMb = am.memoryClass.toLong() // per-app heap limit in MB
+                val cacheMb = (memoryMb / 6).coerceIn(64, 256)
                 MemoryCache.Builder()
-                    .maxSizeBytes(128L * 1024 * 1024)
+                    .maxSizeBytes(cacheMb * 1024 * 1024)
+                    .build()
+            }
+            // Persistent disk cache so images survive app restarts without re-downloading.
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache").toOkioPath())
+                    .maxSizeBytes(150L * 1024 * 1024) // 150 MB
                     .build()
             }
             .build()

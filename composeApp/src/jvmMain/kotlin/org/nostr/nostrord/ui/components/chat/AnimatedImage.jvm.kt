@@ -26,43 +26,70 @@ import kotlinx.coroutines.withContext
 import org.jetbrains.skia.Bitmap as SkiaBitmap
 import org.jetbrains.skia.Codec as SkiaCodec
 import org.jetbrains.skia.Data as SkiaData
-import org.jetbrains.skia.EncodedImageFormat
 import org.jetbrains.skia.Image as SkiaImage
 import org.nostr.nostrord.ui.theme.NostrordColors
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
+import java.net.HttpURLConnection
+import java.net.URI
 import javax.imageio.ImageIO
 import javax.imageio.metadata.IIOMetadataNode
 import javax.imageio.stream.MemoryCacheImageInputStream
 
+/** Max bytes allowed for a single downloaded image before we refuse to decode. */
+private const val MAX_IMAGE_DOWNLOAD_BYTES = 15L * 1024 * 1024 // 15 MB
+
+/** HTTP timeouts for animated image fetching. */
+private const val CONNECT_TIMEOUT_MS = 5_000
+private const val READ_TIMEOUT_MS = 10_000
+
 /**
- * Process-level LRU cache for decoded animation frames.
+ * Process-level LRU cache for decoded animation frames, bounded by total byte usage.
  *
  * WHY this is needed:
  * Compose's `remember` state is scoped to a composition instance. When a LazyColumn item
  * scrolls off screen, Compose destroys that item's composition — including the decoded
- * frames stored in `remember`. When the item scrolls back into view, a new composition
- * instance starts from scratch, triggering a full re-download + re-decode.
+ * frames stored in `remember`. Storing frames here survives scrolling.
  *
- * Storing frames here (outside of any composable) survives scrolling. The LRU eviction
- * (removeEldestEntry) bounds memory use to MAX_ENTRIES animated images at a time. For
- * typical chat GIFs (10–30 frames, ~300 KB/frame as ARGB ImageBitmap), 20 entries is
- * roughly 60–180 MB — reasonable for a desktop client.
+ * Unlike the old count-based cache, this tracks estimated ARGB byte usage per entry
+ * (width × height × 4 × frameCount) and evicts LRU entries when total exceeds the cap.
+ * This prevents OOM from a few large GIFs blowing past a fixed entry count.
  */
 private object FrameCache {
-    private const val MAX_ENTRIES = 20
+    private const val MAX_BYTES = 150L * 1024 * 1024 // 150 MB cap
 
-    private val cache = object : LinkedHashMap<String, List<Pair<ImageBitmap, Int>>>(
-        MAX_ENTRIES + 1, 0.75f, /* accessOrder = */ true
-    ) {
-        override fun removeEldestEntry(eldest: Map.Entry<String, List<Pair<ImageBitmap, Int>>>): Boolean =
-            size > MAX_ENTRIES
-    }
+    private data class Entry(
+        val frames: List<Pair<ImageBitmap, Int>>,
+        val estimatedBytes: Long
+    )
 
-    @Synchronized fun get(url: String): List<Pair<ImageBitmap, Int>>? = cache[url]
+    private val cache = LinkedHashMap<String, Entry>(16, 0.75f, /* accessOrder = */ true)
+    private var currentBytes = 0L
 
-    @Synchronized fun put(url: String, frames: List<Pair<ImageBitmap, Int>>) {
-        cache[url] = frames
+    @Synchronized
+    fun get(url: String): List<Pair<ImageBitmap, Int>>? = cache[url]?.frames
+
+    @Synchronized
+    fun put(url: String, frames: List<Pair<ImageBitmap, Int>>) {
+        if (frames.isEmpty()) return
+        val first = frames[0].first
+        val estimatedBytes = first.width.toLong() * first.height * 4 * frames.size
+        // Don't cache entries larger than half the budget
+        if (estimatedBytes > MAX_BYTES / 2) return
+
+        // Remove existing entry if replacing
+        cache.remove(url)?.let { currentBytes -= it.estimatedBytes }
+
+        // Evict LRU until we fit
+        val iter = cache.entries.iterator()
+        while (currentBytes + estimatedBytes > MAX_BYTES && iter.hasNext()) {
+            val eldest = iter.next()
+            currentBytes -= eldest.value.estimatedBytes
+            iter.remove()
+        }
+
+        cache[url] = Entry(frames, estimatedBytes)
+        currentBytes += estimatedBytes
     }
 }
 
@@ -101,7 +128,8 @@ actual fun AnimatedImage(
 
         val decoded: List<Pair<ImageBitmap, Int>> = withContext(Dispatchers.IO) {
             try {
-                val bytes = java.net.URL(url).openStream().use { it.readBytes() }
+                val bytes = fetchWithTimeout(url)
+                    ?: return@withContext emptyList<Pair<ImageBitmap, Int>>()
                 val lower = url.lowercase()
                 when {
                     lower.contains(".webp") -> decodeWebpFrames(bytes)
@@ -163,15 +191,53 @@ actual fun AnimatedImage(
 }
 
 /**
+ * Fetches image bytes from a URL with connect/read timeouts and a size cap.
+ * Returns null if the fetch fails or the response is too large.
+ */
+private fun fetchWithTimeout(url: String): ByteArray? {
+    val conn = URI(url).toURL().openConnection() as HttpURLConnection
+    return try {
+        conn.connectTimeout = CONNECT_TIMEOUT_MS
+        conn.readTimeout = READ_TIMEOUT_MS
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "Nostrord/1.0")
+
+        if (conn.responseCode !in 200..299) return null
+
+        // Reject responses larger than our budget before reading them fully
+        val contentLength = conn.contentLengthLong
+        if (contentLength > MAX_IMAGE_DOWNLOAD_BYTES) return null
+
+        conn.inputStream.use { stream ->
+            val buffer = java.io.ByteArrayOutputStream(
+                if (contentLength > 0) contentLength.toInt() else 65536
+            )
+            val chunk = ByteArray(8192)
+            var totalRead = 0L
+            while (true) {
+                val n = stream.read(chunk)
+                if (n == -1) break
+                totalRead += n
+                if (totalRead > MAX_IMAGE_DOWNLOAD_BYTES) return null
+                buffer.write(chunk, 0, n)
+            }
+            buffer.toByteArray()
+        }
+    } catch (_: Exception) {
+        null
+    } finally {
+        conn.disconnect()
+    }
+}
+
+/**
  * Decodes animated WebP frames using org.jetbrains.skia.Codec.
  *
  * WHY Skia (not ImageIO): Java's standard ImageIO has no WebP reader. Skia (bundled with
  * Compose Desktop via skiko) supports both static and animated WebP natively via Codec.
  *
- * The Skia Bitmap → ImageBitmap conversion uses a PNG encode/decode round-trip through
- * ImageIO because the direct Skia→Compose bridge API (`asComposeImageBitmap`) is not
- * consistently available across skiko versions. PNG round-trip is negligible overhead for
- * the small number of frames in a typical animated WebP.
+ * Uses Skia Bitmap → toComposeImageBitmap() directly, avoiding the previous PNG
+ * encode/decode round-trip which wasted ~8x memory per frame.
  */
 private fun decodeWebpFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
     return try {
@@ -179,23 +245,25 @@ private fun decodeWebpFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
         val codec = SkiaCodec.makeFromData(data)
         val info = codec.imageInfo
 
+        // Reject absurdly large images (e.g. 16000×16000) before allocating frames
+        if (info.width.toLong() * info.height > 8_000_000) { // ~8 megapixels max
+            codec.close(); data.close()
+            return emptyList()
+        }
+
         val result = (0 until codec.frameCount).map { i ->
             val bitmap = SkiaBitmap()
             bitmap.allocPixels(info)
             codec.readPixels(bitmap, i)
 
-            // Skia Bitmap → PNG bytes → BufferedImage → ImageBitmap
-            // (BufferedImage.toComposeImageBitmap() is the stable Compose Desktop API)
-            val skiaImage = SkiaImage.makeFromBitmap(bitmap)
-            val pngBytes = skiaImage.encodeToData(EncodedImageFormat.PNG)!!.bytes
-            val bufferedImage = ImageIO.read(ByteArrayInputStream(pngBytes))
-
             val delayMs = codec.getFrameInfo(i).duration.coerceAtLeast(50)
-
-            bitmap.close()
+            // SkiaBitmap → SkiaImage → Compose ImageBitmap (no PNG round-trip)
+            val skiaImage = SkiaImage.makeFromBitmap(bitmap)
+            val composeBitmap = skiaImage.toComposeImageBitmap()
             skiaImage.close()
+            bitmap.close()
 
-            bufferedImage.toComposeImageBitmap() to delayMs
+            composeBitmap to delayMs
         }
 
         codec.close()
@@ -228,13 +296,19 @@ private fun decodeGifFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
         val frameCount = reader.getNumImages(true)
         if (frameCount <= 0) return emptyList()
 
+        // Read first frame to check dimensions — reject absurdly large GIFs
+        val firstFrame = reader.read(0)
+        if (firstFrame.width.toLong() * firstFrame.height > 8_000_000) {
+            return emptyList()
+        }
+
         // We need to composite frames correctly: GIF frames can be partial (delta frames)
         // and reference the previous frame. Rendering into a single canvas and copying
         // handles disposal methods properly.
         var canvas: BufferedImage? = null
 
         (0 until frameCount).map { i ->
-            val frame: BufferedImage = reader.read(i)
+            val frame: BufferedImage = if (i == 0) firstFrame else reader.read(i)
             val meta = reader.getImageMetadata(i)
 
             // Parse frame delay from GIF GraphicControlExtension (in centiseconds → ms)

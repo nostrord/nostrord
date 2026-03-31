@@ -44,10 +44,11 @@ private val staticImageCache = LruCache<String, ImageBitmap>(30)
 private val failedUrls = LruCache<String, Boolean>(100)
 
 /**
- * Semaphore limiting concurrent createImageBitmap decode pipelines to 3.
- * Prevents the JS event loop from being starved when many images appear at once.
+ * Semaphore limiting concurrent createImageBitmap decode pipelines to 5.
+ * Prevents the JS event loop from being starved when many images appear at once,
+ * while allowing enough concurrency for smooth chat scrolling.
  */
-private val fetchPermits = Semaphore(3)
+private val fetchPermits = Semaphore(5)
 
 // ---- JS interop via js() calls ----
 
@@ -96,7 +97,7 @@ private fun imageDataToByteArray(imageData: dynamic): ByteArray {
 private const val MAX_DECODE_WIDTH = 800
 
 /** Timeout for image fetch requests in milliseconds. */
-private const val FETCH_TIMEOUT_MS = 8_000
+private const val FETCH_TIMEOUT_MS = 5_000
 
 /**
  * Fetches and decodes an image into a Compose ImageBitmap.

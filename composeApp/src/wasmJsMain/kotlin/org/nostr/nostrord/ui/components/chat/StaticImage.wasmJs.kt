@@ -45,9 +45,9 @@ private val staticImageCache = LruCache<String, ImageBitmap>(30)
 private val failedUrls = LruCache<String, Boolean>(100)
 
 /**
- * Semaphore limiting concurrent createImageBitmap decode pipelines to 3.
+ * Semaphore limiting concurrent createImageBitmap decode pipelines to 5.
  */
-private val fetchPermits = Semaphore(3)
+private val fetchPermits = Semaphore(5)
 
 // ---- WasmJS interop via @JsFun ----
 
@@ -99,7 +99,7 @@ private fun imageDataToByteArray(imageData: JsAny): ByteArray {
 private const val MAX_DECODE_WIDTH = 800
 
 /** Timeout for image fetch requests in milliseconds. */
-private const val FETCH_TIMEOUT_MS = 8_000
+private const val FETCH_TIMEOUT_MS = 5_000
 
 /**
  * Fetches and decodes an image into a Compose ImageBitmap.

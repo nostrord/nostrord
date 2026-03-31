@@ -40,9 +40,9 @@ fun main() {
         val cacheDir = File(System.getProperty("user.home"), ".nostrord/image-cache")
         val httpClient = HttpClient(CIO) {
             install(HttpTimeout) {
-                connectTimeoutMillis = 15_000
-                requestTimeoutMillis = 30_000
-                socketTimeoutMillis = 30_000
+                connectTimeoutMillis = 5_000
+                requestTimeoutMillis = 15_000
+                socketTimeoutMillis = 10_000
             }
             install(HttpRedirect) {
                 checkHttpMethod = false
@@ -54,13 +54,13 @@ fun main() {
             }
             .memoryCache {
                 MemoryCache.Builder()
-                    .maxSizeBytes(64L * 1024 * 1024)
+                    .maxSizeBytes(128L * 1024 * 1024) // 128 MB — desktop has more RAM
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.toOkioPath())
-                    .maxSizeBytes(100L * 1024 * 1024)
+                    .maxSizeBytes(256L * 1024 * 1024) // 256 MB persistent cache
                     .build()
             }
             .build()
