@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.ConnectionStats
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
@@ -15,6 +16,8 @@ import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.PendingEventManager
 import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.SessionManager
+import org.nostr.nostrord.network.managers.AdaptiveConfig
+import org.nostr.nostrord.network.managers.MuxSubscriptionTracker
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.network.outbox.RelayListManager
@@ -41,6 +44,8 @@ object AppModule {
         }
     }
 
+    val connStats: ConnectionStats by lazy { ConnectionStats() }
+
     // Lazy initialization of dependencies
     val relayListManager: RelayListManager by lazy {
         RelayListManager(
@@ -50,7 +55,7 @@ object AppModule {
     }
 
     val connectionManager: ConnectionManager by lazy {
-        ConnectionManager(scope = appScope)
+        ConnectionManager(scope = appScope, connStats = connStats, adaptiveConfig = adaptiveConfig)
     }
 
     val sessionManager: SessionManager by lazy {
@@ -79,12 +84,21 @@ object AppModule {
         LiveCursorStore()
     }
 
+    val muxTracker: MuxSubscriptionTracker by lazy { MuxSubscriptionTracker() }
+
+    val adaptiveConfig: AdaptiveConfig by lazy {
+        AdaptiveConfig(connStats = connStats, scope = appScope)
+    }
+
     val groupManager: GroupManager by lazy {
         GroupManager(
             connectionManager = connectionManager,
             scope = appScope,
             pendingEventManager = pendingEventManager,
-            liveCursorStore = liveCursorStore
+            liveCursorStore = liveCursorStore,
+            connStats = connStats,
+            muxTracker = muxTracker,
+            adaptiveConfig = adaptiveConfig
         )
     }
 
@@ -115,6 +129,7 @@ object AppModule {
             pendingEventManager = pendingEventManager,
             relayMetadataManager = relayMetadataManager,
             liveCursorStore = liveCursorStore,
+            connStats = connStats,
             scope = appScope
         )
     }

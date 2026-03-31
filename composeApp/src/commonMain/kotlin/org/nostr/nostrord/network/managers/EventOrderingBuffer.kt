@@ -9,33 +9,35 @@ import kotlinx.coroutines.sync.withLock
 import org.nostr.nostrord.network.NostrGroupClient
 
 /**
- * Buffers incoming chat messages per group for [windowMs] milliseconds, then flushes
- * them sorted by [NostrGroupClient.NostrMessage.createdAt] in a single callback.
+ * Buffers incoming chat messages per group, then flushes them sorted by
+ * [NostrGroupClient.NostrMessage.createdAt] in a single callback.
+ *
+ * The debounce window is **dynamic**: it reads from [windowProvider] on each
+ * enqueue, allowing [AdaptiveConfig] to shorten the window during idle periods
+ * (near-instant render) and lengthen it during bursts (fewer UI updates).
  *
  * Benefits:
  * - Reduces StateFlow emissions during burst loads (N arriving messages → 1 UI update)
- * - Ensures a stable sort across multi-relay deliveries: events from two relays that
- *   cover the same time-window are collected in the buffer and emitted in order
+ * - Ensures a stable sort across multi-relay deliveries
  *
  * Non-UI concerns (deduplication, cursor tracking, pagination state machine) are handled
  * BEFORE enqueue, so they remain immediate and are not affected by the window delay.
  *
- * @param scope        Coroutine scope that owns the debounce timers.
- * @param windowMs     Debounce window in ms. Resets on each new message for the same group.
- * @param maxBufferSize Flush immediately (without waiting for [windowMs]) when this many
- *                     messages have accumulated for a group. Prevents unbounded memory use
- *                     during extremely high-throughput bursts (e.g. initial load of 150+ events).
- * @param onFlush      Called once per group when the window expires or the buffer is full,
- *                     with messages sorted by createdAt.
+ * @param scope          Coroutine scope that owns the debounce timers.
+ * @param windowProvider Returns the current debounce window in ms. Called on each enqueue
+ *                       so the value adapts at runtime without recreating the buffer.
+ * @param maxBufferSize  Flush immediately when this many messages accumulate for a group.
+ * @param onFlush        Called once per group when the window expires or the buffer is full,
+ *                       with messages sorted by createdAt.
  */
 class EventOrderingBuffer(
     private val scope: CoroutineScope,
-    val windowMs: Long = WINDOW_MS,
+    private val windowProvider: () -> Long = { WINDOW_MS },
     val maxBufferSize: Int = MAX_BUFFER_SIZE,
     private val onFlush: (groupId: String, messages: List<NostrGroupClient.NostrMessage>) -> Unit
 ) {
     companion object {
-        const val WINDOW_MS = 300L
+        const val WINDOW_MS = 100L
         const val MAX_BUFFER_SIZE = 150
     }
 
@@ -50,7 +52,7 @@ class EventOrderingBuffer(
      *
      * If the buffer reaches [maxBufferSize] the batch is flushed immediately without
      * waiting for the debounce window. Otherwise, the [onFlush] callback fires after
-     * [windowMs] of inactivity for this group.
+     * [windowProvider] ms of inactivity for this group.
      */
     fun enqueue(groupId: String, message: NostrGroupClient.NostrMessage) {
         scope.launch {
@@ -67,12 +69,10 @@ class EventOrderingBuffer(
                     immediateFlush = buffers.remove(groupId)!!.toList()
                 } else {
                     // Debounce: cancel the old timer and start a fresh one.
-                    // NOTE: scope.launch inside withLock is safe — it merely schedules a new
-                    // coroutine (returns a Job immediately) without suspending the current one.
-                    // The new coroutine acquires the mutex independently after the window expires.
                     flushJobs[groupId]?.cancel()
+                    val currentWindow = windowProvider()
                     flushJobs[groupId] = scope.launch {
-                        delay(windowMs)
+                        delay(currentWindow)
                         val batch = mutex.withLock {
                             flushJobs.remove(groupId)
                             val b = buffers.remove(groupId) ?: return@withLock emptyList()

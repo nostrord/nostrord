@@ -8,6 +8,7 @@ import coil3.SingletonImageLoader
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
+import org.nostr.nostrord.network.managers.AndroidNetworkMonitorInit
 import org.nostr.nostrord.storage.SecureStorage
 
 /**
@@ -31,6 +32,7 @@ class NostrordApplication : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         SecureStorage.initialize(applicationContext)
+        AndroidNetworkMonitorInit.initialize(applicationContext)
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {

@@ -13,6 +13,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
+import org.nostr.nostrord.network.managers.ConnectionStats
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.RelayReconnectScheduler
@@ -45,6 +46,7 @@ class NostrRepository(
     private val pendingEventManager: org.nostr.nostrord.network.managers.PendingEventManager? = null,
     private val relayMetadataManager: RelayMetadataManager? = null,
     private val liveCursorStore: LiveCursorStore? = null,
+    private val connStats: ConnectionStats = ConnectionStats(),
     private val scope: CoroutineScope
 ) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
@@ -191,6 +193,7 @@ class NostrRepository(
 
         metadataManager.messageHandler = { msg, client -> enqueueToRelayPipeline(msg, client) }
 
+        connectionManager.startNetworkMonitor()
         connectionManager.loadSavedRelay()
 
         // Deep link relay from URL query params (web) — merge into relay list
@@ -1236,6 +1239,7 @@ class NostrRepository(
             val kind = event["kind"]?.jsonPrimitive?.int
             val url = client.getRelayUrl()
             relayEventCounts[url] = (relayEventCounts[url] ?: 0) + 1
+            connStats.onEventReceived(url)
             if (kind == 10009) {
                 val pubKey = sessionManager.getPublicKey() ?: ""
                 scope.launch {
@@ -1394,7 +1398,8 @@ class NostrRepository(
 
                     39002 -> {
                         val groupMembers = client.parseGroupMembers(event) ?: return
-                        val memberPubkeys = groupManager.handleGroupMembers(groupMembers)
+                        val createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L
+                        val memberPubkeys = groupManager.handleGroupMembers(groupMembers, createdAt)
                         val pubkeysNeedingMetadata = memberPubkeys.filter { !metadataManager.hasMetadata(it) }
                         if (pubkeysNeedingMetadata.isNotEmpty()) {
                             scope.launch {
@@ -1405,7 +1410,8 @@ class NostrRepository(
 
                     39001 -> {
                         val groupAdmins = client.parseGroupAdmins(event) ?: return
-                        groupManager.handleGroupAdmins(groupAdmins)
+                        val createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L
+                        groupManager.handleGroupAdmins(groupAdmins, createdAt)
                     }
 
                     0 -> {
@@ -1529,20 +1535,23 @@ class NostrRepository(
      * Called by [relayReconnectScheduler]'s doReconnect lambda and [resubscribeAllGroups].
      */
     private suspend fun resubscribePoolRelay(relayUrl: String, client: NostrGroupClient) {
-        // Don't proactively fetch the group list. If the user has never selected this relay,
-        // getGroupsForRelay() returns empty and the loop below does nothing. If they have,
-        // the data is already cached and switchRelay() will handle re-fetch if ever needed.
         val groupsOnRelay = groupManager.getGroupsForRelay(relayUrl)
-        groupManager.handleConnectionLostForGroups(groupsOnRelay.map { it.id })
-        for (group in groupsOnRelay) {
-            groupManager.requestGroupMessages(group.id)
-            groupManager.requestGroupMembers(group.id)
-            groupManager.requestGroupAdmins(group.id)
-            client.requestGroupMetadata(group.id)
+        if (groupsOnRelay.isNotEmpty()) {
+            groupManager.handleConnectionLostForGroups(groupsOnRelay.map { it.id })
+        }
+        // Fast-lane: prioritize the active group on pool relay reconnect.
+        val activeGroupId = groupManager.activeGroupId
+        if (activeGroupId != null && groupManager.getRelayForGroup(activeGroupId) == relayUrl) {
+            scope.launch {
+                groupManager.requestGroupMessages(activeGroupId)
+                groupManager.requestGroupMembers(activeGroupId)
+                groupManager.requestGroupAdmins(activeGroupId)
+            }
         }
 
-        // Send the relay-level mux subscription for all groups on this pool relay.
-        groupManager.refreshMuxDebounced(relayUrl)
+        // Mux subs cover all kinds: 39000/39001/39002 (metadata/members/admins) +
+        // chat/reactions for opened groups.
+        groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
     }
 
     /**
@@ -1589,22 +1598,29 @@ class NostrRepository(
             client.requestGroups()
         }
 
-        // Only re-subscribe messages/members/admins for groups the user has actually opened.
-        // Metadata mux (kind:39000) covers ALL joined groups for the sidebar listing.
+        // Reset loading states for opened groups so pagination works if user scrolls up.
         val openedGroupIds = groupManager.getOpenedGroupIds()
             .filter { groupManager.getRelayForGroup(it) == relayUrl }
-
         if (openedGroupIds.isNotEmpty()) {
             groupManager.handleConnectionLostForGroups(openedGroupIds.toList())
-            for (groupId in openedGroupIds) {
-                groupManager.requestGroupMessages(groupId)
-                groupManager.requestGroupMembers(groupId)
-                groupManager.requestGroupAdmins(groupId)
-                client.requestGroupMetadata(groupId)
+        }
+
+        // Fast-lane: direct requests for the ACTIVE group so it renders first.
+        // Mux provides breadth for all groups; direct requests provide speed for the
+        // group the user is currently looking at. Deduplicator handles overlap.
+        val activeGroupId = groupManager.activeGroupId
+        if (activeGroupId != null && groupManager.getRelayForGroup(activeGroupId) == relayUrl) {
+            scope.launch {
+                groupManager.requestGroupMessages(activeGroupId)
+                groupManager.requestGroupMembers(activeGroupId)
+                groupManager.requestGroupAdmins(activeGroupId)
             }
         }
 
-        groupManager.refreshMuxDebounced(relayUrl)
+        // Mux refresh covers all live subscriptions:
+        // mux_meta (kinds 39000/39001/39002) for all joined groups,
+        // mux_chat + mux_reactions for opened groups with cursor-based since.
+        groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
     }
 
     /**
@@ -1630,7 +1646,10 @@ class NostrRepository(
             }
         }
 
-        // Only re-subscribe messages/members/admins for opened groups + auth-closed groups.
+        // Reset loading states for opened + auth-closed groups.
+        // Uses resetLoadingForGroups (NOT handleConnectionLostForGroups) to avoid
+        // clearing the mux tracker — resubscribeAllGroups already sent the mux refresh,
+        // so the tracker correctly reflects the current state.
         val openedOnRelay = groupManager.getOpenedGroupIds()
             .filter { groupManager.getRelayForGroup(it) == relayUrl }
         val closedOnRelay = closedGroupSubscriptions.filter {
@@ -1639,18 +1658,18 @@ class NostrRepository(
         closedGroupSubscriptions.removeAll(closedOnRelay.toSet())
 
         val groupIds = (openedOnRelay + closedOnRelay).distinct()
-
         if (groupIds.isNotEmpty()) {
-            groupManager.handleConnectionLostForGroups(groupIds)
-            for (groupId in groupIds) {
-                groupManager.requestGroupMessages(groupId)
-                groupManager.requestGroupMembers(groupId)
-                groupManager.requestGroupAdmins(groupId)
-                client.requestGroupMetadata(groupId)
-            }
+            groupManager.resetLoadingForGroups(groupIds)
         }
 
-        groupManager.refreshMuxDebounced(relayUrl)
+        // No fast-lane here: resubscribeAllGroups (which runs before AUTH arrives)
+        // already sent direct requests + mux for the active group. The request
+        // cooldown gate in GroupManager prevents duplicates within 2s.
+
+        // Mux refresh — the tracker's needsRefresh() will return false if
+        // resubscribeAllGroups already sent identical subscriptions, avoiding
+        // a redundant CLOSE+REQ cycle.
+        groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
     }
 
 }

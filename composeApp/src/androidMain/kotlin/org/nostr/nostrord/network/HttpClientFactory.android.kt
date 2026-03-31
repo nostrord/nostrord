@@ -10,10 +10,14 @@ import kotlin.time.Duration.Companion.seconds
 import kotlinx.serialization.json.Json
 
 actual fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
+    engine {
+        config {
+            connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            readTimeout(0, java.util.concurrent.TimeUnit.SECONDS) // WebSocket: no read timeout
+        }
+    }
     install(WebSockets) {
-        // Periodic PING detects zombie connections (socket open, relay silent).
-        // Without this, isConnected() stays true but no data arrives — no reconnect fires.
-        pingInterval = 30.seconds
+        pingInterval = 20.seconds
     }
     install(ContentNegotiation) {
         json(Json {

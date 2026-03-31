@@ -41,18 +41,30 @@ class GroupManager(
     private val connectionManager: ConnectionManager,
     private val scope: CoroutineScope,
     private val pendingEventManager: PendingEventManager? = null,
-    private val liveCursorStore: LiveCursorStore = LiveCursorStore()
+    private val liveCursorStore: LiveCursorStore = LiveCursorStore(),
+    private val connStats: ConnectionStats? = null,
+    private val muxTracker: MuxSubscriptionTracker = MuxSubscriptionTracker(),
+    private val adaptiveConfig: AdaptiveConfig? = null
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val eventDeduplicator = EventDeduplicator()
 
     /**
-     * Collects incoming messages per group for 300 ms, then applies them to [_messages]
+     * Collects incoming messages per group, then applies them to [_messages]
      * in a single sorted batch — reducing N StateFlow emissions to 1 during burst loads.
+     * Window is dynamic: reads from [AdaptiveConfig.bufferWindowMs] at each enqueue.
      */
-    private val eventOrderingBuffer = EventOrderingBuffer(scope) { groupId, messages ->
+    private val eventOrderingBuffer = EventOrderingBuffer(
+        scope = scope,
+        windowProvider = { adaptiveConfig?.bufferWindowMs ?: EventOrderingBuffer.WINDOW_MS },
+    ) { groupId, messages ->
         flushBatchToState(groupId, messages)
     }
+
+    // Persistent per-group message ID index — avoids rebuilding a HashSet on every flush.
+    // Updated incrementally in flushBatchToState and loadMessagesFromStorage.
+    // Cleared on relay switch / logout.
+    private val messageIdIndex = mutableMapOf<String, MutableSet<String>>()
 
     private val _groups = MutableStateFlow<List<GroupMetadata>>(emptyList())
     val groups: StateFlow<List<GroupMetadata>> = _groups.asStateFlow()
@@ -69,6 +81,7 @@ class GroupManager(
     // The group currently being viewed by the user.
     // Mux chat/reactions subscriptions are scoped to this group only.
     private var _activeGroupId: String? = null
+    val activeGroupId: String? get() = _activeGroupId
 
     // Groups that have been opened (clicked) by the user during this session.
     // Chat/reactions mux covers these groups so they keep receiving live messages.
@@ -78,6 +91,29 @@ class GroupManager(
 
     // Debounce mux refresh: coalesces rapid calls (auth + EOSE + CLOSED) into one.
     private val muxRefreshJobs = mutableMapOf<String, Job>()
+
+    // Request cooldown: prevents duplicate in-flight requests within a short window.
+    // Key = "type:groupId", value = epochMillis when last requested.
+    private val recentRequests = mutableMapOf<String, Long>()
+
+    /**
+     * Returns true if this request type for this group hasn't been issued recently.
+     * Prevents duplicate REQs when multiple triggers fire within [cooldownMs].
+     */
+    private fun shouldRequest(groupId: String, type: String, cooldownMs: Long? = null): Boolean {
+        val key = "$type:$groupId"
+        val now = epochMillis()
+        val effectiveCooldown = cooldownMs
+            ?: adaptiveConfig?.requestCooldownMs
+            ?: REQUEST_COOLDOWN_MS
+        val last = recentRequests[key] ?: 0L
+        if (now - last < effectiveCooldown) {
+            connStats?.onRequestAvoided(getRelayForGroup(groupId) ?: "unknown")
+            return false
+        }
+        recentRequests[key] = now
+        return true
+    }
 
     // Relays for which requestGroups() was sent but EOSE hasn't arrived yet.
     // Used by the UI to show skeleton loaders while groups are being fetched.
@@ -144,11 +180,16 @@ class GroupManager(
     private val _groupAdmins = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val groupAdmins: StateFlow<Map<String, List<String>>> = _groupAdmins.asStateFlow()
 
+    // Timestamp guards: reject stale kind:39001/39002 events from slower relays.
+    private val memberEventTimestamps = mutableMapOf<String, Long>()
+    private val adminEventTimestamps = mutableMapOf<String, Long>()
+
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
         const val MAX_PERSISTED_MESSAGES = 100 // Limit messages per group for storage
         const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
+        const val REQUEST_COOLDOWN_MS = 2_000L // Prevents duplicate REQs within this window
     }
 
     // Current user pubkey for storage scoping
@@ -252,24 +293,29 @@ class GroupManager(
         if (isNew) {
             scope.launch {
                 val url = relayUrl ?: return@launch
-                // Wait briefly for the client to become connected (up to 3s).
-                // Avoids losing member/admin requests when the pool client exists
-                // but the WebSocket handshake hasn't completed yet.
+                // Quick handshake check — 50ms × 20 = 1s max (down from 500ms × 6 = 3s).
                 var client = connectionManager.getClientForRelay(url)
                 if (client != null && !client.isConnected()) {
-                    repeat(6) {
-                        delay(500)
+                    repeat(20) {
+                        delay(50)
                         if (client!!.isConnected()) return@repeat
                     }
                 }
                 client = connectionManager.getClientForRelay(url)
+
+                // Fire mux refresh in parallel — covers ongoing delivery for ALL groups.
+                val muxJob = scope.launch { refreshMuxSubscriptionsForRelay(url) }
+
                 if (client != null && client.isConnected()) {
-                    requestGroupMessages(groupId!!)
-                    requestGroupMembers(groupId)
-                    requestGroupAdmins(groupId)
-                    client.requestGroupMetadata(groupId)
+                    // Direct requests for the ACTIVE group — fast-lane.
+                    // Mux provides breadth; these provide speed for the group the user is looking at.
+                    // Duplicates are handled by the event deduplicator.
+                    requestGroupMessages(groupId!!)  // Pagination (mux has no limit)
+                    requestGroupMembers(groupId)      // Fast member list
+                    requestGroupAdmins(groupId)       // Fast admin list
                 }
-                refreshMuxSubscriptionsForRelay(url)
+
+                muxJob.join()
             }
         } else if (relayUrl != null) {
             scope.launch { refreshMuxSubscriptionsForRelay(relayUrl) }
@@ -315,8 +361,6 @@ class GroupManager(
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
 
-        // Chat/reactions mux covers all groups the user has opened this session
-        // (not just the active one), so previously opened groups keep receiving live messages.
         val chatGroupIds = _openedGroupIds.value
             .filter { it in allGroupIds }
             .ifEmpty {
@@ -330,8 +374,21 @@ class GroupManager(
             0L
         }
 
+        val desired = MuxSubscriptionTracker.MuxState(
+            metadataGroupIds = allGroupIds.toSet(),
+            chatGroupIds = chatGroupIds.toSet(),
+            chatSinceSeconds = chatSince
+        )
+
+        if (!muxTracker.needsRefresh(relayUrl, desired)) {
+            connStats?.onSubscriptionAvoided(relayUrl)
+            return
+        }
+
         try {
             client.sendMuxSubscriptions(allGroupIds, chatGroupIds, chatSince)
+            muxTracker.update(relayUrl, desired)
+            connStats?.onSubscriptionSent(relayUrl)
         } catch (_: Exception) {}
     }
 
@@ -983,13 +1040,29 @@ class GroupManager(
      */
     suspend fun handleConnectionLost() {
         loadingRegistry.handleDisconnectAll()
+        muxTracker.clearAll()
+        recentRequests.clear()
     }
 
     /**
      * Handle connection lost for a specific set of groups (e.g. a pool relay dropped).
      * Resets their loading states to Idle so re-subscription can proceed after reconnect.
+     * Also clears the mux tracker so reconnect re-sends fresh subscriptions.
      */
     suspend fun handleConnectionLostForGroups(groupIds: List<String>) {
+        loadingRegistry.handleDisconnectForGroups(groupIds)
+        // Clear subscription tracker for affected relays so reconnect re-sends mux.
+        groupIds.mapNotNull { getRelayForGroup(it) }.distinct().forEach {
+            muxTracker.clearRelay(it)
+        }
+    }
+
+    /**
+     * Reset loading states WITHOUT clearing the mux tracker.
+     * Use this when re-subscribing after auth (mux was already refreshed by the
+     * reconnect path — clearing the tracker would force a redundant CLOSE+REQ cycle).
+     */
+    suspend fun resetLoadingForGroups(groupIds: List<String>) {
         loadingRegistry.handleDisconnectForGroups(groupIds)
     }
 
@@ -1272,8 +1345,20 @@ class GroupManager(
      * Handle incoming group members (kind 39002)
      * Returns list of member pubkeys that need metadata fetching
      */
-    fun handleGroupMembers(members: GroupMembers): List<String> {
-        _groupMembers.value = _groupMembers.value + (members.groupId to members.members)
+    fun handleGroupMembers(members: GroupMembers, createdAt: Long = 0L): List<String> {
+        val existing = memberEventTimestamps[members.groupId] ?: 0L
+        if (createdAt > 0L && createdAt < existing) {
+            // Stale event from a slower relay — skip state update.
+            connStats?.onStateConflict(members.groupId)
+            _loadingMembers.value = _loadingMembers.value - members.groupId
+            return _groupMembers.value[members.groupId] ?: emptyList()
+        }
+        if (createdAt > 0L) memberEventTimestamps[members.groupId] = createdAt
+        // Skip StateFlow update if the member list is identical — avoids unnecessary recomposition.
+        val currentMembers = _groupMembers.value[members.groupId]
+        if (currentMembers != members.members) {
+            _groupMembers.value = _groupMembers.value + (members.groupId to members.members)
+        }
         _loadingMembers.value = _loadingMembers.value - members.groupId
         return members.members
     }
@@ -1284,6 +1369,7 @@ class GroupManager(
      * Auto-clears after [MEMBER_LOAD_TIMEOUT_MS] if no response arrives.
      */
     suspend fun requestGroupMembers(groupId: String): Boolean {
+        if (!shouldRequest(groupId, "members")) return true // recently requested
         val currentClient = clientForGroup(groupId) ?: return false
         _loadingMembers.value = _loadingMembers.value + groupId
         currentClient.requestGroupMembers(groupId)
@@ -1298,14 +1384,25 @@ class GroupManager(
     /**
      * Handle incoming group admins (kind 39001)
      */
-    fun handleGroupAdmins(admins: GroupAdmins) {
-        _groupAdmins.value = _groupAdmins.value + (admins.groupId to admins.admins)
+    fun handleGroupAdmins(admins: GroupAdmins, createdAt: Long = 0L) {
+        val existing = adminEventTimestamps[admins.groupId] ?: 0L
+        if (createdAt > 0L && createdAt < existing) {
+            connStats?.onStateConflict(admins.groupId)
+            return
+        }
+        if (createdAt > 0L) adminEventTimestamps[admins.groupId] = createdAt
+        // Skip StateFlow update if the admin list is identical.
+        val currentAdmins = _groupAdmins.value[admins.groupId]
+        if (currentAdmins != admins.admins) {
+            _groupAdmins.value = _groupAdmins.value + (admins.groupId to admins.admins)
+        }
     }
 
     /**
      * Request group admins (kind 39001)
      */
     suspend fun requestGroupAdmins(groupId: String): Boolean {
+        if (!shouldRequest(groupId, "admins")) return true // recently requested
         val currentClient = clientForGroup(groupId) ?: return false
         currentClient.requestGroupAdmins(groupId)
         return true
@@ -1323,6 +1420,32 @@ class GroupManager(
      */
     fun getMembersForGroup(groupId: String): List<String> {
         return _groupMembers.value[groupId] ?: emptyList()
+    }
+
+    /**
+     * Apply immediate member list changes from kind:9000 (add-user) and kind:9001 (remove-user)
+     * admin events. This prevents ghost members and stale UI between the admin event and
+     * the next kind:39002 full member list refresh.
+     */
+    private fun applyMemberChangeIfAdmin(message: NostrGroupClient.NostrMessage, groupId: String) {
+        val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
+            ?: return
+        when (message.kind) {
+            9000 -> { // add-user
+                _groupMembers.update { current ->
+                    val members = current[groupId] ?: return@update current
+                    if (targetPubkey in members) current
+                    else current + (groupId to members + targetPubkey)
+                }
+            }
+            9001 -> { // remove-user
+                _groupMembers.update { current ->
+                    val members = current[groupId] ?: return@update current
+                    if (targetPubkey !in members) current
+                    else current + (groupId to members - targetPubkey)
+                }
+            }
+        }
     }
 
     // Valid message kinds for group events (NIP-29 and related)
@@ -1382,6 +1505,10 @@ class GroupManager(
             trackMessageForSubscription(subscriptionId, message.createdAt, message.id)
         }
 
+        // Inline member list updates from admin events — provides immediate UI feedback
+        // without waiting for a new kind:39002 event from the relay.
+        applyMemberChangeIfAdmin(message, groupId)
+
         // Enqueue to the ordering buffer; the buffer flushes after 300 ms of inactivity
         // for this group, applying the entire batch in one sorted StateFlow update.
         eventOrderingBuffer.enqueue(groupId, message)
@@ -1394,17 +1521,30 @@ class GroupManager(
      * Called by [EventOrderingBuffer] after its debounce window expires.
      */
     private fun flushBatchToState(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
+        // Record burst for adaptive tuning
+        adaptiveConfig?.recordEventBurst(messages.size)
+
         _messages.update { currentMap ->
-            val current = (currentMap[groupId] ?: emptyList()).toMutableList()
-            var changed = false
-            for (msg in messages) {
-                if (current.none { it.id == msg.id }) {
-                    current.add(msg)
-                    changed = true
-                }
+            val current = currentMap[groupId] ?: emptyList()
+            // Persistent index: O(1) per lookup, no rebuild.
+            val index = messageIdIndex.getOrPut(groupId) {
+                current.mapTo(mutableSetOf()) { it.id }
             }
-            if (changed) currentMap + (groupId to current.sortedBy { it.createdAt })
-            else currentMap
+            // index.add() returns true if new → filters and indexes in one pass.
+            val newMessages = messages.filter { index.add(it.id) }
+            if (newMessages.isEmpty()) return@update currentMap
+
+            // Sort optimization: if all new messages are newer than the last existing
+            // message, just append the sorted batch (the common live-message case).
+            // Avoids re-sorting the full list on every flush.
+            val lastExistingTs = current.lastOrNull()?.createdAt ?: 0L
+            val allNewer = newMessages.all { it.createdAt >= lastExistingTs }
+            val merged = if (allNewer) {
+                current + newMessages.sortedBy { it.createdAt }
+            } else {
+                (current + newMessages).sortedBy { it.createdAt }
+            }
+            currentMap + (groupId to merged)
         }
     }
 
@@ -1559,6 +1699,7 @@ class GroupManager(
         // previous relay and startInitialLoad() returns null — group silently never loads.
         loadingRegistry.clear()
         eventDeduplicator.clear()
+        messageIdIndex.clear()
     }
 
     /**
@@ -1624,11 +1765,16 @@ class GroupManager(
             }
 
             if (messages.isNotEmpty()) {
-                // Add to deduplicator and messages
+                // Add to deduplicator and persistent message index
                 messages.forEach { msg -> eventDeduplicator.tryAddSync(msg.id) }
+                val index = messageIdIndex.getOrPut(groupId) { mutableSetOf() }
                 _messages.update { current ->
                     val existing = current[groupId] ?: emptyList()
-                    val merged = (existing + messages).distinctBy { it.id }.sortedBy { it.createdAt }
+                    // Seed index from existing + new, dedup via index
+                    existing.forEach { index.add(it.id) }
+                    val newMsgs = messages.filter { index.add(it.id) }
+                    if (newMsgs.isEmpty() && existing.isNotEmpty()) return@update current
+                    val merged = (existing + newMsgs).sortedBy { it.createdAt }
                     current + (groupId to merged)
                 }
             }

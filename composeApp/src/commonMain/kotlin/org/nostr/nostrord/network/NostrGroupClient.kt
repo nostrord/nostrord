@@ -126,10 +126,8 @@ class NostrGroupClient(
     private val openSubscriptions = mutableSetOf<String>()
 
     companion object {
-        /** How often the heartbeat checks for stale connections. */
-        private const val HEARTBEAT_CHECK_INTERVAL_MS = 30_000L
-        /** If no frame arrives within this window, the connection is considered frozen. */
-        private const val HEARTBEAT_STALE_MS = 180_000L
+        private const val HEARTBEAT_CHECK_INTERVAL_MS = 20_000L
+        private const val HEARTBEAT_STALE_MS = 90_000L
     }
 
     fun getRelayUrl(): String = relayUrl
