@@ -15,21 +15,19 @@
     <link rel="dns-prefetch" href="https://purplepag.es">
     <link rel="preconnect" href="https://relay.damus.io" crossorigin>
 
-    <!-- TIER 1: Critical fonts - HIGH PRIORITY preload (blocks app render) -->
-    <!-- Latin (~560KB) + Emoji (~10.7MB) = ~11MB to show app -->
+    <!-- Tier 1: Latin (~560KB) — preload, gates render -->
     <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSans-Regular.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
     <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSans-Bold.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
-    <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoColorEmoji.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
 
-    <!-- TIER 2: Common fonts - prefetch (loads in background after critical) -->
-    <!-- CJK + RTL (~38MB) - starts loading after Tier 1 -->
+    <!-- Emoji + CJK + RTL — prefetch, loads in background -->
+    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoColorEmoji.ttf" as="fetch" type="font/ttf" crossorigin/>
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansJP-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansSC-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansKR-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansArabic-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansHebrew-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
 
-    <!-- TIER 3: Rare fonts - prefetch lowest priority (~2MB) -->
+    <!-- Tier 3: Rare scripts -->
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansThai-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansCherokee-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
     <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansSymbols-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
@@ -77,7 +75,7 @@
             .catch(err => console.warn('[SW] Registration failed:', err));
     }
 </script>
-<!-- Loading shell — visible immediately while WASM downloads/compiles (3-8s on mobile) -->
+<!-- Loading shell — visible until app canvas is painted -->
 <div id="loading-shell" style="
     position:fixed; inset:0; z-index:9999;
     display:flex; flex-direction:column;
@@ -95,29 +93,40 @@
 <style>@keyframes spin { to { transform: rotate(360deg) } }</style>
 <div id="composeApplication"></div>
 <script>
-// Remove loading shell when Compose renders its canvas
+function removeShell() {
+    const shell = document.getElementById('loading-shell');
+    if (!shell) return;
+    shell.style.transition = 'opacity 200ms';
+    shell.style.opacity = '0';
+    setTimeout(() => shell.remove(), 200);
+}
 const _obs = new MutationObserver(() => {
-    const canvas = document.querySelector('#composeApplication canvas');
-    if (canvas) {
-        document.getElementById('loading-shell')?.remove();
+    if (document.querySelector('#composeApplication[data-app-ready]')) {
         _obs.disconnect();
+        requestAnimationFrame(() => requestAnimationFrame(removeShell));
     }
 });
 _obs.observe(document.getElementById('composeApplication'),
-    { childList: true, subtree: true });
-// Fallback: remove shell after 30s regardless
+    { childList: true, subtree: true, attributes: true });
 setTimeout(() => document.getElementById('loading-shell')?.remove(), 30000);
 </script>
 <script type="module">
-    // Wait for crypto library specifically — don't wait for `load` event
-    // which blocks until ALL resources (including prefetched fonts) finish
+    // Wait for crypto library via defineProperty trap (no polling)
     await new Promise(resolve => {
         if (globalThis.nobleSecp256k1) return resolve();
-        const check = setInterval(() => {
-            if (globalThis.nobleSecp256k1) { clearInterval(check); resolve(); }
-        }, 10);
-        // Fallback: don't block app forever if crypto lib fails
-        setTimeout(() => { clearInterval(check); resolve(); }, 5000);
+        let _value;
+        Object.defineProperty(globalThis, 'nobleSecp256k1', {
+            configurable: true,
+            get() { return _value; },
+            set(v) {
+                _value = v;
+                Object.defineProperty(globalThis, 'nobleSecp256k1', {
+                    value: v, writable: true, configurable: true, enumerable: true
+                });
+                resolve();
+            }
+        });
+        setTimeout(resolve, 5000);
     });
 
     // ============================================
@@ -309,6 +318,18 @@ setTimeout(() => document.getElementById('loading-shell')?.remove(), 30000);
 
     const script = document.createElement('script');
     script.src = 'composeApp.js?v=__BUILD_VERSION__';
+    script.onerror = () => {
+        console.error('[Nostrord] Failed to load composeApp.js, retrying');
+        const retry = document.createElement('script');
+        retry.src = 'composeApp.js?v=' + Date.now();
+        retry.onerror = () => {
+            const shell = document.getElementById('loading-shell');
+            if (shell) {
+                shell.innerHTML = '<p style="color:#ED4245;font-size:16px">Failed to load app. Please refresh the page.</p>';
+            }
+        };
+        document.body.appendChild(retry);
+    };
     document.body.appendChild(script);
 </script>
 </body>

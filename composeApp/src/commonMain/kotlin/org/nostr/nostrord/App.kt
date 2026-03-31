@@ -8,9 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -142,9 +139,7 @@ fun App() {
     }
 }
 
-/**
- * Loading screen shown during bootstrap.
- */
+/** Plain background during bootstrap — HTML shell handles the spinner on web. */
 @Composable
 private fun LoadingScreen(modifier: Modifier = Modifier, message: String? = null) {
     Box(
@@ -153,16 +148,12 @@ private fun LoadingScreen(modifier: Modifier = Modifier, message: String? = null
             .background(NostrordColors.Background),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(color = NostrordColors.Primary)
-            if (message != null) {
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = message,
-                    color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
+        if (message != null) {
+            Text(
+                text = message,
+                color = NostrordColors.TextSecondary,
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
 }

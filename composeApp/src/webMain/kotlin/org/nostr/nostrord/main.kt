@@ -3,9 +3,8 @@ package org.nostr.nostrord
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
+import kotlinx.browser.document
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -48,19 +47,10 @@ private fun parseDeepLinkFromUrl() {
 }
 
 /**
- * Web entry point with PROGRESSIVE font loading for Canvas-based rendering.
- *
- * OPTIMIZATION: Uses tiered loading to show app faster:
- * - Tier 1 (Critical ~11MB): Latin + Emoji - App becomes usable immediately
- * - Tier 2 (Common ~38MB): CJK + RTL - Loads in background AFTER Tier 1
- * - Tier 3 (Rare ~2MB): Specialized scripts - Loads last
- *
- * This reduces perceived load time from ~50MB to ~11MB before app is visible.
- * IMPORTANT: Tier 2/3 fonts only start loading AFTER Tier 1 completes to prevent
- * mobile browsers from freezing due to too many concurrent downloads.
+ * Web entry point with tiered font loading for Canvas-based rendering.
+ * Tier 1 (Latin ~560KB) gates render; emoji/CJK/RTL load in background.
  *
  * See: https://github.com/JetBrains/compose-multiplatform/issues/3051
- * See: https://github.com/JetBrains/compose-multiplatform/issues/3967
  */
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
@@ -70,65 +60,44 @@ fun main() {
     }
 }
 
-/**
- * Progressive font loading with tiered priority.
- * Uses conditional composition to truly defer Tier 2/3 loading.
- */
 @OptIn(ExperimentalResourceApi::class)
 @Composable
 private fun WebAppWithFontPreloading() {
-    // ========== TIER 1: Critical fonts (Latin + Emoji) ==========
-    // These must load before showing the app (~11MB)
+    // Tier 1: Latin only (~560KB) — gates render
     val notoSansRegular = preloadFont(Res.font.NotoSans_Regular).value
     val notoSansBold = preloadFont(Res.font.NotoSans_Bold).value
     val notoColorEmoji = preloadFont(Res.font.NotoColorEmoji).value
 
-    // Track initialization state
     var tier1Registered by remember { mutableStateOf(false) }
-
-    // Track which tier we're loading (for sequential loading)
-    var currentTier by remember { mutableIntStateOf(1) }
-
     val fontFamilyResolver = LocalFontFamilyResolver.current
+    val tier1Ready = notoSansRegular != null && notoSansBold != null
 
-    // Check if Tier 1 (critical) fonts are ready
-    val tier1Ready = notoSansRegular != null && notoSansBold != null && notoColorEmoji != null
-
-    // Register Tier 1 fonts and show app immediately
-    LaunchedEffect(notoSansRegular, notoSansBold, notoColorEmoji) {
-        if (notoSansRegular != null && notoSansBold != null && notoColorEmoji != null) {
-            // Register critical fonts first
+    LaunchedEffect(notoSansRegular, notoSansBold) {
+        if (notoSansRegular != null && notoSansBold != null) {
             fontFamilyResolver.preload(FontFamily(listOf(notoSansRegular, notoSansBold)))
-            fontFamilyResolver.preload(FontFamily(listOf(notoColorEmoji)))
-
-            // Set initial font family with just Tier 1
-            AppFonts.setDefaultFontFamily(
-                FontFamily(listOf(notoSansRegular, notoSansBold, notoColorEmoji))
-            )
+            AppFonts.setDefaultFontFamily(FontFamily(listOf(notoSansRegular, notoSansBold)))
             tier1Registered = true
-            currentTier = 2
         }
     }
 
-    // ========== DEFERRED LOADING: Tier 2 & 3 ==========
-    // Only compose (and thus start loading) when previous tier completes
-    // This uses conditional composition to truly defer the preloadFont calls
-
-    // Tier 2 fonts - only start loading when tier1Registered is true
-    val tier2Fonts = if (tier1Registered) {
-        Tier2Fonts()
-    } else {
-        null
+    // Emoji loads in parallel, registered when ready (doesn't gate render)
+    LaunchedEffect(notoColorEmoji, tier1Registered) {
+        if (tier1Registered && notoColorEmoji != null) {
+            fontFamilyResolver.preload(FontFamily(listOf(notoColorEmoji)))
+            AppFonts.setDefaultFontFamily(
+                FontFamily(buildList {
+                    notoSansRegular?.let { add(it) }
+                    notoSansBold?.let { add(it) }
+                    add(notoColorEmoji)
+                })
+            )
+        }
     }
 
-    // Tier 3 fonts - only start loading when Tier 2 is complete
-    val tier3Fonts = if (tier2Fonts?.allLoaded == true) {
-        Tier3Fonts()
-    } else {
-        null
-    }
+    // Tier 2/3: deferred via conditional composition
+    val tier2Fonts = if (tier1Registered) Tier2Fonts() else null
+    val tier3Fonts = if (tier2Fonts?.allLoaded == true) Tier3Fonts() else null
 
-    // Register Tier 2 fonts as they load
     LaunchedEffect(tier2Fonts) {
         tier2Fonts?.let { fonts ->
             val loadedFonts = buildList {
@@ -147,7 +116,6 @@ private fun WebAppWithFontPreloading() {
         }
     }
 
-    // Register Tier 3 fonts as they load
     LaunchedEffect(tier3Fonts) {
         tier3Fonts?.let { fonts ->
             val loadedFonts = buildList {
@@ -171,19 +139,14 @@ private fun WebAppWithFontPreloading() {
         }
     }
 
-    // Show app once Tier 1 is ready (instead of waiting for all ~50MB)
     if (tier1Ready && tier1Registered) {
         App()
-    } else {
-        // Show loading indicator only for critical fonts
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color(0xFF1E1F22)),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator(color = Color(0xFF5865F2))
+        LaunchedEffect(Unit) {
+            document.getElementById("composeApplication")
+                ?.setAttribute("data-app-ready", "true")
         }
+    } else {
+        Box(Modifier.fillMaxSize().background(Color(0xFF1E1F22)))
     }
 }
 

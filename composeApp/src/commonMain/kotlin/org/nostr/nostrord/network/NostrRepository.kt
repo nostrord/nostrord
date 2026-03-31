@@ -267,6 +267,10 @@ class NostrRepository(
                 unreadManager.initialize(pubkey)
             }
             initializeOutboxModel()
+
+            // Local data loaded — show UI while connect() runs in the background
+            _isInitialized.value = true
+
             connect(primaryRelay)
             if (pubkey != null) {
                 requestUserMetadata(setOf(pubkey))
@@ -275,9 +279,9 @@ class NostrRepository(
             // Pool relays are known but NOT connected — they connect lazily when the
             // user switches to them via switchRelay(). Pre-population above already
             // makes them visible in the relay rail.
+        } else {
+            _isInitialized.value = true
         }
-
-        _isInitialized.value = true
 
         // Periodically refresh live group subscriptions so relays that drop idle subs
         // (e.g. pyramid.fiatjaf.com) don't permanently stall message delivery.

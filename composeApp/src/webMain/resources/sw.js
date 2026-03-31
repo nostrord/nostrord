@@ -25,6 +25,7 @@ const PRECACHE_URLS = [
     'styles.css',
     'aes-js.min.js',
     'noble-crypto.min.js',
+    'composeApp.js',
 ];
 
 // Install event - precache critical resources
@@ -182,22 +183,24 @@ async function staleWhileRevalidate(request, cacheName) {
     return cachedResponse || fetchPromise;
 }
 
-// Network-first strategy (for HTML and dynamic content)
+// Network-first with 5s timeout fallback to cache
 async function networkFirst(request, cacheName) {
     const cache = await caches.open(cacheName);
 
     try {
-        const networkResponse = await fetch(request);
+        const networkPromise = fetch(request);
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Network timeout')), 5000)
+        );
+        const networkResponse = await Promise.race([networkPromise, timeoutPromise]);
         if (networkResponse.ok) {
             cache.put(request, networkResponse.clone());
         }
         return networkResponse;
     } catch (error) {
-        const cachedResponse = await cache.match(request);
-        if (cachedResponse) {
-            return cachedResponse;
-        }
-        throw error;
+        const cachedResponse = await cache.match(request, { ignoreSearch: true });
+        if (cachedResponse) return cachedResponse;
+        return await fetch(request);
     }
 }
 
