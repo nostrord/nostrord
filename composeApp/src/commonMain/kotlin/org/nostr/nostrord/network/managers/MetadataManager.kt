@@ -22,6 +22,9 @@ class MetadataManager(
     private val outboxManager: OutboxManager,
     private val scope: CoroutineScope
 ) {
+    /** Set by NostrRepository so batchFetch can reconnect bootstrap relays when all are offline. */
+    var messageHandler: ((String, NostrGroupClient) -> Unit)? = null
+
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
@@ -79,16 +82,13 @@ class MetadataManager(
             .filter { it !in nip29Relays }
 
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
-            // Only request pubkeys we still don't have.
             val missing = pubkeys.filter { metadataFetchedAt.get(it) == null }
             if (missing.isEmpty()) return
 
-            // Send one batched REQ per connected relay (all missing authors at once).
-            val sent = candidates.count { relayUrl ->
+            var sent = candidates.count { relayUrl ->
                 try {
                     val client = connectionManager.getClientForRelay(relayUrl)
                     if (client != null && client.isConnected()) {
-                        // Batch into chunks of BATCH_SIZE to stay within relay filter limits.
                         missing.chunked(BATCH_SIZE).forEach { chunk ->
                             client.requestMetadata(chunk)
                         }
@@ -97,8 +97,26 @@ class MetadataManager(
                 } catch (_: Exception) { false }
             }
 
+            // All bootstrap relays offline — try to reconnect one before giving up.
+            if (sent == 0 && attempt == 0) {
+                val handler = messageHandler
+                if (handler != null) {
+                    for (relayUrl in candidates) {
+                        try {
+                            val client = connectionManager.getOrConnectRelay(relayUrl, handler)
+                            if (client != null && client.isConnected()) {
+                                missing.chunked(BATCH_SIZE).forEach { chunk ->
+                                    client.requestMetadata(chunk)
+                                }
+                                sent = 1
+                                break
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
             if (sent > 0) {
-                // Wait for responses — short on first attempt, longer on retry.
                 delay(if (attempt == 0) 2_000L else 3_500L)
                 if (pubkeys.all { metadataFetchedAt.get(it) != null }) return
             } else if (attempt < MAX_FETCH_ATTEMPTS - 1) {
@@ -295,6 +313,7 @@ class MetadataManager(
     fun hasMetadata(pubkey: String): Boolean = metadataCache.containsKey(pubkey)
 
     fun isStale(pubkey: String): Boolean {
+        if (!metadataCache.containsKey(pubkey)) return true
         val fetchedAt = metadataFetchedAt.get(pubkey) ?: return true
         return (epochMillis() - fetchedAt) > STALE_THRESHOLD_MS
     }

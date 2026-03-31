@@ -189,6 +189,8 @@ class NostrRepository(
             reconnectDroppedNip29PoolRelays()
         }
 
+        metadataManager.messageHandler = { msg, client -> enqueueToRelayPipeline(msg, client) }
+
         connectionManager.loadSavedRelay()
 
         // Deep link relay from URL query params (web) — merge into relay list
@@ -408,7 +410,12 @@ class NostrRepository(
         outboxManager.initialize(
             pubKey = pubKey,
             messageHandler = { msg, client -> enqueueToRelayPipeline(msg, client) },
-            onDiscoveryComplete = { _isDiscoveringRelays.value = false }
+            onDiscoveryComplete = {
+                _isDiscoveringRelays.value = false
+                // Track bootstrap relays for reconnection so metadata fetches
+                // keep working if a bootstrap relay drops mid-session.
+                connectedPoolRelays.addAll(outboxManager.bootstrapRelays)
+            }
         )
     }
 
