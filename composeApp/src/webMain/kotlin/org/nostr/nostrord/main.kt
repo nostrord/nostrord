@@ -12,6 +12,14 @@ import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.window.ComposeViewport
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.memory.MemoryCache
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.js.Js
+import io.ktor.client.plugins.HttpRedirect
+import io.ktor.client.plugins.HttpTimeout
 import nostrord.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.preloadFont
@@ -54,6 +62,29 @@ private fun parseDeepLinkFromUrl() {
  */
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
+    SingletonImageLoader.setSafe { context ->
+        val httpClient = HttpClient(Js) {
+            install(HttpTimeout) {
+                connectTimeoutMillis = 5_000
+                requestTimeoutMillis = 15_000
+                socketTimeoutMillis = 10_000
+            }
+            install(HttpRedirect) {
+                checkHttpMethod = false
+            }
+        }
+        ImageLoader.Builder(context)
+            .components {
+                add(KtorNetworkFetcherFactory(httpClient))
+            }
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizeBytes(64L * 1024 * 1024)
+                    .build()
+            }
+            .build()
+    }
+
     parseDeepLinkFromUrl()
     ComposeViewport {
         WebAppWithFontPreloading()

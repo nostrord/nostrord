@@ -1195,6 +1195,9 @@ class NostrRepository(
     // Groups whose subscriptions were closed by the relay (e.g. auth-required)
     private val closedGroupSubscriptions = mutableSetOf<String>()
 
+    // Message IDs collected per msg_ subscription, used to fetch reactions after EOSE.
+    private val pendingReactionFetch = mutableMapOf<String, MutableList<String>>()
+
     // Pool relay URLs that have been actively connected during this session (were primary at
     // some point or were reconnected). Only these are eligible for reconnection on drop.
     private val connectedPoolRelays = mutableSetOf<String>()
@@ -1318,15 +1321,27 @@ class NostrRepository(
                     if (subId.startsWith("mux_chat_")) {
                         detectAndFillGaps(client.getRelayUrl())
                     }
+                    // Fetch reactions for message IDs received in this msg_ subscription
+                    if (subId.startsWith("msg_")) {
+                        val messageIds = pendingReactionFetch.remove(subId)
+                        if (!messageIds.isNullOrEmpty()) {
+                            try {
+                                val reactSubId = client.requestReactionsForMessages(messageIds)
+                                // Auto-close the reactions sub after EOSE
+                                if (reactSubId != null) {
+                                    // Will be closed when its own EOSE arrives via reactions_ prefix
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
                     // Close one-shot subs after EOSE so the relay slot is freed.
-                    // These are fire-and-forget: once EOSE arrives the relay has sent
-                    // the latest state — keeping the sub open just wastes a slot.
                     if (subId.startsWith("meta_") ||
                         subId.startsWith("admins_") ||
                         subId.startsWith("members_") ||
                         subId.startsWith("metadata_") ||
                         subId.startsWith("e_") ||
                         subId.startsWith("a_") ||
+                        subId.startsWith("reactions_") ||
                         subId.startsWith("event_")) {
                         try { client.send("""["CLOSE","$subId"]""") } catch (_: Exception) {}
                     }
@@ -1441,6 +1456,10 @@ class NostrRepository(
                             scope.launch {
                                 requestUserMetadata(setOf(senderPubkey))
                             }
+                        }
+                        // Track message ID for reaction fetch after EOSE
+                        if (subId.startsWith("msg_") && message.id.isNotBlank()) {
+                            pendingReactionFetch.getOrPut(subId) { mutableListOf() }.add(message.id)
                         }
                     }
                 }

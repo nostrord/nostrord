@@ -163,6 +163,10 @@ class GroupManager(
         val reactors: List<String> // List of pubkeys who reacted with this emoji
     )
 
+    // Global emoji shortcode → URL cache, populated from every emoji tag we see.
+    // Used as fallback when a kind-7 reaction event omits the emoji tag.
+    private val emojiUrlCache = mutableMapOf<String, String>()
+
     // Reactions: messageId -> (emoji -> ReactionInfo)
     private val _reactions = MutableStateFlow<Map<String, Map<String, ReactionInfo>>>(emptyMap())
     val reactions: StateFlow<Map<String, Map<String, ReactionInfo>>> = _reactions.asStateFlow()
@@ -268,7 +272,11 @@ class GroupManager(
     fun getGroupIdsForMux(relayUrl: String): List<String> {
         val joined = _joinedGroupsByRelay.value[relayUrl] ?: emptySet()
         val loaded = _messages.value.keys.filter { groupId -> getRelayForGroup(groupId) == relayUrl }
-        return (joined + loaded).distinct()
+        val opened = _openedGroupIds.value.filter { groupId ->
+            val relay = getRelayForGroup(groupId)
+            relay == relayUrl || (relay == null && relayUrl == currentRelayUrl)
+        }
+        return (joined + loaded + opened).distinct()
     }
 
     /**
@@ -1161,11 +1169,18 @@ class GroupManager(
 
         return try {
             val groupRelayUrl = getRelayForGroup(groupId) ?: ""
-            val tags = listOf(
-                listOf("h", groupId, groupRelayUrl),
-                listOf("e", targetEventId, "", "", targetPubkey),
-                listOf("p", targetPubkey)
-            )
+            val tags = buildList {
+                add(listOf("h", groupId, groupRelayUrl))
+                add(listOf("e", targetEventId, "", "", targetPubkey))
+                add(listOf("p", targetPubkey))
+                // Include emoji tag for custom emojis (NIP-30) so other clients can resolve the URL
+                val shortcode = emoji.trim(':')
+                if (emoji.startsWith(":") && emoji.endsWith(":") && shortcode.isNotEmpty()) {
+                    emojiUrlCache[shortcode]?.let { url ->
+                        add(listOf("emoji", shortcode, url))
+                    }
+                }
+            }
 
             val event = Event(
                 pubkey = pubKey,
@@ -1494,6 +1509,17 @@ class GroupManager(
 
         val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
 
+        // Populate global emoji cache from message emoji tags and backfill
+        // any existing reactions that are missing their image URL.
+        var newEmojis = false
+        for (tag in message.tags) {
+            if (tag.size >= 3 && tag[0] == "emoji" && tag[1] !in emojiUrlCache) {
+                emojiUrlCache[tag[1]] = tag[2]
+                newEmojis = true
+            }
+        }
+        if (newEmojis) backfillReactionEmojiUrls()
+
         // Update live cursor so reconnects resume from the right timestamp.
         // Fire-and-forget: cursor updates are non-critical and should not block message processing.
         if (relayUrl != null && message.createdAt > 0L) {
@@ -1624,16 +1650,59 @@ class GroupManager(
 
         if (reactorPubkey in currentReactors) return null // Already reacted with this emoji
 
-        // Update with new reactor, preserving or updating the emoji URL
+        val shortcode = emoji.trim(':')
+        val resolvedUrl = reaction.emojiUrl
+            ?: currentInfo?.emojiUrl
+            ?: emojiUrlCache[shortcode]
+            ?: findEmojiUrlInMessages(shortcode)
+
+        val isNewCacheEntry = resolvedUrl != null && shortcode !in emojiUrlCache
+        if (resolvedUrl != null) {
+            emojiUrlCache[shortcode] = resolvedUrl
+        }
+
         val updatedInfo = ReactionInfo(
-            emojiUrl = reaction.emojiUrl ?: currentInfo?.emojiUrl, // Keep existing URL if new one is null
+            emojiUrl = resolvedUrl,
             reactors = currentReactors + reactorPubkey
         )
         val updatedEmojiMap = currentReactions + (emoji to updatedInfo)
 
         _reactions.value = _reactions.value + (messageId to updatedEmojiMap)
 
+        if (isNewCacheEntry) backfillReactionEmojiUrls()
+
         return reactorPubkey
+    }
+
+    private fun findEmojiUrlInMessages(shortcode: String): String? {
+        for ((_, messages) in _messages.value) {
+            for (msg in messages) {
+                for (tag in msg.tags) {
+                    if (tag.size >= 3 && tag[0] == "emoji" && tag[1] == shortcode) {
+                        emojiUrlCache[shortcode] = tag[2]
+                        return tag[2]
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun backfillReactionEmojiUrls() {
+        val current = _reactions.value
+        var changed = false
+        val updated = current.mapValues { (_, emojiMap) ->
+            emojiMap.mapValues { (emoji, info) ->
+                if (info.emojiUrl == null) {
+                    val cached = emojiUrlCache[emoji.trim(':')]
+                    if (cached != null) {
+                        changed = true
+                        info.copy(emojiUrl = cached)
+                    } else info
+                } else info
+            }
+        }
+        if (changed) _reactions.value = updated
     }
 
     /**

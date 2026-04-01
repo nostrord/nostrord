@@ -47,6 +47,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
+import coil3.SingletonImageLoader
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
@@ -56,6 +57,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.isAnimatedImageUrl
 import org.nostr.nostrord.utils.isBlockedImageHost
+import org.nostr.nostrord.utils.proxyViaWeserv
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
@@ -451,6 +453,24 @@ private fun InlineContentWithEmojis(
     onMentionClick: (String) -> Unit = {},
     onHashtagClick: (String) -> Unit = {}
 ) {
+    val context = LocalPlatformContext.current
+    val emojiUrls = remember(parts) {
+        parts.filterIsInstance<CustomEmojiPart>().map { it.imageUrl }.distinct()
+    }
+    LaunchedEffect(emojiUrls) {
+        if (emojiUrls.isEmpty()) return@LaunchedEffect
+        val loader = SingletonImageLoader.get(context)
+        emojiUrls.forEach { url ->
+            val request = ImageRequest.Builder(context)
+                .data(getImageUrl(url))
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .size(Size(44, 44))
+                .build()
+            loader.enqueue(request)
+        }
+    }
+
     // Build inline content map for custom emojis with unique sequential IDs
     val inlineContentMap = remember(parts) {
         var emojiIndex = 0
@@ -834,8 +854,15 @@ private fun SafeEmojiImage(
         !isBlockedImageHost(imageUrl)
     }
 
-    // Track error state
+    // Track error state and CORS proxy retry
+    var useProxy by remember(imageUrl) { mutableStateOf(false) }
     var showFallback by remember(imageUrl) { mutableStateOf(!isValidUrl) }
+
+    val effectiveUrl = if (useProxy) {
+        proxyViaWeserv(imageUrl, width = 44, height = 44)
+    } else {
+        imageUrl
+    }
 
     if (showFallback) {
         // Text fallback - always safe
@@ -854,10 +881,10 @@ private fun SafeEmojiImage(
         val context = LocalPlatformContext.current
 
         // Build image request with safety constraints
-        val imageRequest = remember(imageUrl, context) {
+        val imageRequest = remember(effectiveUrl, context) {
             runCatching {
                 ImageRequest.Builder(context)
-                    .data(getImageUrl(imageUrl))
+                    .data(getImageUrl(effectiveUrl))
                     .crossfade(false) // Disable animations for stability
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
@@ -884,7 +911,11 @@ private fun SafeEmojiImage(
                 modifier = Modifier.size(22.dp),
                 onState = { state: AsyncImagePainter.State ->
                     if (state is AsyncImagePainter.State.Error) {
-                        showFallback = true
+                        if (!useProxy) {
+                            useProxy = true
+                        } else {
+                            showFallback = true
+                        }
                     }
                 }
             )
@@ -1704,6 +1735,25 @@ private fun QuotedInlineContentGroup(
     // Check if this group contains any custom emojis
     val hasCustomEmojis = remember(parts) {
         parts.any { it is CustomEmojiPart }
+    }
+
+    val quotedContext = LocalPlatformContext.current
+    val quotedEmojiUrls = remember(parts) {
+        if (!hasCustomEmojis) emptyList()
+        else parts.filterIsInstance<CustomEmojiPart>().map { it.imageUrl }.distinct()
+    }
+    LaunchedEffect(quotedEmojiUrls) {
+        if (quotedEmojiUrls.isEmpty()) return@LaunchedEffect
+        val loader = SingletonImageLoader.get(quotedContext)
+        quotedEmojiUrls.forEach { url ->
+            val request = ImageRequest.Builder(quotedContext)
+                .data(getImageUrl(url))
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .size(Size(36, 36))
+                .build()
+            loader.enqueue(request)
+        }
     }
 
     // Build inline content map for custom emojis with unique sequential IDs

@@ -55,9 +55,6 @@ private val NATIVE_HOSTS = listOf(
 fun optimizeImageUrl(url: String): String {
     val lower = url.lowercase()
 
-    // Never proxy animated images — weserv converts GIFs to static webp
-    if (isAnimatedImageUrl(url)) return url
-
     // Known hosts — no proxy needed
     if (NATIVE_HOSTS.any { lower.contains(it) }) return url
 
@@ -65,11 +62,26 @@ fun optimizeImageUrl(url: String): String {
     return proxyViaWeserv(url)
 }
 
-/** Proxies through wsrv.nl for resize. Encodes source URL to avoid param conflicts. */
-private fun proxyViaWeserv(url: String): String {
+/**
+ * Proxies through wsrv.nl for resize, preserving animation.
+ * Also usable as a CORS fallback for web targets.
+ */
+fun proxyViaWeserv(url: String, width: Int = CDN_MAX_WIDTH, height: Int? = null): String {
     val stripped = url.removePrefix("https://").removePrefix("http://")
     val encoded = stripped.replace("&", "%26").replace("?", "%3F")
-    return "https://images.weserv.nl/?url=${encoded}&w=${CDN_MAX_WIDTH}&fit=inside&output=webp"
+    val animated = isAnimatedImageUrl(url)
+    return buildString {
+        append("https://wsrv.nl/?url=")
+        append(encoded)
+        append("&w=").append(width)
+        if (height != null) append("&h=").append(height)
+        append("&fit=inside")
+        if (animated) {
+            append("&n=-1")
+        } else {
+            append("&output=webp")
+        }
+    }
 }
 
 /**

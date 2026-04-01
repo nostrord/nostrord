@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,9 +34,15 @@ import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
+import coil3.SingletonImageLoader
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import coil3.size.Size
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.proxyViaWeserv
 
 /**
  * Displays reaction badges for a message.
@@ -54,6 +61,24 @@ fun ReactionBadges(
     modifier: Modifier = Modifier
 ) {
     if (reactions.isEmpty()) return
+
+    val context = LocalPlatformContext.current
+    val emojiUrls = remember(reactions) {
+        reactions.values.mapNotNull { it.emojiUrl }.distinct()
+    }
+    LaunchedEffect(emojiUrls) {
+        if (emojiUrls.isEmpty()) return@LaunchedEffect
+        val loader = SingletonImageLoader.get(context)
+        emojiUrls.forEach { url ->
+            val request = ImageRequest.Builder(context)
+                .data(url)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .size(Size(36, 36))
+                .build()
+            loader.enqueue(request)
+        }
+    }
 
     FlowRow(
         modifier = modifier.padding(top = Spacing.xs),
@@ -175,22 +200,45 @@ private fun CustomEmojiImage(
     shortcode: String,
     size: Int = 18
 ) {
-    var loadState by remember { mutableStateOf<AsyncImagePainter.State?>(null) }
+    var useProxy by remember(url) { mutableStateOf(false) }
+    var showFallback by remember(url) { mutableStateOf(false) }
 
-    // Show fallback text if image fails to load
-    if (loadState is AsyncImagePainter.State.Error) {
+    val effectiveUrl = if (useProxy) {
+        proxyViaWeserv(url, width = size * 2, height = size * 2)
+    } else {
+        url
+    }
+
+    if (showFallback) {
         Text(
             text = ":$shortcode:",
             fontSize = 12.sp,
             color = NostrordColors.TextSecondary
         )
     } else {
+        val context = LocalPlatformContext.current
+        val imageRequest = remember(effectiveUrl, context) {
+            ImageRequest.Builder(context)
+                .data(effectiveUrl)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .diskCachePolicy(CachePolicy.ENABLED)
+                .size(Size(size * 2, size * 2))
+                .build()
+        }
         AsyncImage(
-            model = url,
+            model = imageRequest,
             contentDescription = shortcode,
             modifier = Modifier.size(size.dp),
             contentScale = ContentScale.Fit,
-            onState = { loadState = it }
+            onState = { state ->
+                if (state is AsyncImagePainter.State.Error) {
+                    if (!useProxy) {
+                        useProxy = true
+                    } else {
+                        showFallback = true
+                    }
+                }
+            }
         )
     }
 }

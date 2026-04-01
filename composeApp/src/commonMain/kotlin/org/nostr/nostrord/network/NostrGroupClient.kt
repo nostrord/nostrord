@@ -535,22 +535,15 @@ suspend fun requestGroupMessages(
 ): String {
     val subId = subscriptionId ?: "msg_${epochMillis()}"
 
-    // CHAT + ADMIN subscription: kinds that are paginated and count against the limit.
-    // Reactions (kind 7) and zaps (kind 9321) are covered by the relay-level mux_reactions sub
-    // so they are intentionally omitted here to preserve the per-group limit budget.
+    // Reactions (kind 7) and zaps (kind 9321) are excluded from the paginated
+    // subscription to preserve the per-group limit budget. They are fetched via
+    // the mux_reactions sub and the live subscription instead.
     val subscription = buildJsonArray {
         add("REQ")
         add(subId)
         add(buildJsonObject {
             put("kinds", buildJsonArray {
-                add(5)      // Deletion requests (NIP-09)
-                add(9)      // Chat messages (NIP-29)
-                add(9000)   // Group admin: add user (NIP-29)
-                add(9001)   // Group admin: remove user (NIP-29)
-                add(9002)   // Group admin: edit metadata (NIP-29)
-                add(9003)   // Group admin: delete event (NIP-29)
-                add(9021)   // Join request
-                add(9022)   // Leave request
+                add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
             })
             put("#h", buildJsonArray {
                 add(groupId)
@@ -570,6 +563,26 @@ suspend fun requestGroupMessages(
     }.toString()
 
     send(subscription)  // may throw — caller (GroupManager) catches and handles via state machine
+    return subId
+}
+
+/**
+ * Fetch reactions (kind 7) for specific message IDs.
+ * Chachi-style approach: after loading messages, request reactions by event ID
+ * so they don't consume the paginated message limit.
+ */
+suspend fun requestReactionsForMessages(messageIds: List<String>): String? {
+    if (messageIds.isEmpty()) return null
+    val subId = "reactions_${epochMillis()}"
+    val subscription = buildJsonArray {
+        add("REQ")
+        add(subId)
+        add(buildJsonObject {
+            put("kinds", buildJsonArray { add(7); add(9321) })
+            put("#e", buildJsonArray { messageIds.forEach { add(it) } })
+        })
+    }.toString()
+    send(subscription)
     return subId
 }
 
@@ -674,7 +687,7 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         add(subId)
         add(buildJsonObject {
             putJsonArray("kinds") {
-                add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
+                add(5); add(7); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022); add(9321)
             }
             put("#h", buildJsonArray { add(groupId) })
             put("since", since)
