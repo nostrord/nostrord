@@ -84,15 +84,10 @@ fun OptimizedSmallAvatar(
     val density = LocalDensity.current
     val sizeCategory = size.toSizeCategory()
 
-    // Calculate request size: higher multiplier for smaller targets
-    // This gives Coil more pixels to work with during downscaling
-    val requestMultiplier = when (sizeCategory) {
-        AvatarSizeCategory.LARGE -> 2
-        AvatarSizeCategory.MEDIUM -> 3
-        AvatarSizeCategory.SMALL -> 3
-        AvatarSizeCategory.TINY -> 2 // Will use fallback anyway
-    }
-    val requestSizePx = with(density) { (size * requestMultiplier).roundToPx() }
+    // Use a single canonical request size (128px) for all avatar sizes so Coil
+    // shares one memory/disk cache entry per URL. 128px at 2x density covers up to
+    // 64dp avatars with good quality, and Compose downscales at render time.
+    val requestSizePx = 128
 
     // Edge color for subtle border at smaller sizes
     val edgeColor = Color.Black.copy(

@@ -37,6 +37,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Size
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.isAnimatedImageUrl
@@ -128,6 +129,7 @@ fun ImageViewerModal(
                         model = ImageRequest.Builder(context)
                             .data(getImageUrl(imageUrl))
                             .crossfade(true)
+                            .size(Size(1920, 1920)) // Cap decode size — display max is 1200dp
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .build(),

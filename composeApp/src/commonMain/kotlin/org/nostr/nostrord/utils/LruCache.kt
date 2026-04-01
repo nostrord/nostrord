@@ -1,94 +1,100 @@
 package org.nostr.nostrord.utils
 
 /**
- * Thread-safe LRU (Least Recently Used) cache implementation.
+ * LRU (Least Recently Used) cache using a doubly-linked list + HashMap for O(1) operations.
  *
- * When the cache exceeds maxSize, the least recently accessed entries
- * are evicted to make room for new entries.
+ * KMP-compatible: does not rely on java.util.LinkedHashMap's removeEldestEntry which is
+ * unavailable on JS/WasmJS targets.
  *
  * @param maxSize Maximum number of entries to keep in the cache
  */
 class LruCache<K, V>(
     private val maxSize: Int
 ) {
-    // Using a simple map + insertion order tracking for KMP compatibility
-    private val cache = mutableMapOf<K, V>()
-    private val accessOrder = mutableListOf<K>()
+    private class Node<K, V>(
+        val key: K,
+        var value: V,
+        var prev: Node<K, V>? = null,
+        var next: Node<K, V>? = null
+    )
 
-    /**
-     * Get a value from the cache (updates access order)
-     */
+    // Sentinel nodes — avoids null checks in link/unlink
+    private val head = Node<K, V>(null as K, null as V) // most recent
+    private val tail = Node<K, V>(null as K, null as V) // least recent
+    private val map = HashMap<K, Node<K, V>>(maxSize + 1)
+
+    init {
+        head.next = tail
+        tail.prev = head
+    }
+
+    private fun unlink(node: Node<K, V>) {
+        node.prev!!.next = node.next
+        node.next!!.prev = node.prev
+    }
+
+    private fun addFirst(node: Node<K, V>) {
+        node.next = head.next
+        node.prev = head
+        head.next!!.prev = node
+        head.next = node
+    }
+
+    /** Get a value from the cache (promotes to most-recently-used). O(1). */
     fun get(key: K): V? {
-        val value = cache[key]
-        if (value != null) {
-            // Move to end of access order (most recently used)
-            accessOrder.remove(key)
-            accessOrder.add(key)
-        }
-        return value
+        val node = map[key] ?: return null
+        unlink(node)
+        addFirst(node)
+        return node.value
     }
 
-    /**
-     * Put a value in the cache
-     */
+    /** Put a value in the cache, evicting the LRU entry if over capacity. O(1). */
     fun put(key: K, value: V) {
-        if (cache.containsKey(key)) {
-            accessOrder.remove(key)
+        val existing = map[key]
+        if (existing != null) {
+            unlink(existing)
+            existing.value = value
+            addFirst(existing)
+        } else {
+            val node = Node(key, value)
+            map[key] = node
+            addFirst(node)
+            if (map.size > maxSize) {
+                val lru = tail.prev!!
+                unlink(lru)
+                map.remove(lru.key)
+            }
         }
-        cache[key] = value
-        accessOrder.add(key)
-        evictIfNeeded()
     }
 
-    /**
-     * Put all entries from another map
-     */
+    /** Put all entries from another map. */
     fun putAll(entries: Map<K, V>) {
-        entries.forEach { (key, value) ->
-            put(key, value)
-        }
+        entries.forEach { (key, value) -> put(key, value) }
     }
 
-    /**
-     * Check if a key exists
-     */
-    fun containsKey(key: K): Boolean = cache.containsKey(key)
+    /** Check if a key exists (does NOT promote access order). */
+    fun containsKey(key: K): Boolean = map.containsKey(key)
 
-    /**
-     * Remove a key from the cache
-     */
+    /** Remove a key from the cache. */
     fun remove(key: K): V? {
-        accessOrder.remove(key)
-        return cache.remove(key)
+        val node = map.remove(key) ?: return null
+        unlink(node)
+        return node.value
     }
 
-    /**
-     * Get current size
-     */
-    fun size(): Int = cache.size
+    /** Get current size. */
+    fun size(): Int = map.size
 
-    /**
-     * Clear the cache
-     */
+    /** Clear the cache. */
     fun clear() {
-        cache.clear()
-        accessOrder.clear()
+        map.clear()
+        head.next = tail
+        tail.prev = head
     }
 
-    /**
-     * Get all entries as an immutable map
-     */
-    fun toMap(): Map<K, V> = cache.toMap()
+    /** Get all entries as an immutable map. */
+    fun toMap(): Map<K, V> = map.mapValues { it.value.value }
 
-    /**
-     * Get all keys
-     */
-    fun keys(): Set<K> = cache.keys.toSet()
-
-    private fun evictIfNeeded() {
-        while (cache.size > maxSize && accessOrder.isNotEmpty()) {
-            val oldest = accessOrder.removeAt(0)
-            cache.remove(oldest)
-        }
-    }
+    /** Get all keys. */
+    fun keys(): Set<K> = map.keys.toSet()
 }

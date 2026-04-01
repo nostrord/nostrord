@@ -32,14 +32,15 @@ import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.ByteBoundedImageCache
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.getImageUrl
 
 /**
- * Process-level LRU cache for decoded static image bitmaps.
- * WasmJS is single-threaded so no synchronization is needed.
+ * Process-level LRU cache for decoded static image bitmaps, bounded at 80 MB.
+ * Prevents OOM from accumulating large decoded bitmaps in Wasm heap.
  */
-private val staticImageCache = LruCache<String, ImageBitmap>(30)
+private val staticImageCache = ByteBoundedImageCache(80L * 1024 * 1024)
 
 /** URLs that have already failed — avoids repeated network requests for broken images. */
 private val failedUrls = LruCache<String, Boolean>(100)

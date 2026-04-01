@@ -9,6 +9,11 @@ import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 
 actual fun createHttpClient(): HttpClient = HttpClient(Js) {
+    install(HttpTimeout) {
+        connectTimeoutMillis = 10_000
+        requestTimeoutMillis = 30_000
+        socketTimeoutMillis = 15_000
+    }
     install(WebSockets)
     install(ContentNegotiation) {
         json(Json {

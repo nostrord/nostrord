@@ -11,7 +11,12 @@ import kotlinx.serialization.json.Json
 
 actual fun createHttpClient(): HttpClient = HttpClient(CIO) {
     engine {
-        requestTimeout = 15_000
+        requestTimeout = 0 // 0 required for WebSocket idle
+    }
+    install(HttpTimeout) {
+        connectTimeoutMillis = 10_000
+        requestTimeoutMillis = 30_000
+        socketTimeoutMillis = 15_000
     }
     install(WebSockets) {
         pingInterval = 20.seconds

@@ -1,5 +1,6 @@
 package org.nostr.nostrord.ui.components.chat
 
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -34,7 +35,7 @@ actual fun StaticImage(
             .build(),
         contentDescription = "Image",
         contentScale = contentScale,
-        modifier = modifier,
+        modifier = modifier.clickable(onClick = onClick),
         onState = { state ->
             if (state is AsyncImagePainter.State.Error) {
                 onError()
