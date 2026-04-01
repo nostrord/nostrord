@@ -55,14 +55,19 @@ class MetadataManager(
     private val _cachedEvents = MutableStateFlow<Map<String, CachedEvent>>(emptyMap())
     val cachedEvents: StateFlow<Map<String, CachedEvent>> = _cachedEvents.asStateFlow()
 
-    fun requestUserMetadata(pubkeys: Set<String>, messageHandler: (String, NostrGroupClient) -> Unit) {
+    fun requestUserMetadata(
+        pubkeys: Set<String>,
+        messageHandler: (String, NostrGroupClient) -> Unit,
+        forceStale: Boolean = false
+    ) {
         if (pubkeys.isEmpty()) return
 
         scope.launch {
-            // Deduplicate: only fetch pubkeys not already cached or in-flight.
             val toFetch = inFlightMutex.withLock {
-                pubkeys.filter { it !in inFlightPubkeys && metadataFetchedAt.get(it) == null }
-                    .also { inFlightPubkeys.addAll(it) }
+                pubkeys.filter { pk ->
+                    pk !in inFlightPubkeys &&
+                        (metadataFetchedAt.get(pk) == null || (forceStale && isStale(pk)))
+                }.also { inFlightPubkeys.addAll(it) }
             }
             if (toFetch.isEmpty()) return@launch
 
@@ -75,6 +80,10 @@ class MetadataManager(
     }
 
     private suspend fun batchFetch(pubkeys: List<String>) {
+        // Record the fetch start so we can distinguish "fetched before this call"
+        // from "fetched during this call" for stale refresh scenarios.
+        val fetchStartedAt = epochMillis()
+
         val nip29Relays = SecureStorage.loadRelayList().toSet() +
             connectionManager.currentRelayUrl.value
 
@@ -82,7 +91,10 @@ class MetadataManager(
             .filter { it !in nip29Relays }
 
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
-            val missing = pubkeys.filter { metadataFetchedAt.get(it) == null }
+            val missing = pubkeys.filter { pk ->
+                val fetchedAt = metadataFetchedAt.get(pk)
+                fetchedAt == null || fetchedAt < fetchStartedAt
+            }
             if (missing.isEmpty()) return
 
             var sent = candidates.count { relayUrl ->
@@ -97,8 +109,8 @@ class MetadataManager(
                 } catch (_: Exception) { false }
             }
 
-            // All bootstrap relays offline — try to reconnect one before giving up.
-            if (sent == 0 && attempt == 0) {
+            // All bootstrap relays offline — try to reconnect one.
+            if (sent == 0) {
                 val handler = messageHandler
                 if (handler != null) {
                     for (relayUrl in candidates) {
@@ -118,7 +130,11 @@ class MetadataManager(
 
             if (sent > 0) {
                 delay(if (attempt == 0) 2_000L else 3_500L)
-                if (pubkeys.all { metadataFetchedAt.get(it) != null }) return
+                val allFresh = pubkeys.all { pk ->
+                    val at = metadataFetchedAt.get(pk)
+                    at != null && at >= fetchStartedAt
+                }
+                if (allFresh) return
             } else if (attempt < MAX_FETCH_ATTEMPTS - 1) {
                 delay(if (attempt == 0) 2_000L else 4_000L)
             }

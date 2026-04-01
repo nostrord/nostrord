@@ -190,6 +190,7 @@ class NostrRepository(
             resubscribeAllGroups(client)
             pendingEventManager?.onConnectionRestored()
             reconnectDroppedNip29PoolRelays()
+            scope.launch { refreshVisibleUserMetadata() }
         }
 
         metadataManager.messageHandler = { msg, client -> enqueueToRelayPipeline(msg, client) }
@@ -969,9 +970,29 @@ class NostrRepository(
     }
 
     // Metadata operations
+    private val metadataMessageHandler: (String, NostrGroupClient) -> Unit = { msg, client ->
+        handleRelayMessage(msg, client)
+    }
+
     override suspend fun requestUserMetadata(pubkeys: Set<String>) {
-        metadataManager.requestUserMetadata(pubkeys) { msg, client ->
-            handleRelayMessage(msg, client)
+        metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler)
+    }
+
+    private suspend fun refreshVisibleUserMetadata() {
+        // Wait for resubscribeAllGroups REQs to deliver events before collecting pubkeys.
+        // Without this delay, messages/members may still be empty from the previous session.
+        delay(3_000)
+
+        val openedGroups = groupManager.getOpenedGroupIds()
+        if (openedGroups.isEmpty()) return
+        val pubkeys = openedGroups.flatMap { groupId ->
+            val messagePubkeys = groupManager.messages.value[groupId]
+                ?.takeLast(50)?.map { it.pubkey } ?: emptyList()
+            val memberPubkeys = groupManager.getMembersForGroup(groupId)
+            messagePubkeys + memberPubkeys
+        }.toSet().filter { metadataManager.isStale(it) }.toSet()
+        if (pubkeys.isNotEmpty()) {
+            metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler, forceStale = true)
         }
     }
 
