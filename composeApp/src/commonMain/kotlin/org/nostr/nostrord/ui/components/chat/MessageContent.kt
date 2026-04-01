@@ -61,6 +61,7 @@ import org.nostr.nostrord.utils.proxyViaWeserv
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
+import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -1005,14 +1006,23 @@ private fun QuotedEventBlock(
             )
         }
         is Nip19.Entity.Naddr -> {
-            AddressableEvent(
-                identifier = entity.identifier,
-                pubkey = entity.pubkey,
-                kind = entity.kind,
-                relayHints = entity.relays,
-                onClick = onClick,
-                modifier = modifier
-            )
+            if (entity.kind == 39000) {
+                GroupLinkCard(
+                    groupId = entity.identifier,
+                    relayUrl = entity.relays.firstOrNull(),
+                    onNavigateToGroup = onNavigateToGroup,
+                    modifier = modifier
+                )
+            } else {
+                AddressableEvent(
+                    identifier = entity.identifier,
+                    pubkey = entity.pubkey,
+                    kind = entity.kind,
+                    relayHints = entity.relays,
+                    onClick = onClick,
+                    modifier = modifier
+                )
+            }
         }
         else -> {}
     }
@@ -2191,6 +2201,99 @@ private fun CashuContent(
                 style = NostrordTypography.Caption,
                 color = NostrordColors.TextLink
             )
+        }
+    }
+}
+
+/**
+ * Renders a NIP-29 group link (kind 39000 naddr) as a clickable card.
+ * Connects to the relay in background to fetch group metadata.
+ */
+@Composable
+private fun GroupLinkCard(
+    groupId: String,
+    relayUrl: String?,
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val repo = AppModule.nostrRepository
+    val groups by repo.groups.collectAsState()
+    val groupsByRelay by repo.groupsByRelay.collectAsState()
+
+    val groupMeta = groups.find { it.id == groupId }
+        ?: groupsByRelay.values.flatten().find { it.id == groupId }
+
+    LaunchedEffect(groupId, relayUrl) {
+        if (relayUrl != null && groupMeta?.name == null) {
+            repo.fetchGroupPreview(groupId, relayUrl)
+        }
+    }
+
+    val displayName = groupMeta?.name ?: groupId
+    val relayDisplay = relayUrl?.removePrefix("wss://")?.removePrefix("ws://")
+
+    DisableSelection {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(NostrordColors.Surface)
+                .clickable { onNavigateToGroup(groupId, groupMeta?.name, relayUrl) }
+                .pointerHoverIcon(PointerIcon.Hand)
+                .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            ) {
+                if (groupMeta?.picture != null) {
+                    val context = LocalPlatformContext.current
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(getImageUrl(groupMeta.picture))
+                            .crossfade(true)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        contentDescription = displayName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Jdenticon(value = groupId, size = 36.dp)
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = displayName,
+                    color = NostrordColors.TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                if (groupMeta?.about != null) {
+                    Text(
+                        text = groupMeta.about,
+                        color = NostrordColors.TextSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+                if (relayDisplay != null) {
+                    Text(
+                        text = relayDisplay,
+                        color = NostrordColors.TextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                }
+            }
         }
     }
 }

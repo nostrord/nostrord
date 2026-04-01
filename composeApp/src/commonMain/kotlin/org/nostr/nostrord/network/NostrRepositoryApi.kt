@@ -50,8 +50,10 @@ interface NostrRepositoryApi {
     val unreadCounts: StateFlow<Map<String, Int>>
     val userRelayList: StateFlow<List<Nip65Relay>>
     val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>>
-    /** Relay URLs present in the user's kind:10009 event. */
+    /** Relay URLs present as explicit "r" tags in the user's kind:10009 event. */
     val kind10009Relays: StateFlow<Set<String>>
+    /** Relay URLs from "group" tags that have no "r" tag — implicit, never persisted. */
+    val groupTagRelays: StateFlow<Set<String>>
 
     // --- Initialization ---
     fun forceInitialized()
@@ -109,6 +111,8 @@ interface NostrRepositoryApi {
     suspend fun requestGroupMembers(groupId: String)
     suspend fun requestGroupAdmins(groupId: String)
     suspend fun refreshGroupMetadata(groupId: String)
+    /** Connect to a relay in the background and fetch kind 39000 metadata for a group preview. */
+    suspend fun fetchGroupPreview(groupId: String, relayUrl: String)
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean
     suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null): Result<Unit>
     suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit>

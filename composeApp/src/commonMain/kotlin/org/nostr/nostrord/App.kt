@@ -186,8 +186,8 @@ private fun AuthenticatedApp(
     // Collect only the state needed at the root level.
     // Sidebar-specific state (groups, joinedGroups, unreadCounts, userMetadata) is
     // collected inside DesktopShell / MobileDrawerContent to avoid root recomposition.
-    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
+    val groupTagRelays by AppModule.nostrRepository.groupTagRelays.collectAsState()
     val isLoggedIn by AppModule.nostrRepository.isLoggedIn.collectAsState()
 
     // Get pubKey reactively (needed for persistScreenState)
@@ -233,8 +233,10 @@ private fun AuthenticatedApp(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val relayList = remember(currentRelayUrl, groupsByRelay) {
-        (groupsByRelay.keys.toList() + currentRelayUrl).filter { it.isNotBlank() }.distinct()
+    // Explicit "r" tag relays first, then implicit group-tag relays, then current.
+    val relayList = remember(currentRelayUrl, kind10009Relays, groupTagRelays) {
+        (kind10009Relays.toList() + groupTagRelays.toList() + currentRelayUrl)
+            .filter { it.isNotBlank() }.distinct()
     }
 
     LaunchedEffect(relayList) {

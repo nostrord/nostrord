@@ -359,11 +359,9 @@ class ConnectionManager(
         val oldPrimary = primaryClient
         val oldUrl = _currentRelayUrl.value
         if (oldPrimary != null && oldUrl != normalizedNewUrl) {
-            // CRITICAL: re-wire onConnectionLost to the pool handler before adding to pool.
-            // Without this, the demoted primary still fires handleConnectionLost() when it
-            // drops, which triggers reconnection of the WRONG relay (_currentRelayUrl, which
-            // is already the new relay). communities.nos.social was never reconnected because
-            // of this exact bug — it was in the pool with the primary's callback wired.
+            // Re-wire onConnectionLost to the pool handler before adding to pool.
+            // Without this, the demoted primary fires handleConnectionLost() on drop,
+            // which reconnects the WRONG relay (_currentRelayUrl, already the new one).
             oldPrimary.onConnectionLost = {
                 scope.launch {
                     poolMutex.withLock { relayPool.remove(oldUrl) }
@@ -401,7 +399,7 @@ class ConnectionManager(
             return true
         }
 
-        return connectPrimary(newRelayUrl, onMessage)
+        return connectPrimary(normalizedNewUrl, onMessage)
     }
 
     /**
@@ -431,10 +429,9 @@ class ConnectionManager(
         }
 
         // Create new connection outside the lock to avoid blocking other operations
-        // Note: NostrGroupClient receives the original URL for the actual WebSocket connection
         connStats?.onConnecting(normalized)
         return try {
-            val newClient = NostrGroupClient(relayUrl)
+            val newClient = NostrGroupClient(normalized)
             // Wire up pool-relay drop detection so we can attempt reconnection.
             newClient.onConnectionLost = {
                 scope.launch {

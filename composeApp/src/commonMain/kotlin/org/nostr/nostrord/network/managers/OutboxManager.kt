@@ -49,6 +49,19 @@ class OutboxManager(
     private val _kind10009Relays = MutableStateFlow<Set<String>>(emptySet())
     val kind10009Relays: StateFlow<Set<String>> = _kind10009Relays.asStateFlow()
 
+    /** Relay URLs that appear in "group" tags but NOT in "r" tags.
+     *  These are implicit/temporary — shown in the rail but never persisted. */
+    private val _groupTagRelays = MutableStateFlow<Set<String>>(emptySet())
+    val groupTagRelays: StateFlow<Set<String>> = _groupTagRelays.asStateFlow()
+
+    /** Recalculate implicit relays = allRelayGroups keys NOT in explicit "r" tags. */
+    private fun refreshGroupTagRelays() {
+        _groupTagRelays.value = allRelayGroups.keys
+            .map { it.normalizeRelayUrl() }
+            .filter { it.isNotBlank() && it !in _kind10009Relays.value }
+            .toSet()
+    }
+
     fun initialize(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit,
@@ -195,6 +208,7 @@ class OutboxManager(
             }
 
             _kind10009Relays.value = nip29Relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.toSet()
+            refreshGroupTagRelays()
             val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
 
             val message = buildJsonArray {
@@ -263,20 +277,17 @@ class OutboxManager(
             allRelayGroups = immutableRelayGroups
         }
 
-        // Merge "r" tag relays with relay URLs from "group" tags so relays that
-        // only appear in "group" tags (no corresponding "r" tag) are not lost.
-        val allNip29Relays = (explicitNip29Relays + newRelayGroups.keys).distinct()
-        _kind10009Relays.value = allNip29Relays.toSet()
+        val explicitSet = explicitNip29Relays.distinct().toSet()
+        _kind10009Relays.value = explicitSet
+        refreshGroupTagRelays()
 
-        val restoredRelays = allNip29Relays
-        var newlyRestoredRelays = emptyList<String>()
-        if (restoredRelays.isNotEmpty()) {
-            val existing = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }
-            if (restoredRelays.toSet() != existing.toSet()) {
-                SecureStorage.saveRelayList(restoredRelays)
-                newlyRestoredRelays = restoredRelays.filter { it !in existing }
-            }
+        val previouslySaved = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }.toSet()
+        if (explicitSet != previouslySaved) {
+            SecureStorage.saveRelayList(explicitSet.toList())
         }
+
+        val allNip29Relays = (explicitNip29Relays + newRelayGroups.keys).distinct()
+        val newlyRestoredRelays = allNip29Relays.filter { it !in previouslySaved }
 
         immutableRelayGroups.forEach { (relayUrl, groups) ->
             SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, groups)
@@ -448,6 +459,7 @@ class OutboxManager(
             allRelayGroups = allRelayGroups - normalized
         }
         _kind10009Relays.value = _kind10009Relays.value - normalized
+        refreshGroupTagRelays()
     }
 
     suspend fun hasJoinedGroupsData(): Boolean {

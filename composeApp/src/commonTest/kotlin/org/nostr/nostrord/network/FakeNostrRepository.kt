@@ -177,4 +177,6 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val loadingRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
     override val restrictedRelays: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
     override val kind10009Relays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    override val groupTagRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    override suspend fun fetchGroupPreview(groupId: String, relayUrl: String) {}
 }

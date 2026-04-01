@@ -121,11 +121,11 @@ class GroupManager(
     val loadingRelays: StateFlow<Set<String>> = _loadingRelays.asStateFlow()
 
     fun markRelayLoading(relayUrl: String) {
-        _loadingRelays.update { it + relayUrl }
+        _loadingRelays.update { it + relayUrl.normalizeRelayUrl() }
     }
 
     fun markRelayLoaded(relayUrl: String) {
-        _loadingRelays.update { it - relayUrl }
+        _loadingRelays.update { it - relayUrl.normalizeRelayUrl() }
     }
 
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
@@ -270,11 +270,12 @@ class GroupManager(
      * This is the canonical input to [sendMuxSubscriptions].
      */
     fun getGroupIdsForMux(relayUrl: String): List<String> {
-        val joined = _joinedGroupsByRelay.value[relayUrl] ?: emptySet()
-        val loaded = _messages.value.keys.filter { groupId -> getRelayForGroup(groupId) == relayUrl }
+        val normalized = relayUrl.normalizeRelayUrl()
+        val joined = _joinedGroupsByRelay.value[normalized] ?: emptySet()
+        val loaded = _messages.value.keys.filter { groupId -> getRelayForGroup(groupId)?.normalizeRelayUrl() == normalized }
         val opened = _openedGroupIds.value.filter { groupId ->
-            val relay = getRelayForGroup(groupId)
-            relay == relayUrl || (relay == null && relayUrl == currentRelayUrl)
+            val relay = getRelayForGroup(groupId)?.normalizeRelayUrl()
+            relay == normalized || (relay == null && normalized == currentRelayUrl)
         }
         return (joined + loaded + opened).distinct()
     }
@@ -937,13 +938,10 @@ class GroupManager(
                 findRelayForGroupListSubId(subscriptionId) ?: currentRelayUrl
             }
             if (relay != null) {
-                completeGroupLoadRelays.add(relay)
-                _loadingRelays.update { it - relay }
-                val count = _groupsByRelay.value[relay]?.size ?: 0
-                // Send mux subscriptions now that we know the group list.
-                // For auth-required relays, resubscribeAfterAuth will send/refresh them later.
-                refreshMuxSubscriptionsForRelay(relay)
-            } else {
+                val normalizedRelay = relay.normalizeRelayUrl()
+                completeGroupLoadRelays.add(normalizedRelay)
+                _loadingRelays.update { it - normalizedRelay }
+                refreshMuxSubscriptionsForRelay(normalizedRelay)
             }
             return true
         }
@@ -956,7 +954,6 @@ class GroupManager(
      * is derived from the relay URL.
      */
     private fun findRelayForGroupListSubId(subscriptionId: String): String? {
-        // Check all known relay URLs from _groupsByRelay
         return _groupsByRelay.value.keys.firstOrNull { relayUrl ->
             "group-list-${relayUrl.hashCode().toUInt()}" == subscriptionId
         }
@@ -1288,6 +1285,7 @@ class GroupManager(
      * so returning to this relay later is instant without a network re-fetch.
      */
     fun handleGroupMetadata(metadata: GroupMetadata, relayUrl: String) {
+        val normalized = relayUrl.normalizeRelayUrl()
         // ALL relays contribute to the unified group list regardless of which relay
         // is currently active. _groupsByRelay handles per-relay filtering for the UI.
         val wasNew = _groups.value.none { it.id == metadata.id }
@@ -1299,20 +1297,19 @@ class GroupManager(
             _groups.value.map { if (it.id == metadata.id) metadata else it }
         }
         _groupsByRelay.update { current ->
-            val relayGroups = current[relayUrl] ?: emptyList()
+            val relayGroups = current[normalized] ?: emptyList()
             val isNewForRelay = relayGroups.none { it.id == metadata.id }
             val updated = if (isNewForRelay) {
                 relayGroups + metadata
             } else {
                 relayGroups.map { if (it.id == metadata.id) metadata else it }
             }
-            current + (relayUrl to updated)
+            current + (normalized to updated)
         }
-        // Individual group additions are not logged — count is reported at EOSE.
         // Persist the updated group list for this relay so it survives app restarts
-        val relayGroups = _groupsByRelay.value[relayUrl] ?: emptyList()
+        val relayGroups = _groupsByRelay.value[normalized] ?: emptyList()
         try {
-            SecureStorage.saveGroupsForRelay(relayUrl, json.encodeToString(relayGroups))
+            SecureStorage.saveGroupsForRelay(normalized, json.encodeToString(relayGroups))
         } catch (_: Exception) {}
     }
 
@@ -1321,10 +1318,11 @@ class GroupManager(
      * Called on relay switch to show previously loaded groups instantly.
      */
     fun restoreGroupsForRelay(relayUrl: String) {
-        currentRelayUrl = relayUrl
+        val normalized = relayUrl.normalizeRelayUrl()
+        currentRelayUrl = normalized
         // Merge cached groups for the new relay into the unified live list.
         // State is additive: previously loaded groups from other relays are kept.
-        val cached = _groupsByRelay.value[relayUrl] ?: emptyList()
+        val cached = _groupsByRelay.value[normalized] ?: emptyList()
         if (cached.isNotEmpty()) {
             _groups.value = (_groups.value + cached).distinctBy { it.id }
         }
@@ -1337,10 +1335,11 @@ class GroupManager(
     fun restoreAllGroupsFromStorage(relayUrls: List<String>) {
         _groupsByRelay.update { current ->
             val updates = relayUrls.mapNotNull { url ->
-                val jsonStr = SecureStorage.getGroupsForRelay(url) ?: return@mapNotNull null
+                val normalized = url.normalizeRelayUrl()
+                val jsonStr = SecureStorage.getGroupsForRelay(normalized) ?: return@mapNotNull null
                 try {
                     val groups = json.decodeFromString<List<GroupMetadata>>(jsonStr)
-                    if (groups.isNotEmpty()) url to groups else null
+                    if (groups.isNotEmpty()) normalized to groups else null
                 } catch (_: Exception) { null }
             }.toMap()
             current + updates
@@ -1351,9 +1350,10 @@ class GroupManager(
      * Returns true if we have a non-empty cached group list for the given relay.
      */
     fun hasCachedGroupsForRelay(relayUrl: String): Boolean {
+        val normalized = relayUrl.normalizeRelayUrl()
         // Only treat as cached if the initial load finished (EOSE received).
         // A partial cache from an interrupted load must trigger a re-fetch.
-        return relayUrl in completeGroupLoadRelays && _groupsByRelay.value[relayUrl]?.isNotEmpty() == true
+        return normalized in completeGroupLoadRelays && _groupsByRelay.value[normalized]?.isNotEmpty() == true
     }
 
     /**
@@ -1751,17 +1751,13 @@ class GroupManager(
      * Use this on relay switch. Use [clear] only on logout.
      */
     suspend fun clearForRelaySwitch() {
-        // Reset the current relay pointer so stragglers from the old connection
-        // go to the per-relay cache only, not the live _groups list.
         currentRelayUrl = null
-
-        // Clear the live group list so the new relay starts from a clean slate.
-        // restoreGroupsForRelay() will repopulate from _groupsByRelay if cached data exists.
         _groups.value = emptyList()
-
-        // Reset observation tracking so subscriptions are re-established on the
-        // new primary connection without leaking the old group set.
         observedGroups.clear()
+
+        // Invalidate group-list cache so the next relay fetches all kind:39000
+        // instead of relying on stale data from a previous visit.
+        completeGroupLoadRelays.clear()
 
         // MUST be synchronous (not scope.launch). If this is async, requestGroupMessages
         // called immediately after switchRelay sees stale HasMore/Exhausted state from the

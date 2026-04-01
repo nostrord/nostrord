@@ -167,6 +167,7 @@ class NostrRepository(
     private val _relayMetadataManager = relayMetadataManager ?: RelayMetadataManager(scope)
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadataManager.relayMetadata
     override val kind10009Relays: StateFlow<Set<String>> = outboxManager.kind10009Relays
+    override val groupTagRelays: StateFlow<Set<String>> = outboxManager.groupTagRelays
 
     override fun forceInitialized() {
         _isInitialized.value = true
@@ -680,7 +681,7 @@ class NostrRepository(
 
     override suspend fun removeRelay(url: String) {
         val normalized = url.normalizeRelayUrl()
-        val existing = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }
+        val existing = outboxManager.kind10009Relays.value.toList()
         val remaining = existing.filter { it != normalized }
         val pubKey = sessionManager.getPublicKey()
 
@@ -722,15 +723,12 @@ class NostrRepository(
 
     override suspend fun addRelay(url: String) {
         val normalized = url.normalizeRelayUrl()
-        // Check against kind:10009 "r" tags, not localStorage — the relay may be in
-        // localStorage (imported from "group" tags) but missing from "r" tags.
         val alreadyInKind10009 = normalized in outboxManager.kind10009Relays.value
         if (!alreadyInKind10009) {
-            val existing = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }
+            val existing = outboxManager.kind10009Relays.value.toList()
             val newList = (existing + normalized).distinct()
             val pubKey = sessionManager.getPublicKey()
             if (!pubKey.isNullOrEmpty()) {
-                // Publish kind:10009 first — only persist to localStorage on success
                 val result = publishJoinedGroupsListWith(pubKey, nip29Relays = newList)
                 if (result is Result.Success) {
                     SecureStorage.saveRelayList(newList)
@@ -854,6 +852,20 @@ class NostrRepository(
             ?: return
         client.requestGroupMetadata(groupId)
         client.requestGroupAdmins(groupId)
+    }
+
+    override suspend fun fetchGroupPreview(groupId: String, relayUrl: String) {
+        // Already have metadata for this group — skip
+        val existing = groupManager.groupsByRelay.value.values.flatten().find { it.id == groupId }
+        if (existing?.name != null) return
+
+        try {
+            val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+                enqueueToRelayPipeline(msg, c)
+            } ?: return
+            connectedPoolRelays.add(relayUrl)
+            client.requestGroupMetadata(groupId)
+        } catch (_: Exception) {}
     }
 
     override suspend fun editGroup(
@@ -1176,7 +1188,7 @@ class NostrRepository(
      */
     private suspend fun publishJoinedGroupsListWith(
         pubKey: String,
-        nip29Relays: List<String> = SecureStorage.loadRelayList()
+        nip29Relays: List<String> = outboxManager.kind10009Relays.value.toList()
     ): Result<Unit> {
         // _joinedGroupsByRelay is the single authoritative per-relay membership map.
         // DO NOT merge _joinedGroups (the active-relay view) — it only reflects a
