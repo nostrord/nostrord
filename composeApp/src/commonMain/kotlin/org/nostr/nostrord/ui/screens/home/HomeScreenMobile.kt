@@ -39,17 +39,23 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
 import org.nostr.nostrord.ui.components.loading.RestrictedRelayState
-import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.screens.home.components.PickGroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.util.buildRelayIconRequest
+import org.nostr.nostrord.ui.util.relayFallbackPainter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,19 +85,67 @@ fun HomeScreenMobile(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    val context = LocalPlatformContext.current
+                    val iconUrl = relayMeta?.icon
+                    val hasValidIcon = isValidIconUrl(iconUrl)
+                    val fallbackPainter = relayFallbackPainter(currentRelayUrl)
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // Relay icon (NIP-11 icon, bundled fallback, or first-letter)
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(NostrordColors.Surface),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            var imageLoaded by remember(iconUrl, currentRelayUrl) { mutableStateOf(false) }
+
+                            // Fallback: bundled painter or first letter
+                            if (!imageLoaded) {
+                                if (fallbackPainter != null) {
+                                    androidx.compose.foundation.Image(
+                                        painter = fallbackPainter,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                } else {
+                                    val label = relayMeta?.name?.takeIf { it.isNotBlank() }
+                                        ?: relayShortLabel(currentRelayUrl)
+                                    Text(
+                                        text = label.take(1).uppercase(),
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            // NIP-11 icon (loads over fallback)
+                            if (hasValidIcon) {
+                                AsyncImage(
+                                    model = buildRelayIconRequest(iconUrl!!, context),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    onState = { state ->
+                                        if (state is AsyncImagePainter.State.Success) {
+                                            imageLoaded = true
+                                        }
+                                    }
+                                )
+                            }
+                        }
+
                         Text(
                             relayMeta?.name?.takeIf { it.isNotBlank() } ?: relayShortLabel(currentRelayUrl),
                             style = NostrordTypography.ServerHeader,
                             color = Color.White
                         )
-                        if (groupCount > 0) {
-                            Text(
-                                text = "$groupCount groups",
-                                fontSize = 11.sp,
-                                color = NostrordColors.TextMuted
-                            )
-                        }
                     }
                 },
                 navigationIcon = {
