@@ -651,11 +651,13 @@ class NostrRepository(
             val authHandled = client.awaitAuthOrTimeout()
             // Skip re-fetch if cached; re-fetching races against restored state.
             if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
-                // If auth was handled, resubscribeAfterAuth already called
-                // requestGroups(); only request if auth was not needed.
-                if (!authHandled) {
-                    client.requestGroups()
-                }
+                // Always request groups here. Even if AUTH was already handled
+                // (authHandled == true), resubscribeAfterAuth only calls
+                // requestGroups() for the primary client — if this client was
+                // promoted from the pool (e.g. connected by a link preview),
+                // AUTH happened while it was a pool client and requestGroups()
+                // was never sent.
+                client.requestGroups()
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
