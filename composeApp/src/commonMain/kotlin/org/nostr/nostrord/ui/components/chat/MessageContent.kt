@@ -935,15 +935,6 @@ private fun ChatImage(
         .heightIn(max = 300.dp)
         .clip(NostrordShapes.imageShape)
 
-    if (isAnimatedImageUrl(imageUrl)) {
-        AnimatedImage(
-            url = imageUrl,
-            modifier = imageModifier,
-            onClick = onClick
-        )
-        return
-    }
-
     var showError by remember(imageUrl) { mutableStateOf(false) }
 
     if (showError) {
@@ -952,6 +943,16 @@ private fun ChatImage(
             color = NostrordColors.TextLink,
             style = NostrordTypography.Link,
             modifier = Modifier.clickable(onClick = onClick)
+        )
+        return
+    }
+
+    if (isAnimatedImageUrl(imageUrl)) {
+        AnimatedImage(
+            url = imageUrl,
+            modifier = imageModifier,
+            onClick = onClick,
+            onError = { showError = true }
         )
     } else {
         StaticImage(
@@ -1366,11 +1367,12 @@ private fun QuotedEvent(
     LaunchedEffect(eventId, relayHints, author) {
         if (!cachedEvents.containsKey(eventId)) {
             AppModule.nostrRepository.requestEventById(eventId, relayHints, author)
-            // Wait 5 seconds before marking as not found
-            kotlinx.coroutines.delay(5000)
-            if (!cachedEvents.containsKey(eventId)) {
-                eventNotFound = true
+            // Poll every 500ms up to 5s — yields the coroutine instead of blocking 5s solid
+            repeat(10) {
+                kotlinx.coroutines.delay(500)
+                if (cachedEvents.containsKey(eventId)) return@LaunchedEffect
             }
+            eventNotFound = true
         }
     }
 
@@ -2330,11 +2332,12 @@ private fun AddressableEvent(
                 identifier = identifier,
                 relays = relayHints
             )
-            // Wait 5 seconds before marking as not found
-            kotlinx.coroutines.delay(5000)
-            if (!cachedEvents.containsKey(addressKey)) {
-                eventNotFound = true
+            // Poll every 500ms up to 5s — yields the coroutine instead of blocking 5s solid
+            repeat(10) {
+                kotlinx.coroutines.delay(500)
+                if (cachedEvents.containsKey(addressKey)) return@LaunchedEffect
             }
+            eventNotFound = true
         }
     }
 

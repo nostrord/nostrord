@@ -53,16 +53,22 @@ actual fun AnimatedImage(
     url: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onError: () -> Unit
 ) {
     var aspectRatio by remember(url) { mutableStateOf(16f / 9f) }
     var isLoaded by remember(url) { mutableStateOf(false) }
+    var hasError by remember(url) { mutableStateOf(false) }
     val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnError by rememberUpdatedState(onError)
 
     if (LocalAnimatedImageHidden.current) {
         Box(modifier = modifier.fillMaxWidth().aspectRatio(aspectRatio))
         return
     }
+
+    // Error: render nothing — parent ChatImage will show text link fallback
+    if (hasError) return
 
     Box(
         modifier = modifier
@@ -92,6 +98,8 @@ actual fun AnimatedImage(
                     }
                     onerror = { _, _, _, _, _ ->
                         isLoaded = true
+                        hasError = true
+                        currentOnError()
                         disablePointerEventsOnTree(this)
                         null
                     }

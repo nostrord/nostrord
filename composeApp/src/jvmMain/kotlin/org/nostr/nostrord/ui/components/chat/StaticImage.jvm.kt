@@ -2,6 +2,10 @@ package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.clickable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
@@ -15,6 +19,7 @@ import org.nostr.nostrord.utils.getImageUrl
 
 /**
  * JVM Desktop implementation: delegates to Coil AsyncImage.
+ * Tries the optimized (proxy) URL first; if that fails, retries with the original URL.
  */
 @Composable
 actual fun StaticImage(
@@ -25,9 +30,14 @@ actual fun StaticImage(
     onError: () -> Unit
 ) {
     val context = LocalPlatformContext.current
+    val optimizedUrl = remember(url) { getImageUrl(url) }
+    var useOriginal by remember(url) { mutableStateOf(false) }
+
+    val dataUrl = if (useOriginal) url else optimizedUrl
+
     AsyncImage(
         model = ImageRequest.Builder(context)
-            .data(getImageUrl(url))
+            .data(dataUrl)
             .crossfade(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
@@ -38,7 +48,11 @@ actual fun StaticImage(
         modifier = modifier.clickable(onClick = onClick),
         onState = { state ->
             if (state is AsyncImagePainter.State.Error) {
-                onError()
+                if (!useOriginal && optimizedUrl != url) {
+                    useOriginal = true
+                } else {
+                    onError()
+                }
             }
         }
     )

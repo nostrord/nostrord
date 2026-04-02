@@ -21,5 +21,6 @@ expect fun AnimatedImage(
     url: String,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.FillWidth,
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    onError: () -> Unit = {}
 )

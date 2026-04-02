@@ -115,7 +115,8 @@ actual fun AnimatedImage(
     url: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onError: () -> Unit
 ) {
     // Initialise directly from cache — composables that re-enter after scrolling away
     // will already have frames and skip the loading state entirely.
@@ -158,8 +159,8 @@ actual fun AnimatedImage(
             }
         }
         frames!!.isEmpty() -> {
-            // Error — ChatImage's caller will see nothing; the URL link fallback is in
-            // ChatImage itself and handles the case where AnimatedImage renders nothing.
+            // Error — notify parent so it can show a text link fallback
+            LaunchedEffect(Unit) { onError() }
         }
         frames!!.size == 1 -> {
             // Single-frame GIF — render as a static image, no animation loop needed
@@ -250,6 +251,11 @@ private fun decodeWebpFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
             codec.close(); data.close()
             return emptyList()
         }
+        // Reject video-length WebPs to prevent hundreds of MB of frame allocations
+        if (codec.frameCount > 300) {
+            codec.close(); data.close()
+            return emptyList()
+        }
 
         val result = (0 until codec.frameCount).map { i ->
             val bitmap = SkiaBitmap()
@@ -295,6 +301,8 @@ private fun decodeGifFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
 
         val frameCount = reader.getNumImages(true)
         if (frameCount <= 0) return emptyList()
+        // Reject video-length GIFs to prevent hundreds of MB of frame allocations
+        if (frameCount > 300) return emptyList()
 
         // Read first frame to check dimensions — reject absurdly large GIFs
         val firstFrame = reader.read(0)

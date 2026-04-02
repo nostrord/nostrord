@@ -30,7 +30,8 @@ actual fun AnimatedImage(
     url: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onError: () -> Unit
 ) {
     val context = LocalPlatformContext.current
     var loadError by remember(url) { mutableStateOf(false) }
@@ -49,8 +50,8 @@ actual fun AnimatedImage(
         modifier = modifier.clickable(onClick = onClick),
         onState = { state ->
             if (state is AsyncImagePainter.State.Error) {
-                println("[AnimatedImage] iOS load error for $url: ${state.result.throwable?.message}")
                 loadError = true
+                onError()
             }
         }
     )

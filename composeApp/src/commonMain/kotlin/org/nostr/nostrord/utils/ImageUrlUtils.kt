@@ -68,7 +68,14 @@ fun optimizeImageUrl(url: String): String {
  */
 fun proxyViaWeserv(url: String, width: Int = CDN_MAX_WIDTH, height: Int? = null): String {
     val stripped = url.removePrefix("https://").removePrefix("http://")
-    val encoded = stripped.replace("&", "%26").replace("?", "%3F")
+    val encoded = stripped
+        .replace("%", "%25")   // must be first — existing %XX stay valid
+        .replace(" ", "%20")
+        .replace("#", "%23")
+        .replace("&", "%26")
+        .replace("?", "%3F")
+        .replace("[", "%5B")
+        .replace("]", "%5D")
     val animated = isAnimatedImageUrl(url)
     return buildString {
         append("https://wsrv.nl/?url=")

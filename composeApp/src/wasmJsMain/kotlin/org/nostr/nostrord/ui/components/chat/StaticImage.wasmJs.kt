@@ -43,7 +43,7 @@ import org.nostr.nostrord.utils.getImageUrl
 private val staticImageCache = ByteBoundedImageCache(80L * 1024 * 1024)
 
 /** URLs that have already failed — avoids repeated network requests for broken images. */
-private val failedUrls = LruCache<String, Boolean>(100)
+private val failedUrls = LruCache<String, Boolean>(500)
 
 /**
  * Semaphore limiting concurrent createImageBitmap decode pipelines to 5.

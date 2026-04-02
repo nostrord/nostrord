@@ -33,13 +33,13 @@ actual fun AnimatedImage(
     url: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onError: () -> Unit
 ) {
     val context = LocalPlatformContext.current
     var loadError by remember(url) { mutableStateOf(false) }
 
     if (loadError) {
-        // Same fallback as ChatImage: show error state without crashing
         return
     }
 
@@ -55,8 +55,8 @@ actual fun AnimatedImage(
         modifier = modifier.clickable(onClick = onClick),
         onState = { state ->
             if (state is AsyncImagePainter.State.Error) {
-                println("[AnimatedImage] Load error for $url: ${state.result.throwable?.message}")
                 loadError = true
+                onError()
             }
         }
     )
