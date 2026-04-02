@@ -1,7 +1,12 @@
 package org.nostr.nostrord.utils
 
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
+
 /**
  * LRU (Least Recently Used) cache using a doubly-linked list + HashMap for O(1) operations.
+ *
+ * Thread-safe: all operations are synchronized via atomicfu (works on all KMP targets).
  *
  * KMP-compatible: does not rely on java.util.LinkedHashMap's removeEldestEntry which is
  * unavailable on JS/WasmJS targets.
@@ -10,7 +15,7 @@ package org.nostr.nostrord.utils
  */
 class LruCache<K, V>(
     private val maxSize: Int
-) {
+) : SynchronizedObject() {
     private class Node<K, V>(
         val key: K,
         var value: V,
@@ -41,15 +46,15 @@ class LruCache<K, V>(
     }
 
     /** Get a value from the cache (promotes to most-recently-used). O(1). */
-    fun get(key: K): V? {
-        val node = map[key] ?: return null
+    fun get(key: K): V? = synchronized(this) {
+        val node = map[key] ?: return@synchronized null
         unlink(node)
         addFirst(node)
-        return node.value
+        node.value
     }
 
     /** Put a value in the cache, evicting the LRU entry if over capacity. O(1). */
-    fun put(key: K, value: V) {
+    fun put(key: K, value: V): Unit = synchronized(this) {
         val existing = map[key]
         if (existing != null) {
             unlink(existing)
@@ -68,33 +73,39 @@ class LruCache<K, V>(
     }
 
     /** Put all entries from another map. */
-    fun putAll(entries: Map<K, V>) {
+    fun putAll(entries: Map<K, V>): Unit = synchronized(this) {
         entries.forEach { (key, value) -> put(key, value) }
     }
 
     /** Check if a key exists (does NOT promote access order). */
-    fun containsKey(key: K): Boolean = map.containsKey(key)
+    fun containsKey(key: K): Boolean = synchronized(this) { map.containsKey(key) }
 
     /** Remove a key from the cache. */
-    fun remove(key: K): V? {
-        val node = map.remove(key) ?: return null
+    fun remove(key: K): V? = synchronized(this) {
+        val node = map.remove(key) ?: return@synchronized null
         unlink(node)
-        return node.value
+        node.value
     }
 
     /** Get current size. */
-    fun size(): Int = map.size
+    fun size(): Int = synchronized(this) { map.size }
 
     /** Clear the cache. */
-    fun clear() {
+    fun clear(): Unit = synchronized(this) {
         map.clear()
         head.next = tail
         tail.prev = head
     }
 
-    /** Get all entries as an immutable map. */
-    fun toMap(): Map<K, V> = map.mapValues { it.value.value }
+    /** Get all entries as an immutable map (snapshot). */
+    fun toMap(): Map<K, V> = synchronized(this) {
+        val result = HashMap<K, V>(map.size)
+        for (entry in map) {
+            result[entry.key] = entry.value.value
+        }
+        result
+    }
 
-    /** Get all keys. */
-    fun keys(): Set<K> = map.keys.toSet()
+    /** Get all keys (snapshot). */
+    fun keys(): Set<K> = synchronized(this) { map.keys.toSet() }
 }
