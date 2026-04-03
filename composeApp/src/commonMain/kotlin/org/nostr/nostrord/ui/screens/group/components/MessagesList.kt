@@ -15,6 +15,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,6 +44,9 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import org.nostr.nostrord.ui.components.chat.DateSeparator
+import org.nostr.nostrord.ui.components.chat.ImageViewerModal
+import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
+import org.nostr.nostrord.ui.components.chat.LocalImageViewerUrl
 import org.nostr.nostrord.ui.components.chat.MessageItem
 import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
@@ -84,8 +88,12 @@ fun MessagesList(
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
 
     var reactingToMessageId by remember { mutableStateOf<String?>(null) }
+    val imageViewerUrl = remember { mutableStateOf<String?>(null) }
     val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
     val copyToClipboard = rememberClipboardWriter()
+
+    // Hide ALL animated HTML overlays when the image viewer modal is open
+    val parentHidden = LocalAnimatedImageHidden.current
 
     // Initialize at the bottom so the chat opens at the newest messages.
     val hasItems = chatItems.isNotEmpty()
@@ -159,6 +167,10 @@ fun MessagesList(
             }
     }
 
+    CompositionLocalProvider(
+        LocalAnimatedImageHidden provides (parentHidden || imageViewerUrl.value != null),
+        LocalImageViewerUrl provides imageViewerUrl
+    ) {
     when {
         isInitialLoading && chatItems.isEmpty() -> {
             Box(
@@ -325,6 +337,15 @@ fun MessagesList(
                 }
             }
         }
+    }
+    } // CompositionLocalProvider
+
+    // Image viewer modal — rendered at MessagesList level so ALL animated images are hidden
+    imageViewerUrl.value?.let { url ->
+        ImageViewerModal(
+            imageUrl = url,
+            onDismiss = { imageViewerUrl.value = null }
+        )
     }
 
     // Reaction emoji picker popup

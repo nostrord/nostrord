@@ -41,7 +41,7 @@ actual fun StaticImage(
             .crossfade(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
-            .size(Size(800, 600))
+            .size(Size.ORIGINAL)
             .build(),
         contentDescription = "Image",
         contentScale = contentScale,

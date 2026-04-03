@@ -38,11 +38,28 @@ private val NATIVE_HOSTS = listOf(
     "wsrv.nl",
     "weserv.nl",
     "primal.b-cdn.net",
-    "giphy.com",
     "tenor.com",
     "i.redd.it",
     "pbs.twimg.com",
 )
+
+/**
+ * Converts Giphy/Tenor page URLs to direct media URLs.
+ *
+ * - `https://giphy.com/gifs/optional-slug-ID` → `https://i.giphy.com/media/ID/giphy.gif`
+ * - `https://tenor.com/view/slug-123456` → unchanged (Tenor page URLs need embed API)
+ *
+ * Returns the original URL unchanged if it's already a direct media URL or not a known page URL.
+ */
+fun normalizeAnimatedUrl(url: String): String {
+    // Giphy page URL: giphy.com/gifs/[optional-slug-]ID  →  direct GIF
+    val giphyPageRegex = Regex("""https?://(?:www\.)?giphy\.com/gifs/(?:.*-)?([a-zA-Z0-9]+)""")
+    giphyPageRegex.find(url)?.let { match ->
+        val id = match.groupValues[1]
+        return "https://i.giphy.com/media/$id/giphy.gif"
+    }
+    return url
+}
 
 /**
  * Optimizes image URLs by requesting appropriately-sized images:
@@ -53,13 +70,14 @@ private val NATIVE_HOSTS = listOf(
  * reduced network downloads.
  */
 fun optimizeImageUrl(url: String): String {
-    val lower = url.lowercase()
+    val normalized = normalizeAnimatedUrl(url)
+    val lower = normalized.lowercase()
 
     // Known hosts — no proxy needed
-    if (NATIVE_HOSTS.any { lower.contains(it) }) return url
+    if (NATIVE_HOSTS.any { lower.contains(it) }) return normalized
 
     // Proxy unknown hosts through wsrv.nl for server-side resize
-    return proxyViaWeserv(url)
+    return proxyViaWeserv(normalized)
 }
 
 /**
@@ -104,7 +122,7 @@ fun isAnimatedImageUrl(url: String): Boolean {
     val lower = url.lowercase()
     if (lower.contains(".gif") || lower.contains(".webp")) return true
     val animatedHosts = listOf(
-        "giphy.com", "media.giphy.com",
+        "giphy.com", "i.giphy.com", "media.giphy.com",
         "tenor.com", "media.tenor.com", "c.tenor.com"
     )
     return animatedHosts.any { lower.contains(it) }

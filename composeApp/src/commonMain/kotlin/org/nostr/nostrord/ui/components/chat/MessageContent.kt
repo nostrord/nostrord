@@ -215,8 +215,10 @@ fun MessageContent(
     val parts = remember(content, emojiMap) { parseContent(content, emojiMap) }
     val uriHandler = LocalUriHandler.current
 
-    // Image viewer modal state
-    var selectedImageUrl by remember { mutableStateOf<String?>(null) }
+    // Image viewer modal state — shared from MessagesList so ALL animated images
+    // are hidden when any image modal opens (not just this message's GIFs).
+    val sharedImageViewerUrl = LocalImageViewerUrl.current
+    var selectedImageUrl by sharedImageViewerUrl
 
     // Collect user metadata for mention display names
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
@@ -375,14 +377,6 @@ fun MessageContent(
         }
     }
     } // CompositionLocalProvider
-
-    // Image viewer modal
-    selectedImageUrl?.let { imageUrl ->
-        ImageViewerModal(
-            imageUrl = imageUrl,
-            onDismiss = { selectedImageUrl = null }
-        )
-    }
 }
 
 /**
@@ -909,11 +903,6 @@ private fun ChatImage(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val imageModifier = modifier
-        .widthIn(max = 400.dp)
-        .heightIn(max = 300.dp)
-        .clip(NostrordShapes.imageShape)
-
     var showError by remember(imageUrl) { mutableStateOf(false) }
 
     if (showError) {
@@ -927,16 +916,23 @@ private fun ChatImage(
     }
 
     if (isAnimatedImageUrl(imageUrl)) {
+        // Animated images use aspectRatio() in JS/WasmJS — give generous height
+        // so the aspect ratio modifier isn't clipped by a tight heightIn cap.
         AnimatedImage(
             url = imageUrl,
-            modifier = imageModifier,
+            modifier = modifier
+                .widthIn(max = 400.dp)
+                .clip(NostrordShapes.imageShape),
             onClick = onClick,
             onError = { showError = true }
         )
     } else {
         StaticImage(
             url = imageUrl,
-            modifier = imageModifier,
+            modifier = modifier
+                .widthIn(max = 400.dp)
+                .heightIn(max = 500.dp)
+                .clip(NostrordShapes.imageShape),
             contentScale = ContentScale.FillWidth,
             onClick = onClick,
             onError = { showError = true }
@@ -1633,8 +1629,9 @@ private fun QuotedEventContent(
     val uriHandler = LocalUriHandler.current
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
 
-    // Image viewer modal state
-    var selectedImageUrl by remember { mutableStateOf<String?>(null) }
+    // Image viewer modal state — use shared state from MessagesList
+    val sharedImageViewerUrl = LocalImageViewerUrl.current
+    var selectedImageUrl by sharedImageViewerUrl
 
     // Group parts into inline sequences and block elements
     val groups = remember(parts) {
@@ -1701,14 +1698,6 @@ private fun QuotedEventContent(
                 )
             }
         }
-    }
-
-    // Image viewer modal
-    selectedImageUrl?.let { imageUrl ->
-        ImageViewerModal(
-            imageUrl = imageUrl,
-            onDismiss = { selectedImageUrl = null }
-        )
     }
 }
 

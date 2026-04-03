@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,11 +42,11 @@ actual fun StaticImage(
             .crossfade(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
-            .size(Size(800, 600))
+            .size(Size.ORIGINAL)
             .build(),
         contentDescription = "Image",
         contentScale = contentScale,
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().then(modifier).clickable(onClick = onClick),
         onState = { state ->
             if (state is AsyncImagePainter.State.Error) {
                 // If proxy URL failed and it differs from original, retry with original

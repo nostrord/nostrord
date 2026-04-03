@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +15,7 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Size
 import org.nostr.nostrord.utils.getImageUrl
 
 /**
@@ -49,10 +51,11 @@ actual fun AnimatedImage(
             .crossfade(false)            // false: crossfade interferes with per-frame rendering
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
+            .size(Size.ORIGINAL)
             .build(),
         contentDescription = "Animated GIF",
         contentScale = contentScale,
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().then(modifier).clickable(onClick = onClick),
         onState = { state ->
             if (state is AsyncImagePainter.State.Error) {
                 loadError = true

@@ -28,6 +28,9 @@ import org.jetbrains.skia.Codec as SkiaCodec
 import org.jetbrains.skia.Data as SkiaData
 import org.jetbrains.skia.Image as SkiaImage
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.getImageUrl
+import org.nostr.nostrord.utils.normalizeAnimatedUrl
+import org.nostr.nostrord.utils.proxyViaWeserv
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.net.HttpURLConnection
@@ -129,13 +132,29 @@ actual fun AnimatedImage(
 
         val decoded: List<Pair<ImageBitmap, Int>> = withContext(Dispatchers.IO) {
             try {
-                val bytes = fetchWithTimeout(url)
-                    ?: return@withContext emptyList<Pair<ImageBitmap, Int>>()
-                when (detectImageFormat(bytes)) {
-                    ImageFormat.GIF -> decodeGifFrames(bytes)
-                    ImageFormat.WEBP -> decodeWebpFrames(bytes)
-                    ImageFormat.OTHER -> decodeStaticViaSkia(bytes)
+                // Try optimized URL first (proxy + Giphy page→media conversion)
+                val optimizedUrl = getImageUrl(normalizeAnimatedUrl(url))
+                val bytes = fetchWithTimeout(optimizedUrl)
+                val result = bytes?.let { decodeBytes(it) } ?: emptyList()
+
+                if (result.isNotEmpty()) return@withContext result
+
+                // Fallback 1: try original URL directly (if different)
+                if (optimizedUrl != url) {
+                    val rawBytes = fetchWithTimeout(url)
+                    val rawResult = rawBytes?.let { decodeBytes(it) } ?: emptyList()
+                    if (rawResult.isNotEmpty()) return@withContext rawResult
                 }
+
+                // Fallback 2: force proxy via wsrv.nl (normalizes format to GIF)
+                val proxyUrl = proxyViaWeserv(normalizeAnimatedUrl(url))
+                if (proxyUrl != optimizedUrl) {
+                    val proxyBytes = fetchWithTimeout(proxyUrl)
+                    val proxyResult = proxyBytes?.let { decodeBytes(it) } ?: emptyList()
+                    if (proxyResult.isNotEmpty()) return@withContext proxyResult
+                }
+
+                emptyList()
             } catch (e: Exception) {
                 println("[AnimatedImage/JVM] Failed to load $url: ${e.message}")
                 emptyList()
@@ -192,6 +211,17 @@ actual fun AnimatedImage(
 }
 
 /**
+ * Decodes raw image bytes into animation frames based on detected format.
+ */
+private fun decodeBytes(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
+    return when (detectImageFormat(bytes)) {
+        ImageFormat.GIF -> decodeGifFrames(bytes)
+        ImageFormat.WEBP -> decodeWebpFrames(bytes)
+        ImageFormat.OTHER -> decodeStaticViaSkia(bytes)
+    }
+}
+
+/**
  * Fetches image bytes from a URL with connect/read timeouts and a size cap.
  * Returns null if the fetch fails or the response is too large.
  */
@@ -202,6 +232,7 @@ private fun fetchWithTimeout(url: String): ByteArray? {
         conn.readTimeout = READ_TIMEOUT_MS
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "Nostrord/1.0")
+        conn.setRequestProperty("Accept", "image/gif, image/webp, image/png, image/jpeg, image/*")
 
         if (conn.responseCode !in 200..299) return null
 

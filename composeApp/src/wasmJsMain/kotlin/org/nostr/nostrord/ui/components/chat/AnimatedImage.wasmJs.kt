@@ -62,8 +62,10 @@ actual fun AnimatedImage(
     val currentOnClick by rememberUpdatedState(onClick)
     val currentOnError by rememberUpdatedState(onError)
 
+    val heightFirst = aspectRatio < 1f
+
     if (LocalAnimatedImageHidden.current) {
-        Box(modifier = modifier.fillMaxWidth().aspectRatio(aspectRatio))
+        Box(modifier = modifier.fillMaxWidth().aspectRatio(aspectRatio, heightFirst))
         return
     }
 
@@ -73,7 +75,7 @@ actual fun AnimatedImage(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(aspectRatio)
+            .aspectRatio(aspectRatio, heightFirst)
             .background(NostrordColors.Surface)
             .clickable(onClick = { currentOnClick() }),
         contentAlignment = Alignment.Center
@@ -107,7 +109,7 @@ actual fun AnimatedImage(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(aspectRatio),
+                .aspectRatio(aspectRatio, heightFirst),
             update = { element ->
                 val img = element as HTMLImageElement
                 if (img.src != getImageUrl(url)) {
@@ -131,8 +133,8 @@ actual fun AnimatedImage(
 private fun ContentScale.toCssObjectFit(): String = when (this) {
     ContentScale.Crop -> "cover"
     ContentScale.FillBounds -> "fill"
-    ContentScale.FillWidth -> "cover"
-    ContentScale.FillHeight -> "cover"
+    ContentScale.FillWidth -> "contain"
+    ContentScale.FillHeight -> "contain"
     ContentScale.Inside -> "scale-down"
     else -> "contain"
 }
