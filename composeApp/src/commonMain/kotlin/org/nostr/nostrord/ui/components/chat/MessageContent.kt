@@ -879,44 +879,23 @@ private fun SafeEmojiImage(
             )
         }
     } else {
-        val context = LocalPlatformContext.current
-
-        // Build image request with safety constraints
-        val imageRequest = remember(effectiveUrl, context) {
-            runCatching {
-                ImageRequest.Builder(context)
-                    .data(getImageUrl(effectiveUrl))
-                    .crossfade(false) // Disable animations for stability
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .size(Size(44, 44)) // 2x for retina displays
-                    .build()
-            }.getOrNull()
-        }
-
-        if (imageRequest == null) {
-            // Failed to build request - show fallback
-            showFallback = true
-            return
-        }
-
+        // EmojiImage is an expect/actual:
+        // - JVM Desktop: AnimatedImage (frame-by-frame decode, direct HTTP fetch)
+        // - Android/iOS/Web: Coil AsyncImage (platform handles animated formats)
         Box(
             modifier = modifier.size(22.dp),
             contentAlignment = Alignment.Center
         ) {
-            AsyncImage(
-                model = imageRequest,
+            EmojiImage(
+                url = effectiveUrl,
                 contentDescription = ":$safeShortcode:",
-                contentScale = ContentScale.Fit,
-                filterQuality = FilterQuality.Medium,
                 modifier = Modifier.size(22.dp),
-                onState = { state: AsyncImagePainter.State ->
-                    if (state is AsyncImagePainter.State.Error) {
-                        if (!useProxy) {
-                            useProxy = true
-                        } else {
-                            showFallback = true
-                        }
+                contentScale = ContentScale.Fit,
+                onError = {
+                    if (!useProxy) {
+                        useProxy = true
+                    } else {
+                        showFallback = true
                     }
                 }
             )

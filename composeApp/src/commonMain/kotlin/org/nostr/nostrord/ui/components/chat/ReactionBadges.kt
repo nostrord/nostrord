@@ -32,8 +32,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
-import coil3.compose.AsyncImage
-import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
 import coil3.SingletonImageLoader
 import coil3.request.CachePolicy
@@ -216,27 +214,16 @@ private fun CustomEmojiImage(
             color = NostrordColors.TextSecondary
         )
     } else {
-        val context = LocalPlatformContext.current
-        val imageRequest = remember(effectiveUrl, context) {
-            ImageRequest.Builder(context)
-                .data(effectiveUrl)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .size(Size(size * 2, size * 2))
-                .build()
-        }
-        AsyncImage(
-            model = imageRequest,
-            contentDescription = shortcode,
+        EmojiImage(
+            url = effectiveUrl,
+            contentDescription = ":$shortcode:",
             modifier = Modifier.size(size.dp),
             contentScale = ContentScale.Fit,
-            onState = { state ->
-                if (state is AsyncImagePainter.State.Error) {
-                    if (!useProxy) {
-                        useProxy = true
-                    } else {
-                        showFallback = true
-                    }
+            onError = {
+                if (!useProxy) {
+                    useProxy = true
+                } else {
+                    showFallback = true
                 }
             }
         )

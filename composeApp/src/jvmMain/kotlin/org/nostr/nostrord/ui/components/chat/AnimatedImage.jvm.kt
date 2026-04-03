@@ -131,10 +131,10 @@ actual fun AnimatedImage(
             try {
                 val bytes = fetchWithTimeout(url)
                     ?: return@withContext emptyList<Pair<ImageBitmap, Int>>()
-                val lower = url.lowercase()
-                when {
-                    lower.contains(".webp") -> decodeWebpFrames(bytes)
-                    else -> decodeGifFrames(bytes)
+                when (detectImageFormat(bytes)) {
+                    ImageFormat.GIF -> decodeGifFrames(bytes)
+                    ImageFormat.WEBP -> decodeWebpFrames(bytes)
+                    ImageFormat.OTHER -> decodeStaticViaSkia(bytes)
                 }
             } catch (e: Exception) {
                 println("[AnimatedImage/JVM] Failed to load $url: ${e.message}")
@@ -231,6 +231,46 @@ private fun fetchWithTimeout(url: String): ByteArray? {
     }
 }
 
+/** Image format detected from file magic bytes. */
+private enum class ImageFormat { GIF, WEBP, OTHER }
+
+/**
+ * Detects image format from the first bytes of the file (magic bytes).
+ * - GIF: starts with "GIF87a" or "GIF89a"
+ * - WebP: starts with "RIFF" + 4 bytes + "WEBP"
+ * - OTHER: PNG, JPEG, or anything else
+ */
+private fun detectImageFormat(bytes: ByteArray): ImageFormat {
+    if (bytes.size < 12) return ImageFormat.OTHER
+    // GIF: 47 49 46 38 (GIF8)
+    if (bytes[0] == 0x47.toByte() && bytes[1] == 0x49.toByte() &&
+        bytes[2] == 0x46.toByte() && bytes[3] == 0x38.toByte()
+    ) return ImageFormat.GIF
+    // WebP: RIFF....WEBP
+    if (bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() &&
+        bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
+        bytes[8] == 0x57.toByte() && bytes[9] == 0x45.toByte() &&
+        bytes[10] == 0x42.toByte() && bytes[11] == 0x50.toByte()
+    ) return ImageFormat.WEBP
+    return ImageFormat.OTHER
+}
+
+/**
+ * Decodes a static image (PNG, JPEG, etc.) via Skia into a single-frame list.
+ * This allows AnimatedImage to handle any image format, not just GIF/WebP.
+ */
+private fun decodeStaticViaSkia(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
+    return try {
+        val skiaImage = SkiaImage.makeFromEncoded(bytes)
+        val composeBitmap = skiaImage.toComposeImageBitmap()
+        skiaImage.close()
+        listOf(composeBitmap to 0)
+    } catch (e: Exception) {
+        println("[Static/JVM] Decode error: ${e.message}")
+        emptyList()
+    }
+}
+
 /**
  * Decodes animated WebP frames using org.jetbrains.skia.Codec.
  *
@@ -251,6 +291,14 @@ private fun decodeWebpFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
             codec.close(); data.close()
             return emptyList()
         }
+
+        // Static WebP (VP8/VP8L): frameCount is 0 or 1 — fall back to SkiaImage
+        // which handles all WebP variants reliably for single-frame decode.
+        if (codec.frameCount <= 1) {
+            codec.close(); data.close()
+            return decodeStaticViaSkia(bytes)
+        }
+
         // Reject video-length WebPs to prevent hundreds of MB of frame allocations
         if (codec.frameCount > 300) {
             codec.close(); data.close()
@@ -287,6 +335,14 @@ private fun decodeWebpFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
  * Returns a list of (ImageBitmap, delayMs) pairs.
  * Frame delays are read from the GIF GraphicControlExtension metadata node.
  * An empty list signals decode failure.
+ *
+ * Handles GIF disposal methods correctly:
+ * - "none" / "doNotDispose": keep canvas as-is for next frame
+ * - "restoreToBackgroundColor": clear the frame region before next frame
+ * - "restoreToPrevious": restore canvas to state before this frame was drawn
+ *
+ * Also reads frame offsets (ImageDescriptor left/top) so sub-frames are
+ * composited at the correct position on the logical screen.
  */
 private fun decodeGifFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
     val readers = ImageIO.getImageReadersByFormatName("gif")
@@ -304,40 +360,99 @@ private fun decodeGifFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
         // Reject video-length GIFs to prevent hundreds of MB of frame allocations
         if (frameCount > 300) return emptyList()
 
-        // Read first frame to check dimensions — reject absurdly large GIFs
+        // Read the logical screen size from the stream metadata
+        val streamMeta = reader.streamMetadata
+        var canvasWidth = 0
+        var canvasHeight = 0
+        if (streamMeta != null) {
+            runCatching {
+                val tree = streamMeta.getAsTree("javax_imageio_gif_stream_1.0") as IIOMetadataNode
+                val lsd = tree.getElementsByTagName("LogicalScreenDescriptor").item(0) as? IIOMetadataNode
+                canvasWidth = lsd?.getAttribute("logicalScreenWidth")?.toIntOrNull() ?: 0
+                canvasHeight = lsd?.getAttribute("logicalScreenHeight")?.toIntOrNull() ?: 0
+            }
+        }
+
+        // Read first frame to check dimensions
         val firstFrame = reader.read(0)
-        if (firstFrame.width.toLong() * firstFrame.height > 8_000_000) {
+        if (canvasWidth <= 0) canvasWidth = firstFrame.width
+        if (canvasHeight <= 0) canvasHeight = firstFrame.height
+
+        // Reject absurdly large GIFs
+        if (canvasWidth.toLong() * canvasHeight > 8_000_000) {
             return emptyList()
         }
 
-        // We need to composite frames correctly: GIF frames can be partial (delta frames)
-        // and reference the previous frame. Rendering into a single canvas and copying
-        // handles disposal methods properly.
-        var canvas: BufferedImage? = null
+        val canvas = BufferedImage(canvasWidth, canvasHeight, BufferedImage.TYPE_INT_ARGB)
+        // Snapshot for "restoreToPrevious" disposal
+        var previousSnapshot: BufferedImage? = null
 
         (0 until frameCount).map { i ->
             val frame: BufferedImage = if (i == 0) firstFrame else reader.read(i)
             val meta = reader.getImageMetadata(i)
 
-            // Parse frame delay from GIF GraphicControlExtension (in centiseconds → ms)
-            val delayMs = runCatching {
+            // Parse frame metadata: delay, disposal method, and position offset
+            var delayMs = 100
+            var disposalMethod = "none"
+            var frameX = 0
+            var frameY = 0
+
+            runCatching {
                 val tree = meta.getAsTree("javax_imageio_gif_image_1.0") as IIOMetadataNode
+
+                // Frame delay from GraphicControlExtension
                 val gce = tree.getElementsByTagName("GraphicControlExtension").item(0)
                     as? IIOMetadataNode
                 val cs = gce?.getAttribute("delayTime")?.toIntOrNull() ?: 10
-                // GIF delay is in 1/100 s; multiply by 10 to get ms; floor at 50 ms
-                (cs * 10).coerceAtLeast(50)
-            }.getOrDefault(100)
+                delayMs = (cs * 10).coerceAtLeast(50)
+                disposalMethod = gce?.getAttribute("disposalMethod") ?: "none"
 
-            // Composite onto canvas so partial (delta) frames render correctly
-            if (canvas == null) {
-                canvas = BufferedImage(frame.width, frame.height, BufferedImage.TYPE_INT_ARGB)
+                // Frame offset from ImageDescriptor
+                val desc = tree.getElementsByTagName("ImageDescriptor").item(0)
+                    as? IIOMetadataNode
+                frameX = desc?.getAttribute("imageLeftPosition")?.toIntOrNull() ?: 0
+                frameY = desc?.getAttribute("imageTopPosition")?.toIntOrNull() ?: 0
             }
-            val g = canvas!!.createGraphics()
-            g.drawImage(frame, 0, 0, null)
+
+            // For "restoreToPrevious", save canvas state BEFORE drawing this frame
+            if (disposalMethod == "restoreToPrevious") {
+                previousSnapshot = BufferedImage(canvasWidth, canvasHeight, BufferedImage.TYPE_INT_ARGB)
+                previousSnapshot!!.createGraphics().let { g ->
+                    g.drawImage(canvas, 0, 0, null)
+                    g.dispose()
+                }
+            }
+
+            // Composite frame at its offset position
+            val g = canvas.createGraphics()
+            g.drawImage(frame, frameX, frameY, null)
             g.dispose()
 
-            canvas!!.toComposeImageBitmap() to delayMs
+            // Capture the composited frame for output
+            val outputBitmap = canvas.toComposeImageBitmap()
+
+            // Apply disposal method AFTER capturing the frame
+            when (disposalMethod) {
+                "restoreToBackgroundColor" -> {
+                    // Clear the region this frame occupied
+                    val g2 = canvas.createGraphics()
+                    g2.composite = java.awt.AlphaComposite.Clear
+                    g2.fillRect(frameX, frameY, frame.width, frame.height)
+                    g2.dispose()
+                }
+                "restoreToPrevious" -> {
+                    // Restore canvas to snapshot taken before this frame
+                    previousSnapshot?.let { snap ->
+                        val g2 = canvas.createGraphics()
+                        g2.composite = java.awt.AlphaComposite.Src
+                        g2.drawImage(snap, 0, 0, null)
+                        g2.dispose()
+                    }
+                }
+                // "none", "doNotDispose" → leave canvas as-is
+            }
+
+            outputBitmap to delayMs
         }
     } catch (e: Exception) {
         println("[GIF/JVM] Decode error: ${e.message}")
