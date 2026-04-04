@@ -204,6 +204,11 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(NostrordColors.Background)
+            // Consume all pointer events so the chat behind is not interactive
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { /* consume clicks */ }
             .focusRequester(focusRequester)
             .focusTarget()
             .onPreviewKeyEvent { event ->

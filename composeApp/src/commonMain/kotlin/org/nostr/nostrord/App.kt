@@ -449,15 +449,18 @@ private fun AuthenticatedApp(
                     isProfileActive = showSettings,
                     modifier = Modifier.weight(1f)
                 ) {
-                    DesktopContent(
-                        currentScreen = currentScreen,
-                        selectedRelayUrl = selectedRelayUrl,
-                        homeGridState = homeGridState,
-                        onNavigate = onNavigate,
-                        hasNoRelays = hasNoRelays,
-                        onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
-                        onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true }
-                    )
+                    val hideAnimatedImages = showSettings || showCreateGroupModal || showAddRelayModal
+                    CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
+                        DesktopContent(
+                            currentScreen = currentScreen,
+                            selectedRelayUrl = selectedRelayUrl,
+                            homeGridState = homeGridState,
+                            onNavigate = onNavigate,
+                            hasNoRelays = hasNoRelays,
+                            onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
+                            onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true }
+                        )
+                    }
                 }
             }
         } else {
@@ -508,7 +511,7 @@ private fun AuthenticatedApp(
                     }
                 }
             ) {
-                val hideAnimatedImages = drawerState.targetValue == DrawerValue.Open || showCreateGroupModal || showAddRelayModal
+                val hideAnimatedImages = drawerState.targetValue == DrawerValue.Open || showCreateGroupModal || showAddRelayModal || showSettings
                 CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
                     MobileContent(
                         currentScreen = currentScreen,

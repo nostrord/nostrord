@@ -2,6 +2,7 @@
 
 package org.nostr.nostrord.ui.components.chat
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
@@ -27,6 +28,12 @@ actual fun EmojiImage(
     contentScale: ContentScale,
     onError: () -> Unit
 ) {
+    // Hide HTML overlay when a modal/dialog is open (same as AnimatedImage)
+    if (LocalAnimatedImageHidden.current) {
+        Box(modifier = modifier)
+        return
+    }
+
     val currentOnError by rememberUpdatedState(onError)
     val resolvedUrl = url
 
