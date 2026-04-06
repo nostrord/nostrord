@@ -6,6 +6,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.*
@@ -1026,14 +1028,28 @@ class NostrRepository(
         name: String?,
         about: String?,
         picture: String?,
-        nip05: String?
+        banner: String?,
+        nip05: String?,
+        lud16: String?,
+        website: String?
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
 
         return try {
-            // Start from the existing raw JSON so unknown fields (lud16, website, etc.) are preserved.
-            val existing = metadataManager.getMetadata(pubKey)
+            // Start from the existing raw JSON so unknown fields are preserved.
+            var existing = metadataManager.getMetadata(pubKey)
+
+            // If cache is empty, try to fetch fresh metadata before saving.
+            // This avoids losing unknown fields when the cache was evicted or not yet loaded.
+            // If nothing comes back after the timeout, treat as a new user (no prior kind:0).
+            if (existing == null) {
+                requestUserMetadata(setOf(pubKey))
+                existing = withTimeoutOrNull(5_000L) {
+                    metadataManager.userMetadata.first { it.containsKey(pubKey) }
+                }?.get(pubKey)
+            }
+
             val base: Map<String, JsonElement> = existing?.rawContentJson?.let { raw ->
                 try { Json.parseToJsonElement(raw).jsonObject.toMap() } catch (_: Exception) { null }
             } ?: emptyMap()
@@ -1044,7 +1060,10 @@ class NostrRepository(
                 name?.let { put("name", JsonPrimitive(it)) }
                 about?.let { put("about", JsonPrimitive(it)) }
                 picture?.let { put("picture", JsonPrimitive(it)) }
+                banner?.let { put("banner", JsonPrimitive(it)) }
                 nip05?.let { put("nip05", JsonPrimitive(it)) }
+                lud16?.let { put("lud16", JsonPrimitive(it)) }
+                website?.let { put("website", JsonPrimitive(it)) }
             }
             val content = merged.toString()
 

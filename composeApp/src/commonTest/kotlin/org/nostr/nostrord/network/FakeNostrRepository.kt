@@ -51,8 +51,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     var leaveGroupAction: suspend (String, String?) -> Result<Unit> = { _, _ -> Result.Success(Unit) }
     var sendMessageAction: suspend (String, String, String?, Map<String, String>, String?) -> Result<Unit> =
         { _, _, _, _, _ -> Result.Success(Unit) }
-    var updateProfileMetadataAction: suspend (String?, String?, String?, String?, String?) -> Result<Unit> =
-        { _, _, _, _, _ -> Result.Success(Unit) }
+    var updateProfileMetadataAction: suspend (String?, String?, String?, String?, String?, String?, String?, String?) -> Result<Unit> =
+        { _, _, _, _, _, _, _, _ -> Result.Success(Unit) }
     var fakePublicKey: String? = null
     var fakePrivateKey: String? = null
 
@@ -154,8 +154,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override fun getLastReadTimestamp(groupId: String): Long? = null
 
     override suspend fun requestUserMetadata(pubkeys: Set<String>) {}
-    override suspend fun updateProfileMetadata(displayName: String?, name: String?, about: String?, picture: String?, nip05: String?): Result<Unit> =
-        updateProfileMetadataAction(displayName, name, about, picture, nip05)
+    override suspend fun updateProfileMetadata(displayName: String?, name: String?, about: String?, picture: String?, banner: String?, nip05: String?, lud16: String?, website: String?): Result<Unit> =
+        updateProfileMetadataAction(displayName, name, about, picture, banner, nip05, lud16, website)
 
     override suspend fun requestEventById(eventId: String, relayHints: List<String>, author: String?) {}
     override suspend fun requestAddressableEvent(kind: Int, pubkey: String, identifier: String, relays: List<String>) {}

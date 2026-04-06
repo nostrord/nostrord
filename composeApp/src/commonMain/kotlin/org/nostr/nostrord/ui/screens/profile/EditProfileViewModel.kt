@@ -17,11 +17,14 @@ class EditProfileViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
         name: String?,
         about: String?,
         picture: String?,
+        banner: String?,
         nip05: String?,
+        lud16: String?,
+        website: String?,
         onResult: (kotlin.Result<Unit>) -> Unit
     ) {
         viewModelScope.launch {
-            onResult(repo.updateProfileMetadata(displayName, name, about, picture, nip05).toKotlinResult())
+            onResult(repo.updateProfileMetadata(displayName, name, about, picture, banner, nip05, lud16, website).toKotlinResult())
         }
     }
 }

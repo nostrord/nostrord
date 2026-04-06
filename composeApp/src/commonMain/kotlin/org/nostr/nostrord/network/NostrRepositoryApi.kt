@@ -125,7 +125,7 @@ interface NostrRepositoryApi {
 
     // --- Metadata operations ---
     suspend fun requestUserMetadata(pubkeys: Set<String>)
-    suspend fun updateProfileMetadata(displayName: String? = null, name: String? = null, about: String? = null, picture: String? = null, nip05: String? = null): Result<Unit>
+    suspend fun updateProfileMetadata(displayName: String? = null, name: String? = null, about: String? = null, picture: String? = null, banner: String? = null, nip05: String? = null, lud16: String? = null, website: String? = null): Result<Unit>
     suspend fun publishRelayList(relays: List<Nip65Relay>): Result<Unit>
 
     // --- Event operations ---

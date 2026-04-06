@@ -98,11 +98,9 @@ fun SettingsScreen(
     val currentUserMetadata = publicKey?.let { userMetadata[it] }
 
     // Form state — reinitialised when metadata loads
-    var displayName by remember(currentUserMetadata) {
-        mutableStateOf(currentUserMetadata?.displayName ?: "")
-    }
-    var username by remember(currentUserMetadata) {
-        mutableStateOf(currentUserMetadata?.name ?: "")
+    // Single "Name" field populates both display_name and name in the event
+    var name by remember(currentUserMetadata) {
+        mutableStateOf(currentUserMetadata?.displayName ?: currentUserMetadata?.name ?: "")
     }
     var about by remember(currentUserMetadata) {
         mutableStateOf(currentUserMetadata?.about ?: "")
@@ -110,8 +108,17 @@ fun SettingsScreen(
     var pictureUrl by remember(currentUserMetadata) {
         mutableStateOf(currentUserMetadata?.picture ?: "")
     }
+    var bannerUrl by remember(currentUserMetadata) {
+        mutableStateOf(currentUserMetadata?.banner ?: "")
+    }
     var nip05 by remember(currentUserMetadata) {
         mutableStateOf(currentUserMetadata?.nip05 ?: "")
+    }
+    var lightningAddress by remember(currentUserMetadata) {
+        mutableStateOf(currentUserMetadata?.lud16 ?: "")
+    }
+    var website by remember(currentUserMetadata) {
+        mutableStateOf(currentUserMetadata?.website ?: "")
     }
     var isSaving by remember { mutableStateOf(false) }
     var showSuccessMessage by remember { mutableStateOf(false) }
@@ -127,12 +134,16 @@ fun SettingsScreen(
     val onSave: () -> Unit = {
         isSaving = true
         errorMessage = null
+        val nameValue = name.ifBlank { null }
         vm.saveProfile(
-            displayName = displayName.ifBlank { null },
-            name = username.ifBlank { null },
+            displayName = nameValue,
+            name = nameValue,
             about = about.ifBlank { null },
             picture = pictureUrl.ifBlank { null },
-            nip05 = nip05.ifBlank { null }
+            banner = bannerUrl.ifBlank { null },
+            nip05 = nip05.ifBlank { null },
+            lud16 = lightningAddress.ifBlank { null },
+            website = website.ifBlank { null }
         ) { result ->
             isSaving = false
             if (result.isSuccess) showSuccessMessage = true
@@ -142,20 +153,24 @@ fun SettingsScreen(
 
     val profileContent: @Composable () -> Unit = {
         ProfileFormContent(
-            displayName = displayName,
-            username = username,
+            name = name,
             about = about,
             pictureUrl = pictureUrl,
+            bannerUrl = bannerUrl,
             nip05 = nip05,
+            lightningAddress = lightningAddress,
+            website = website,
             pubkey = publicKey,
             isSaving = isSaving,
             showSuccessMessage = showSuccessMessage,
             errorMessage = errorMessage,
-            onDisplayNameChange = { displayName = it },
-            onUsernameChange = { username = it },
+            onNameChange = { name = it },
             onAboutChange = { about = it },
             onPictureUrlChange = { pictureUrl = it },
+            onBannerUrlChange = { bannerUrl = it },
             onNip05Change = { nip05 = it },
+            onLightningAddressChange = { lightningAddress = it },
+            onWebsiteChange = { website = it },
             onSave = onSave
         )
     }
@@ -557,20 +572,24 @@ private fun SettingsPanel(
 
 @Composable
 private fun ProfileFormContent(
-    displayName: String,
-    username: String,
+    name: String,
     about: String,
     pictureUrl: String,
+    bannerUrl: String,
     nip05: String,
+    lightningAddress: String,
+    website: String,
     pubkey: String?,
     isSaving: Boolean,
     showSuccessMessage: Boolean,
     errorMessage: String?,
-    onDisplayNameChange: (String) -> Unit,
-    onUsernameChange: (String) -> Unit,
+    onNameChange: (String) -> Unit,
     onAboutChange: (String) -> Unit,
     onPictureUrlChange: (String) -> Unit,
+    onBannerUrlChange: (String) -> Unit,
     onNip05Change: (String) -> Unit,
+    onLightningAddressChange: (String) -> Unit,
+    onWebsiteChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
@@ -586,7 +605,7 @@ private fun ProfileFormContent(
             ) {
                 ProfileAvatar(
                     imageUrl = pictureUrl.ifBlank { null },
-                    displayName = displayName.ifBlank { "User" },
+                    displayName = name.ifBlank { "User" },
                     pubkey = pubkey ?: "",
                     size = 100.dp
                 )
@@ -611,8 +630,7 @@ private fun ProfileFormContent(
                     color = NostrordColors.TextMuted
                 )
 
-                ProfileField("Display Name", displayName, onDisplayNameChange, "Your display name")
-                ProfileField("Username", username, onUsernameChange, "your_username")
+                ProfileField("Name", name, onNameChange, "Your name")
                 ProfileField("About", about, onAboutChange, "Tell us about yourself", singleLine = false, maxLines = 4)
                 UploadImageField(
                     label = "Avatar URL",
@@ -620,7 +638,15 @@ private fun ProfileFormContent(
                     onValueChange = onPictureUrlChange,
                     placeholder = "https://example.com/avatar.jpg"
                 )
-                ProfileField("NIP-05 Identifier", nip05, onNip05Change, "you@example.com")
+                UploadImageField(
+                    label = "Banner URL",
+                    value = bannerUrl,
+                    onValueChange = onBannerUrlChange,
+                    placeholder = "https://example.com/banner.jpg"
+                )
+                ProfileField("Nostr Address (NIP-05)", nip05, onNip05Change, "you@example.com")
+                ProfileField("Lightning Address", lightningAddress, onLightningAddressChange, "you@walletofsatoshi.com")
+                ProfileField("Website", website, onWebsiteChange, "https://example.com")
 
                 // Save button
                 Row(

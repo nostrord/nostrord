@@ -31,11 +31,9 @@ fun EditProfileScreen(
     val currentUserMetadata = publicKey?.let { userMetadata[it] }
 
     // Form state - initialize with current values
-    var displayName by remember(currentUserMetadata) {
-        mutableStateOf(currentUserMetadata?.displayName ?: "")
-    }
-    var username by remember(currentUserMetadata) {
-        mutableStateOf(currentUserMetadata?.name ?: "")
+    // Single "Name" field populates both display_name and name in the event
+    var name by remember(currentUserMetadata) {
+        mutableStateOf(currentUserMetadata?.displayName ?: currentUserMetadata?.name ?: "")
     }
     var about by remember(currentUserMetadata) {
         mutableStateOf(currentUserMetadata?.about ?: "")
@@ -43,8 +41,17 @@ fun EditProfileScreen(
     var pictureUrl by remember(currentUserMetadata) {
         mutableStateOf(currentUserMetadata?.picture ?: "")
     }
+    var bannerUrl by remember(currentUserMetadata) {
+        mutableStateOf(currentUserMetadata?.banner ?: "")
+    }
     var nip05 by remember(currentUserMetadata) {
         mutableStateOf(currentUserMetadata?.nip05 ?: "")
+    }
+    var lightningAddress by remember(currentUserMetadata) {
+        mutableStateOf(currentUserMetadata?.lud16 ?: "")
+    }
+    var website by remember(currentUserMetadata) {
+        mutableStateOf(currentUserMetadata?.website ?: "")
     }
 
     // UI state
@@ -71,12 +78,16 @@ fun EditProfileScreen(
     val onSave: () -> Unit = {
         isSaving = true
         errorMessage = null
+        val nameValue = name.ifBlank { null }
         vm.saveProfile(
-            displayName = displayName.ifBlank { null },
-            name = username.ifBlank { null },
+            displayName = nameValue,
+            name = nameValue,
             about = about.ifBlank { null },
             picture = pictureUrl.ifBlank { null },
-            nip05 = nip05.ifBlank { null }
+            banner = bannerUrl.ifBlank { null },
+            nip05 = nip05.ifBlank { null },
+            lud16 = lightningAddress.ifBlank { null },
+            website = website.ifBlank { null }
         ) { result ->
             isSaving = false
             if (result.isSuccess) {
@@ -92,38 +103,46 @@ fun EditProfileScreen(
 
         if (isCompact) {
             EditProfileScreenMobile(
-                displayName = displayName,
-                username = username,
+                name = name,
                 about = about,
                 pictureUrl = pictureUrl,
+                bannerUrl = bannerUrl,
                 nip05 = nip05,
+                lightningAddress = lightningAddress,
+                website = website,
                 pubkey = publicKey,
                 isSaving = isSaving,
                 showSuccessMessage = showSuccessMessage,
                 errorMessage = errorMessage,
-                onDisplayNameChange = { displayName = it },
-                onUsernameChange = { username = it },
+                onNameChange = { name = it },
                 onAboutChange = { about = it },
                 onPictureUrlChange = { pictureUrl = it },
+                onBannerUrlChange = { bannerUrl = it },
                 onNip05Change = { nip05 = it },
+                onLightningAddressChange = { lightningAddress = it },
+                onWebsiteChange = { website = it },
                 onSave = onSave
             )
         } else {
             EditProfileScreenDesktop(
-                displayName = displayName,
-                username = username,
+                name = name,
                 about = about,
                 pictureUrl = pictureUrl,
+                bannerUrl = bannerUrl,
                 nip05 = nip05,
+                lightningAddress = lightningAddress,
+                website = website,
                 pubkey = publicKey,
                 isSaving = isSaving,
                 showSuccessMessage = showSuccessMessage,
                 errorMessage = errorMessage,
-                onDisplayNameChange = { displayName = it },
-                onUsernameChange = { username = it },
+                onNameChange = { name = it },
                 onAboutChange = { about = it },
                 onPictureUrlChange = { pictureUrl = it },
+                onBannerUrlChange = { bannerUrl = it },
                 onNip05Change = { nip05 = it },
+                onLightningAddressChange = { lightningAddress = it },
+                onWebsiteChange = { website = it },
                 onSave = onSave
             )
         }

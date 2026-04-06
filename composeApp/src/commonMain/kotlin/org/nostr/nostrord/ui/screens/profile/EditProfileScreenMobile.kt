@@ -25,20 +25,24 @@ import org.nostr.nostrord.ui.theme.Spacing
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditProfileScreenMobile(
-    displayName: String,
-    username: String,
+    name: String,
     about: String,
     pictureUrl: String,
+    bannerUrl: String,
     nip05: String,
+    lightningAddress: String,
+    website: String,
     pubkey: String?,
     isSaving: Boolean,
     showSuccessMessage: Boolean,
     errorMessage: String?,
-    onDisplayNameChange: (String) -> Unit,
-    onUsernameChange: (String) -> Unit,
+    onNameChange: (String) -> Unit,
     onAboutChange: (String) -> Unit,
     onPictureUrlChange: (String) -> Unit,
+    onBannerUrlChange: (String) -> Unit,
     onNip05Change: (String) -> Unit,
+    onLightningAddressChange: (String) -> Unit,
+    onWebsiteChange: (String) -> Unit,
     onSave: () -> Unit
 ) {
     Scaffold(
@@ -140,7 +144,7 @@ fun EditProfileScreenMobile(
             ) {
                 ProfileAvatar(
                     imageUrl = pictureUrl.ifBlank { null },
-                    displayName = displayName.ifBlank { "User" },
+                    displayName = name.ifBlank { "User" },
                     pubkey = pubkey ?: "",
                     size = 96.dp
                 )
@@ -163,17 +167,10 @@ fun EditProfileScreenMobile(
                 verticalArrangement = Arrangement.spacedBy(Spacing.lg)
             ) {
                 ProfileTextField(
-                    label = "Display Name",
-                    value = displayName,
-                    onValueChange = onDisplayNameChange,
-                    placeholder = "Your display name"
-                )
-
-                ProfileTextField(
-                    label = "Username",
-                    value = username,
-                    onValueChange = onUsernameChange,
-                    placeholder = "your_username"
+                    label = "Name",
+                    value = name,
+                    onValueChange = onNameChange,
+                    placeholder = "Your name"
                 )
 
                 ProfileTextField(
@@ -193,12 +190,33 @@ fun EditProfileScreenMobile(
                 )
 
                 ProfileTextField(
-                    label = "NIP-05 Identifier",
+                    label = "Banner URL",
+                    value = bannerUrl,
+                    onValueChange = onBannerUrlChange,
+                    placeholder = "https://example.com/banner.jpg"
+                )
+
+                ProfileTextField(
+                    label = "Nostr Address (NIP-05)",
                     value = nip05,
                     onValueChange = onNip05Change,
                     placeholder = "you@example.com"
                 )
-            }
+
+                ProfileTextField(
+                    label = "Lightning Address",
+                    value = lightningAddress,
+                    onValueChange = onLightningAddressChange,
+                    placeholder = "you@walletofsatoshi.com"
+                )
+
+                ProfileTextField(
+                    label = "Website",
+                    value = website,
+                    onValueChange = onWebsiteChange,
+                    placeholder = "https://example.com"
+                )
+}
 
             Spacer(modifier = Modifier.height(Spacing.xxl))
         }
