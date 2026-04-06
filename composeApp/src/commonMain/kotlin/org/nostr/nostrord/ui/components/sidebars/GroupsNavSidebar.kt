@@ -225,15 +225,15 @@ fun GroupsNavSidebar(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = Spacing.xs, vertical = 2.dp)
+                                    .padding(vertical = 2.dp)
+                                    .height(28.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(NostrordColors.BackgroundDark)
-                                    .height(28.dp)
                                     .clickable(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null
                                     ) { focusRequester.requestFocus() }
-                                    .padding(horizontal = 8.dp),
+                                    .padding(horizontal = 6.dp),
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 Row(
@@ -385,7 +385,7 @@ private fun SectionToggleHeader(
                 onClick = onToggle
             )
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(start = Spacing.md, top = topPadding, bottom = Spacing.xs, end = Spacing.md),
+            .padding(top = topPadding, bottom = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
