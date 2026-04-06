@@ -50,7 +50,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -330,7 +330,10 @@ private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
                 modifier = Modifier.size(14.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Box(modifier = Modifier.weight(1f)) {
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterStart
+            ) {
                 if (query.isEmpty()) {
                     Text(
                         text = "Search groups...",
@@ -350,8 +353,8 @@ private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
-                        .onKeyEvent { event ->
-                            if (event.key == Key.Escape && event.type == KeyEventType.KeyUp && query.isNotEmpty()) {
+                        .onPreviewKeyEvent { event ->
+                            if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && query.isNotEmpty()) {
                                 onQueryChange("")
                                 true
                             } else false

@@ -24,7 +24,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -124,7 +124,7 @@ fun GroupsNavSidebar(
                 .background(NostrordColors.BackgroundDark)
         )
 
-        Box(modifier = Modifier.weight(1f)) {
+        Column(modifier = Modifier.weight(1f)) {
             val listState = rememberLazyListState()
 
             if (groups.isEmpty() && onAddRelay != null && relayUrl.isBlank()) {
@@ -189,146 +189,152 @@ fun GroupsNavSidebar(
                     modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)
                 )
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.sm, vertical = Spacing.xs)
-                ) {
-                    if (myGroups.isNotEmpty()) {
-                        item(key = "header_my") {
-                            SectionToggleHeader(
-                                text = "MY GROUPS",
-                                expanded = myGroupsExpanded,
-                                topPadding = Spacing.xs,
-                                onToggle = { myGroupsExpanded = !myGroupsExpanded }
-                            )
-                        }
+                // MY GROUPS — pinned at top, always visible
+                if (myGroups.isNotEmpty()) {
+                    Column(modifier = Modifier.padding(horizontal = Spacing.sm)) {
+                        SectionToggleHeader(
+                            text = "MY GROUPS",
+                            expanded = myGroupsExpanded,
+                            topPadding = Spacing.xs,
+                            onToggle = { myGroupsExpanded = !myGroupsExpanded }
+                        )
                         if (myGroupsExpanded) {
-                            items(myGroups, key = { "my_${it.id}" }) { group ->
+                            myGroups.forEach { group ->
                                 GroupItem(
                                     group = group,
                                     isActive = group.id == activeGroupId,
                                     unreadCount = unreadCounts[group.id] ?: 0,
                                     onClick = { onGroupClick(group.id, group.name) }
-                                )
-                            }
-                        }
-                    }
-
-                    if (otherGroups.isNotEmpty() || searchQuery.isNotBlank()) {
-                        item(key = "header_all") {
-                            Column {
-                                SectionToggleHeader(
-                                    text = "OTHER GROUPS",
-                                    expanded = otherGroupsExpanded,
-                                    topPadding = if (myGroups.isNotEmpty()) Spacing.md else Spacing.xs,
-                                    onToggle = { otherGroupsExpanded = !otherGroupsExpanded }
-                                )
-                                if (otherGroupsExpanded) {
-                                    val focusRequester = remember { FocusRequester() }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = Spacing.xs, vertical = 2.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(NostrordColors.BackgroundDark)
-                                            .height(28.dp)
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) { focusRequester.requestFocus() }
-                                            .padding(horizontal = 8.dp),
-                                        contentAlignment = Alignment.CenterStart
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Search,
-                                                contentDescription = null,
-                                                tint = NostrordColors.TextMuted,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(5.dp))
-                                            Box(modifier = Modifier.weight(1f)) {
-                                                if (searchQuery.isEmpty()) {
-                                                    Text(
-                                                        text = "Filter…",
-                                                        color = NostrordColors.TextMuted,
-                                                        fontSize = 12.sp
-                                                    )
-                                                }
-                                                BasicTextField(
-                                                    value = searchQuery,
-                                                    onValueChange = { searchQuery = it },
-                                                    singleLine = true,
-                                                    textStyle = TextStyle(
-                                                        color = NostrordColors.TextPrimary,
-                                                        fontSize = 12.sp
-                                                    ),
-                                                    cursorBrush = SolidColor(NostrordColors.Primary),
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .focusRequester(focusRequester)
-                                                        .onKeyEvent { event ->
-                                                            if (event.key == Key.Escape && event.type == KeyEventType.KeyUp && searchQuery.isNotEmpty()) {
-                                                                searchQuery = ""
-                                                                true
-                                                            } else false
-                                                        }
-                                                )
-                                            }
-                                            if (searchQuery.isNotEmpty()) {
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(14.dp)
-                                                        .clip(RoundedCornerShape(7.dp))
-                                                        .clickable { searchQuery = "" }
-                                                        .pointerHoverIcon(PointerIcon.Hand),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Filled.Clear,
-                                                        contentDescription = "Clear filter",
-                                                        tint = NostrordColors.TextMuted,
-                                                        modifier = Modifier.size(10.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (otherGroupsExpanded) {
-                            items(otherGroups, key = { "other_${it.id}" }) { group ->
-                                GroupItem(
-                                    group = group,
-                                    isActive = group.id == activeGroupId,
-                                    unreadCount = unreadCounts[group.id] ?: 0,
-                                    onClick = { onGroupClick(group.id, group.name) }
-                                )
-                            }
-                        }
-
-                        if (otherGroupsExpanded && otherGroups.isEmpty() && searchQuery.isNotBlank()) {
-                            item(key = "no_results") {
-                                Text(
-                                    text = "No groups match \"$searchQuery\"",
-                                    color = NostrordColors.TextMuted,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)
                                 )
                             }
                         }
                     }
                 }
 
-                VerticalScrollbarWrapper(
-                    listState = listState,
-                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-                )
+                // OTHER GROUPS — scrollable, fills remaining space
+                if (otherGroups.isNotEmpty() || searchQuery.isNotBlank()) {
+                    Column(modifier = Modifier.padding(horizontal = Spacing.sm)) {
+                        SectionToggleHeader(
+                            text = "OTHER GROUPS",
+                            expanded = otherGroupsExpanded,
+                            topPadding = if (myGroups.isNotEmpty()) Spacing.md else Spacing.xs,
+                            onToggle = { otherGroupsExpanded = !otherGroupsExpanded }
+                        )
+                        if (otherGroupsExpanded) {
+                            val focusRequester = remember { FocusRequester() }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = Spacing.xs, vertical = 2.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(NostrordColors.BackgroundDark)
+                                    .height(28.dp)
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) { focusRequester.requestFocus() }
+                                    .padding(horizontal = 8.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Search,
+                                        contentDescription = null,
+                                        tint = NostrordColors.TextMuted,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(5.dp))
+                                    Box(
+                                        modifier = Modifier.weight(1f),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        if (searchQuery.isEmpty()) {
+                                            Text(
+                                                text = "Filter…",
+                                                color = NostrordColors.TextMuted,
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                        BasicTextField(
+                                            value = searchQuery,
+                                            onValueChange = { searchQuery = it },
+                                            singleLine = true,
+                                            textStyle = TextStyle(
+                                                color = NostrordColors.TextPrimary,
+                                                fontSize = 12.sp
+                                            ),
+                                            cursorBrush = SolidColor(NostrordColors.Primary),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .focusRequester(focusRequester)
+                                                .onPreviewKeyEvent { event ->
+                                                    if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && searchQuery.isNotEmpty()) {
+                                                        searchQuery = ""
+                                                        true
+                                                    } else false
+                                                }
+                                        )
+                                    }
+                                    if (searchQuery.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .size(14.dp)
+                                                .clip(RoundedCornerShape(7.dp))
+                                                .clickable { searchQuery = "" }
+                                                .pointerHoverIcon(PointerIcon.Hand),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Clear,
+                                                contentDescription = "Clear filter",
+                                                tint = NostrordColors.TextMuted,
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (otherGroupsExpanded) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.sm)
+                            ) {
+                                items(otherGroups, key = { "other_${it.id}" }) { group ->
+                                    GroupItem(
+                                        group = group,
+                                        isActive = group.id == activeGroupId,
+                                        unreadCount = unreadCounts[group.id] ?: 0,
+                                        onClick = { onGroupClick(group.id, group.name) }
+                                    )
+                                }
+
+                                if (otherGroups.isEmpty() && searchQuery.isNotBlank()) {
+                                    item(key = "no_results") {
+                                        Text(
+                                            text = "No groups match \"$searchQuery\"",
+                                            color = NostrordColors.TextMuted,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                                        )
+                                    }
+                                }
+                            }
+
+                            VerticalScrollbarWrapper(
+                                listState = listState,
+                                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                            )
+                        }
+                    }
+                }
             }
         }
 

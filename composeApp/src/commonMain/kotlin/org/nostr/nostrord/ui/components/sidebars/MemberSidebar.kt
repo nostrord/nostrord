@@ -35,7 +35,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -421,12 +421,15 @@ private fun MemberSearchField(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            Box(modifier = Modifier.weight(1f)) {
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterStart
+            ) {
                 if (query.isEmpty()) {
                     Text(
                         text = "Search members...",
                         color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.bodySmall
+                        fontSize = 13.sp
                     )
                 }
 
@@ -436,14 +439,14 @@ private fun MemberSearchField(
                     singleLine = true,
                     textStyle = TextStyle(
                         color = Color.White,
-                        fontSize = 14.sp
+                        fontSize = 13.sp
                     ),
                     cursorBrush = SolidColor(NostrordColors.Primary),
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
-                        .onKeyEvent { event ->
-                            if (event.key == Key.Escape && event.type == KeyEventType.KeyUp && query.isNotEmpty()) {
+                        .onPreviewKeyEvent { event ->
+                            if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && query.isNotEmpty()) {
                                 onQueryChange("")
                                 true
                             } else false
