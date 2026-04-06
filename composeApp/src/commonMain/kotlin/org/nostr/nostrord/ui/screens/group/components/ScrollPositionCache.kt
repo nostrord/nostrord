@@ -243,7 +243,7 @@ fun <T> AutoScrollEffect(
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val wasNearBottom = lastVisibleIndex >= previousSize - nearBottomThreshold
             if (wasNearBottom) {
-                listState.animateScrollToItem(items.lastIndex)
+                listState.scrollToItem(items.lastIndex)
             }
         }
 

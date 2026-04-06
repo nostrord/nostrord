@@ -96,6 +96,13 @@ fun MessageInput(
         }
     }
 
+    // Refocus input when reply is activated or after message send (input cleared)
+    LaunchedEffect(replyingToMessage) {
+        if (replyingToMessage != null && !getPlatform().name.startsWith("Android")) {
+            focusRequester.requestFocus()
+        }
+    }
+
     // Local TextFieldValue state for cursor position control
     var textFieldValue by remember { mutableStateOf(TextFieldValue(messageInput)) }
 
@@ -103,6 +110,10 @@ fun MessageInput(
     LaunchedEffect(messageInput) {
         if (textFieldValue.text != messageInput) {
             textFieldValue = TextFieldValue(messageInput, TextRange(messageInput.length))
+            // Refocus after send (input cleared) on desktop
+            if (messageInput.isEmpty() && !getPlatform().name.startsWith("Android")) {
+                focusRequester.requestFocus()
+            }
         }
     }
 
