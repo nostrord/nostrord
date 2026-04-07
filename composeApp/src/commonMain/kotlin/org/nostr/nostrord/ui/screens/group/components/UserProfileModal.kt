@@ -35,6 +35,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -56,6 +57,8 @@ import org.nostr.nostrord.utils.rememberClipboardWriter
 fun UserProfileModal(
     pubkey: String,
     metadata: UserMetadata?,
+    userMetadata: Map<String, UserMetadata> = emptyMap(),
+    onUserClick: ((String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val copyToClipboard = rememberClipboardWriter()
@@ -147,10 +150,12 @@ fun UserProfileModal(
 
                             Spacer(modifier = Modifier.height(Spacing.sm))
 
-                            Text(
+                            RichAboutText(
                                 text = metadata?.about ?: "",
+                                userMetadata = userMetadata,
                                 style = NostrordTypography.MessageBody,
-                                color = NostrordColors.TextContent
+                                color = NostrordColors.TextContent,
+                                onMentionClick = onUserClick
                             )
                         }
 

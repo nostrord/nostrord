@@ -172,6 +172,11 @@ fun GroupScreen(
             groupId = groupId,
             groupName = groupName,
             groupMetadata = currentGroupMetadata,
+            userMetadata = userMetadata,
+            onUserClick = { pubkey ->
+                showGroupInfoModal = false
+                selectedUserPubkey = pubkey
+            },
             onDismiss = { showGroupInfoModal = false }
         )
     }
@@ -316,6 +321,10 @@ fun GroupScreen(
         UserProfileModal(
             pubkey = pubkey,
             metadata = userMetadata[pubkey],
+            userMetadata = userMetadata,
+            onUserClick = { clickedPubkey ->
+                selectedUserPubkey = clickedPubkey
+            },
             onDismiss = { selectedUserPubkey = null }
         )
     }

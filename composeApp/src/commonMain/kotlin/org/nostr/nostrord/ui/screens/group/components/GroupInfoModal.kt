@@ -37,6 +37,8 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -57,6 +59,8 @@ fun GroupInfoModal(
     groupId: String,
     groupName: String?,
     groupMetadata: GroupMetadata?,
+    userMetadata: Map<String, UserMetadata> = emptyMap(),
+    onUserClick: ((String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -151,10 +155,12 @@ fun GroupInfoModal(
 
                             Spacer(modifier = Modifier.height(Spacing.sm))
 
-                            Text(
+                            RichAboutText(
                                 text = groupMetadata?.about ?: "",
+                                userMetadata = userMetadata,
                                 style = NostrordTypography.MessageBody,
-                                color = NostrordColors.TextContent
+                                color = NostrordColors.TextContent,
+                                onMentionClick = onUserClick
                             )
                         }
 
