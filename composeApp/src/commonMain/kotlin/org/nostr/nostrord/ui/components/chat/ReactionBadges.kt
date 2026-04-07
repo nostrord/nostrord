@@ -11,8 +11,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,18 +40,24 @@ import coil3.compose.LocalPlatformContext
 import coil3.SingletonImageLoader
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import coil3.size.Size
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.proxyViaWeserv
 
 /**
  * Displays reaction badges for a message.
- * Each badge shows an emoji (or custom emoji image) and the count of users who reacted with it.
+ * Each badge shows an emoji (or custom emoji image), stacked avatars of reactors, and the count.
  *
  * @param reactions Map of emoji to ReactionInfo containing URL and list of reactors
  * @param currentUserPubkey The current user's pubkey (to highlight their reactions)
+ * @param resolveMetadata Resolves pubkey to UserMetadata for reactor avatars
  * @param onReactionClick Called when a reaction badge is clicked (for adding/removing reactions)
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -55,6 +65,7 @@ import org.nostr.nostrord.utils.proxyViaWeserv
 fun ReactionBadges(
     reactions: Map<String, GroupManager.ReactionInfo>,
     currentUserPubkey: String? = null,
+    resolveMetadata: (String) -> UserMetadata? = { null },
     onReactionClick: (emoji: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -97,8 +108,10 @@ fun ReactionBadges(
             ReactionBadge(
                 emoji = emoji,
                 emojiUrl = info.emojiUrl,
+                reactors = info.reactors,
                 count = info.reactors.size,
                 isUserReacted = hasCurrentUserReacted,
+                resolveMetadata = resolveMetadata,
                 onClick = { onReactionClick(emoji) }
             )
         }
@@ -106,14 +119,16 @@ fun ReactionBadges(
 }
 
 /**
- * Individual reaction badge showing emoji (or custom emoji image) and count.
+ * Individual reaction badge showing emoji (or custom emoji image), reactor avatars, and count.
  */
 @Composable
 private fun ReactionBadge(
     emoji: String,
     emojiUrl: String?,
+    reactors: List<String>,
     count: Int,
     isUserReacted: Boolean,
+    resolveMetadata: (String) -> UserMetadata?,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -178,13 +193,94 @@ private fun ReactionBadge(
                 )
             }
 
-            // Count
-            Text(
-                text = count.toString(),
-                color = if (isUserReacted) NostrordColors.Primary else NostrordColors.TextSecondary,
-                fontSize = 12.sp,
-                fontWeight = if (isUserReacted) FontWeight.SemiBold else FontWeight.Normal
+            // Reactor avatar stack (max 3, overlapping)
+            ReactorAvatarStack(
+                reactors = reactors,
+                resolveMetadata = resolveMetadata
             )
+
+            // Count (only show if more reactors than visible avatars)
+            if (count > MAX_VISIBLE_AVATARS) {
+                Text(
+                    text = "+${count - MAX_VISIBLE_AVATARS}",
+                    color = if (isUserReacted) NostrordColors.Primary else NostrordColors.TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = if (isUserReacted) FontWeight.SemiBold else FontWeight.Normal
+                )
+            }
+        }
+    }
+}
+
+private const val MAX_VISIBLE_AVATARS = 3
+private val AVATAR_SIZE = 16.dp
+private val AVATAR_OVERLAP = 6.dp
+
+/**
+ * Overlapping stack of reactor avatars.
+ * Uses AsyncImage directly (instead of OptimizedSmallAvatar) because
+ * OptimizedSmallAvatar treats sizes < 24dp as TINY and skips image loading.
+ */
+@Composable
+private fun ReactorAvatarStack(
+    reactors: List<String>,
+    resolveMetadata: (String) -> UserMetadata?
+) {
+    val visible = reactors.take(MAX_VISIBLE_AVATARS)
+    if (visible.isEmpty()) return
+
+    val totalWidth = AVATAR_SIZE + (AVATAR_OVERLAP * (visible.size - 1).coerceAtLeast(0))
+    val context = LocalPlatformContext.current
+
+    Box(
+        modifier = Modifier
+            .width(totalWidth)
+            .height(AVATAR_SIZE)
+    ) {
+        visible.forEachIndexed { index, pubkey ->
+            val meta = resolveMetadata(pubkey)
+            val pictureUrl = meta?.picture
+
+            Box(
+                modifier = Modifier
+                    .offset(x = AVATAR_OVERLAP * index)
+                    .size(AVATAR_SIZE)
+                    .clip(CircleShape)
+                    .border(1.dp, NostrordColors.SurfaceVariant, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                var imageState by remember(pictureUrl) {
+                    mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+                }
+                val showFallback = pictureUrl.isNullOrBlank() ||
+                    imageState is AsyncImagePainter.State.Loading ||
+                    imageState is AsyncImagePainter.State.Error
+
+                if (showFallback) {
+                    Jdenticon(
+                        value = pubkey,
+                        size = AVATAR_SIZE
+                    )
+                }
+
+                if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(pictureUrl)
+                            .crossfade(true)
+                            .size(Size(64, 64))
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(AVATAR_SIZE)
+                            .clip(CircleShape),
+                        contentScale = ContentScale.Crop,
+                        onState = { imageState = it }
+                    )
+                }
+            }
         }
     }
 }

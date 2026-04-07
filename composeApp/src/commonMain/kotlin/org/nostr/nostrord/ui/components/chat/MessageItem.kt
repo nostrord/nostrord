@@ -297,6 +297,7 @@ fun MessageItem(
                     ReactionBadges(
                         reactions = reactions,
                         currentUserPubkey = currentUserPubkey,
+                        resolveMetadata = resolveMetadata,
                         onReactionClick = onReactionBadgeClick
                     )
                 }
