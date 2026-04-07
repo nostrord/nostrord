@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.WebElementView
 import kotlinx.browser.document
+import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.w3c.dom.HTMLVideoElement
 
@@ -31,6 +32,8 @@ actual fun PlatformVideoPlayer(
     onFallbackClick: () -> Unit,
     modifier: Modifier
 ) {
+    val isHidden = LocalAnimatedImageHidden.current
+
     Box(
         modifier = modifier
             .widthIn(max = 400.dp)
@@ -60,6 +63,10 @@ actual fun PlatformVideoPlayer(
                 val video = element as HTMLVideoElement
                 if (video.src != url) video.src = url
                 if (thumbnailUrl != null) video.poster = thumbnailUrl
+                // Hide via CSS so video keeps playing but doesn't overlap canvas modals
+                video.style.visibility = if (isHidden) "hidden" else "visible"
+                (video.parentElement as? org.w3c.dom.HTMLElement)?.style?.visibility =
+                    if (isHidden) "hidden" else "visible"
             }
         )
     }
