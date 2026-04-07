@@ -34,7 +34,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.ConnectionStatusBanner
-import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
+import org.nostr.nostrord.ui.screens.group.components.GroupHeaderIcon
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
@@ -290,11 +290,11 @@ private fun MobileGroupTopBar(
                     .padding(start = Spacing.xs)
                     .clickable(onClick = onTitleClick)
             ) {
-                // Group avatar
-                ProfileAvatar(
-                    imageUrl = groupMetadata?.picture,
+                // Group avatar (rounded rect, same as desktop)
+                GroupHeaderIcon(
+                    pictureUrl = groupMetadata?.picture,
+                    groupId = groupMetadata?.id ?: "",
                     displayName = groupName ?: "Group",
-                    pubkey = groupMetadata?.id ?: "",
                     size = 32.dp
                 )
 

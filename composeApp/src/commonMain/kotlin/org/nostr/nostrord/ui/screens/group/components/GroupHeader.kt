@@ -211,7 +211,7 @@ fun GroupHeader(
 }
 
 @Composable
-private fun GroupHeaderIcon(
+internal fun GroupHeaderIcon(
     pictureUrl: String?,
     groupId: String,
     displayName: String,
