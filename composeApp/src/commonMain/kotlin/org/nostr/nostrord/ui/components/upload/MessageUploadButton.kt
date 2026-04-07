@@ -15,17 +15,19 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.upload.MediaAccept
 import org.nostr.nostrord.network.upload.NostrBuildUploader
+import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.upload.rememberMediaPickerLauncher
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.Result
 
 /**
  * Attach/upload button for the message input row.
- * Picks a file, uploads to nostr.build, and appends the URL to the message.
+ * Picks a file, uploads to nostr.build, and returns the full upload result
+ * (URL + NIP-68 metadata) so the caller can build imeta tags.
  */
 @Composable
 fun MessageUploadButton(
-    onUrlReady: (String) -> Unit,
+    onUploadComplete: (UploadResult) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -40,7 +42,7 @@ fun MessageUploadButton(
                     bytes, filename, mime,
                     AppModule.nostrRepository::buildNip98AuthHeader
                 )
-                if (result is Result.Success) onUrlReady(result.data)
+                if (result is Result.Success) onUploadComplete(result.data)
             } finally {
                 isUploading = false
             }

@@ -104,7 +104,8 @@ fun GroupScreenMobile(
     onSwitchRelay: (String) -> Unit = {},
     onUserClick: (String) -> Unit = {},
     onReconnect: () -> Unit = {},
-    isSending: Boolean = false
+    isSending: Boolean = false,
+    onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -219,7 +220,8 @@ fun GroupScreenMobile(
                     replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
                     userMetadata = userMetadata,
                     onCancelReply = onCancelReply,
-                    isSending = isSending
+                    isSending = isSending,
+                    onMediaUploaded = onMediaUploaded
                 )
             }
         }

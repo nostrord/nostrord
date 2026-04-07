@@ -1,8 +1,6 @@
 package org.nostr.nostrord
 
-import android.app.ActivityManager
 import android.app.Application
-import android.content.Context
 import android.os.Build.VERSION.SDK_INT
 import coil3.ImageLoader
 import coil3.PlatformContext
@@ -51,14 +49,13 @@ class NostrordApplication : Application(), SingletonImageLoader.Factory {
                     add(GifDecoder.Factory())
                 }
             }
-            // Adaptive memory cache: use 1/6 of available app memory (clamped 64–256 MB).
-            // Low-RAM devices get a smaller cache; high-end devices benefit from more.
+            // Memory cache: 15% of available app heap.
+            // Adapts automatically to device capability without a fixed floor
+            // that could starve low-RAM devices (e.g. 128 MB heap → 19 MB cache,
+            // not the previous 64 MB floor that consumed half the heap).
             .memoryCache {
-                val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-                val memoryMb = am.memoryClass.toLong() // per-app heap limit in MB
-                val cacheMb = (memoryMb / 6).coerceIn(64, 256)
                 MemoryCache.Builder()
-                    .maxSizeBytes(cacheMb * 1024 * 1024)
+                    .maxSizePercent(context, percent = 0.15)
                     .build()
             }
             // Persistent disk cache so images survive app restarts without re-downloading.

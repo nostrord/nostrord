@@ -65,6 +65,9 @@ kotlin {
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
             // Animated GIF support: provides AnimatedImageDecoder (API 28+) and GifDecoder (API < 28)
             implementation("io.coil-kt.coil3:coil-gif:3.0.4")
+            // Media3 ExoPlayer for video playback (same stack as Amethyst)
+            implementation("androidx.media3:media3-exoplayer:1.6.0")
+            implementation("androidx.media3:media3-ui:1.6.0")
         }
         
         commonMain.dependencies {
@@ -106,6 +109,23 @@ kotlin {
             implementation("fr.acinq.secp256k1:secp256k1-kmp-jni-jvm:0.14.0")
             implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
             implementation("org.slf4j:slf4j-nop:2.0.9")
+            // Inline video player (GStreamer on Linux, MediaFoundation on Win, AVPlayer on Mac)
+            implementation("io.github.kdroidfilter:composemediaplayer:0.8.3")
+            // JavaFX WebView for YouTube iframe on desktop
+            val fxVersion = "17.0.14"
+            val os = org.gradle.internal.os.OperatingSystem.current()
+            val fxClassifier = when {
+                os.isLinux -> "linux"
+                os.isMacOsX -> "mac"
+                os.isWindows -> "win"
+                else -> "linux"
+            }
+            implementation("org.openjfx:javafx-base:$fxVersion:$fxClassifier")
+            implementation("org.openjfx:javafx-graphics:$fxVersion:$fxClassifier")
+            implementation("org.openjfx:javafx-controls:$fxVersion:$fxClassifier")
+            implementation("org.openjfx:javafx-web:$fxVersion:$fxClassifier")
+            implementation("org.openjfx:javafx-swing:$fxVersion:$fxClassifier")
+            implementation("org.openjfx:javafx-media:$fxVersion:$fxClassifier")
         }
         
         jsMain.dependencies {
@@ -167,7 +187,14 @@ compose.desktop {
     application {
         mainClass = "org.nostr.nostrord.MainKt"
 
-        jvmArgs("-Dsun.java2d.wmClassName=Nostrord")
+        jvmArgs(
+            "-Dsun.java2d.wmClassName=Nostrord",
+            // JavaFX module access for WebView/MediaPlayer when loaded from classpath
+            "--add-opens", "java.base/java.lang=ALL-UNNAMED",
+            "--add-opens", "java.base/java.lang.reflect=ALL-UNNAMED",
+            "--add-opens", "java.base/java.io=ALL-UNNAMED",
+            "--add-exports", "java.base/sun.nio.ch=ALL-UNNAMED"
+        )
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)

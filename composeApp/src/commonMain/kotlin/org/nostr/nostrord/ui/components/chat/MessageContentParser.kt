@@ -55,8 +55,8 @@ object MessageContentParser {
     private const val CACHE_MAX_SIZE = 300
 
     // LRU cache: key = "content\0emojiMapHash", value = parsed parts.
-    // Pure Kotlin — no JVM-only APIs. Manual eviction on insert.
-    private val parseCache = LinkedHashMap<String, List<ParsedPart>>()
+    // KMP-compatible: uses custom LruCache instead of java.util.LinkedHashMap.
+    private val parseCache = org.nostr.nostrord.utils.LruCache<String, List<ParsedPart>>(CACHE_MAX_SIZE)
 
     // ============================================================================
     // PUBLIC API
@@ -133,7 +133,7 @@ object MessageContentParser {
 
         // Check cache first — avoids 8 regex passes for previously seen messages
         val cacheKey = if (emojiMap.isEmpty()) content else "$content\u0000${emojiMap.hashCode()}"
-        parseCache[cacheKey]?.let { return it }
+        parseCache.get(cacheKey)?.let { return it }
 
         // Pass 1: Extract code blocks and replace with placeholders
         val (contentWithPlaceholders, codeBlockMatches) = extractCodeBlocks(content)
@@ -173,11 +173,7 @@ object MessageContentParser {
 
         // Step 9: Build parts list with text between matches, cache, and return
         val result = buildParts(content, allMatches)
-        parseCache[cacheKey] = result
-        // Evict oldest entries if over capacity
-        while (parseCache.size > CACHE_MAX_SIZE) {
-            parseCache.remove(parseCache.keys.first())
-        }
+        parseCache.put(cacheKey, result)
         return result
     }
 
@@ -214,6 +210,68 @@ object MessageContentParser {
                 shortcode to url
             }
             .toMap()
+    }
+
+    /**
+     * Extract image dimension hints from NIP-68 `imeta` tags.
+     *
+     * NIP-68 tags look like:
+     *   ["imeta", "url https://example.com/img.jpg", "dim 800x600", "m image/jpeg", ...]
+     *
+     * Each field is a key-value pair separated by a single space.
+     * This function extracts `url` → `dim` (width x height) pairs so that
+     * [ChatImage] can pre-set the aspect ratio and avoid layout shift.
+     *
+     * @return Map of image URL to (width, height) pair
+     */
+    fun extractImetaDimensions(tags: List<List<String>>): Map<String, Pair<Int, Int>> {
+        val result = mutableMapOf<String, Pair<Int, Int>>()
+        for (tag in tags) {
+            if (tag.isEmpty() || tag[0] != "imeta") continue
+            var url: String? = null
+            var dim: Pair<Int, Int>? = null
+            for (i in 1 until tag.size) {
+                val field = tag[i]
+                when {
+                    field.startsWith("url ") -> url = field.removePrefix("url ")
+                    field.startsWith("dim ") -> {
+                        val parts = field.removePrefix("dim ").split("x", limit = 2)
+                        if (parts.size == 2) {
+                            val w = parts[0].toIntOrNull()
+                            val h = parts[1].toIntOrNull()
+                            if (w != null && h != null && w > 0 && h > 0) {
+                                dim = w to h
+                            }
+                        }
+                    }
+                }
+            }
+            if (url != null && dim != null) {
+                result[url] = dim
+            }
+        }
+        return result
+    }
+
+    fun extractImetaThumbnails(tags: List<List<String>>): Map<String, String> {
+        val result = mutableMapOf<String, String>()
+        for (tag in tags) {
+            if (tag.isEmpty() || tag[0] != "imeta") continue
+            var url: String? = null
+            var thumb: String? = null
+            for (i in 1 until tag.size) {
+                val field = tag[i]
+                when {
+                    field.startsWith("url ") -> url = field.removePrefix("url ")
+                    field.startsWith("thumb ") -> thumb = field.removePrefix("thumb ")
+                    field.startsWith("image ") -> if (thumb == null) thumb = field.removePrefix("image ")
+                }
+            }
+            if (url != null && thumb != null) {
+                result[url] = thumb
+            }
+        }
+        return result
     }
 
     /**
@@ -309,17 +367,14 @@ object MessageContentParser {
             val trimmedFromEnd = match.value.length - cleanedUrl.length
             val actualRange = match.range.first..(match.range.last - trimmedFromEnd)
 
-            // Check media types in priority order: image > video > audio > link
+            // Check media types — video/audio by extension first (so .mp4 on
+            // nostr.build isn't misclassified as an image by the host check).
+            val (isVideo, videoId) = checkVideoUrl(cleanedUrl)
             val part = when {
+                isVideo -> ParsedPart.Video(cleanedUrl, videoId)
+                isAudioUrl(cleanedUrl) -> ParsedPart.Audio(cleanedUrl)
                 isImageUrl(cleanedUrl) -> ParsedPart.Image(cleanedUrl)
-                else -> {
-                    val (isVideo, videoId) = checkVideoUrl(cleanedUrl)
-                    when {
-                        isVideo -> ParsedPart.Video(cleanedUrl, videoId)
-                        isAudioUrl(cleanedUrl) -> ParsedPart.Audio(cleanedUrl)
-                        else -> ParsedPart.Link(cleanedUrl)
-                    }
-                }
+                else -> ParsedPart.Link(cleanedUrl)
             }
 
             ParsedMatch(actualRange, part)

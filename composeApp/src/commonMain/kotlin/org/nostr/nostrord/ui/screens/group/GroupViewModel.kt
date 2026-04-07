@@ -47,11 +47,11 @@ class GroupViewModel(
         viewModelScope.launch { repo.requestGroupMessages(groupId, channel) }
     }
 
-    fun sendMessage(content: String, channel: String?, mentions: Map<String, String>, replyToId: String?) {
+    fun sendMessage(content: String, channel: String?, mentions: Map<String, String>, replyToId: String?, extraTags: List<List<String>> = emptyList()) {
         _isSending.value = true
         _sendError.value = null
         viewModelScope.launch {
-            when (val result = repo.sendMessage(groupId, content, channel, mentions, replyToId)) {
+            when (val result = repo.sendMessage(groupId, content, channel, mentions, replyToId, extraTags)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
                     val friendly = raw.removePrefix("blocked: ").removePrefix("error: ")

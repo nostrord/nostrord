@@ -63,6 +63,10 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
+import org.nostr.nostrord.ui.components.media.AudioPlayerContent
+import org.nostr.nostrord.ui.components.media.PlatformVideoPlayer
+import org.nostr.nostrord.ui.components.media.YouTubeLinkCard
+import org.nostr.nostrord.ui.components.media.rememberAudioPlayer
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -148,9 +152,6 @@ private fun AnnotatedString.Builder.appendWithEmojiFont(
     }
 }
 
-/**
- * Check if a content part should be rendered as a block element (on its own line)
- */
 private fun isBlockPart(part: ContentPart): Boolean {
     return when (part) {
         is ImagePart -> true
@@ -213,6 +214,9 @@ fun MessageContent(
     // Extract custom emoji map from NIP-30 tags
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
     val parts = remember(content, emojiMap) { parseContent(content, emojiMap) }
+    // Extract NIP-68 imeta dimension hints for pre-sizing images (avoids layout shift)
+    val imetaDimensions = remember(tags) { MessageContentParser.extractImetaDimensions(tags) }
+    val imetaThumbnails = remember(tags) { MessageContentParser.extractImetaThumbnails(tags) }
     val uriHandler = LocalUriHandler.current
 
     // Image viewer modal state — shared from MessagesList so ALL animated images
@@ -279,6 +283,7 @@ fun MessageContent(
                         Spacer(modifier = Modifier.height(8.dp))
                         ChatImage(
                             imageUrl = firstPart.url,
+                            dimensions = imetaDimensions[firstPart.url],
                             onClick = { selectedImageUrl = firstPart.url }
                         )
                         Spacer(modifier = Modifier.height(4.dp))
@@ -293,26 +298,41 @@ fun MessageContent(
                     }
                     is VideoPart -> {
                         Spacer(modifier = Modifier.height(8.dp))
-                        VideoContent(
-                            url = firstPart.url,
-                            videoId = firstPart.videoId,
-                            onClick = {
-                                try {
-                                    uriHandler.openUri(firstPart.url)
-                                } catch (_: Exception) {}
-                            }
-                        )
+                        val dims = imetaDimensions[firstPart.url]
+                        val videoAspect = if (dims != null) dims.first.toFloat() / dims.second.toFloat() else 16f / 9f
+                        if (firstPart.videoId != null) {
+                            // YouTube — thumbnail preview, click opens externally
+                            YouTubeLinkCard(
+                                videoId = firstPart.videoId!!,
+                                url = firstPart.url,
+                                onClick = {
+                                    try {
+                                        uriHandler.openUri(firstPart.url)
+                                    } catch (_: Exception) {}
+                                }
+                            )
+                        } else {
+                            // Direct video file — inline platform player
+                            PlatformVideoPlayer(
+                                url = firstPart.url,
+                                thumbnailUrl = imetaThumbnails[firstPart.url],
+                                aspectRatio = videoAspect,
+                                onFallbackClick = {
+                                    try {
+                                        uriHandler.openUri(firstPart.url)
+                                    } catch (_: Exception) {}
+                                },
+                                modifier = Modifier
+                            )
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                     }
                     is AudioPart -> {
                         Spacer(modifier = Modifier.height(8.dp))
-                        AudioContent(
+                        val audioPlayer = rememberAudioPlayer()
+                        AudioPlayerContent(
                             url = firstPart.url,
-                            onClick = {
-                                try {
-                                    uriHandler.openUri(firstPart.url)
-                                } catch (_: Exception) {}
-                            }
+                            player = audioPlayer
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }
@@ -466,13 +486,14 @@ private fun InlineContentWithEmojis(
         }
     }
 
-    // Build inline content map for custom emojis with unique sequential IDs
+    // Build inline content map keyed by shortcode — one InlineTextContent per
+    // unique emoji, reused for every occurrence.  This avoids creating N separate
+    // SafeEmojiImage composables when the same emoji appears N times.
     val inlineContentMap = remember(parts) {
-        var emojiIndex = 0
         parts.filterIsInstance<CustomEmojiPart>()
+            .distinctBy { it.shortcode }
             .associate { emoji ->
-                val id = "emoji_${emojiIndex++}_${emoji.shortcode}"
-                id to InlineTextContent(
+                emoji.shortcode to InlineTextContent(
                     placeholder = Placeholder(
                         width = 22.sp,
                         height = 22.sp,
@@ -487,10 +508,9 @@ private fun InlineContentWithEmojis(
             }
     }
 
-    // Build the annotated string with matching sequential emoji IDs
+    // Build the annotated string — each emoji references its shortcode key
     val emojiFontFamily = rememberEmojiFontFamily()
     val annotatedString = remember(parts, userMetadata, emojiFontFamily) {
-        var emojiIndex = 0
         buildAnnotatedString {
             parts.forEach { part ->
                 when (part) {
@@ -550,7 +570,7 @@ private fun InlineContentWithEmojis(
                     }
                     is CustomEmojiPart -> {
                         appendInlineContent(
-                            "emoji_${emojiIndex++}_${part.shortcode}",
+                            part.shortcode,
                             ":${part.shortcode}:"
                         )
                     }
@@ -897,9 +917,15 @@ private fun SafeEmojiImage(
     }
 }
 
+/**
+ * @param dimensions NIP-68 imeta (width, height) hint. When present, the image
+ *                   container is pre-sized with the correct aspect ratio so the
+ *                   layout doesn't shift when the image finishes loading.
+ */
 @Composable
 private fun ChatImage(
     imageUrl: String,
+    dimensions: Pair<Int, Int>? = null,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -915,6 +941,14 @@ private fun ChatImage(
         return
     }
 
+    // Pre-size the container when NIP-68 dimensions are available to prevent layout shift.
+    val aspectModifier = if (dimensions != null) {
+        val (w, h) = dimensions
+        Modifier.aspectRatio(w.toFloat() / h.toFloat(), matchHeightConstraintsFirst = false)
+    } else {
+        Modifier
+    }
+
     if (isAnimatedImageUrl(imageUrl)) {
         // Animated images use aspectRatio() in JS/WasmJS — give generous height
         // so the aspect ratio modifier isn't clipped by a tight heightIn cap.
@@ -922,6 +956,7 @@ private fun ChatImage(
             url = imageUrl,
             modifier = modifier
                 .widthIn(max = 400.dp)
+                .then(aspectModifier)
                 .clip(NostrordShapes.imageShape),
             onClick = onClick,
             onError = { showError = true }
@@ -931,7 +966,7 @@ private fun ChatImage(
             url = imageUrl,
             modifier = modifier
                 .widthIn(max = 400.dp)
-                .heightIn(max = 500.dp)
+                .then(if (dimensions == null) Modifier.heightIn(max = 500.dp) else aspectModifier)
                 .clip(NostrordShapes.imageShape),
             contentScale = ContentScale.FillWidth,
             onClick = onClick,

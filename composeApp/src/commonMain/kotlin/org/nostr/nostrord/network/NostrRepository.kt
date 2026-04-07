@@ -914,7 +914,7 @@ class NostrRepository(
         return groupManager.loadMoreMessages(groupId, channel)
     }
 
-    override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?): Result<Unit> {
+    override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?, extraTags: List<List<String>>): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.sendMessage(
@@ -924,6 +924,7 @@ class NostrRepository(
             channel = channel,
             mentions = mentions,
             replyToMessageId = replyToMessageId,
+            extraTags = extraTags,
             signEvent = { sessionManager.signEvent(it) }
         )
     }

@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.utils.epochSeconds
@@ -85,6 +86,7 @@ fun GroupScreen(
     var messageInput by remember { mutableStateOf("") }
     var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) } // displayName -> pubkey
     var replyingToMessage by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
+    var pendingUploads by remember { mutableStateOf<List<UploadResult>>(emptyList()) }
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showGroupInfoModal by remember { mutableStateOf(false) }
     var showEditGroupModal by remember { mutableStateOf(false) }
@@ -374,10 +376,12 @@ fun GroupScreen(
                 messageInput = messageInput,
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
-                    vm.sendMessage(messageInput, selectedChannel, mentions, replyingToMessage?.id)
+                    val imetaTags = pendingUploads.map { it.toImetaTag() }
+                    vm.sendMessage(messageInput, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
                     messageInput = ""
                     mentions = emptyMap()
                     replyingToMessage = null
+                    pendingUploads = emptyList()
                 },
                 onJoinGroup = { vm.joinGroup() },
                 onLeaveGroup = { showLeaveDialog = true },
@@ -409,7 +413,12 @@ fun GroupScreen(
                 onSwitchRelay = { vm.switchRelay(it) },
                 onUserClick = { pubkey -> selectedUserPubkey = pubkey },
                 onReconnect = { vm.reconnect() },
-                isSending = isSending
+                isSending = isSending,
+                onMediaUploaded = { upload ->
+                        if (pendingUploads.none { it.url == upload.url }) {
+                            pendingUploads = pendingUploads + upload
+                        }
+                    }
             )
         } else {
             GroupScreenDesktop(
@@ -430,10 +439,12 @@ fun GroupScreen(
                 messageInput = messageInput,
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
-                    vm.sendMessage(messageInput, selectedChannel, mentions, replyingToMessage?.id)
+                    val imetaTags = pendingUploads.map { it.toImetaTag() }
+                    vm.sendMessage(messageInput, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
                     messageInput = ""
                     mentions = emptyMap()
                     replyingToMessage = null
+                    pendingUploads = emptyList()
                 },
                 onJoinGroup = { vm.joinGroup() },
                 onLeaveGroup = { showLeaveDialog = true },
@@ -465,7 +476,12 @@ fun GroupScreen(
                 onSwitchRelay = { vm.switchRelay(it) },
                 onUserClick = { pubkey -> selectedUserPubkey = pubkey },
                 onReconnect = { vm.reconnect() },
-                isSending = isSending
+                isSending = isSending,
+                onMediaUploaded = { upload ->
+                        if (pendingUploads.none { it.url == upload.url }) {
+                            pendingUploads = pendingUploads + upload
+                        }
+                    }
             )
         }
     }

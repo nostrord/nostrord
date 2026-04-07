@@ -165,11 +165,28 @@ class GroupManager(
 
     // Global emoji shortcode → URL cache, populated from every emoji tag we see.
     // Used as fallback when a kind-7 reaction event omits the emoji tag.
-    private val emojiUrlCache = mutableMapOf<String, String>()
+    // LRU-bounded to 2000 entries to prevent unbounded memory growth.
+    // Uses KMP-compatible LruCache (not java.util.LinkedHashMap).
+    private val emojiUrlCache = org.nostr.nostrord.utils.LruCache<String, String>(2000)
 
     // Reactions: messageId -> (emoji -> ReactionInfo)
     private val _reactions = MutableStateFlow<Map<String, Map<String, ReactionInfo>>>(emptyMap())
     val reactions: StateFlow<Map<String, Map<String, ReactionInfo>>> = _reactions.asStateFlow()
+
+    // Reaction debounce: coalesces rapid reaction arrivals into a single StateFlow emission.
+    // During burst loads (initial EOSE with many reactions), this reduces N emissions to ~1.
+    // Pending changes accumulate in _pendingReactions and are flushed to _reactions after
+    // REACTION_DEBOUNCE_MS of inactivity.
+    private val _pendingReactions = mutableMapOf<String, Map<String, ReactionInfo>>()
+    private var reactionFlushJob: Job? = null
+
+    /** Flush all pending reaction changes to the StateFlow immediately. */
+    private fun flushPendingReactions() {
+        if (_pendingReactions.isEmpty()) return
+        val pending = _pendingReactions.toMap()
+        _pendingReactions.clear()
+        _reactions.value = _reactions.value + pending
+    }
 
     // Group members from kind 39002: groupId -> list of member pubkeys
     private val _groupMembers = MutableStateFlow<Map<String, List<String>>>(emptyMap())
@@ -194,6 +211,7 @@ class GroupManager(
         const val MAX_PERSISTED_MESSAGES = 100 // Limit messages per group for storage
         const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
         const val REQUEST_COOLDOWN_MS = 2_000L // Prevents duplicate REQs within this window
+        const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
     }
 
     // Current user pubkey for storage scoping
@@ -1082,6 +1100,7 @@ class GroupManager(
         channel: String? = null,
         mentions: Map<String, String> = emptyMap(),
         replyToMessageId: String? = null,
+        extraTags: List<List<String>> = emptyList(),
         signEvent: suspend (Event) -> Event
     ): Result<Unit> {
         val currentClient = clientForGroup(groupId)
@@ -1105,6 +1124,9 @@ class GroupManager(
                 processedContent = processedContent.replace("@$displayName", "nostr:$npub")
                 tags.add(listOf("p", pubkeyHex))
             }
+
+            // Add extra tags (e.g. NIP-68 imeta tags from media uploads), dedup by content
+            extraTags.forEach { tag -> if (tag !in tags) tags.add(tag) }
 
             val event = Event(
                 pubkey = pubKey,
@@ -1173,7 +1195,7 @@ class GroupManager(
                 // Include emoji tag for custom emojis (NIP-30) so other clients can resolve the URL
                 val shortcode = emoji.trim(':')
                 if (emoji.startsWith(":") && emoji.endsWith(":") && shortcode.isNotEmpty()) {
-                    emojiUrlCache[shortcode]?.let { url ->
+                    emojiUrlCache.get(shortcode)?.let { url ->
                         add(listOf("emoji", shortcode, url))
                     }
                 }
@@ -1198,7 +1220,7 @@ class GroupManager(
                 ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
 
 
-            // Optimistic update: show reaction in UI immediately
+            // Optimistic update: show reaction in UI immediately (no debounce)
             handleReaction(NostrGroupClient.NostrReaction(
                 id = eventId,
                 pubkey = pubKey,
@@ -1206,7 +1228,7 @@ class GroupManager(
                 emojiUrl = null,
                 targetEventId = targetEventId,
                 createdAt = event.createdAt
-            ))
+            ), immediate = true)
 
             // Send to group relay
             val publishResult = currentClient.sendAndAwaitOk(message, eventId)
@@ -1513,8 +1535,8 @@ class GroupManager(
         // any existing reactions that are missing their image URL.
         var newEmojis = false
         for (tag in message.tags) {
-            if (tag.size >= 3 && tag[0] == "emoji" && tag[1] !in emojiUrlCache) {
-                emojiUrlCache[tag[1]] = tag[2]
+            if (tag.size >= 3 && tag[0] == "emoji" && !emojiUrlCache.containsKey(tag[1])) {
+                emojiUrlCache.put(tag[1], tag[2])
                 newEmojis = true
             }
         }
@@ -1600,7 +1622,8 @@ class GroupManager(
             }
         }
 
-        // Also remove deleted reactions
+        // Also remove deleted reactions — flush pending first so deletions apply to full state.
+        flushPendingReactions()
         _reactions.update { currentReactions ->
             var updated = currentReactions
             eventIdsToDelete.forEach { eventId ->
@@ -1628,10 +1651,18 @@ class GroupManager(
         _messages.value[groupId]?.maxOfOrNull { it.createdAt }
 
     /**
-     * Handle incoming reaction (kind 7)
-     * Returns the pubkey of the reactor if metadata should be fetched
+     * Handle incoming reaction (kind 7).
+     *
+     * @param immediate When true, the StateFlow emits synchronously (used for
+     *                  optimistic UI updates from the user's own reaction).
+     *                  When false (default), the emission is debounced to coalesce
+     *                  burst loads from relays into a single UI update.
+     * @return the pubkey of the reactor if metadata should be fetched
      */
-    fun handleReaction(reaction: NostrGroupClient.NostrReaction): String? {
+    fun handleReaction(
+        reaction: NostrGroupClient.NostrReaction,
+        immediate: Boolean = false
+    ): String? {
         val messageId = reaction.targetEventId
         if (messageId.isBlank()) return null
 
@@ -1640,7 +1671,10 @@ class GroupManager(
             return null
         }
 
-        val currentReactions = _reactions.value[messageId] ?: emptyMap()
+        // Check pending (staged) reactions first, then committed state.
+        val currentReactions = _pendingReactions[messageId]
+            ?: _reactions.value[messageId]
+            ?: emptyMap()
         val emoji = reaction.emoji
         val reactorPubkey = reaction.pubkey
 
@@ -1653,12 +1687,12 @@ class GroupManager(
         val shortcode = emoji.trim(':')
         val resolvedUrl = reaction.emojiUrl
             ?: currentInfo?.emojiUrl
-            ?: emojiUrlCache[shortcode]
+            ?: emojiUrlCache.get(shortcode)
             ?: findEmojiUrlInMessages(shortcode)
 
-        val isNewCacheEntry = resolvedUrl != null && shortcode !in emojiUrlCache
+        val isNewCacheEntry = resolvedUrl != null && !emojiUrlCache.containsKey(shortcode)
         if (resolvedUrl != null) {
-            emojiUrlCache[shortcode] = resolvedUrl
+            emojiUrlCache.put(shortcode, resolvedUrl)
         }
 
         val updatedInfo = ReactionInfo(
@@ -1667,7 +1701,24 @@ class GroupManager(
         )
         val updatedEmojiMap = currentReactions + (emoji to updatedInfo)
 
-        _reactions.value = _reactions.value + (messageId to updatedEmojiMap)
+        if (immediate) {
+            // Optimistic update from the user — flush any pending batch first,
+            // then apply this reaction and emit to UI synchronously.
+            reactionFlushJob?.cancel()
+            reactionFlushJob = null
+            flushPendingReactions()
+            _reactions.value = _reactions.value + (messageId to updatedEmojiMap)
+        } else {
+            // Relay burst — stage the change and schedule a debounced flush.
+            // Subsequent handleReaction calls within the window read from both
+            // _reactions.value and _pendingReactions so they see the full state.
+            _pendingReactions[messageId] = updatedEmojiMap
+            reactionFlushJob?.cancel()
+            reactionFlushJob = scope.launch {
+                delay(REACTION_DEBOUNCE_MS)
+                flushPendingReactions()
+            }
+        }
 
         if (isNewCacheEntry) backfillReactionEmojiUrls()
 
@@ -1679,7 +1730,7 @@ class GroupManager(
             for (msg in messages) {
                 for (tag in msg.tags) {
                     if (tag.size >= 3 && tag[0] == "emoji" && tag[1] == shortcode) {
-                        emojiUrlCache[shortcode] = tag[2]
+                        emojiUrlCache.put(shortcode, tag[2])
                         return tag[2]
                     }
                 }
@@ -1689,12 +1740,13 @@ class GroupManager(
     }
 
     private fun backfillReactionEmojiUrls() {
+        flushPendingReactions()
         val current = _reactions.value
         var changed = false
         val updated = current.mapValues { (_, emojiMap) ->
             emojiMap.mapValues { (emoji, info) ->
                 if (info.emojiUrl == null) {
-                    val cached = emojiUrlCache[emoji.trim(':')]
+                    val cached = emojiUrlCache.get(emoji.trim(':'))
                     if (cached != null) {
                         changed = true
                         info.copy(emojiUrl = cached)
@@ -1709,6 +1761,8 @@ class GroupManager(
      * Remove a reaction from local state (used for rollback on relay rejection).
      */
     private fun removeReaction(messageId: String, emoji: String, pubkey: String) {
+        // Flush any pending reactions so we operate on the full state.
+        flushPendingReactions()
         val currentReactions = _reactions.value[messageId] ?: return
         val info = currentReactions[emoji] ?: return
         val updatedReactors = info.reactors.filter { it != pubkey }

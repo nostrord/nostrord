@@ -76,7 +76,8 @@ fun GroupScreenDesktop(
     onSwitchRelay: (String) -> Unit = {},
     onUserClick: (String) -> Unit = {},
     onReconnect: () -> Unit = {},
-    isSending: Boolean = false
+    isSending: Boolean = false,
+    onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {}
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         // Main content area (messages)
@@ -150,7 +151,8 @@ fun GroupScreenDesktop(
                 replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
                 userMetadata = userMetadata,
                 onCancelReply = onCancelReply,
-                isSending = isSending
+                isSending = isSending,
+                onMediaUploaded = onMediaUploaded
             )
         }
 

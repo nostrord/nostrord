@@ -12,11 +12,37 @@ private const val UPLOAD_URL = "https://nostr.build/api/v2/upload/files"
 
 private val responseJson = Json { ignoreUnknownKeys = true }
 
+/**
+ * Metadata returned by the upload server, used to build NIP-68 `imeta` tags.
+ */
+data class UploadResult(
+    val url: String,
+    val mimeType: String? = null,
+    val sha256: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val size: Long? = null
+) {
+    /**
+     * Build a NIP-68 `imeta` tag from this upload result.
+     * Only includes fields that are present.
+     */
+    fun toImetaTag(): List<String> = buildList {
+        add("imeta")
+        add("url $url")
+        mimeType?.let { add("m $it") }
+        sha256?.let { add("x $it") }
+        if (width != null && height != null) add("dim ${width}x${height}")
+        size?.let { add("size $it") }
+    }
+}
+
 object NostrBuildUploader {
     private val client by lazy { createHttpClient() }
 
     /**
      * Upload a file to nostr.build with NIP-98 auth.
+     * Returns [UploadResult] with URL and NIP-68 metadata (dimensions, hash, etc.).
      * [buildAuthHeader] receives (url, method) and must return "Nostr <base64>" or null.
      */
     suspend fun upload(
@@ -24,7 +50,7 @@ object NostrBuildUploader {
         filename: String,
         mimeType: String,
         buildAuthHeader: suspend (url: String, method: String) -> String?
-    ): Result<String> {
+    ): Result<UploadResult> {
         return try {
             val authHeader = buildAuthHeader(UPLOAD_URL, "POST")
                 ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -66,13 +92,28 @@ object NostrBuildUploader {
 
             // nostr.build v2 returns data as array; handle object shape defensively
             val data = json["data"]
-            val url = when {
-                data is JsonArray -> data.firstOrNull()?.jsonObject?.get("url")?.jsonPrimitive?.contentOrNull
-                data is JsonObject -> data["url"]?.jsonPrimitive?.contentOrNull
+            val entry = when {
+                data is JsonArray -> data.firstOrNull()?.jsonObject
+                data is JsonObject -> data
                 else -> null
-            } ?: return Result.Error(AppError.Unknown("Upload failed: no URL in response"))
+            }
+            val url = entry?.get("url")?.jsonPrimitive?.contentOrNull
+                ?: return Result.Error(AppError.Unknown("Upload failed: no URL in response"))
 
-            Result.Success(url)
+            // Extract NIP-68 metadata from the response
+            val dimensions = entry["dimensions"]?.jsonObject
+            val result = UploadResult(
+                url = url,
+                mimeType = entry["mime"]?.jsonPrimitive?.contentOrNull
+                    ?: entry["type"]?.jsonPrimitive?.contentOrNull,
+                sha256 = entry["original_sha256"]?.jsonPrimitive?.contentOrNull
+                    ?: entry["sha256"]?.jsonPrimitive?.contentOrNull,
+                width = dimensions?.get("width")?.jsonPrimitive?.intOrNull,
+                height = dimensions?.get("height")?.jsonPrimitive?.intOrNull,
+                size = entry["size"]?.jsonPrimitive?.longOrNull
+            )
+
+            Result.Success(result)
         } catch (e: Throwable) {
             Result.Error(AppError.Unknown("Upload failed: ${e.message}", e))
         }

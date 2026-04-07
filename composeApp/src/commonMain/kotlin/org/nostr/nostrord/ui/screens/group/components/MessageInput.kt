@@ -76,7 +76,8 @@ fun MessageInput(
     replyingToMetadata: UserMetadata? = null,
     userMetadata: Map<String, UserMetadata> = emptyMap(),
     onCancelReply: () -> Unit = {},
-    isSending: Boolean = false
+    isSending: Boolean = false,
+    onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {}
 ) {
     var showMentionPopup by remember { mutableStateOf(false) }
     var mentionStartIndex by remember { mutableStateOf(-1) }
@@ -274,12 +275,14 @@ fun MessageInput(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 MessageUploadButton(
-                    onUrlReady = { url ->
+                    onUploadComplete = { uploadResult ->
+                        val url = uploadResult.url
                         val current = textFieldValue.text
                         val separator = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
                         val newText = current + separator + url
                         textFieldValue = TextFieldValue(newText, TextRange(newText.length))
                         onMessageInputChange(newText)
+                        onMediaUploaded(uploadResult)
                     }
                 )
 

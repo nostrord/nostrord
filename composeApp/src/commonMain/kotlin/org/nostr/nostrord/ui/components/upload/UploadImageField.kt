@@ -47,7 +47,7 @@ fun UploadImageField(
                     AppModule.nostrRepository::buildNip98AuthHeader
                 )
                 when (result) {
-                    is Result.Success -> onValueChange(result.data)
+                    is Result.Success -> onValueChange(result.data.url)
                     is Result.Error   -> uploadError = result.error.message
                 }
             } finally {

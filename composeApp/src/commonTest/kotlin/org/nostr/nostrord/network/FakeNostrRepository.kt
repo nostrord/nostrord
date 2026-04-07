@@ -140,7 +140,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun requestGroupAdmins(groupId: String) {}
     override suspend fun refreshGroupMetadata(groupId: String) {}
     override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean = false
-    override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?): Result<Unit> =
+    override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?, extraTags: List<List<String>>): Result<Unit> =
         sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
 
     override suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit> = Result.Success(Unit)
