@@ -86,6 +86,12 @@ fun buildChatItems(
 
     val sortedMessages = messages.sortedBy { it.createdAt }
 
+    // Map of pubkey → list of timestamps for join requests (kind 9021).
+    // Used to suppress kind 9000 that is just the relay auto-confirming a join.
+    val joinRequestTimestamps: Map<String, List<Long>> = sortedMessages
+        .filter { it.kind == 9021 }
+        .groupBy({ it.pubkey }, { it.createdAt })
+
     // Track system events for grouping
     var pendingSystemEvent: ChatItem.SystemEvent? = null
     val pendingSystemEventUsers = mutableListOf<String>()
@@ -182,55 +188,67 @@ fun buildChatItems(
                 lastMessagePubkey = null
                 lastMessageTime = null
             }
+            // kind 9000 (put-user): not shown in chat — entry is already
+            // covered by kind 9021 "joined the group". The relay emits 9000
+            // as an automatic confirmation; only kind 9001 (removal) is a
+            // meaningful moderation action to display.
             9000 -> {
-                // Admin added a user
+                // Show "was added" only when an admin manually added someone.
+                // Suppress if the target sent a kind 9021 join request within 5 min
+                // (that means the relay auto-confirmed the join, already shown as "joined").
                 val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
-                val action = if (targetPubkey != null) "was added to the group" else "added a user"
-                val eventPubkey = targetPubkey ?: message.pubkey
-                val pending = pendingSystemEvent
+                val hasRecentJoinRequest = targetPubkey != null &&
+                    joinRequestTimestamps[targetPubkey]?.any {
+                        kotlin.math.abs(message.createdAt - it) <= 5 * 60
+                    } == true
+                if (targetPubkey != null && !hasRecentJoinRequest) {
+                    val action = "was added to the group"
+                    val pending = pendingSystemEvent
 
-                if (pending != null &&
-                    pending.action == action &&
-                    message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
-                ) {
-                    pendingSystemEventUsers.add(eventPubkey)
-                } else {
-                    flushPendingSystemEvent()
-                    pendingSystemEvent = ChatItem.SystemEvent(
-                        pubkey = eventPubkey,
-                        action = action,
-                        createdAt = message.createdAt,
-                        id = message.id
-                    )
+                    if (pending != null &&
+                        pending.action == action &&
+                        message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
+                    ) {
+                        pendingSystemEventUsers.add(targetPubkey)
+                    } else {
+                        flushPendingSystemEvent()
+                        pendingSystemEvent = ChatItem.SystemEvent(
+                            pubkey = targetPubkey,
+                            action = action,
+                            createdAt = message.createdAt,
+                            id = message.id
+                        )
+                    }
+
+                    lastMessagePubkey = null
+                    lastMessageTime = null
                 }
-
-                lastMessagePubkey = null
-                lastMessageTime = null
             }
             9001 -> {
-                // Admin removed a user
+                // Admin/moderator removed a user
                 val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
-                val action = if (targetPubkey != null) "was removed from the group" else "removed a user"
-                val eventPubkey = targetPubkey ?: message.pubkey
-                val pending = pendingSystemEvent
+                if (targetPubkey != null) {
+                    val action = "was removed from the group"
+                    val pending = pendingSystemEvent
 
-                if (pending != null &&
-                    pending.action == action &&
-                    message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
-                ) {
-                    pendingSystemEventUsers.add(eventPubkey)
-                } else {
-                    flushPendingSystemEvent()
-                    pendingSystemEvent = ChatItem.SystemEvent(
-                        pubkey = eventPubkey,
-                        action = action,
-                        createdAt = message.createdAt,
-                        id = message.id
-                    )
+                    if (pending != null &&
+                        pending.action == action &&
+                        message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
+                    ) {
+                        pendingSystemEventUsers.add(targetPubkey)
+                    } else {
+                        flushPendingSystemEvent()
+                        pendingSystemEvent = ChatItem.SystemEvent(
+                            pubkey = targetPubkey,
+                            action = action,
+                            createdAt = message.createdAt,
+                            id = message.id
+                        )
+                    }
+
+                    lastMessagePubkey = null
+                    lastMessageTime = null
                 }
-
-                lastMessagePubkey = null
-                lastMessageTime = null
             }
             9021 -> {
                 val action = "joined the group"
