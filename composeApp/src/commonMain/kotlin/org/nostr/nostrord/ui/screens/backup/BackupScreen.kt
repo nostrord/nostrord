@@ -9,7 +9,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.rememberClipboardWriter
 
 @Composable
-fun BackupScreen() {
+fun BackupScreen(forceDesktop: Boolean = false) {
     val privateKey = AppModule.nostrRepository.getPrivateKey()
     val publicKey = AppModule.nostrRepository.getPublicKey()
     val copyToClipboard = rememberClipboardWriter()
@@ -23,7 +23,7 @@ fun BackupScreen() {
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isCompact = maxWidth < 600.dp
+        val isCompact = !forceDesktop
 
         if (isCompact) {
             BackupScreenMobile(

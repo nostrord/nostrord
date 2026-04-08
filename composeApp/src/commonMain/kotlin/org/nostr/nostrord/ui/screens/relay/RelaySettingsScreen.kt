@@ -17,7 +17,8 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 @Composable
 fun RelaySettingsScreen(
     listState: LazyListState = rememberLazyListState(),
-    onNavigate: (Screen) -> Unit
+    onNavigate: (Screen) -> Unit,
+    forceDesktop: Boolean = false
 ) {
     val vm = viewModel { RelayViewModel(AppModule.nostrRepository) }
     val currentRelay by vm.currentRelayUrl.collectAsState()
@@ -103,7 +104,7 @@ fun RelaySettingsScreen(
 
     // Responsive layout
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isCompact = maxWidth < 600.dp
+        val isCompact = !forceDesktop
 
         if (isCompact) {
             RelaySettingsMobile(

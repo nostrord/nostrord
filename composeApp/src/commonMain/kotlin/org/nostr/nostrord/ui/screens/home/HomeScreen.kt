@@ -67,7 +67,7 @@ fun HomeScreen(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isCompact = !forceDesktop && maxWidth < 600.dp
+        val isCompact = !forceDesktop
         val gridColumns = when {
             maxWidth < 840.dp -> 2
             else -> 3

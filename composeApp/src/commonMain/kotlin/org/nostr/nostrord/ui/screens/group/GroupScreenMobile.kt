@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.GroupMetadata
@@ -234,7 +235,8 @@ fun GroupScreenMobile(
             onDismissRequest = { showMemberSheet = false },
             sheetState = memberSheetState,
             containerColor = NostrordColors.Surface,
-            shape = NostrordShapes.bottomSheetShape
+            shape = NostrordShapes.bottomSheetShape,
+            sheetMaxWidth = Dp.Unspecified
         ) {
             MemberSidebar(
                 members = groupMembers,

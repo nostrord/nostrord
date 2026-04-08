@@ -43,7 +43,7 @@ fun OnboardingScreen(onAddRelay: () -> Unit, onAddRelayCustomUrl: () -> Unit = o
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
-        val isCompact = maxWidth < 600.dp
+        val isCompact = maxWidth < 912.dp
 
         val logoSize: Dp = if (isCompact) 64.dp else 88.dp
         val logoRadius: Dp = if (isCompact) 16.dp else 20.dp

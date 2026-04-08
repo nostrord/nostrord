@@ -73,8 +73,7 @@ fun DesktopShell(
             .fillMaxSize()
             .background(NostrordColors.BackgroundDark)
     ) {
-        // 200dp on medium (600–840dp), 240dp on large (>840dp)
-        val sidebarWidth = if (maxWidth < 840.dp) 200.dp else Spacing.channelSidebarWidth
+        val sidebarWidth = Spacing.channelSidebarWidth
 
         Row(modifier = Modifier.fillMaxSize()) {
             // Column 1: Relay Rail (72dp)

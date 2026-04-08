@@ -415,7 +415,7 @@ private fun AuthenticatedApp(
 
     Box(modifier = Modifier.fillMaxSize()) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize().then(keyEventModifier)) {
-        val isDesktop = maxWidth >= 600.dp
+        val isDesktop = maxWidth >= 912.dp
 
         val hasNoRelays = relayList.isEmpty() && !isDiscoveringRelays
 
@@ -586,12 +586,14 @@ private fun DesktopContent(
                 onNavigateToGroup = { newGroupId, newGroupName ->
                     onNavigate(Screen.Group(newGroupId, newGroupName))
                 },
-                showServerRail = false
+                showServerRail = false,
+                forceDesktop = true
             )
         }
         is Screen.EditProfile -> {
             EditProfileScreen(
-                onNavigate = onNavigate
+                onNavigate = onNavigate,
+                forceDesktop = true
             )
         }
         is Screen.NostrLogin -> {
@@ -599,8 +601,8 @@ private fun DesktopContent(
                 onNavigate(Screen.Home)
             }
         }
-        is Screen.BackupPrivateKey -> BackupScreen()
-        else -> HomeScreen(relayUrl = selectedRelayUrl, gridState = homeGridState, onNavigate = onNavigate)
+        is Screen.BackupPrivateKey -> BackupScreen(forceDesktop = true)
+        else -> HomeScreen(relayUrl = selectedRelayUrl, gridState = homeGridState, onNavigate = onNavigate, forceDesktop = true)
     }
 }
 

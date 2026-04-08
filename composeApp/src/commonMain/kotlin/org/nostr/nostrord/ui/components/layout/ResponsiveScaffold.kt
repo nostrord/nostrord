@@ -8,14 +8,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 enum class ScreenSize {
-    Compact,  // Mobile: < 600dp
-    Medium,   // Tablet: 600-840dp
-    Large     // Desktop: > 840dp
+    Compact,  // Mobile: < 912dp
+    Medium,   // Tablet: 912-1200dp
+    Large     // Desktop: > 1200dp
 }
 
 @Composable
 fun ResponsiveScaffold(
-    compactBreakpoint: Dp = 600.dp,
+    compactBreakpoint: Dp = 912.dp,
     mediumBreakpoint: Dp = 840.dp,
     mobile: @Composable () -> Unit,
     desktop: @Composable () -> Unit
@@ -31,7 +31,7 @@ fun ResponsiveScaffold(
 
 @Composable
 fun ResponsiveScaffold(
-    compactBreakpoint: Dp = 600.dp,
+    compactBreakpoint: Dp = 912.dp,
     mediumBreakpoint: Dp = 840.dp,
     content: @Composable (screenSize: ScreenSize, gridColumns: Int) -> Unit
 ) {

@@ -22,7 +22,8 @@ import org.nostr.nostrord.ui.Screen
  */
 @Composable
 fun EditProfileScreen(
-    onNavigate: (Screen) -> Unit
+    onNavigate: (Screen) -> Unit,
+    forceDesktop: Boolean = false
 ) {
     val vm = viewModel { EditProfileViewModel(AppModule.nostrRepository) }
 
@@ -99,7 +100,7 @@ fun EditProfileScreen(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isCompact = maxWidth < 600.dp
+        val isCompact = !forceDesktop
 
         if (isCompact) {
             EditProfileScreenMobile(

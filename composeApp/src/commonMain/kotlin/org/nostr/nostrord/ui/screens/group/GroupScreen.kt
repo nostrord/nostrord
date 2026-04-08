@@ -28,7 +28,8 @@ fun GroupScreen(
     onNavigateHome: () -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
     showServerRail: Boolean = true, // When false, server rail is handled by parent shell
-    onOpenDrawer: () -> Unit = {}
+    onOpenDrawer: () -> Unit = {},
+    forceDesktop: Boolean = false
 ) {
     val vm = viewModel(key = groupId) { GroupViewModel(AppModule.nostrRepository, groupId) }
 
@@ -363,7 +364,7 @@ fun GroupScreen(
         showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null
     CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isCompact = maxWidth < 600.dp
+        val isCompact = !forceDesktop
 
         if (isCompact) {
             GroupScreenMobile(

@@ -90,7 +90,8 @@ fun SettingsScreen(
     canGoBack: Boolean = false,
     canGoForward: Boolean = false,
     onHistoryBack: () -> Unit = {},
-    onHistoryForward: () -> Unit = {}
+    onHistoryForward: () -> Unit = {},
+    forceDesktop: Boolean = false
 ) {
     val vm = viewModel { EditProfileViewModel(AppModule.nostrRepository) }
     val userMetadata by vm.userMetadata.collectAsState()
@@ -232,7 +233,7 @@ fun SettingsScreen(
                 } else false
             }
     ) {
-        if (maxWidth < 600.dp) {
+        if (!forceDesktop && maxWidth < 912.dp) {
             MobileSettings(
                 activeSection = activeSection,
                 showPanel = showMobilePanel,
