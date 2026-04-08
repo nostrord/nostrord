@@ -96,6 +96,36 @@ class GroupViewModel(
         }
     }
 
+    private val _moderationError = MutableStateFlow<String?>(null)
+    val moderationError: StateFlow<String?> = _moderationError
+    fun clearModerationError() { _moderationError.value = null }
+
+    fun addUser(targetPubkey: String, roles: List<String> = emptyList()) {
+        viewModelScope.launch {
+            when (val result = repo.addUser(groupId, targetPubkey, roles)) {
+                is Result.Error -> {
+                    val raw = result.error.cause?.message ?: result.error.toString()
+                    _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
+                        .replaceFirstChar { it.uppercaseChar() }
+                }
+                is Result.Success -> Unit
+            }
+        }
+    }
+
+    fun removeUser(targetPubkey: String) {
+        viewModelScope.launch {
+            when (val result = repo.removeUser(groupId, targetPubkey)) {
+                is Result.Error -> {
+                    val raw = result.error.cause?.message ?: result.error.toString()
+                    _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
+                        .replaceFirstChar { it.uppercaseChar() }
+                }
+                is Result.Success -> Unit
+            }
+        }
+    }
+
     fun deleteMessage(messageId: String) {
         viewModelScope.launch {
             when (val result = repo.deleteMessage(groupId, messageId)) {

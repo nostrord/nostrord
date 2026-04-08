@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -67,9 +68,16 @@ fun MemberSidebar(
     recentlyActiveMembers: Set<String> = emptySet(),
     isLoading: Boolean = false,
     onMemberClick: (MemberInfo) -> Unit = {},
+    isCurrentUserAdmin: Boolean = false,
+    currentUserPubkey: String? = null,
+    onRemoveMember: (MemberInfo) -> Unit = {},
+    onAddMember: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var showAddInput by remember { mutableStateOf(false) }
+    var addMemberInput by remember { mutableStateOf("") }
+    var addMemberError by remember { mutableStateOf<String?>(null) }
 
     // Filter members based on search query (name, pubkey hex, or npub)
     val filteredMembers = remember(members, searchQuery) {
@@ -106,29 +114,121 @@ fun MemberSidebar(
             .background(NostrordColors.Surface)
     ) {
         // Header
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp)
                 .background(NostrordColors.BackgroundDark)
                 .padding(horizontal = 16.dp),
-            contentAlignment = Alignment.CenterStart
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Icon(
+                imageVector = Icons.Default.Person,
+                contentDescription = null,
+                tint = NostrordColors.TextSecondary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Members — ${members.size}",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            if (isCurrentUserAdmin) {
+                IconButton(
+                    onClick = {
+                        showAddInput = !showAddInput
+                        addMemberInput = ""
+                        addMemberError = null
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add member",
+                        tint = NostrordColors.Primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
+        // Add member input (visible when admin clicks +)
+        if (showAddInput && isCurrentUserAdmin) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = null,
-                    tint = NostrordColors.TextSecondary,
-                    modifier = Modifier.size(18.dp)
+                BasicTextField(
+                    value = addMemberInput,
+                    onValueChange = {
+                        addMemberInput = it
+                        addMemberError = null
+                    },
+                    textStyle = TextStyle(
+                        color = Color.White,
+                        fontSize = 13.sp
+                    ),
+                    singleLine = true,
+                    cursorBrush = SolidColor(NostrordColors.Primary),
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(NostrordColors.BackgroundDark, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    decorationBox = { innerTextField ->
+                        Box {
+                            if (addMemberInput.isEmpty()) {
+                                Text(
+                                    text = "npub or hex pubkey",
+                                    color = NostrordColors.TextMuted,
+                                    fontSize = 13.sp
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(
+                    onClick = {
+                        val input = addMemberInput.trim()
+                        val pubkey = when {
+                            input.startsWith("npub") -> {
+                                val entity = Nip19.decode(input)
+                                (entity as? Nip19.Entity.Npub)?.pubkey
+                            }
+                            input.length == 64 && input.all { c -> c in '0'..'9' || c in 'a'..'f' } -> input
+                            else -> null
+                        }
+                        if (pubkey != null) {
+                            onAddMember(pubkey)
+                            addMemberInput = ""
+                            showAddInput = false
+                            addMemberError = null
+                        } else {
+                            addMemberError = "Invalid npub or hex pubkey"
+                        }
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add",
+                        tint = NostrordColors.Primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            if (addMemberError != null) {
                 Text(
-                    text = "Members — ${members.size}",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    text = addMemberError!!,
+                    color = NostrordColors.Error,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
                 )
             }
         }
@@ -175,7 +275,9 @@ fun MemberSidebar(
                             MemberItem(
                                 member = member,
                                 isOnline = true,
-                                onClick = { onMemberClick(member) }
+                                onClick = { onMemberClick(member) },
+                                showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
+                                onRemove = { onRemoveMember(member) }
                             )
                         }
                     }
@@ -198,7 +300,9 @@ fun MemberSidebar(
                             MemberItem(
                                 member = member,
                                 isOnline = false,
-                                onClick = { onMemberClick(member) }
+                                onClick = { onMemberClick(member) },
+                                showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
+                                onRemove = { onRemoveMember(member) }
                             )
                         }
                     }
@@ -218,7 +322,9 @@ fun MemberSidebar(
                         MemberItem(
                             member = member,
                             isOnline = null,
-                            onClick = { onMemberClick(member) }
+                            onClick = { onMemberClick(member) },
+                            showRemove = isCurrentUserAdmin && member.pubkey != currentUserPubkey,
+                            onRemove = { onRemoveMember(member) }
                         )
                     }
                 }
@@ -285,7 +391,9 @@ private fun MemberSectionHeader(
 private fun MemberItem(
     member: MemberInfo,
     isOnline: Boolean?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    showRemove: Boolean = false,
+    onRemove: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -323,15 +431,49 @@ private fun MemberItem(
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        // Name
-        Text(
-            text = member.displayName,
-            color = if (isOnline == false) NostrordColors.TextMuted else Color.White,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+        // Name + admin badge
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = member.displayName,
+                    color = if (isOnline == false) NostrordColors.TextMuted else Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (member.isAdmin) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "ADMIN",
+                        color = NostrordColors.Primary,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier
+                            .background(
+                                NostrordColors.Primary.copy(alpha = 0.15f),
+                                RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+
+        // Remove button (visible to admins only, not for self)
+        if (showRemove) {
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = "Remove member",
+                    tint = NostrordColors.Error.copy(alpha = 0.7f),
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
     }
 }
 

@@ -140,7 +140,7 @@ fun buildChatItems(
                 val isNextOutsideWindow = nextMessage?.let {
                     it.createdAt - message.createdAt > MESSAGE_GROUP_WINDOW_SECONDS
                 } ?: true
-                val isNextSystemEvent = nextMessage?.kind in listOf(9021, 9022, 9321)
+                val isNextSystemEvent = nextMessage?.kind in listOf(9000, 9001, 9021, 9022, 9321)
                 val isLastInGroup = nextMessage == null || isNextDifferentDate ||
                     isNextDifferentAuthor || isNextOutsideWindow || isNextSystemEvent
 
@@ -179,6 +179,56 @@ fun buildChatItems(
                 ))
 
                 // Reset message grouping after zap event
+                lastMessagePubkey = null
+                lastMessageTime = null
+            }
+            9000 -> {
+                // Admin added a user
+                val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
+                val action = if (targetPubkey != null) "was added to the group" else "added a user"
+                val eventPubkey = targetPubkey ?: message.pubkey
+                val pending = pendingSystemEvent
+
+                if (pending != null &&
+                    pending.action == action &&
+                    message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
+                ) {
+                    pendingSystemEventUsers.add(eventPubkey)
+                } else {
+                    flushPendingSystemEvent()
+                    pendingSystemEvent = ChatItem.SystemEvent(
+                        pubkey = eventPubkey,
+                        action = action,
+                        createdAt = message.createdAt,
+                        id = message.id
+                    )
+                }
+
+                lastMessagePubkey = null
+                lastMessageTime = null
+            }
+            9001 -> {
+                // Admin removed a user
+                val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
+                val action = if (targetPubkey != null) "was removed from the group" else "removed a user"
+                val eventPubkey = targetPubkey ?: message.pubkey
+                val pending = pendingSystemEvent
+
+                if (pending != null &&
+                    pending.action == action &&
+                    message.createdAt - pending.createdAt <= SYSTEM_EVENT_GROUP_WINDOW_SECONDS
+                ) {
+                    pendingSystemEventUsers.add(eventPubkey)
+                } else {
+                    flushPendingSystemEvent()
+                    pendingSystemEvent = ChatItem.SystemEvent(
+                        pubkey = eventPubkey,
+                        action = action,
+                        createdAt = message.createdAt,
+                        id = message.id
+                    )
+                }
+
                 lastMessagePubkey = null
                 lastMessageTime = null
             }

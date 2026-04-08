@@ -6,5 +6,6 @@ package org.nostr.nostrord.ui.screens.group.model
 data class MemberInfo(
     val pubkey: String,
     val displayName: String,
-    val picture: String?
+    val picture: String?,
+    val isAdmin: Boolean = false
 )

@@ -929,6 +929,31 @@ class NostrRepository(
         )
     }
 
+    override suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String>): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.addUser(
+            groupId = groupId,
+            targetPubkey = targetPubkey,
+            roles = roles,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
+    override suspend fun removeUser(groupId: String, targetPubkey: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.removeUser(
+            groupId = groupId,
+            targetPubkey = targetPubkey,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
     override suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)

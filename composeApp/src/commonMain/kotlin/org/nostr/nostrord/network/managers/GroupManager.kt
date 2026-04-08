@@ -757,6 +757,100 @@ class GroupManager(
     }
 
     /**
+     * Add a user to a group (admin only). Sends kind:9000 (put-user).
+     * Optionally assigns roles (e.g. "admin", "moderator").
+     */
+    suspend fun addUser(
+        groupId: String,
+        targetPubkey: String,
+        roles: List<String> = emptyList(),
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<Unit> {
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
+
+        return try {
+            val pTag = mutableListOf("p", targetPubkey).apply { addAll(roles) }
+            val event = Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9000,
+                tags = listOf(listOf("h", groupId), pTag),
+                content = ""
+            )
+            val signedEvent = signEvent(event)
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
+            val message = buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString()
+            when (val result = currentClient.sendAndAwaitOk(message, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.SendFailed(groupId, Exception(result.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.SendTimeout(groupId))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.SendFailed(groupId, result.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.SendFailed(groupId, e))
+        }
+    }
+
+    /**
+     * Remove a user from a group (admin only). Sends kind:9001 (remove-user).
+     */
+    suspend fun removeUser(
+        groupId: String,
+        targetPubkey: String,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<Unit> {
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
+
+        return try {
+            val event = Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9001,
+                tags = listOf(
+                    listOf("h", groupId),
+                    listOf("p", targetPubkey)
+                ),
+                content = ""
+            )
+            val signedEvent = signEvent(event)
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
+            val message = buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString()
+            when (val result = currentClient.sendAndAwaitOk(message, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.SendFailed(groupId, Exception(result.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.SendTimeout(groupId))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.SendFailed(groupId, result.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.SendFailed(groupId, e))
+        }
+    }
+
+    /**
      * Leave a group
      */
     suspend fun leaveGroup(

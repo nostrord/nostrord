@@ -90,7 +90,10 @@ fun GroupScreenDesktop(
     onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {},
     showMemberSidebar: Boolean = true,
     showMemberSheet: Boolean = false,
-    onShowMemberSheet: (Boolean) -> Unit = {}
+    onShowMemberSheet: (Boolean) -> Unit = {},
+    isCurrentUserAdmin: Boolean = false,
+    onRemoveMember: (MemberInfo) -> Unit = {},
+    onAddMember: (String) -> Unit = {}
 ) {
 
     Row(modifier = Modifier.fillMaxSize()) {
@@ -191,7 +194,11 @@ fun GroupScreenDesktop(
                 members = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 isLoading = isMembersLoading,
-                onMemberClick = { member -> onUserClick(member.pubkey) }
+                onMemberClick = { member -> onUserClick(member.pubkey) },
+                isCurrentUserAdmin = isCurrentUserAdmin,
+                currentUserPubkey = currentUserPubkey,
+                onRemoveMember = onRemoveMember,
+                onAddMember = onAddMember
             )
         }
     }
@@ -213,6 +220,10 @@ fun GroupScreenDesktop(
                     onShowMemberSheet(false)
                     onUserClick(member.pubkey)
                 },
+                isCurrentUserAdmin = isCurrentUserAdmin,
+                currentUserPubkey = currentUserPubkey,
+                onRemoveMember = onRemoveMember,
+                onAddMember = onAddMember,
                 modifier = Modifier.fillMaxWidth()
             )
         }

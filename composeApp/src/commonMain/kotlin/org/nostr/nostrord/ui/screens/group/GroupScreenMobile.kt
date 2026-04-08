@@ -106,7 +106,10 @@ fun GroupScreenMobile(
     onUserClick: (String) -> Unit = {},
     onReconnect: () -> Unit = {},
     isSending: Boolean = false,
-    onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {}
+    onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {},
+    isCurrentUserAdmin: Boolean = false,
+    onRemoveMember: (MemberInfo) -> Unit = {},
+    onAddMember: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -246,6 +249,10 @@ fun GroupScreenMobile(
                     showMemberSheet = false
                     onUserClick(member.pubkey)
                 },
+                isCurrentUserAdmin = isCurrentUserAdmin,
+                currentUserPubkey = currentUserPubkey,
+                onRemoveMember = onRemoveMember,
+                onAddMember = onAddMember,
                 modifier = Modifier.fillMaxWidth()
             )
         }

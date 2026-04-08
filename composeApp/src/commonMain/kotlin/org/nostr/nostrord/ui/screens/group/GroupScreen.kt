@@ -95,6 +95,7 @@ fun GroupScreen(
     var messageToDelete by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     var showMemberSheet by remember { mutableStateOf(false) }
+    var memberToRemove by remember { mutableStateOf<MemberInfo?>(null) }
     val isJoined = joinedGroups.contains(groupId)
 
     // Member pubkey source: prefer kind:39002 (authoritative), fall back to
@@ -110,6 +111,10 @@ fun GroupScreen(
 
     // Resolves display names/pictures when metadata arrives. Only emits a new
     // list when the resolved content actually differs (structural equality).
+    val adminPubkeys by remember(groupId) {
+        derivedStateOf { allGroupAdmins[groupId] ?: emptyList() }
+    }
+
     val groupMembers by remember(groupId) {
         derivedStateOf {
             memberPubkeys.map { pubkey ->
@@ -119,9 +124,10 @@ fun GroupScreen(
                     displayName = metadata?.displayName
                         ?: metadata?.name
                         ?: pubkey.take(8) + "...",
-                    picture = metadata?.picture
+                    picture = metadata?.picture,
+                    isAdmin = pubkey in adminPubkeys
                 )
-            }.sortedBy { it.displayName.lowercase() }
+            }.sortedWith(compareByDescending<MemberInfo> { it.isAdmin }.thenBy { it.displayName.lowercase() })
         }
     }
 
@@ -331,6 +337,33 @@ fun GroupScreen(
         )
     }
 
+    // Remove member confirmation dialog
+    memberToRemove?.let { member ->
+        AlertDialog(
+            onDismissRequest = { memberToRemove = null },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Remove Member") },
+            text = { Text("Remove ${member.displayName} from this group?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.removeUser(member.pubkey)
+                        memberToRemove = null
+                    }
+                ) {
+                    Text("Remove", color = NostrordColors.Error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { memberToRemove = null }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            }
+        )
+    }
+
     if (showLeaveDialog) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
@@ -362,7 +395,7 @@ fun GroupScreen(
     // Responsive layout
     val parentHidden = LocalAnimatedImageHidden.current
     val anyDialogOpen = parentHidden || showLeaveDialog || showGroupInfoModal || showEditGroupModal ||
-        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet
+        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet || memberToRemove != null
     CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isCompact = !forceDesktop
@@ -429,7 +462,10 @@ fun GroupScreen(
                         if (pendingUploads.none { it.url == upload.url }) {
                             pendingUploads = pendingUploads + upload
                         }
-                    }
+                    },
+                isCurrentUserAdmin = isAdmin,
+                onRemoveMember = { member -> memberToRemove = member },
+                onAddMember = { pubkey -> vm.addUser(pubkey) }
             )
         } else {
             GroupScreenDesktop(
@@ -495,7 +531,10 @@ fun GroupScreen(
                     },
                 showMemberSidebar = maxWidth >= 1080.dp,
                 showMemberSheet = showMemberSheet,
-                onShowMemberSheet = { showMemberSheet = it }
+                onShowMemberSheet = { showMemberSheet = it },
+                isCurrentUserAdmin = isAdmin,
+                onRemoveMember = { member -> memberToRemove = member },
+                onAddMember = { pubkey -> vm.addUser(pubkey) }
             )
         }
     }
