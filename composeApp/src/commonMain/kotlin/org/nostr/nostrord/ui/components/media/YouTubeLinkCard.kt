@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -116,10 +119,11 @@ fun YouTubeLinkCard(
                     .background(Color.Black.copy(alpha = 0.7f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "\u25B6",
-                    color = Color.White,
-                    fontSize = 20.sp
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(28.dp)
                 )
             }
         }

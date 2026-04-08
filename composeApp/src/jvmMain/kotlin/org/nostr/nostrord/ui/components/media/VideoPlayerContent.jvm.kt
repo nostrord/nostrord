@@ -167,7 +167,7 @@ private fun VideoPlayerBox(
             Image(
                 bitmap = thumbnail,
                 contentDescription = "Video preview",
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
             )
         }
