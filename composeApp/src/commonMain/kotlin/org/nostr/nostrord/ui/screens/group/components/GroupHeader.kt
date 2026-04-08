@@ -52,7 +52,8 @@ fun GroupHeader(
     onDeleteClick: () -> Unit = {},
     isAdmin: Boolean = false,
     modifier: Modifier = Modifier,
-    navigationIcon: @Composable (() -> Unit)? = null
+    navigationIcon: @Composable (() -> Unit)? = null,
+    trailingIcon: @Composable (() -> Unit)? = null
 ) {
     Column(
         modifier = modifier
@@ -112,6 +113,11 @@ fun GroupHeader(
                         )
                     }
                 }
+            }
+
+            // Trailing icon (e.g. members button when sidebar is hidden)
+            if (trailingIcon != null) {
+                trailingIcon()
             }
 
             // Action buttons

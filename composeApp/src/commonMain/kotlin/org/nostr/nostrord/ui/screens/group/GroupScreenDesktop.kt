@@ -2,8 +2,18 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
@@ -77,8 +87,12 @@ fun GroupScreenDesktop(
     onUserClick: (String) -> Unit = {},
     onReconnect: () -> Unit = {},
     isSending: Boolean = false,
-    onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {}
+    onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {},
+    showMemberSidebar: Boolean = true,
+    showMemberSheet: Boolean = false,
+    onShowMemberSheet: (Boolean) -> Unit = {}
 ) {
+
     Row(modifier = Modifier.fillMaxSize()) {
         // Main content area (messages)
         Column(
@@ -97,7 +111,22 @@ fun GroupScreenDesktop(
                 onLeaveClick = onLeaveGroup,
                 onTitleClick = onShowGroupInfo,
                 onEditClick = onEditGroup,
-                onDeleteClick = onDeleteGroup
+                onDeleteClick = onDeleteGroup,
+                trailingIcon = if (!showMemberSidebar) {
+                    {
+                        IconButton(
+                            onClick = { onShowMemberSheet(true) },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.People,
+                                contentDescription = "Members",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                } else null
             )
 
             // Connection status banner (shown when disconnected/reconnecting)
@@ -156,12 +185,36 @@ fun GroupScreenDesktop(
             )
         }
 
-        // Member sidebar (240dp fixed width)
-        MemberSidebar(
-            members = groupMembers,
-            recentlyActiveMembers = recentlyActiveMembers,
-            isLoading = isMembersLoading,
-            onMemberClick = { member -> onUserClick(member.pubkey) }
-        )
+        // Member sidebar (240dp fixed width) — only when there's enough space
+        if (showMemberSidebar) {
+            MemberSidebar(
+                members = groupMembers,
+                recentlyActiveMembers = recentlyActiveMembers,
+                isLoading = isMembersLoading,
+                onMemberClick = { member -> onUserClick(member.pubkey) }
+            )
+        }
+    }
+
+    // Member bottom sheet when sidebar is hidden
+    if (showMemberSheet && !showMemberSidebar) {
+        @OptIn(ExperimentalMaterial3Api::class)
+        ModalBottomSheet(
+            onDismissRequest = { onShowMemberSheet(false) },
+            sheetState = rememberModalBottomSheetState(),
+            containerColor = NostrordColors.Surface,
+            sheetMaxWidth = Dp.Unspecified
+        ) {
+            MemberSidebar(
+                members = groupMembers,
+                recentlyActiveMembers = recentlyActiveMembers,
+                isLoading = isMembersLoading,
+                onMemberClick = { member ->
+                    onShowMemberSheet(false)
+                    onUserClick(member.pubkey)
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }

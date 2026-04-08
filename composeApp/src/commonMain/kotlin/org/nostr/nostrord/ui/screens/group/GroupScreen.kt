@@ -94,6 +94,7 @@ fun GroupScreen(
     var showDeleteGroupDialog by remember { mutableStateOf(false) }
     var messageToDelete by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
+    var showMemberSheet by remember { mutableStateOf(false) }
     val isJoined = joinedGroups.contains(groupId)
 
     // Member pubkey source: prefer kind:39002 (authoritative), fall back to
@@ -361,7 +362,7 @@ fun GroupScreen(
     // Responsive layout
     val parentHidden = LocalAnimatedImageHidden.current
     val anyDialogOpen = parentHidden || showLeaveDialog || showGroupInfoModal || showEditGroupModal ||
-        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null
+        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet
     CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isCompact = !forceDesktop
@@ -491,7 +492,10 @@ fun GroupScreen(
                         if (pendingUploads.none { it.url == upload.url }) {
                             pendingUploads = pendingUploads + upload
                         }
-                    }
+                    },
+                showMemberSidebar = maxWidth >= 1080.dp,
+                showMemberSheet = showMemberSheet,
+                onShowMemberSheet = { showMemberSheet = it }
             )
         }
     }
