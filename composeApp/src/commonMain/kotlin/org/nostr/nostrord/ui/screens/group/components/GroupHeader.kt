@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,6 +53,8 @@ fun GroupHeader(
     onEditClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
     isAdmin: Boolean = false,
+    pendingJoinRequestCount: Int = 0,
+    onJoinRequestsClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     navigationIcon: @Composable (() -> Unit)? = null,
     trailingIcon: @Composable (() -> Unit)? = null
@@ -118,6 +122,39 @@ fun GroupHeader(
             // Trailing icon (e.g. members button when sidebar is hidden)
             if (trailingIcon != null) {
                 trailingIcon()
+            }
+
+            // Join requests badge (admin only)
+            if (isAdmin && pendingJoinRequestCount > 0) {
+                Box {
+                    IconButton(
+                        onClick = onJoinRequestsClick,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.PersonAdd,
+                            contentDescription = "Join requests",
+                            tint = NostrordColors.TextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    // Count badge
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = (-4).dp, y = 4.dp)
+                            .size(18.dp)
+                            .background(NostrordColors.Error, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
 
             // Action buttons

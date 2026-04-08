@@ -63,6 +63,7 @@ import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 @Composable
 fun MessageInput(
     isJoined: Boolean,
+    isPendingApproval: Boolean = false,
     selectedChannel: String,
     groupName: String?,
     messageInput: String,
@@ -219,6 +220,28 @@ fun MessageInput(
 
         // Focus the input field after selection
         focusRequester.requestFocus()
+    }
+
+    if (isPendingApproval) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(NostrordColors.SurfaceVariant)
+                .padding(Spacing.lg)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Your join request is pending admin approval",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.MessageBody
+                )
+            }
+        }
+        return
     }
 
     if (!isJoined) {

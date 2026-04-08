@@ -93,7 +93,10 @@ fun GroupScreenDesktop(
     onShowMemberSheet: (Boolean) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
     onRemoveMember: (MemberInfo) -> Unit = {},
-    onAddMember: (String) -> Unit = {}
+    onAddMember: (String) -> Unit = {},
+    pendingJoinRequestCount: Int = 0,
+    onJoinRequestsClick: () -> Unit = {},
+    isPendingApproval: Boolean = false
 ) {
 
     Row(modifier = Modifier.fillMaxSize()) {
@@ -115,6 +118,8 @@ fun GroupScreenDesktop(
                 onTitleClick = onShowGroupInfo,
                 onEditClick = onEditGroup,
                 onDeleteClick = onDeleteGroup,
+                pendingJoinRequestCount = pendingJoinRequestCount,
+                onJoinRequestsClick = onJoinRequestsClick,
                 trailingIcon = if (!showMemberSidebar) {
                     {
                         IconButton(
@@ -169,6 +174,7 @@ fun GroupScreenDesktop(
 
             // Message input
             MessageInput(
+                isPendingApproval = isPendingApproval,
                 isJoined = isJoined,
                 selectedChannel = selectedChannel,
                 groupName = groupName,

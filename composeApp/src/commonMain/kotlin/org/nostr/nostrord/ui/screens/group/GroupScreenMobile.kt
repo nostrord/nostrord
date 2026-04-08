@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Delete
@@ -11,6 +12,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
@@ -23,7 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -109,7 +113,10 @@ fun GroupScreenMobile(
     onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
     onRemoveMember: (MemberInfo) -> Unit = {},
-    onAddMember: (String) -> Unit = {}
+    onAddMember: (String) -> Unit = {},
+    pendingJoinRequestCount: Int = 0,
+    onJoinRequestsClick: () -> Unit = {},
+    isPendingApproval: Boolean = false
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -134,7 +141,9 @@ fun GroupScreenMobile(
                 onJoinClick = onJoinGroup,
                 onLeaveClick = onLeaveGroup,
                 onEditClick = onEditGroup,
-                onDeleteClick = onDeleteGroup
+                onDeleteClick = onDeleteGroup,
+                pendingJoinRequestCount = pendingJoinRequestCount,
+                onJoinRequestsClick = onJoinRequestsClick
             )
         },
         containerColor = NostrordColors.Background
@@ -210,6 +219,7 @@ fun GroupScreenMobile(
 
                 // Input area (thumb-reachable at bottom)
                 MessageInput(
+                    isPendingApproval = isPendingApproval,
                     isJoined = isJoined,
                     selectedChannel = selectedChannel,
                     groupName = groupName,
@@ -277,7 +287,9 @@ private fun MobileGroupTopBar(
     onJoinClick: () -> Unit,
     onLeaveClick: () -> Unit,
     onEditClick: () -> Unit = {},
-    onDeleteClick: () -> Unit = {}
+    onDeleteClick: () -> Unit = {},
+    pendingJoinRequestCount: Int = 0,
+    onJoinRequestsClick: () -> Unit = {}
 ) {
     TopAppBar(
         navigationIcon = {
@@ -336,6 +348,37 @@ private fun MobileGroupTopBar(
             }
         },
         actions = {
+            // Join requests badge (admin only)
+            if (isAdmin && pendingJoinRequestCount > 0) {
+                Box {
+                    IconButton(
+                        onClick = onJoinRequestsClick,
+                        modifier = Modifier.size(Spacing.touchTargetMin)
+                    ) {
+                        Icon(
+                            Icons.Default.PersonAdd,
+                            contentDescription = "Join requests",
+                            tint = Color.White
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = (-4).dp, y = 4.dp)
+                            .size(18.dp)
+                            .background(NostrordColors.Error, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
             // Members button (48dp touch target)
             IconButton(
                 onClick = onMembersClick,

@@ -954,6 +954,18 @@ class NostrRepository(
         )
     }
 
+    override suspend fun rejectJoinRequest(groupId: String, joinRequestEventId: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.rejectJoinRequest(
+            groupId = groupId,
+            joinRequestEventId = joinRequestEventId,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
     override suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)

@@ -117,6 +117,7 @@ interface NostrRepositoryApi {
     suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null, extraTags: List<List<String>> = emptyList()): Result<Unit>
     suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String> = emptyList()): Result<Unit>
     suspend fun removeUser(groupId: String, targetPubkey: String): Result<Unit>
+    suspend fun rejectJoinRequest(groupId: String, joinRequestEventId: String): Result<Unit>
     suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit>
     suspend fun sendReaction(groupId: String, targetEventId: String, targetPubkey: String, emoji: String): Result<Unit>
     fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage>

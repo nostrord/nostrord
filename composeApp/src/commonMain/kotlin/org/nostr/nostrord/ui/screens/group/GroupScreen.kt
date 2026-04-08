@@ -16,6 +16,7 @@ import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
+import org.nostr.nostrord.ui.screens.group.components.JoinRequestsModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -96,6 +97,8 @@ fun GroupScreen(
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     var showMemberSheet by remember { mutableStateOf(false) }
     var memberToRemove by remember { mutableStateOf<MemberInfo?>(null) }
+    var showJoinRequestsModal by remember { mutableStateOf(false) }
+    var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
     val isJoined = joinedGroups.contains(groupId)
 
     // Member pubkey source: prefer kind:39002 (authoritative), fall back to
@@ -130,6 +133,45 @@ fun GroupScreen(
             }.sortedWith(compareByDescending<MemberInfo> { it.isAdmin }.thenBy { it.displayName.lowercase() })
         }
     }
+
+    // Pending join requests: kind 9021 messages whose pubkey is NOT yet a member,
+    // not already resolved in this session, and has no newer leave request (9022).
+    val pendingJoinRequests by remember(groupId) {
+        derivedStateOf {
+            val msgs = allMessages[groupId] ?: emptyList()
+            val members = (allGroupMembers[groupId] ?: emptyList()).toSet()
+            // Latest leave timestamp per pubkey
+            val lastLeave: Map<String, Long> = msgs
+                .filter { it.kind == 9022 }
+                .groupBy { it.pubkey }
+                .mapValues { (_, events) -> events.maxOf { it.createdAt } }
+            msgs
+                .filter { it.kind == 9021 && it.pubkey !in members && it.pubkey !in resolvedRequestPubkeys }
+                .filter { req -> val leave = lastLeave[req.pubkey]; leave == null || req.createdAt > leave }
+                .distinctBy { it.pubkey }
+                .sortedByDescending { it.createdAt }
+        }
+    }
+
+    // User is "pending approval" if marked as joined (sent 9021) but not in the
+    // authoritative member list from the relay (kind 39002).
+    // Simple check: joined + not in members = pending. No hasJoinRequest gate,
+    // so this triggers immediately after Join click (no relay echo delay).
+    val isPendingApproval by remember(groupId) {
+        derivedStateOf {
+            val joined = joinedGroups.contains(groupId)
+            val pubkey = currentUserPubkey
+            if (!joined || pubkey == null) return@derivedStateOf false
+            val k39002 = allGroupMembers[groupId] ?: emptyList()
+            val isClosed = groups.find { it.id == groupId }?.isOpen == false
+            when {
+                k39002.isNotEmpty() -> pubkey !in k39002
+                isClosed -> true // closed group, no member list yet → assume pending
+                else -> false    // open group, no list yet → don't block
+            }
+        }
+    }
+
 
     // Determine recently active members (messaged in last 10 minutes)
     val recentlyActiveMembers = remember(messages) {
@@ -309,12 +351,13 @@ fun GroupScreen(
 
     // Send message error dialog
     sendError?.let { error ->
+        val isPendingError = error.contains("pending admin approval", ignoreCase = true)
         AlertDialog(
             onDismissRequest = { vm.clearSendError() },
             containerColor = NostrordColors.Surface,
             titleContentColor = NostrordColors.TextPrimary,
             textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Message Not Sent") },
+            title = { Text(if (isPendingError) "Pending Approval" else "Message Not Sent") },
             text = { Text(error) },
             confirmButton = {
                 TextButton(onClick = { vm.clearSendError() }) {
@@ -364,6 +407,24 @@ fun GroupScreen(
         )
     }
 
+    // Join requests modal (admin only)
+    if (showJoinRequestsModal) {
+        JoinRequestsModal(
+            pendingRequests = pendingJoinRequests,
+            userMetadata = userMetadata,
+            onApprove = { pubkey: String ->
+                vm.approveJoinRequest(pubkey)
+                resolvedRequestPubkeys = resolvedRequestPubkeys + pubkey
+            },
+            onReject = { eventId: String ->
+                val pubkey = pendingJoinRequests.find { it.id == eventId }?.pubkey
+                vm.rejectJoinRequest(eventId)
+                if (pubkey != null) resolvedRequestPubkeys = resolvedRequestPubkeys + pubkey
+            },
+            onDismiss = { showJoinRequestsModal = false }
+        )
+    }
+
     if (showLeaveDialog) {
         AlertDialog(
             onDismissRequest = { showLeaveDialog = false },
@@ -395,7 +456,7 @@ fun GroupScreen(
     // Responsive layout
     val parentHidden = LocalAnimatedImageHidden.current
     val anyDialogOpen = parentHidden || showLeaveDialog || showGroupInfoModal || showEditGroupModal ||
-        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet || memberToRemove != null
+        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet || memberToRemove != null || showJoinRequestsModal
     CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isCompact = !forceDesktop
@@ -465,7 +526,10 @@ fun GroupScreen(
                     },
                 isCurrentUserAdmin = isAdmin,
                 onRemoveMember = { member -> memberToRemove = member },
-                onAddMember = { pubkey -> vm.addUser(pubkey) }
+                onAddMember = { pubkey -> vm.addUser(pubkey) },
+                pendingJoinRequestCount = pendingJoinRequests.size,
+                onJoinRequestsClick = { showJoinRequestsModal = true },
+                isPendingApproval = isPendingApproval
             )
         } else {
             GroupScreenDesktop(
@@ -534,7 +598,10 @@ fun GroupScreen(
                 onShowMemberSheet = { showMemberSheet = it },
                 isCurrentUserAdmin = isAdmin,
                 onRemoveMember = { member -> memberToRemove = member },
-                onAddMember = { pubkey -> vm.addUser(pubkey) }
+                onAddMember = { pubkey -> vm.addUser(pubkey) },
+                pendingJoinRequestCount = pendingJoinRequests.size,
+                onJoinRequestsClick = { showJoinRequestsModal = true },
+                isPendingApproval = isPendingApproval
             )
         }
     }

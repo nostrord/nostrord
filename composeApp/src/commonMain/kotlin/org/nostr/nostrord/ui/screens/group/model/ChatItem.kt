@@ -92,6 +92,12 @@ fun buildChatItems(
         .filter { it.kind == 9021 }
         .groupBy({ it.pubkey }, { it.createdAt })
 
+    // Map of pubkey → list of timestamps for leave requests (kind 9022).
+    // Used to suppress kind 9001 that is just the relay auto-confirming a leave.
+    val leaveRequestTimestamps: Map<String, List<Long>> = sortedMessages
+        .filter { it.kind == 9022 }
+        .groupBy({ it.pubkey }, { it.createdAt })
+
     // Track system events for grouping
     var pendingSystemEvent: ChatItem.SystemEvent? = null
     val pendingSystemEventUsers = mutableListOf<String>()
@@ -225,9 +231,15 @@ fun buildChatItems(
                 }
             }
             9001 -> {
-                // Admin/moderator removed a user
+                // Show "was removed" only when an admin manually removed someone.
+                // Suppress if the target sent a kind 9022 leave request within 5 min
+                // (that means the relay auto-confirmed the leave, already shown as "left").
                 val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
-                if (targetPubkey != null) {
+                val hasRecentLeaveRequest = targetPubkey != null &&
+                    leaveRequestTimestamps[targetPubkey]?.any {
+                        kotlin.math.abs(message.createdAt - it) <= 5 * 60
+                    } == true
+                if (targetPubkey != null && !hasRecentLeaveRequest) {
                     val action = "was removed from the group"
                     val pending = pendingSystemEvent
 

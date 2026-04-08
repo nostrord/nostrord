@@ -54,8 +54,12 @@ class GroupViewModel(
             when (val result = repo.sendMessage(groupId, content, channel, mentions, replyToId, extraTags)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
-                    val friendly = raw.removePrefix("blocked: ").removePrefix("error: ")
-                        .replaceFirstChar { it.uppercaseChar() }
+                    val cleaned = raw.removePrefix("blocked: ").removePrefix("error: ")
+                    val friendly = when {
+                        cleaned.contains("unknown member", ignoreCase = true) ->
+                            "Your join request is pending admin approval. You cannot send messages until approved."
+                        else -> cleaned.replaceFirstChar { it.uppercaseChar() }
+                    }
                     _sendError.value = friendly
                 }
                 is Result.Success -> {}
@@ -116,6 +120,23 @@ class GroupViewModel(
     fun removeUser(targetPubkey: String) {
         viewModelScope.launch {
             when (val result = repo.removeUser(groupId, targetPubkey)) {
+                is Result.Error -> {
+                    val raw = result.error.cause?.message ?: result.error.toString()
+                    _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
+                        .replaceFirstChar { it.uppercaseChar() }
+                }
+                is Result.Success -> Unit
+            }
+        }
+    }
+
+    fun approveJoinRequest(targetPubkey: String) {
+        addUser(targetPubkey)
+    }
+
+    fun rejectJoinRequest(joinRequestEventId: String) {
+        viewModelScope.launch {
+            when (val result = repo.rejectJoinRequest(groupId, joinRequestEventId)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
                     _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
