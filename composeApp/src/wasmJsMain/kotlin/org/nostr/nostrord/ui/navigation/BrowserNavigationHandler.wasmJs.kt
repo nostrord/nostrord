@@ -50,7 +50,9 @@ private fun buildUrlQuery(relayUrl: String, screen: Screen): String {
 /**
  * Parse relay and group from a URL search string like "?relay=host&group=id".
  */
-private fun parseUrlQuery(search: String): Pair<String, String?> {
+private data class UrlParams(val relayUrl: String, val groupId: String?, val inviteCode: String?)
+
+private fun parseUrlQuery(search: String): UrlParams {
     val params = search.removePrefix("?").split("&").associate { param ->
         val idx = param.indexOf("=")
         if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1)
@@ -59,14 +61,15 @@ private fun parseUrlQuery(search: String): Pair<String, String?> {
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: ""
     val relayUrl = if (relay.isNotBlank() && "://" !in relay) "wss://$relay" else relay
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
-    return relayUrl to groupId
+    val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
+    return UrlParams(relayUrl, groupId, inviteCode)
 }
 
 @Composable
 actual fun BrowserNavigationHandler(
     currentScreen: Screen,
     selectedRelayUrl: String,
-    onUrlNavigation: (relayUrl: String, groupId: String?) -> Unit
+    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?) -> Unit
 ) {
     val currentOnUrlNavigation by rememberUpdatedState(onUrlNavigation)
 
@@ -89,11 +92,11 @@ actual fun BrowserNavigationHandler(
         }
 
         val removeListener = jsAddPopStateListener { search ->
-            val (relayUrl, groupId) = parseUrlQuery(search)
+            val parsed = parseUrlQuery(search)
             skipNextPush.value = true
             lastPushedUrl.value = search.ifBlank { jsGetPathname() }
-            if (relayUrl.isNotBlank()) {
-                currentOnUrlNavigation(relayUrl, groupId)
+            if (parsed.relayUrl.isNotBlank()) {
+                currentOnUrlNavigation(parsed.relayUrl, parsed.groupId, parsed.inviteCode)
             }
         }
 

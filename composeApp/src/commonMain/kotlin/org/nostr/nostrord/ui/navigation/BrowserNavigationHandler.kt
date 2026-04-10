@@ -13,12 +13,12 @@ import org.nostr.nostrord.ui.Screen
  *
  * On all other platforms: no-op.
  *
- * @param onUrlNavigation Called on popstate with the relay URL and optional group ID
- *   parsed from the browser URL.
+ * @param onUrlNavigation Called on popstate with the relay URL, optional group ID,
+ *   and optional invite code parsed from the browser URL.
  */
 @Composable
 expect fun BrowserNavigationHandler(
     currentScreen: Screen,
     selectedRelayUrl: String,
-    onUrlNavigation: (relayUrl: String, groupId: String?) -> Unit
+    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?) -> Unit
 )

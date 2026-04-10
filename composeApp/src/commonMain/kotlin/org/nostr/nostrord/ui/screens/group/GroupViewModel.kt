@@ -24,6 +24,7 @@ class GroupViewModel(
     val loadingMembers = repo.loadingMembers
     val isLoadingMore = repo.isLoadingMore
     val hasMoreMessages = repo.hasMoreMessages
+    val currentRelayUrl = repo.currentRelayUrl
 
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending
@@ -58,6 +59,15 @@ class GroupViewModel(
                     val friendly = when {
                         cleaned.contains("unknown member", ignoreCase = true) ->
                             "Your join request is pending admin approval. You cannot send messages until approved."
+                        cleaned.contains("Channel was cancelled", ignoreCase = true) ||
+                        cleaned.contains("not connected", ignoreCase = true) ||
+                        cleaned.contains("Disconnected", ignoreCase = true) -> {
+                            repo.triggerReconnect()
+                            "Connection lost. Reconnecting..."
+                        }
+                        cleaned.contains("timed out", ignoreCase = true) ||
+                        cleaned.contains("timeout", ignoreCase = true) ->
+                            "Message send timed out. It will be retried automatically."
                         else -> cleaned.replaceFirstChar { it.uppercaseChar() }
                     }
                     _sendError.value = friendly
@@ -68,8 +78,8 @@ class GroupViewModel(
         }
     }
 
-    fun joinGroup() {
-        viewModelScope.launch { repo.joinGroup(groupId) }
+    fun joinGroup(inviteCode: String? = null) {
+        viewModelScope.launch { repo.joinGroup(groupId, inviteCode) }
     }
 
     fun leaveGroup(onSuccess: () -> Unit) {
@@ -137,6 +147,38 @@ class GroupViewModel(
     fun rejectJoinRequest(joinRequestEventId: String) {
         viewModelScope.launch {
             when (val result = repo.rejectJoinRequest(groupId, joinRequestEventId)) {
+                is Result.Error -> {
+                    val raw = result.error.cause?.message ?: result.error.toString()
+                    _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
+                        .replaceFirstChar { it.uppercaseChar() }
+                }
+                is Result.Success -> Unit
+            }
+        }
+    }
+
+    fun createInviteCode(onSuccess: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            when (val result = repo.createInviteCode(groupId)) {
+                is Result.Error -> {
+                    val raw = result.error.cause?.message ?: result.error.toString()
+                    val cleaned = raw.removePrefix("blocked: ").removePrefix("error: ")
+                    val friendly = when {
+                        cleaned.contains("kind 9009 not allowed", ignoreCase = true) ||
+                        cleaned.contains("not allowed", ignoreCase = true) && cleaned.contains("9009") ->
+                            "This relay does not support invite codes."
+                        else -> cleaned.replaceFirstChar { it.uppercaseChar() }
+                    }
+                    _moderationError.value = friendly
+                }
+                is Result.Success -> onSuccess(result.data)
+            }
+        }
+    }
+
+    fun revokeInviteCode(eventId: String) {
+        viewModelScope.launch {
+            when (val result = repo.revokeInviteCode(groupId, eventId)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
                     _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")

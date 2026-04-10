@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
@@ -47,12 +48,15 @@ fun GroupHeader(
     groupName: String?,
     groupMetadata: GroupMetadata?,
     isJoined: Boolean,
-    onJoinClick: () -> Unit,
+    onJoinClick: (inviteCode: String?) -> Unit,
     onLeaveClick: () -> Unit,
     onTitleClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
+    onInviteCodesClick: () -> Unit = {},
     isAdmin: Boolean = false,
+    isClosed: Boolean = false,
+    initialInviteCode: String? = null,
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -163,13 +167,47 @@ fun GroupHeader(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!isJoined) {
-                    // Join button for non-members
-                    Button(
-                        onClick = onJoinClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        Text("Join", style = MaterialTheme.typography.labelMedium)
+                    if (isClosed) {
+                        var inviteCode by remember { mutableStateOf(initialInviteCode ?: "") }
+                        OutlinedTextField(
+                            value = inviteCode,
+                            onValueChange = { inviteCode = it.trim() },
+                            placeholder = { Text("Invite code", color = NostrordColors.TextMuted, style = MaterialTheme.typography.bodySmall) },
+                            singleLine = true,
+                            modifier = Modifier.width(150.dp).height(48.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color.White,
+                                unfocusedTextColor = Color.White,
+                                focusedBorderColor = NostrordColors.Primary,
+                                unfocusedBorderColor = NostrordColors.SurfaceVariant,
+                                cursorColor = NostrordColors.Primary
+                            ),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { onJoinClick(inviteCode) },
+                            enabled = inviteCode.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = NostrordColors.Primary,
+                                contentColor = Color.White,
+                                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.3f),
+                                disabledContentColor = Color.White.copy(alpha = 0.5f)
+                            ),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Join", style = MaterialTheme.typography.labelMedium)
+                        }
+                    } else {
+                        Button(
+                            onClick = { onJoinClick(null) },
+                            colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text("Join", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 } else {
                     // Dropdown menu for members
@@ -209,6 +247,23 @@ fun GroupHeader(
                                         )
                                     }
                                 )
+                                if (isClosed) {
+                                    DropdownMenuItem(
+                                        text = { Text("Invite Codes", color = NostrordColors.TextPrimary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onInviteCodesClick()
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Link,
+                                                contentDescription = null,
+                                                tint = NostrordColors.TextSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Delete Group", color = NostrordColors.Error) },
                                     onClick = {

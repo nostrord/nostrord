@@ -77,6 +77,8 @@ interface NostrRepositoryApi {
     // --- Connection operations ---
     suspend fun connect()
     suspend fun reconnect(): Boolean
+    /** Fire-and-forget reconnect — safe to call from non-suspend contexts. */
+    fun triggerReconnect()
     suspend fun switchRelay(newRelayUrl: String)
     suspend fun removeRelay(url: String)
     suspend fun disconnect()
@@ -102,7 +104,7 @@ interface NostrRepositoryApi {
 
     // --- Group operations ---
     suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String? = null, customGroupId: String? = null): Result<String>
-    suspend fun joinGroup(groupId: String): Result<Unit>
+    suspend fun joinGroup(groupId: String, inviteCode: String? = null): Result<Unit>
     suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit>
     suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String? = null): Result<Unit>
     suspend fun deleteGroup(groupId: String): Result<Unit>
@@ -118,6 +120,8 @@ interface NostrRepositoryApi {
     suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String> = emptyList()): Result<Unit>
     suspend fun removeUser(groupId: String, targetPubkey: String): Result<Unit>
     suspend fun rejectJoinRequest(groupId: String, joinRequestEventId: String): Result<Unit>
+    suspend fun createInviteCode(groupId: String): Result<String>
+    suspend fun revokeInviteCode(groupId: String, eventId: String): Result<Unit>
     suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit>
     suspend fun sendReaction(groupId: String, targetEventId: String, targetPubkey: String, emoji: String): Result<Unit>
     fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage>

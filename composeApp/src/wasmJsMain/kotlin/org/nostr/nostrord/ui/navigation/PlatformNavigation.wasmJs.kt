@@ -13,3 +13,8 @@ private external fun jsHistoryForward()
 
 actual fun browserGoBack() { jsHistoryBack() }
 actual fun browserGoForward() { jsHistoryForward() }
+
+@JsFun("() => window.location.origin")
+private external fun jsGetOrigin(): String
+
+actual fun platformAppOrigin(): String? = jsGetOrigin()

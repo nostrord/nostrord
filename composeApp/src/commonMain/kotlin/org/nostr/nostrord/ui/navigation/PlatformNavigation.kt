@@ -17,3 +17,10 @@ expect fun browserGoBack()
  * On JS/WasmJS calls window.history.forward(). No-op on other platforms.
  */
 expect fun browserGoForward()
+
+/**
+ * The app's base URL (origin) for building shareable links.
+ * On JS/WasmJS returns `window.location.origin` (e.g. "https://web.nostrord.com").
+ * On native platforms returns null (invite links are web-only).
+ */
+expect fun platformAppOrigin(): String?

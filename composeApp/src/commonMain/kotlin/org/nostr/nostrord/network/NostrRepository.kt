@@ -438,6 +438,10 @@ class NostrRepository(
      * Manually trigger reconnection to the relay.
      * Use this when auto-reconnection fails or user wants to retry.
      */
+    override fun triggerReconnect() {
+        scope.launch { reconnect() }
+    }
+
     override suspend fun reconnect(): Boolean {
         val connected = connectionManager.reconnect()
         if (connected) {
@@ -762,7 +766,7 @@ class NostrRepository(
     override suspend fun ensureBunkerConnected(): Boolean = sessionManager.ensureBunkerConnected()
 
     // Group operations
-    override suspend fun joinGroup(groupId: String): Result<Unit> {
+    override suspend fun joinGroup(groupId: String, inviteCode: String?): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.joinGroup(
@@ -770,7 +774,8 @@ class NostrRepository(
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
-            publishJoinedGroups = { publishJoinedGroupsList() }
+            publishJoinedGroups = { publishJoinedGroupsList() },
+            inviteCode = inviteCode
         )
     }
 
@@ -960,6 +965,29 @@ class NostrRepository(
         return groupManager.rejectJoinRequest(
             groupId = groupId,
             joinRequestEventId = joinRequestEventId,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
+    override suspend fun createInviteCode(groupId: String): Result<String> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.createInviteCode(
+            groupId = groupId,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
+    override suspend fun revokeInviteCode(groupId: String, eventId: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.revokeInviteCode(
+            groupId = groupId,
+            eventId = eventId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) }
@@ -1777,14 +1805,18 @@ class NostrRepository(
             groupManager.resetLoadingForGroups(groupIds)
         }
 
-        // No fast-lane here: resubscribeAllGroups (which runs before AUTH arrives)
-        // already sent direct requests + mux for the active group. The request
-        // cooldown gate in GroupManager prevents duplicates within 2s.
-
-        // Mux refresh — the tracker's needsRefresh() will return false if
-        // resubscribeAllGroups already sent identical subscriptions, avoiding
-        // a redundant CLOSE+REQ cycle.
+        // Force-clear the mux tracker so the refresh always re-sends subscriptions.
+        // The relay may have dropped active subs when it sent the AUTH challenge
+        // (e.g. communities.nos.social re-challenges AUTH periodically).
+        groupManager.clearMuxTrackerForRelay(relayUrl)
         groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+
+        // Re-request historical messages for groups that were CLOSED with
+        // auth-required. The mux only delivers live messages (since cursor),
+        // so without this the chat stays empty after AUTH completes.
+        for (groupId in groupIds) {
+            groupManager.requestGroupMessages(groupId)
+        }
     }
 
 }

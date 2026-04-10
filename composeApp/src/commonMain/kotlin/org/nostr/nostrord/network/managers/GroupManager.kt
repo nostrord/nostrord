@@ -500,7 +500,8 @@ class GroupManager(
         pubKey: String,
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
-        publishJoinedGroups: suspend () -> Unit
+        publishJoinedGroups: suspend () -> Unit,
+        inviteCode: String? = null
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -508,11 +509,16 @@ class GroupManager(
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
+            val tags = mutableListOf(listOf("h", groupId))
+            val effectiveCode = inviteCode?.takeIf { it.isNotBlank() }
+            if (effectiveCode != null) {
+                tags.add(listOf("code", effectiveCode))
+            }
             val event = Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
                 kind = 9021,
-                tags = listOf(listOf("h", groupId)),
+                tags = tags,
                 content = "/join"
             )
 
@@ -898,6 +904,107 @@ class GroupManager(
     }
 
     /**
+     * Create an invite code for a group (admin only). Sends kind:9009.
+     * Returns the generated code on success.
+     */
+    suspend fun createInviteCode(
+        groupId: String,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<String> {
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
+
+        return try {
+            val code = generateInviteCode()
+            val tags = listOf(
+                listOf("h", groupId),
+                listOf("code", code)
+            )
+            val event = Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9009,
+                tags = tags,
+                content = ""
+            )
+            val signedEvent = signEvent(event)
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
+            val message = buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString()
+            when (val result = currentClient.sendAndAwaitOk(message, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(code)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.SendFailed(groupId, Exception(result.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.SendTimeout(groupId))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.SendFailed(groupId, result.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.SendFailed(groupId, e))
+        }
+    }
+
+    /**
+     * Revoke an invite code (admin only). Sends kind:9005 targeting the 9009 event by ID.
+     */
+    suspend fun revokeInviteCode(
+        groupId: String,
+        eventId: String,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<Unit> {
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
+
+        return try {
+            val event = Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9005,
+                tags = listOf(
+                    listOf("h", groupId),
+                    listOf("e", eventId)
+                ),
+                content = ""
+            )
+            val signedEvent = signEvent(event)
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
+            val message = buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString()
+            when (val result = currentClient.sendAndAwaitOk(message, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.SendFailed(groupId, Exception(result.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.SendTimeout(groupId))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.SendFailed(groupId, result.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.SendFailed(groupId, e))
+        }
+    }
+
+    private fun generateInviteCode(): String {
+        val chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+        return (1..8).map { chars.random() }.joinToString("")
+    }
+
+    /**
      * Leave a group
      */
     suspend fun leaveGroup(
@@ -1223,11 +1330,20 @@ class GroupManager(
 
     /**
      * Reset loading states WITHOUT clearing the mux tracker.
-     * Use this when re-subscribing after auth (mux was already refreshed by the
-     * reconnect path — clearing the tracker would force a redundant CLOSE+REQ cycle).
+     * Use this when re-subscribing after auth — the caller is responsible for
+     * clearing the tracker separately via [clearMuxTrackerForRelay] if needed.
      */
     suspend fun resetLoadingForGroups(groupIds: List<String>) {
         loadingRegistry.handleDisconnectForGroups(groupIds)
+    }
+
+    /**
+     * Clear the mux subscription tracker for a specific relay so the next
+     * [refreshMuxSubscriptionsForRelay] call always re-sends subscriptions.
+     * Use after AUTH challenges where the relay may have dropped active subs.
+     */
+    fun clearMuxTrackerForRelay(relayUrl: String) {
+        muxTracker.clearRelay(relayUrl)
     }
 
     /**
@@ -1604,10 +1720,17 @@ class GroupManager(
      * Apply immediate member list changes from kind:9000 (add-user) and kind:9001 (remove-user)
      * admin events. This prevents ghost members and stale UI between the admin event and
      * the next kind:39002 full member list refresh.
+     *
+     * Only applies changes from events newer than the last authoritative kind:39002 member
+     * list to avoid re-adding users that were removed (historical replays after AUTH).
      */
     private fun applyMemberChangeIfAdmin(message: NostrGroupClient.NostrMessage, groupId: String) {
         val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
             ?: return
+        // Skip historical events older than the authoritative member list.
+        val memberListTimestamp = memberEventTimestamps[groupId] ?: 0L
+        if (message.createdAt <= memberListTimestamp) return
+
         when (message.kind) {
             9000 -> { // add-user
                 _groupMembers.update { current ->
@@ -1632,6 +1755,7 @@ class GroupManager(
         9000,   // Group admin: add user
         9001,   // Group admin: remove user
         9002,   // Group admin: edit metadata (NIP-29)
+        9009,   // Group admin: create invite (NIP-29)
         9021,   // Join request
         9022,   // Leave request
         9321    // Zap request (NIP-57)
@@ -1640,7 +1764,8 @@ class GroupManager(
     // Deletion kinds that remove other events
     private val deletionKinds = setOf(
         5,      // Deletion request (NIP-09)
-        9003    // Group admin: delete event (NIP-29)
+        9003,   // Group admin: delete event (NIP-29)
+        9005    // Group admin: delete event (NIP-29 moderation)
     )
 
     /**
@@ -1654,8 +1779,11 @@ class GroupManager(
         subscriptionId: String? = null,
         relayUrl: String? = null
     ): String? {
-        // Handle deletion events separately
+        // Handle deletion events separately — but still track for pagination cursor
         if (message.kind in deletionKinds) {
+            if (subscriptionId != null) {
+                trackMessageForSubscription(subscriptionId, message.createdAt, message.id)
+            }
             handleDeletion(message, rawMsg)
             return null
         }
@@ -1667,10 +1795,15 @@ class GroupManager(
 
         val messageId = message.id
         if (messageId.isBlank() || !eventDeduplicator.tryAddSync(messageId)) {
+            if (message.kind == 9) {
+            }
             return null // Duplicate message
         }
 
         val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
+
+        if (message.kind == 9) {
+        }
 
         // Populate global emoji cache from message emoji tags and backfill
         // any existing reactions that are missing their image URL.
@@ -1710,6 +1843,9 @@ class GroupManager(
      * Called by [EventOrderingBuffer] after its debounce window expires.
      */
     private fun flushBatchToState(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
+        val chatMessages = messages.filter { it.kind == 9 }
+        if (chatMessages.isNotEmpty()) {
+        }
         // Record burst for adaptive tuning
         adaptiveConfig?.recordEventBurst(messages.size)
 

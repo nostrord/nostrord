@@ -45,9 +45,10 @@ private fun parseDeepLinkFromUrl() {
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return
     val relayUrl = if ("://" in relay) relay else "wss://$relay"
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
+    val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
 
     val context = if (groupId != null) {
-        ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl)
+        ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl, inviteCode = inviteCode)
     } else {
         ExternalLaunchContext.OpenRelay(relayUrl)
     }

@@ -5,10 +5,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
@@ -84,7 +86,7 @@ fun GroupScreenMobile(
     messageInput: String,
     onMessageInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
-    onJoinGroup: () -> Unit,
+    onJoinGroup: (inviteCode: String?) -> Unit,
     onLeaveGroup: () -> Unit,
     onShowGroupInfo: () -> Unit = {},
     onEditGroup: () -> Unit = {},
@@ -116,7 +118,10 @@ fun GroupScreenMobile(
     onAddMember: (String) -> Unit = {},
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
-    isPendingApproval: Boolean = false
+    isPendingApproval: Boolean = false,
+    onInviteCodesClick: () -> Unit = {},
+    isClosed: Boolean = false,
+    initialInviteCode: String? = null
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -143,7 +148,10 @@ fun GroupScreenMobile(
                 onEditClick = onEditGroup,
                 onDeleteClick = onDeleteGroup,
                 pendingJoinRequestCount = pendingJoinRequestCount,
-                onJoinRequestsClick = onJoinRequestsClick
+                onJoinRequestsClick = onJoinRequestsClick,
+                onInviteCodesClick = onInviteCodesClick,
+                isClosed = isClosed,
+                initialInviteCode = initialInviteCode
             )
         },
         containerColor = NostrordColors.Background
@@ -235,7 +243,9 @@ fun GroupScreenMobile(
                     userMetadata = userMetadata,
                     onCancelReply = onCancelReply,
                     isSending = isSending,
-                    onMediaUploaded = onMediaUploaded
+                    onMediaUploaded = onMediaUploaded,
+                    isClosed = isClosed,
+                    initialInviteCode = initialInviteCode
                 )
             }
         }
@@ -284,12 +294,15 @@ private fun MobileGroupTopBar(
     onOpenDrawer: () -> Unit = {},
     onTitleClick: () -> Unit,
     onMembersClick: () -> Unit,
-    onJoinClick: () -> Unit,
+    onJoinClick: (inviteCode: String?) -> Unit,
     onLeaveClick: () -> Unit,
     onEditClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
     pendingJoinRequestCount: Int = 0,
-    onJoinRequestsClick: () -> Unit = {}
+    onJoinRequestsClick: () -> Unit = {},
+    onInviteCodesClick: () -> Unit = {},
+    isClosed: Boolean = false,
+    initialInviteCode: String? = null
 ) {
     TopAppBar(
         navigationIcon = {
@@ -392,17 +405,52 @@ private fun MobileGroupTopBar(
             }
 
             if (!isJoined) {
-                // Join button for non-members
-                TextButton(
-                    onClick = onJoinClick,
-                    modifier = Modifier.height(Spacing.touchTargetMin),
-                    contentPadding = PaddingValues(horizontal = Spacing.md)
-                ) {
-                    Text(
-                        "Join",
-                        style = NostrordTypography.Button,
-                        color = NostrordColors.Primary
+                if (isClosed) {
+                    var inviteCode by remember { mutableStateOf(initialInviteCode ?: "") }
+                    OutlinedTextField(
+                        value = inviteCode,
+                        onValueChange = { inviteCode = it.trim() },
+                        placeholder = { Text("Invite code", color = NostrordColors.TextMuted, style = NostrordTypography.Caption) },
+                        singleLine = true,
+                        modifier = Modifier.width(130.dp).height(48.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = NostrordColors.Primary,
+                            unfocusedBorderColor = NostrordColors.SurfaceVariant,
+                            cursorColor = NostrordColors.Primary
+                        ),
+                        textStyle = NostrordTypography.Caption,
+                        shape = RoundedCornerShape(8.dp)
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { onJoinClick(inviteCode) },
+                        enabled = inviteCode.isNotBlank(),
+                        modifier = Modifier.height(40.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = NostrordColors.Primary,
+                            contentColor = Color.White,
+                            disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.3f),
+                            disabledContentColor = Color.White.copy(alpha = 0.5f)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Join", style = NostrordTypography.Button)
+                    }
+                } else {
+                    TextButton(
+                        onClick = { onJoinClick(null) },
+                        modifier = Modifier.height(Spacing.touchTargetMin),
+                        contentPadding = PaddingValues(horizontal = Spacing.md)
+                    ) {
+                        Text(
+                            "Join",
+                            style = NostrordTypography.Button,
+                            color = NostrordColors.Primary
+                        )
+                    }
                 }
             } else {
                 // Dropdown menu for members
@@ -441,6 +489,23 @@ private fun MobileGroupTopBar(
                                     )
                                 }
                             )
+                            if (isClosed) {
+                                DropdownMenuItem(
+                                    text = { Text("Invite Codes", color = NostrordColors.TextPrimary) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onInviteCodesClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Link,
+                                            contentDescription = null,
+                                            tint = NostrordColors.TextSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Delete Group", color = NostrordColors.Error) },
                                 onClick = {
@@ -485,4 +550,5 @@ private fun MobileGroupTopBar(
             containerColor = NostrordColors.BackgroundDark
         )
     )
+
 }

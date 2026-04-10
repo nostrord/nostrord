@@ -7,7 +7,7 @@ import org.nostr.nostrord.ui.Screen
 actual fun BrowserNavigationHandler(
     currentScreen: Screen,
     selectedRelayUrl: String,
-    onUrlNavigation: (relayUrl: String, groupId: String?) -> Unit
+    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?) -> Unit
 ) {
     // No browser history on Android
 }

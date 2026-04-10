@@ -132,7 +132,8 @@ fun App() {
                 AuthenticatedApp(
                     initialScreen = startupState.initialScreen,
                     restoredFromPersistence = startupState.restoredFromPersistence,
-                    deepLinkRelayUrl = startupState.deepLinkRelayUrl
+                    deepLinkRelayUrl = startupState.deepLinkRelayUrl,
+                    deepLinkInviteCode = startupState.deepLinkInviteCode
                 )
             }
         }
@@ -171,7 +172,8 @@ private fun LoadingScreen(modifier: Modifier = Modifier, message: String? = null
 private fun AuthenticatedApp(
     initialScreen: Screen,
     restoredFromPersistence: Boolean,
-    deepLinkRelayUrl: String? = null
+    deepLinkRelayUrl: String? = null,
+    deepLinkInviteCode: String? = null
 ) {
     // Initialize navigation history with the resolved initial screen
     val navHistory = remember {
@@ -209,6 +211,18 @@ private fun AuthenticatedApp(
             AppModule.nostrRepository.switchRelay(deepLinkRelayUrl)
         }
     }
+
+    // Set the active group on initial screen load (deep link or restored from storage).
+    // onNavigate handles subsequent navigations, but the initial screen bypasses it.
+    LaunchedEffect(Unit) {
+        if (initialScreen is Screen.Group) {
+            AppModule.nostrRepository.setActiveGroup(initialScreen.groupId)
+        }
+    }
+
+    // Pending invite code from deep link or browser navigation.
+    // Passed to GroupScreen which handles auto-join and consumption.
+    var pendingInviteCode by remember { mutableStateOf(deepLinkInviteCode) }
 
     var showCreateGroupModal by remember { mutableStateOf(false) }
     var showAddRelayModal by remember { mutableStateOf(false) }
@@ -289,6 +303,9 @@ private fun AuthenticatedApp(
     val onDirectHistoryBack: () -> Unit = {
         navHistory.goBack()?.let { entry ->
             persistScreenState(entry.screen)
+            AppModule.nostrRepository.setActiveGroup(
+                if (entry.screen is Screen.Group) entry.screen.groupId else null
+            )
             if (entry.relayUrl.isNotBlank() && entry.relayUrl != selectedRelayUrl) {
                 selectedRelayUrl = entry.relayUrl
                 scope.launch { AppModule.nostrRepository.switchRelay(entry.relayUrl) }
@@ -299,6 +316,9 @@ private fun AuthenticatedApp(
     val onDirectHistoryForward: () -> Unit = {
         navHistory.goForward()?.let { entry ->
             persistScreenState(entry.screen)
+            AppModule.nostrRepository.setActiveGroup(
+                if (entry.screen is Screen.Group) entry.screen.groupId else null
+            )
             if (entry.relayUrl.isNotBlank() && entry.relayUrl != selectedRelayUrl) {
                 selectedRelayUrl = entry.relayUrl
                 scope.launch { AppModule.nostrRepository.switchRelay(entry.relayUrl) }
@@ -334,11 +354,15 @@ private fun AuthenticatedApp(
     BrowserNavigationHandler(
         currentScreen = currentScreen,
         selectedRelayUrl = selectedRelayUrl,
-        onUrlNavigation = { relayUrl, groupId ->
+        onUrlNavigation = { relayUrl, groupId, inviteCode ->
             // Switch relay if different
             if (relayUrl != selectedRelayUrl) {
                 selectedRelayUrl = relayUrl
                 scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
+            }
+            // Set pending invite code if present
+            if (inviteCode != null) {
+                pendingInviteCode = inviteCode
             }
             // Navigate to the correct screen
             val targetScreen = if (groupId != null) {
@@ -349,6 +373,9 @@ private fun AuthenticatedApp(
             if (targetScreen != currentScreen) {
                 navHistory.navigate(targetScreen, relayUrl)
                 persistScreenState(targetScreen)
+                AppModule.nostrRepository.setActiveGroup(
+                    if (targetScreen is Screen.Group) targetScreen.groupId else null
+                )
             }
         }
     )
@@ -458,7 +485,9 @@ private fun AuthenticatedApp(
                             onNavigate = onNavigate,
                             hasNoRelays = hasNoRelays,
                             onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
-                            onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true }
+                            onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
+                            pendingInviteCode = pendingInviteCode,
+                            onInviteCodeConsumed = { pendingInviteCode = null }
                         )
                     }
                 }
@@ -522,7 +551,9 @@ private fun AuthenticatedApp(
                         hasNoRelays = hasNoRelays,
                         onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
                         onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
-                        onOpenDrawer = onOpenDrawer
+                        onOpenDrawer = onOpenDrawer,
+                        pendingInviteCode = pendingInviteCode,
+                        onInviteCodeConsumed = { pendingInviteCode = null }
                     )
                 }
             }
@@ -560,7 +591,9 @@ private fun DesktopContent(
     onNavigate: (Screen) -> Unit,
     hasNoRelays: Boolean = false,
     onAddRelay: () -> Unit = {},
-    onAddRelayCustomUrl: () -> Unit = {}
+    onAddRelayCustomUrl: () -> Unit = {},
+    pendingInviteCode: String? = null,
+    onInviteCodeConsumed: () -> Unit = {}
 ) {
     when (val screen = currentScreen) {
         is Screen.Home -> {
@@ -587,7 +620,9 @@ private fun DesktopContent(
                     onNavigate(Screen.Group(newGroupId, newGroupName))
                 },
                 showServerRail = false,
-                forceDesktop = true
+                forceDesktop = true,
+                pendingInviteCode = pendingInviteCode,
+                onInviteCodeConsumed = onInviteCodeConsumed
             )
         }
         is Screen.EditProfile -> {
@@ -619,7 +654,9 @@ private fun MobileContent(
     onOpenDrawer: () -> Unit = {},
     hasNoRelays: Boolean = false,
     onAddRelay: () -> Unit = {},
-    onAddRelayCustomUrl: () -> Unit = {}
+    onAddRelayCustomUrl: () -> Unit = {},
+    pendingInviteCode: String? = null,
+    onInviteCodeConsumed: () -> Unit = {}
 ) {
     when (val screen = currentScreen) {
         is Screen.Home -> {
@@ -646,7 +683,9 @@ private fun MobileContent(
                 onNavigateToGroup = { newGroupId, newGroupName ->
                     onNavigate(Screen.Group(newGroupId, newGroupName))
                 },
-                onOpenDrawer = onOpenDrawer
+                onOpenDrawer = onOpenDrawer,
+                pendingInviteCode = pendingInviteCode,
+                onInviteCodeConsumed = onInviteCodeConsumed
             )
         }
         is Screen.EditProfile -> {

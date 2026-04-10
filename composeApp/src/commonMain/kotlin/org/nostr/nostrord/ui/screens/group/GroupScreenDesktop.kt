@@ -61,7 +61,7 @@ fun GroupScreenDesktop(
     messageInput: String,
     onMessageInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
-    onJoinGroup: () -> Unit,
+    onJoinGroup: (inviteCode: String?) -> Unit,
     onLeaveGroup: () -> Unit,
     onShowGroupInfo: () -> Unit = {},
     onEditGroup: () -> Unit = {},
@@ -96,7 +96,10 @@ fun GroupScreenDesktop(
     onAddMember: (String) -> Unit = {},
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
-    isPendingApproval: Boolean = false
+    isPendingApproval: Boolean = false,
+    onInviteCodesClick: () -> Unit = {},
+    isClosed: Boolean = false,
+    initialInviteCode: String? = null
 ) {
 
     Row(modifier = Modifier.fillMaxSize()) {
@@ -118,6 +121,9 @@ fun GroupScreenDesktop(
                 onTitleClick = onShowGroupInfo,
                 onEditClick = onEditGroup,
                 onDeleteClick = onDeleteGroup,
+                onInviteCodesClick = onInviteCodesClick,
+                isClosed = isClosed,
+                initialInviteCode = initialInviteCode,
                 pendingJoinRequestCount = pendingJoinRequestCount,
                 onJoinRequestsClick = onJoinRequestsClick,
                 trailingIcon = if (!showMemberSidebar) {
@@ -190,7 +196,9 @@ fun GroupScreenDesktop(
                 userMetadata = userMetadata,
                 onCancelReply = onCancelReply,
                 isSending = isSending,
-                onMediaUploaded = onMediaUploaded
+                onMediaUploaded = onMediaUploaded,
+                isClosed = isClosed,
+                initialInviteCode = initialInviteCode
             )
         }
 

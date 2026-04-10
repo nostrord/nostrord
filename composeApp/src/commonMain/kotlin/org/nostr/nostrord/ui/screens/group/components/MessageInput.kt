@@ -69,7 +69,9 @@ fun MessageInput(
     messageInput: String,
     onMessageInputChange: (String) -> Unit,
     onSendMessage: () -> Unit,
-    onJoinGroup: () -> Unit,
+    onJoinGroup: (inviteCode: String?) -> Unit,
+    isClosed: Boolean = false,
+    initialInviteCode: String? = null,
     groupMembers: List<MemberInfo> = emptyList(),
     mentions: Map<String, String> = emptyMap(), // displayName -> pubkey
     onMentionsChange: (Map<String, String>) -> Unit = {},
@@ -256,17 +258,25 @@ fun MessageInput(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Join the group to send messages",
-                    color = NostrordColors.TextMuted,
-                    style = NostrordTypography.MessageBody
-                )
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                TextButton(
-                    onClick = onJoinGroup,
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary)
-                ) {
-                    Text("Join Now", style = NostrordTypography.Button)
+                if (isClosed) {
+                    Text(
+                        text = "This group requires an invite code to join",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.MessageBody
+                    )
+                } else {
+                    Text(
+                        text = "Join the group to send messages",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.MessageBody
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    TextButton(
+                        onClick = { onJoinGroup(null) },
+                        colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary)
+                    ) {
+                        Text("Join Now", style = NostrordTypography.Button)
+                    }
                 }
             }
         }

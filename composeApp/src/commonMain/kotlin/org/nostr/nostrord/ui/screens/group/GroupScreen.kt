@@ -16,6 +16,8 @@ import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
+import org.nostr.nostrord.ui.screens.group.components.InviteCode
+import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
 import org.nostr.nostrord.ui.screens.group.components.JoinRequestsModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.buildChatItems
@@ -30,7 +32,9 @@ fun GroupScreen(
     onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
     showServerRail: Boolean = true, // When false, server rail is handled by parent shell
     onOpenDrawer: () -> Unit = {},
-    forceDesktop: Boolean = false
+    forceDesktop: Boolean = false,
+    pendingInviteCode: String? = null,
+    onInviteCodeConsumed: () -> Unit = {}
 ) {
     val vm = viewModel(key = groupId) { GroupViewModel(AppModule.nostrRepository, groupId) }
 
@@ -59,6 +63,7 @@ fun GroupScreen(
     val sendError by vm.sendError.collectAsState()
     val deleteMessageError by vm.deleteMessageError.collectAsState()
     val reactionError by vm.reactionError.collectAsState()
+    val moderationError by vm.moderationError.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
     val joinedGroups by vm.joinedGroups.collectAsState()
     val groups by vm.groups.collectAsState()
@@ -67,6 +72,7 @@ fun GroupScreen(
     val allGroupMembers by vm.groupMembers.collectAsState()
     val allGroupAdmins by vm.groupAdmins.collectAsState()
     val loadingMembersSet by vm.loadingMembers.collectAsState()
+    val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val currentUserPubkey = vm.getPublicKey()
 
     // Get current group metadata
@@ -98,8 +104,26 @@ fun GroupScreen(
     var showMemberSheet by remember { mutableStateOf(false) }
     var memberToRemove by remember { mutableStateOf<MemberInfo?>(null) }
     var showJoinRequestsModal by remember { mutableStateOf(false) }
+    var showInviteCodesModal by remember { mutableStateOf(false) }
+    var createdInviteCode by remember { mutableStateOf<String?>(null) }
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
     val isJoined = joinedGroups.contains(groupId)
+
+    // Invite code from deep link — kept for UI pre-fill even after auto-join fires.
+    val initialInviteCode = remember { pendingInviteCode }
+
+    // Track whether we've already attempted auto-join to prevent duplicates.
+    var autoJoinFired by remember { mutableStateOf(false) }
+
+    // Auto-join with invite code from deep link / URL navigation
+    LaunchedEffect(pendingInviteCode) {
+        val code = pendingInviteCode ?: return@LaunchedEffect
+        onInviteCodeConsumed()
+        if (!autoJoinFired) {
+            autoJoinFired = true
+            vm.joinGroup(code)
+        }
+    }
 
     // Member pubkey source: prefer kind:39002 (authoritative), fall back to
     // message-derived pubkeys. Wrapped in derivedStateOf so the downstream
@@ -173,6 +197,25 @@ fun GroupScreen(
     }
 
 
+    // Derive invite codes from kind 9009 events, excluding revoked ones (kind 9005 with "e" tag).
+    val inviteCodes by remember(groupId) {
+        derivedStateOf {
+            val msgs = allMessages[groupId] ?: emptyList()
+            val revokedEventIds = msgs
+                .filter { it.kind == 9005 }
+                .flatMap { msg -> msg.tags.filter { it.firstOrNull() == "e" }.mapNotNull { it.getOrNull(1) } }
+                .toSet()
+            msgs
+                .filter { it.kind == 9009 }
+                .mapNotNull { msg ->
+                    val code = msg.tags.firstOrNull { it.firstOrNull() == "code" }?.getOrNull(1) ?: return@mapNotNull null
+                    if (msg.id in revokedEventIds) return@mapNotNull null
+                    InviteCode(code = code, createdAt = msg.createdAt, eventId = msg.id)
+                }
+                .sortedByDescending { it.createdAt }
+        }
+    }
+
     // Determine recently active members (messaged in last 10 minutes)
     val recentlyActiveMembers = remember(messages) {
         val tenMinutesAgo = epochSeconds() - (10 * 60)
@@ -238,6 +281,27 @@ fun GroupScreen(
             currentMetadata = currentGroupMetadata,
             onDismiss = { showEditGroupModal = false },
             onGroupUpdated = { showEditGroupModal = false }
+        )
+    }
+
+    // Invite codes modal (admin + closed groups)
+    if (showInviteCodesModal) {
+        InviteCodesModal(
+            inviteCodes = inviteCodes,
+            onCreateInviteCode = {
+                vm.createInviteCode { code -> createdInviteCode = code }
+            },
+            onRevokeInviteCode = { eventId -> vm.revokeInviteCode(eventId) },
+            onDismiss = {
+                showInviteCodesModal = false
+                createdInviteCode = null
+                if (moderationError != null) vm.clearModerationError()
+            },
+            relayUrl = currentRelayUrl,
+            groupId = groupId,
+            createdCode = createdInviteCode,
+            errorMessage = moderationError,
+            onClearError = { vm.clearModerationError() }
         )
     }
 
@@ -331,7 +395,11 @@ fun GroupScreen(
                 if (isUnknownMember) {
                     TextButton(onClick = {
                         vm.clearReactionError()
-                        vm.joinGroup()
+                        if (currentGroupMetadata?.isOpen == false) {
+                            // Closed group — show invite code modal instead of direct join
+                        } else {
+                            vm.joinGroup()
+                        }
                     }) {
                         Text("Join Group", color = NostrordColors.Primary)
                     }
@@ -456,7 +524,7 @@ fun GroupScreen(
     // Responsive layout
     val parentHidden = LocalAnimatedImageHidden.current
     val anyDialogOpen = parentHidden || showLeaveDialog || showGroupInfoModal || showEditGroupModal ||
-        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet || memberToRemove != null || showJoinRequestsModal
+        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet || memberToRemove != null || showJoinRequestsModal || showInviteCodesModal
     CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isCompact = !forceDesktop
@@ -488,7 +556,7 @@ fun GroupScreen(
                     replyingToMessage = null
                     pendingUploads = emptyList()
                 },
-                onJoinGroup = { vm.joinGroup() },
+                onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
                 onLeaveGroup = { showLeaveDialog = true },
                 onShowGroupInfo = { showGroupInfoModal = true },
                 onEditGroup = { showEditGroupModal = true },
@@ -529,7 +597,10 @@ fun GroupScreen(
                 onAddMember = { pubkey -> vm.addUser(pubkey) },
                 pendingJoinRequestCount = pendingJoinRequests.size,
                 onJoinRequestsClick = { showJoinRequestsModal = true },
-                isPendingApproval = isPendingApproval
+                isPendingApproval = isPendingApproval,
+                onInviteCodesClick = { showInviteCodesModal = true },
+                isClosed = currentGroupMetadata?.isOpen == false,
+                initialInviteCode = initialInviteCode
             )
         } else {
             GroupScreenDesktop(
@@ -557,7 +628,7 @@ fun GroupScreen(
                     replyingToMessage = null
                     pendingUploads = emptyList()
                 },
-                onJoinGroup = { vm.joinGroup() },
+                onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
                 onLeaveGroup = { showLeaveDialog = true },
                 onShowGroupInfo = { showGroupInfoModal = true },
                 onEditGroup = { showEditGroupModal = true },
@@ -601,7 +672,10 @@ fun GroupScreen(
                 onAddMember = { pubkey -> vm.addUser(pubkey) },
                 pendingJoinRequestCount = pendingJoinRequests.size,
                 onJoinRequestsClick = { showJoinRequestsModal = true },
-                isPendingApproval = isPendingApproval
+                isPendingApproval = isPendingApproval,
+                onInviteCodesClick = { showInviteCodesModal = true },
+                isClosed = currentGroupMetadata?.isOpen == false,
+                initialInviteCode = initialInviteCode
             )
         }
     }

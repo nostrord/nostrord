@@ -259,7 +259,14 @@ class NostrGroupClient(
         trackSubLifecycle(message)
         val currentSession = session
             ?: throw IllegalStateException("Not connected to $relayUrl")
-        currentSession.send(Frame.Text(message))
+        try {
+            currentSession.send(Frame.Text(message))
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            // WebSocket channel died — clear stale session so reconnect logic kicks in
+            session = null
+            throw e
+        }
     }
 
     /**
@@ -315,6 +322,13 @@ class NostrGroupClient(
         } catch (e: Exception) {
             pendingOkMutex.withLock { pendingOkResponses.remove(eventId) }
             if (e is kotlinx.coroutines.CancellationException) throw e
+            // Channel cancelled = WebSocket dropped; clear stale session so
+            // isConnected() returns false and reconnect logic can kick in.
+            val msg = e.message ?: ""
+            if (msg.contains("Channel was cancelled", ignoreCase = true) ||
+                msg.contains("closed", ignoreCase = true)) {
+                session = null
+            }
             PublishResult.Error(eventId, e)
         }
     }
@@ -545,11 +559,9 @@ suspend fun requestGroupMessages(
         add(subId)
         add(buildJsonObject {
             put("kinds", buildJsonArray {
-                add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
+                add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9005); add(9009); add(9021); add(9022)
             })
-            put("#h", buildJsonArray {
-                add(groupId)
-            })
+            put("#h", buildJsonArray { add(groupId) })
             // Only filter by channel if it's NOT "general"
             if (channel != null && channel != "general") {
                 put("#channel", buildJsonArray {
@@ -642,7 +654,7 @@ suspend fun sendMuxSubscriptions(
             add("REQ"); add(chatSubId)
             add(buildJsonObject {
                 putJsonArray("kinds") {
-                    add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022)
+                    add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9005); add(9009); add(9021); add(9022)
                 }
                 putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
                 put("since", chatSinceSeconds)

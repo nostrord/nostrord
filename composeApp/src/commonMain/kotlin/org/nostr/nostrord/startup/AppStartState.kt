@@ -37,6 +37,7 @@ sealed class AppStartState {
     data class Authenticated(
         val initialScreen: Screen,
         val restoredFromPersistence: Boolean = false,
-        val deepLinkRelayUrl: String? = null
+        val deepLinkRelayUrl: String? = null,
+        val deepLinkInviteCode: String? = null
     ) : AppStartState()
 }
