@@ -19,6 +19,7 @@ import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
 import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
 import org.nostr.nostrord.ui.screens.group.components.JoinRequestsModal
+import org.nostr.nostrord.ui.screens.group.components.MemberManagementModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -104,6 +105,7 @@ fun GroupScreen(
     var showMemberSheet by remember { mutableStateOf(false) }
     var memberToRemove by remember { mutableStateOf<MemberInfo?>(null) }
     var showJoinRequestsModal by remember { mutableStateOf(false) }
+    var showMemberManagementModal by remember { mutableStateOf(false) }
     var showInviteCodesModal by remember { mutableStateOf(false) }
     var createdInviteCode by remember { mutableStateOf<String?>(null) }
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
@@ -279,13 +281,20 @@ fun GroupScreen(
         EditGroupModal(
             groupId = groupId,
             currentMetadata = currentGroupMetadata,
+            onDismiss = { showEditGroupModal = false },
+            onGroupUpdated = { showEditGroupModal = false }
+        )
+    }
+
+    // Member management modal (admin only)
+    if (showMemberManagementModal) {
+        MemberManagementModal(
             members = groupMembers,
             currentUserPubkey = currentUserPubkey,
             onPromoteToAdmin = { pubkey -> vm.promoteToAdmin(pubkey) },
             onDemoteFromAdmin = { pubkey -> vm.demoteFromAdmin(pubkey) },
             onRemoveMember = { member -> vm.removeUser(member.pubkey) },
-            onDismiss = { showEditGroupModal = false },
-            onGroupUpdated = { showEditGroupModal = false }
+            onDismiss = { showMemberManagementModal = false }
         )
     }
 
@@ -566,6 +575,7 @@ fun GroupScreen(
                 onShowGroupInfo = { showGroupInfoModal = true },
                 onEditGroup = { showEditGroupModal = true },
                 onDeleteGroup = { showDeleteGroupDialog = true },
+                onManageMembers = { showMemberManagementModal = true },
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
@@ -638,6 +648,7 @@ fun GroupScreen(
                 onShowGroupInfo = { showGroupInfoModal = true },
                 onEditGroup = { showEditGroupModal = true },
                 onDeleteGroup = { showDeleteGroupDialog = true },
+                onManageMembers = { showMemberManagementModal = true },
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,

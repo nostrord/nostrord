@@ -91,6 +91,7 @@ fun GroupScreenMobile(
     onShowGroupInfo: () -> Unit = {},
     onEditGroup: () -> Unit = {},
     onDeleteGroup: () -> Unit = {},
+    onManageMembers: () -> Unit = {},
     groupMembers: List<MemberInfo> = emptyList(),
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
@@ -147,6 +148,7 @@ fun GroupScreenMobile(
                 onLeaveClick = onLeaveGroup,
                 onEditClick = onEditGroup,
                 onDeleteClick = onDeleteGroup,
+                onManageMembersClick = onManageMembers,
                 pendingJoinRequestCount = pendingJoinRequestCount,
                 onJoinRequestsClick = onJoinRequestsClick,
                 onInviteCodesClick = onInviteCodesClick,
@@ -298,6 +300,7 @@ private fun MobileGroupTopBar(
     onLeaveClick: () -> Unit,
     onEditClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
+    onManageMembersClick: () -> Unit = {},
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
@@ -483,6 +486,21 @@ private fun MobileGroupTopBar(
                                 leadingIcon = {
                                     Icon(
                                         Icons.Default.Edit,
+                                        contentDescription = null,
+                                        tint = NostrordColors.TextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Manage Members", color = NostrordColors.TextPrimary) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onManageMembersClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.People,
                                         contentDescription = null,
                                         tint = NostrordColors.TextSecondary,
                                         modifier = Modifier.size(20.dp)

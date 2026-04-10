@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -53,6 +54,7 @@ fun GroupHeader(
     onTitleClick: () -> Unit = {},
     onEditClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
+    onManageMembersClick: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
     isAdmin: Boolean = false,
     isClosed: Boolean = false,
@@ -241,6 +243,21 @@ fun GroupHeader(
                                     leadingIcon = {
                                         Icon(
                                             Icons.Default.Edit,
+                                            contentDescription = null,
+                                            tint = NostrordColors.TextSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Manage Members", color = NostrordColors.TextPrimary) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onManageMembersClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.People,
                                             contentDescription = null,
                                             tint = NostrordColors.TextSecondary,
                                             modifier = Modifier.size(20.dp)
