@@ -1,8 +1,5 @@
 package org.nostr.nostrord.ui.components.sidebars
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -56,6 +53,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.components.loading.MemberSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
+import org.nostr.nostrord.ui.screens.group.components.AddMemberModal
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
 
@@ -75,9 +73,7 @@ fun MemberSidebar(
     modifier: Modifier = Modifier
 ) {
     var searchQuery by remember { mutableStateOf("") }
-    var showAddInput by remember { mutableStateOf(false) }
-    var addMemberInput by remember { mutableStateOf("") }
-    var addMemberError by remember { mutableStateOf<String?>(null) }
+    var showAddMemberModal by remember { mutableStateOf(false) }
 
     // Filter members based on search query (name, pubkey hex, or npub)
     val filteredMembers = remember(members, searchQuery) {
@@ -138,11 +134,7 @@ fun MemberSidebar(
             )
             if (isCurrentUserAdmin) {
                 IconButton(
-                    onClick = {
-                        showAddInput = !showAddInput
-                        addMemberInput = ""
-                        addMemberError = null
-                    },
+                    onClick = { showAddMemberModal = true },
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
@@ -155,82 +147,12 @@ fun MemberSidebar(
             }
         }
 
-        // Add member input (visible when admin clicks +)
-        if (showAddInput && isCurrentUserAdmin) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                BasicTextField(
-                    value = addMemberInput,
-                    onValueChange = {
-                        addMemberInput = it
-                        addMemberError = null
-                    },
-                    textStyle = TextStyle(
-                        color = Color.White,
-                        fontSize = 13.sp
-                    ),
-                    singleLine = true,
-                    cursorBrush = SolidColor(NostrordColors.Primary),
-                    modifier = Modifier
-                        .weight(1f)
-                        .background(NostrordColors.BackgroundDark, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    decorationBox = { innerTextField ->
-                        Box {
-                            if (addMemberInput.isEmpty()) {
-                                Text(
-                                    text = "npub or hex pubkey",
-                                    color = NostrordColors.TextMuted,
-                                    fontSize = 13.sp
-                                )
-                            }
-                            innerTextField()
-                        }
-                    }
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = {
-                        val input = addMemberInput.trim()
-                        val pubkey = when {
-                            input.startsWith("npub") -> {
-                                val entity = Nip19.decode(input)
-                                (entity as? Nip19.Entity.Npub)?.pubkey
-                            }
-                            input.length == 64 && input.all { c -> c in '0'..'9' || c in 'a'..'f' } -> input
-                            else -> null
-                        }
-                        if (pubkey != null) {
-                            onAddMember(pubkey)
-                            addMemberInput = ""
-                            showAddInput = false
-                            addMemberError = null
-                        } else {
-                            addMemberError = "Invalid npub or hex pubkey"
-                        }
-                    },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add",
-                        tint = NostrordColors.Primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-            if (addMemberError != null) {
-                Text(
-                    text = addMemberError!!,
-                    color = NostrordColors.Error,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
-                )
-            }
+        // Add member modal
+        if (showAddMemberModal) {
+            AddMemberModal(
+                onAddMember = onAddMember,
+                onDismiss = { showAddMemberModal = false }
+            )
         }
 
         // Search field
