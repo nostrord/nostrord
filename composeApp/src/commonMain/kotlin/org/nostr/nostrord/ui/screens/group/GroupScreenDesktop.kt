@@ -100,20 +100,19 @@ fun GroupScreenDesktop(
     isPendingApproval: Boolean = false,
     onInviteCodesClick: () -> Unit = {},
     isClosed: Boolean = false,
+    isGroupRestricted: Boolean = false,
     initialInviteCode: String? = null
 ) {
 
     Row(modifier = Modifier.fillMaxSize()) {
-        // Main content area (messages)
         Column(
             modifier = Modifier
                 .fillMaxHeight()
                 .weight(1f)
                 .background(NostrordColors.Background)
         ) {
-            // Header with group info and actions
             GroupHeader(
-                groupName = groupName,
+                groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
                 isAdmin = isAdmin,
@@ -145,13 +144,11 @@ fun GroupScreenDesktop(
                 } else null
             )
 
-            // Connection status banner (shown when disconnected/reconnecting)
             ConnectionStatusBanner(
                 connectionState = connectionState,
                 onRetry = onReconnect
             )
 
-            // Messages area (fills remaining space)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -180,7 +177,6 @@ fun GroupScreenDesktop(
                 )
             }
 
-            // Message input
             MessageInput(
                 isPendingApproval = isPendingApproval,
                 isJoined = isJoined,
@@ -198,13 +194,10 @@ fun GroupScreenDesktop(
                 userMetadata = userMetadata,
                 onCancelReply = onCancelReply,
                 isSending = isSending,
-                onMediaUploaded = onMediaUploaded,
-                isClosed = isClosed,
-                initialInviteCode = initialInviteCode
+                onMediaUploaded = onMediaUploaded
             )
         }
 
-        // Member sidebar (240dp fixed width) — only when there's enough space
         if (showMemberSidebar) {
             MemberSidebar(
                 members = groupMembers,
@@ -219,7 +212,6 @@ fun GroupScreenDesktop(
         }
     }
 
-    // Member bottom sheet when sidebar is hidden
     if (showMemberSheet && !showMemberSidebar) {
         @OptIn(ExperimentalMaterial3Api::class)
         ModalBottomSheet(

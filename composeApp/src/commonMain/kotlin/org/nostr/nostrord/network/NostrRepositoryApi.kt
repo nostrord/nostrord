@@ -44,6 +44,8 @@ interface NostrRepositoryApi {
     val groupAdmins: StateFlow<Map<String, List<String>>>
     val groupRoles: StateFlow<Map<String, List<RoleDefinition>>>
     val loadingMembers: StateFlow<Set<String>>
+    /** Groups whose subscriptions were CLOSED with "restricted" — private group, non-member. */
+    val restrictedGroups: StateFlow<Map<String, String>>
 
     // --- Metadata state ---
     val userMetadata: StateFlow<Map<String, UserMetadata>>

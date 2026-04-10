@@ -23,6 +23,7 @@ class GroupViewModel(
     val groupAdmins = repo.groupAdmins
     val groupRoles = repo.groupRoles
     val loadingMembers = repo.loadingMembers
+    val restrictedGroups = repo.restrictedGroups
     val isLoadingMore = repo.isLoadingMore
     val hasMoreMessages = repo.hasMoreMessages
     val currentRelayUrl = repo.currentRelayUrl
@@ -210,6 +211,14 @@ class GroupViewModel(
                 }
                 is Result.Success -> Unit
             }
+        }
+    }
+
+    fun refreshGroupData() {
+        viewModelScope.launch {
+            repo.requestGroupMembers(groupId)
+            repo.requestGroupAdmins(groupId)
+            repo.requestGroupMessages(groupId)
         }
     }
 

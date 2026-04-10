@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
@@ -40,10 +41,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.generateColorFromString
 
-/**
- * Enhanced group header with description, member count, and status indicators.
- * Click on the title area to open group info modal.
- */
+/** Group header with avatar, name, join/invite actions, and admin menu. */
 @Composable
 fun GroupHeader(
     groupName: String?,
@@ -77,12 +75,10 @@ fun GroupHeader(
                 .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Navigation icons
             if (navigationIcon != null) {
                 navigationIcon()
             }
 
-            // Clickable title area (avatar + name + description)
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -91,7 +87,6 @@ fun GroupHeader(
                     .padding(end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Group avatar — matches sidebar/card style
                 GroupHeaderIcon(
                     pictureUrl = groupMetadata?.picture,
                     groupId = groupMetadata?.id ?: "",
@@ -101,7 +96,6 @@ fun GroupHeader(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Group name and description
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = groupMetadata?.name ?: groupName ?: "Unknown Group",
@@ -112,7 +106,6 @@ fun GroupHeader(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // Description
                     if (!groupMetadata?.about.isNullOrBlank()) {
                         Text(
                             text = groupMetadata?.about ?: "",
@@ -125,12 +118,10 @@ fun GroupHeader(
                 }
             }
 
-            // Trailing icon (e.g. members button when sidebar is hidden)
             if (trailingIcon != null) {
                 trailingIcon()
             }
 
-            // Join requests badge (admin only)
             if (isAdmin && pendingJoinRequestCount > 0) {
                 Box {
                     IconButton(
@@ -144,7 +135,6 @@ fun GroupHeader(
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                    // Count badge
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -163,56 +153,55 @@ fun GroupHeader(
                 }
             }
 
-            // Action buttons
             Row(
-                horizontalArrangement = Arrangement.spacedBy(0.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!isJoined) {
-                    if (isClosed) {
-                        var inviteCode by remember { mutableStateOf(initialInviteCode ?: "") }
-                        OutlinedTextField(
-                            value = inviteCode,
-                            onValueChange = { inviteCode = it.trim() },
-                            placeholder = { Text("Invite code", color = NostrordColors.TextMuted, style = MaterialTheme.typography.bodySmall) },
-                            singleLine = true,
-                            modifier = Modifier.width(150.dp).height(48.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedTextColor = Color.White,
-                                unfocusedTextColor = Color.White,
-                                focusedBorderColor = NostrordColors.Primary,
-                                unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                                cursorColor = NostrordColors.Primary
-                            ),
-                            textStyle = MaterialTheme.typography.bodySmall,
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
+                    val showInviteButton = isClosed || initialInviteCode != null
+                    var showInviteModal by remember { mutableStateOf(initialInviteCode != null) }
+
+                    if (showInviteButton) {
                         Button(
-                            onClick = { onJoinClick(inviteCode) },
-                            enabled = inviteCode.isNotBlank(),
+                            onClick = { showInviteModal = true },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = NostrordColors.Primary,
-                                contentColor = Color.White,
-                                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.3f),
-                                disabledContentColor = Color.White.copy(alpha = 0.5f)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            shape = RoundedCornerShape(8.dp)
+                                containerColor = NostrordColors.SurfaceVariant,
+                                contentColor = NostrordColors.TextPrimary
+                            )
                         ) {
-                            Text("Join", style = MaterialTheme.typography.labelMedium)
+                            Icon(
+                                Icons.Default.VpnKey,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Invite Code", style = MaterialTheme.typography.labelMedium)
                         }
-                    } else {
-                        Button(
-                            onClick = { onJoinClick(null) },
-                            colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-                        ) {
-                            Text("Join", style = MaterialTheme.typography.labelMedium)
-                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+
+                    Button(
+                        onClick = { onJoinClick(null) },
+                        colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Join", style = MaterialTheme.typography.labelMedium)
+                    }
+
+                    if (showInviteModal) {
+                        InviteCodeJoinModal(
+                            initialCode = initialInviteCode ?: "",
+                            onJoin = { code ->
+                                showInviteModal = false
+                                onJoinClick(code)
+                            },
+                            onDismiss = { showInviteModal = false }
+                        )
                     }
                 } else {
-                    // Dropdown menu for members
                     var menuExpanded by remember { mutableStateOf(false) }
 
                     Box {
@@ -323,6 +312,72 @@ fun GroupHeader(
             }
         }
     }
+}
+
+/** Modal for entering an invite code to join a closed group. */
+@Composable
+fun InviteCodeJoinModal(
+    initialCode: String = "",
+    onJoin: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var inviteCode by remember { mutableStateOf(initialCode) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = NostrordColors.Surface,
+        title = {
+            Text(
+                "Join with Invite Code",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium
+            )
+        },
+        text = {
+            OutlinedTextField(
+                value = inviteCode,
+                onValueChange = { inviteCode = it.trim() },
+                placeholder = {
+                    Text(
+                        "Enter invite code",
+                        color = NostrordColors.TextMuted,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = NostrordColors.Primary,
+                    unfocusedBorderColor = NostrordColors.SurfaceVariant,
+                    cursorColor = NostrordColors.Primary
+                ),
+                textStyle = MaterialTheme.typography.bodyMedium,
+                shape = RoundedCornerShape(8.dp)
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = { onJoin(inviteCode) },
+                enabled = inviteCode.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = NostrordColors.Primary,
+                    contentColor = Color.White,
+                    disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.3f),
+                    disabledContentColor = Color.White.copy(alpha = 0.5f)
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text("Join")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = NostrordColors.TextSecondary)
+            }
+        }
+    )
 }
 
 @Composable

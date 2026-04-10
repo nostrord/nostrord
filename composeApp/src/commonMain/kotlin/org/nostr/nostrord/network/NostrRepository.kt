@@ -149,6 +149,7 @@ class NostrRepository(
     override val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = groupManager.groupRoles
     override val loadingMembers: StateFlow<Set<String>> = groupManager.loadingMembers
+    override val restrictedGroups: StateFlow<Map<String, String>> = groupManager.restrictedGroups
 
     // Expose auth state
     override val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
@@ -584,6 +585,18 @@ class NostrRepository(
                         client.requestGroups()
                     }
                 }
+                // After AUTH (or if no AUTH needed), request metadata for private
+                // groups that are in the joined list (kind 10009) but not in the
+                // group cache. The general kind 39000 listing omits private groups.
+                // Also request metadata for the active group if the user navigated
+                // directly via URL (e.g. invite link) and the group isn't known yet.
+                scope.launch {
+                    // Small delay to let the group-list EOSE populate the cache first,
+                    // so we only target genuinely missing (private) groups.
+                    delay(2_000)
+                    groupManager.requestPrivateGroupData(relayUrl)
+                    groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
+                }
             }
         }
     }
@@ -668,6 +681,14 @@ class NostrRepository(
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
+            }
+            // Request metadata for private groups not in the cache (kind 10009 joined
+            // but not returned by the general kind 39000 listing), and for the active
+            // group if navigated via URL before the relay was connected.
+            scope.launch {
+                delay(2_000)
+                groupManager.requestPrivateGroupData(newRelayUrl)
+                groupManager.requestActiveGroupMetadataIfMissing(newRelayUrl)
             }
         } else if (groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
             // No connection yet but cache was restored — unmark loading.
@@ -1505,6 +1526,18 @@ class NostrRepository(
                     closedGroupSubscriptions.addAll(activeGroupIds)
                 }
 
+                // Track per-group "restricted" status so the UI can show a private
+                // group placeholder with invite code input. Extract the group ID
+                // from msg_ subscriptions (format: msg_<8-char-prefix>_<timestamp>).
+                if (isRestricted && subId.startsWith("msg_")) {
+                    val prefix = subId.removePrefix("msg_").substringBefore("_")
+                    val groupId = groupManager.getGroupIdByPrefix(prefix)
+                        ?: groupManager.activeGroupId?.takeIf { it.startsWith(prefix) }
+                    if (groupId != null) {
+                        groupManager.markGroupRestricted(groupId, reason)
+                    }
+                }
+
                 // Unblock any pending state-machine load (transitions InitialLoading → Exhausted)
                 scope.launch { groupManager.handleEoseSuspend(subId) }
 
@@ -1820,7 +1853,11 @@ class NostrRepository(
         }
         closedGroupSubscriptions.removeAll(closedOnRelay.toSet())
 
-        val groupIds = (openedOnRelay + closedOnRelay).distinct()
+        // Include joined groups from kind 10009 — essential for private groups
+        // that don't appear in the general kind 39000 listing.
+        val joinedOnRelay = groupManager.getGroupIdsForMux(relayUrl)
+
+        val groupIds = (openedOnRelay + closedOnRelay + joinedOnRelay).distinct()
         if (groupIds.isNotEmpty()) {
             groupManager.resetLoadingForGroups(groupIds)
         }
@@ -1830,6 +1867,14 @@ class NostrRepository(
         // (e.g. communities.nos.social re-challenges AUTH periodically).
         groupManager.clearMuxTrackerForRelay(relayUrl)
         groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+
+        // Request metadata/members/admins for private groups that are not in the
+        // group cache. The relay hides these from the general listing but returns
+        // them on targeted #d requests after AUTH.
+        groupManager.requestPrivateGroupData(relayUrl)
+        // Also fetch metadata for the active group if the user navigated via URL
+        // and the group isn't in the cache yet (e.g. invite link to a private group).
+        groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
 
         // Re-request historical messages for groups that were CLOSED with
         // auth-required. The mux only delivers live messages (since cursor),

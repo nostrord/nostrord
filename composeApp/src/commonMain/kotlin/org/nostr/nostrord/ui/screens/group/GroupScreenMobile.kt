@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
@@ -42,6 +43,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.ConnectionStatusBanner
 import org.nostr.nostrord.ui.screens.group.components.GroupHeaderIcon
+import org.nostr.nostrord.ui.screens.group.components.InviteCodeJoinModal
 import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
@@ -122,13 +124,13 @@ fun GroupScreenMobile(
     isPendingApproval: Boolean = false,
     onInviteCodesClick: () -> Unit = {},
     isClosed: Boolean = false,
+    isGroupRestricted: Boolean = false,
     initialInviteCode: String? = null
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
     val memberSheetState = rememberModalBottomSheetState()
 
-    // Gesture detection state
     var dragStartX by remember { mutableStateOf(0f) }
     var isDragging by remember { mutableStateOf(false) }
 
@@ -137,7 +139,7 @@ fun GroupScreenMobile(
     Scaffold(
         topBar = {
             MobileGroupTopBar(
-                groupName = groupName,
+                groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
                 groupMetadata = groupMetadata,
                 isJoined = isJoined,
                 isAdmin = isAdmin,
@@ -158,7 +160,6 @@ fun GroupScreenMobile(
         },
         containerColor = NostrordColors.Background
     ) { paddingValues ->
-        // Main content with swipe gesture detection
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -191,13 +192,11 @@ fun GroupScreenMobile(
                 }
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Connection status banner (shown when disconnected/reconnecting)
                 ConnectionStatusBanner(
                     connectionState = connectionState,
                     onRetry = onReconnect
                 )
 
-                // Messages area (fills available space)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -227,7 +226,6 @@ fun GroupScreenMobile(
                     )
                 }
 
-                // Input area (thumb-reachable at bottom)
                 MessageInput(
                     isPendingApproval = isPendingApproval,
                     isJoined = isJoined,
@@ -245,16 +243,13 @@ fun GroupScreenMobile(
                     userMetadata = userMetadata,
                     onCancelReply = onCancelReply,
                     isSending = isSending,
-                    onMediaUploaded = onMediaUploaded,
-                    isClosed = isClosed,
-                    initialInviteCode = initialInviteCode
+                    onMediaUploaded = onMediaUploaded
                 )
             }
         }
     }
     } // CompositionLocalProvider
 
-    // Member list bottom sheet
     if (showMemberSheet) {
         ModalBottomSheet(
             onDismissRequest = { showMemberSheet = false },
@@ -281,11 +276,7 @@ fun GroupScreenMobile(
     }
 }
 
-/**
- * Mobile-optimized top bar with proper touch targets (48dp minimum).
- * Follows desktop design with avatar and description.
- * Click on the title area to open group info modal.
- */
+/** Mobile top bar with avatar, group name, and join/admin actions. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MobileGroupTopBar(
@@ -327,7 +318,6 @@ private fun MobileGroupTopBar(
                     .padding(start = Spacing.xs)
                     .clickable(onClick = onTitleClick)
             ) {
-                // Group avatar (rounded rect, same as desktop)
                 GroupHeaderIcon(
                     pictureUrl = groupMetadata?.picture,
                     groupId = groupMetadata?.id ?: "",
@@ -337,11 +327,9 @@ private fun MobileGroupTopBar(
 
                 Spacer(modifier = Modifier.width(Spacing.sm))
 
-                // Group name and description
                 Column(
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Group name
                     Text(
                         text = groupMetadata?.name ?: groupName ?: "Unknown Group",
                         style = NostrordTypography.ServerHeader,
@@ -350,7 +338,6 @@ private fun MobileGroupTopBar(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // Description (limited to prevent layout breaking)
                     if (!groupMetadata?.about.isNullOrBlank()) {
                         Text(
                             text = groupMetadata?.about ?: "",
@@ -364,7 +351,6 @@ private fun MobileGroupTopBar(
             }
         },
         actions = {
-            // Join requests badge (admin only)
             if (isAdmin && pendingJoinRequestCount > 0) {
                 Box {
                     IconButton(
@@ -395,7 +381,6 @@ private fun MobileGroupTopBar(
                 }
             }
 
-            // Members button (48dp touch target)
             IconButton(
                 onClick = onMembersClick,
                 modifier = Modifier.size(Spacing.touchTargetMin)
@@ -408,52 +393,43 @@ private fun MobileGroupTopBar(
             }
 
             if (!isJoined) {
-                if (isClosed) {
-                    var inviteCode by remember { mutableStateOf(initialInviteCode ?: "") }
-                    OutlinedTextField(
-                        value = inviteCode,
-                        onValueChange = { inviteCode = it.trim() },
-                        placeholder = { Text("Invite code", color = NostrordColors.TextMuted, style = NostrordTypography.Caption) },
-                        singleLine = true,
-                        modifier = Modifier.width(130.dp).height(48.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            focusedBorderColor = NostrordColors.Primary,
-                            unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                            cursorColor = NostrordColors.Primary
-                        ),
-                        textStyle = NostrordTypography.Caption,
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = { onJoinClick(inviteCode) },
-                        enabled = inviteCode.isNotBlank(),
-                        modifier = Modifier.height(40.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = NostrordColors.Primary,
-                            contentColor = Color.White,
-                            disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.3f),
-                            disabledContentColor = Color.White.copy(alpha = 0.5f)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        shape = RoundedCornerShape(8.dp)
+                val showInviteButton = isClosed || initialInviteCode != null
+                var showInviteModal by remember { mutableStateOf(initialInviteCode != null) }
+
+                if (showInviteButton) {
+                    IconButton(
+                        onClick = { showInviteModal = true },
+                        modifier = Modifier.size(Spacing.touchTargetMin)
                     ) {
-                        Text("Join", style = NostrordTypography.Button)
-                    }
-                } else {
-                    TextButton(
-                        onClick = { onJoinClick(null) },
-                        modifier = Modifier.height(Spacing.touchTargetMin),
-                        contentPadding = PaddingValues(horizontal = Spacing.md)
-                    ) {
-                        Text(
-                            "Join",
-                            style = NostrordTypography.Button,
-                            color = NostrordColors.Primary
+                        Icon(
+                            Icons.Default.VpnKey,
+                            contentDescription = "Invite Code",
+                            tint = Color.White
                         )
                     }
+                }
+
+                TextButton(
+                    onClick = { onJoinClick(null) },
+                    modifier = Modifier.height(Spacing.touchTargetMin),
+                    contentPadding = PaddingValues(horizontal = Spacing.md)
+                ) {
+                    Text(
+                        "Join",
+                        style = NostrordTypography.Button,
+                        color = NostrordColors.Primary
+                    )
+                }
+
+                if (showInviteModal) {
+                    InviteCodeJoinModal(
+                        initialCode = initialInviteCode ?: "",
+                        onJoin = { code ->
+                            showInviteModal = false
+                            onJoinClick(code)
+                        },
+                        onDismiss = { showInviteModal = false }
+                    )
                 }
             } else {
                 // Dropdown menu for members

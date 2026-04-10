@@ -12,6 +12,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.managers.ConnectionManager
+import kotlinx.coroutines.delay
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
@@ -74,19 +75,19 @@ fun GroupScreen(
     val allGroupAdmins by vm.groupAdmins.collectAsState()
     val loadingMembersSet by vm.loadingMembers.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
+    val allRestrictedGroups by vm.restrictedGroups.collectAsState()
     val currentUserPubkey = vm.getPublicKey()
 
-    // Get current group metadata
     val currentGroupMetadata = remember(groups, groupId) {
         groups.find { it.id == groupId }
     }
 
-    // Admin detection: check if current user is in kind:39001 admins list
+    val isGroupRestricted = allRestrictedGroups.containsKey(groupId)
+
     val isAdmin = remember(allGroupAdmins, groupId, currentUserPubkey) {
         currentUserPubkey != null && currentUserPubkey in (allGroupAdmins[groupId] ?: emptyList())
     }
 
-    // Pagination state
     val isLoadingMoreMap by vm.isLoadingMore.collectAsState()
     val hasMoreMessagesMap by vm.hasMoreMessages.collectAsState()
     val isLoadingMore = isLoadingMoreMap[groupId] ?: false
@@ -111,15 +112,16 @@ fun GroupScreen(
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
     val isJoined = joinedGroups.contains(groupId)
 
-    // Invite code from deep link — kept for UI pre-fill even after auto-join fires.
     val initialInviteCode = remember { pendingInviteCode }
+    val isConnected = connectionState is ConnectionManager.ConnectionState.Connected
+    val effectiveInviteCode = if (isConnected) initialInviteCode else null
 
-    // Track whether we've already attempted auto-join to prevent duplicates.
     var autoJoinFired by remember { mutableStateOf(false) }
 
-    // Auto-join with invite code from deep link / URL navigation
-    LaunchedEffect(pendingInviteCode) {
+    // Auto-join waits for relay connection before firing
+    LaunchedEffect(pendingInviteCode, isConnected) {
         val code = pendingInviteCode ?: return@LaunchedEffect
+        if (!isConnected) return@LaunchedEffect
         onInviteCodeConsumed()
         if (!autoJoinFired) {
             autoJoinFired = true
@@ -127,9 +129,6 @@ fun GroupScreen(
         }
     }
 
-    // Member pubkey source: prefer kind:39002 (authoritative), fall back to
-    // message-derived pubkeys. Wrapped in derivedStateOf so the downstream
-    // groupMembers derivation observes changes to both sources reactively.
     val memberPubkeys by remember(groupId) {
         derivedStateOf {
             val k39002 = allGroupMembers[groupId] ?: emptyList()
@@ -138,8 +137,6 @@ fun GroupScreen(
         }
     }
 
-    // Resolves display names/pictures when metadata arrives. Only emits a new
-    // list when the resolved content actually differs (structural equality).
     val adminPubkeys by remember(groupId) {
         derivedStateOf { allGroupAdmins[groupId] ?: emptyList() }
     }
@@ -160,13 +157,10 @@ fun GroupScreen(
         }
     }
 
-    // Pending join requests: kind 9021 messages whose pubkey is NOT yet a member,
-    // not already resolved in this session, and has no newer leave request (9022).
     val pendingJoinRequests by remember(groupId) {
         derivedStateOf {
             val msgs = allMessages[groupId] ?: emptyList()
             val members = (allGroupMembers[groupId] ?: emptyList()).toSet()
-            // Latest leave timestamp per pubkey
             val lastLeave: Map<String, Long> = msgs
                 .filter { it.kind == 9022 }
                 .groupBy { it.pubkey }
@@ -179,10 +173,6 @@ fun GroupScreen(
         }
     }
 
-    // User is "pending approval" if marked as joined (sent 9021) but not in the
-    // authoritative member list from the relay (kind 39002).
-    // Simple check: joined + not in members = pending. No hasJoinRequest gate,
-    // so this triggers immediately after Join click (no relay echo delay).
     val isPendingApproval by remember(groupId) {
         derivedStateOf {
             val joined = joinedGroups.contains(groupId)
@@ -198,8 +188,18 @@ fun GroupScreen(
         }
     }
 
+    // Refresh group data on join; poll while pending approval
+    LaunchedEffect(isPendingApproval, isJoined, groupId) {
+        if (!isJoined) return@LaunchedEffect
+        vm.refreshGroupData()
+        if (isPendingApproval) {
+            while (true) {
+                delay(10_000)
+                vm.refreshGroupData()
+            }
+        }
+    }
 
-    // Derive invite codes from kind 9009 events, excluding revoked ones (kind 9005 with "e" tag).
     val inviteCodes by remember(groupId) {
         derivedStateOf {
             val msgs = allMessages[groupId] ?: emptyList()
@@ -218,7 +218,6 @@ fun GroupScreen(
         }
     }
 
-    // Determine recently active members (messaged in last 10 minutes)
     val recentlyActiveMembers = remember(messages) {
         val tenMinutesAgo = epochSeconds() - (10 * 60)
         messages
@@ -615,7 +614,8 @@ fun GroupScreen(
                 isPendingApproval = isPendingApproval,
                 onInviteCodesClick = { showInviteCodesModal = true },
                 isClosed = currentGroupMetadata?.isOpen == false,
-                initialInviteCode = initialInviteCode
+                isGroupRestricted = isGroupRestricted,
+                initialInviteCode = effectiveInviteCode
             )
         } else {
             GroupScreenDesktop(
@@ -691,7 +691,8 @@ fun GroupScreen(
                 isPendingApproval = isPendingApproval,
                 onInviteCodesClick = { showInviteCodesModal = true },
                 isClosed = currentGroupMetadata?.isOpen == false,
-                initialInviteCode = initialInviteCode
+                isGroupRestricted = isGroupRestricted,
+                initialInviteCode = effectiveInviteCode
             )
         }
     }

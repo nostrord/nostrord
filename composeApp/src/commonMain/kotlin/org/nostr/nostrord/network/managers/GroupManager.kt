@@ -212,6 +212,27 @@ class GroupManager(
     private val adminEventTimestamps = mutableMapOf<String, Long>()
     private val roleEventTimestamps = mutableMapOf<String, Long>()
 
+    // Groups whose subscriptions were closed with "restricted" by the relay.
+    // For private groups, the relay denies access to non-members (including metadata).
+    // The UI uses this to show a "Private Group" placeholder with invite code input.
+    private val _restrictedGroups = MutableStateFlow<Map<String, String>>(emptyMap())
+    val restrictedGroups: StateFlow<Map<String, String>> = _restrictedGroups.asStateFlow()
+
+    /**
+     * Mark a group as restricted (relay denied access).
+     * Called when a CLOSED "restricted" message arrives for a group subscription.
+     */
+    fun markGroupRestricted(groupId: String, reason: String) {
+        _restrictedGroups.update { it + (groupId to reason) }
+    }
+
+    /**
+     * Clear restricted status for a group (e.g. after successful join).
+     */
+    fun clearGroupRestricted(groupId: String) {
+        _restrictedGroups.update { it - groupId }
+    }
+
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
@@ -245,6 +266,10 @@ class GroupManager(
      */
     fun getRelayForGroup(groupId: String): String? =
         _groupsByRelay.value.entries.firstOrNull { (_, groups) -> groups.any { it.id == groupId } }?.key
+            // Fallback: private groups may not appear in kind 39000 listing but are
+            // tracked in _joinedGroupsByRelay (from kind 10009). Without this,
+            // clientForGroup() falls back to the primary client which may be wrong.
+            ?: _joinedGroupsByRelay.value.entries.firstOrNull { (_, groupIds) -> groupId in groupIds }?.key
 
     /**
      * Returns the WebSocket client for the relay that hosts [groupId].
@@ -313,7 +338,9 @@ class GroupManager(
      */
     fun setActiveGroupId(groupId: String?) {
         _activeGroupId = groupId
-        val relayUrl = if (groupId != null) getRelayForGroup(groupId) else currentRelayUrl
+        // Fallback to currentRelayUrl when the group isn't tracked yet (e.g. user
+        // navigated to a private group URL without being a member).
+        val relayUrl = if (groupId != null) (getRelayForGroup(groupId) ?: currentRelayUrl) else currentRelayUrl
 
         // On-demand: first time opening this group, fetch its data.
         val isNew = if (groupId != null) {
@@ -344,9 +371,10 @@ class GroupManager(
                     // Direct requests for the ACTIVE group — fast-lane.
                     // Mux provides breadth; these provide speed for the group the user is looking at.
                     // Duplicates are handled by the event deduplicator.
-                    requestGroupMessages(groupId!!)  // Pagination (mux has no limit)
-                    requestGroupMembers(groupId)      // Fast member list
-                    requestGroupAdmins(groupId)       // Fast admin list
+                    client.requestGroupMetadata(groupId!!) // Metadata (essential for private groups)
+                    requestGroupMessages(groupId)  // Pagination (mux has no limit)
+                    requestGroupMembers(groupId)   // Fast member list
+                    requestGroupAdmins(groupId)    // Fast admin list
                 }
 
                 muxJob.join()
@@ -437,6 +465,60 @@ class GroupManager(
         for (relayUrl in relayUrls) {
             try { refreshMuxSubscriptionsForRelay(relayUrl) } catch (_: Exception) {}
         }
+    }
+
+    /**
+     * Returns joined group IDs for [relayUrl] that are NOT in the _groupsByRelay cache.
+     * These are typically private groups whose kind 39000 was not returned by the
+     * relay's general listing (because the relay hides private groups from non-members
+     * or the listing arrived before AUTH completed).
+     */
+    fun getUncachedJoinedGroups(relayUrl: String): List<String> {
+        val normalized = relayUrl.normalizeRelayUrl()
+        val joined = _joinedGroupsByRelay.value[normalized] ?: emptySet()
+        val cached = _groupsByRelay.value[normalized]?.map { it.id }?.toSet() ?: emptySet()
+        return (joined - cached).toList()
+    }
+
+    /**
+     * Request metadata, members and admins for joined groups that are missing from
+     * the group cache. This is essential for private groups: the relay omits them
+     * from the general kind 39000 listing, but returns them on targeted #d requests
+     * once the client has authenticated via NIP-42.
+     */
+    suspend fun requestPrivateGroupData(relayUrl: String) {
+        val uncached = getUncachedJoinedGroups(relayUrl)
+        if (uncached.isEmpty()) return
+        val client = connectionManager.getClientForRelay(relayUrl) ?: return
+        if (!client.isConnected()) return
+        for (groupId in uncached) {
+            try {
+                client.requestGroupMetadata(groupId)
+                client.requestGroupMembers(groupId)
+                client.requestGroupAdmins(groupId)
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Request metadata for the active group if it has no metadata in the cache.
+     * Covers the case where a user navigates directly to a group URL (e.g. via
+     * invite link) before the relay has returned the group in its general listing.
+     * The relay will respond to a targeted kind:39000 REQ with #d filter even for
+     * groups that are private or not in the general listing.
+     */
+    suspend fun requestActiveGroupMetadataIfMissing(relayUrl: String) {
+        val groupId = _activeGroupId ?: return
+        // Already have metadata — nothing to do.
+        val hasMeta = _groups.value.any { it.id == groupId }
+        if (hasMeta) return
+        val client = connectionManager.getClientForRelay(relayUrl) ?: return
+        if (!client.isConnected()) return
+        try {
+            client.requestGroupMetadata(groupId)
+            client.requestGroupMembers(groupId)
+            client.requestGroupAdmins(groupId)
+        } catch (_: Exception) {}
     }
 
     /**
@@ -551,7 +633,17 @@ class GroupManager(
 
             publishJoinedGroups()
 
-            // Request group messages
+            // Clear restricted status — the user is now (pending) member.
+            clearGroupRestricted(groupId)
+
+            // Give the relay a moment to process the join event before requesting data
+            kotlinx.coroutines.delay(500)
+
+            // Re-request all group data now that we're a member
+            // (private groups block these until membership is confirmed)
+            currentClient.requestGroupMetadata(groupId)
+            currentClient.requestGroupMembers(groupId)
+            currentClient.requestGroupAdmins(groupId)
             currentClient.requestGroupMessages(groupId)
 
             Result.Success(Unit)
