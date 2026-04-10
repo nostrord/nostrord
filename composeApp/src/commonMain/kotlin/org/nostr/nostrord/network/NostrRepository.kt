@@ -147,6 +147,7 @@ class NostrRepository(
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
     override val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
     override val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
+    override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = groupManager.groupRoles
     override val loadingMembers: StateFlow<Set<String>> = groupManager.loadingMembers
 
     // Expose auth state
@@ -833,6 +834,7 @@ class NostrRepository(
         (metaClient ?: connectionManager.getPrimaryClient())?.requestGroupMetadata(groupId)
         groupManager.requestGroupMembers(groupId)
         groupManager.requestGroupAdmins(groupId)
+        groupManager.requestGroupRoles(groupId)
     }
 
     /**
@@ -853,6 +855,16 @@ class NostrRepository(
             connect()
         }
         groupManager.requestGroupAdmins(groupId)
+    }
+
+    /**
+     * Request group roles (kind 39003) for a specific group.
+     */
+    suspend fun requestGroupRoles(groupId: String) {
+        if (connectionManager.getPrimaryClient() == null) {
+            connect()
+        }
+        groupManager.requestGroupRoles(groupId)
     }
 
     override suspend fun refreshGroupMetadata(groupId: String) {
@@ -1553,6 +1565,12 @@ class NostrRepository(
                         groupManager.handleGroupAdmins(groupAdmins, createdAt)
                     }
 
+                    39003 -> {
+                        val groupRoles = client.parseGroupRoles(event) ?: return
+                        val createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L
+                        groupManager.handleGroupRoles(groupRoles, createdAt)
+                    }
+
                     0 -> {
                         val (pubkey, metadata) = client.parseUserMetadata(event) ?: return
                         metadataManager.handleMetadataEvent(pubkey, metadata)
@@ -1689,6 +1707,7 @@ class NostrRepository(
                 groupManager.requestGroupMessages(activeGroupId)
                 groupManager.requestGroupMembers(activeGroupId)
                 groupManager.requestGroupAdmins(activeGroupId)
+                groupManager.requestGroupRoles(activeGroupId)
             }
         }
 
@@ -1757,6 +1776,7 @@ class NostrRepository(
                 groupManager.requestGroupMessages(activeGroupId)
                 groupManager.requestGroupMembers(activeGroupId)
                 groupManager.requestGroupAdmins(activeGroupId)
+                groupManager.requestGroupRoles(activeGroupId)
             }
         }
 

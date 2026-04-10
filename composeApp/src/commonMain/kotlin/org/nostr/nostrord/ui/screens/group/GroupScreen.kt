@@ -279,6 +279,11 @@ fun GroupScreen(
         EditGroupModal(
             groupId = groupId,
             currentMetadata = currentGroupMetadata,
+            members = groupMembers,
+            currentUserPubkey = currentUserPubkey,
+            onPromoteToAdmin = { pubkey -> vm.promoteToAdmin(pubkey) },
+            onDemoteFromAdmin = { pubkey -> vm.demoteFromAdmin(pubkey) },
+            onRemoveMember = { member -> vm.removeUser(member.pubkey) },
             onDismiss = { showEditGroupModal = false },
             onGroupUpdated = { showEditGroupModal = false }
         )

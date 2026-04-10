@@ -21,6 +21,7 @@ class GroupViewModel(
     val reactions = repo.reactions
     val groupMembers = repo.groupMembers
     val groupAdmins = repo.groupAdmins
+    val groupRoles = repo.groupRoles
     val loadingMembers = repo.loadingMembers
     val isLoadingMore = repo.isLoadingMore
     val hasMoreMessages = repo.hasMoreMessages
@@ -138,6 +139,15 @@ class GroupViewModel(
                 is Result.Success -> Unit
             }
         }
+    }
+
+    fun promoteToAdmin(targetPubkey: String) {
+        addUser(targetPubkey, listOf("admin"))
+    }
+
+    fun demoteFromAdmin(targetPubkey: String) {
+        // Re-add user without admin role to demote
+        addUser(targetPubkey, emptyList())
     }
 
     fun approveJoinRequest(targetPubkey: String) {

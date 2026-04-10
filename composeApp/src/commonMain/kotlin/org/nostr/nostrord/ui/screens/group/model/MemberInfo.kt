@@ -7,5 +7,6 @@ data class MemberInfo(
     val pubkey: String,
     val displayName: String,
     val picture: String?,
-    val isAdmin: Boolean = false
+    val isAdmin: Boolean = false,
+    val roles: List<String> = emptyList()
 )

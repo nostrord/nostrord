@@ -43,6 +43,23 @@ data class GroupAdmins(
     val admins: List<String> // List of admin pubkeys
 )
 
+/**
+ * Group roles from kind 39003 event.
+ * Contains the roles supported by the relay for a specific group,
+ * along with each role's permissions.
+ */
+@Immutable
+data class GroupRoles(
+    val groupId: String,
+    val roles: List<RoleDefinition>
+)
+
+@Immutable
+data class RoleDefinition(
+    val name: String,
+    val description: String = ""
+)
+
 @Immutable
 data class UserMetadata(
     val pubkey: String,
@@ -837,6 +854,56 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Parse a kind 39003 (group roles) event.
+     * Tags: ["d", groupId], ["role", name, description?]
+     */
+    fun parseGroupRoles(event: JsonObject): GroupRoles? {
+        return try {
+            if (event["kind"]?.jsonPrimitive?.int != 39003) return null
+
+            val tags = event["tags"]?.jsonArray ?: return null
+
+            val groupId = tags
+                .firstOrNull { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "d" }
+                ?.jsonArray?.get(1)?.jsonPrimitive?.content
+                ?: return null
+
+            val roles = tags
+                .filter { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "role" }
+                .map { tag ->
+                    RoleDefinition(
+                        name = tag.jsonArray[1].jsonPrimitive.content,
+                        description = if (tag.jsonArray.size >= 3) tag.jsonArray[2].jsonPrimitive.content else ""
+                    )
+                }
+
+            GroupRoles(groupId = groupId, roles = roles)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Request group roles (kind 39003) for a specific group.
+     *
+     * Same deterministic ID rationale as requestGroupAdmins.
+     */
+    suspend fun requestGroupRoles(groupId: String): String {
+        val subId = "roles_${groupId.take(8)}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(39003) }
+                put("#d", buildJsonArray { add(groupId) })
+            })
+        }
+        sendJson(req)
+        return subId
     }
 
     /**

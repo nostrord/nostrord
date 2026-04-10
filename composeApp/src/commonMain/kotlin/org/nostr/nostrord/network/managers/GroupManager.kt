@@ -19,7 +19,9 @@ import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.GroupAdmins
 import org.nostr.nostrord.network.GroupMembers
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.GroupRoles
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.RoleDefinition
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
@@ -201,9 +203,14 @@ class GroupManager(
     private val _groupAdmins = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val groupAdmins: StateFlow<Map<String, List<String>>> = _groupAdmins.asStateFlow()
 
+    // Group roles from kind 39003: groupId -> list of role definitions
+    private val _groupRoles = MutableStateFlow<Map<String, List<RoleDefinition>>>(emptyMap())
+    val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = _groupRoles.asStateFlow()
+
     // Timestamp guards: reject stale kind:39001/39002 events from slower relays.
     private val memberEventTimestamps = mutableMapOf<String, Long>()
     private val adminEventTimestamps = mutableMapOf<String, Long>()
+    private val roleEventTimestamps = mutableMapOf<String, Long>()
 
     companion object {
         const val PAGE_SIZE = 50
@@ -1699,6 +1706,32 @@ class GroupManager(
         if (!shouldRequest(groupId, "admins")) return true // recently requested
         val currentClient = clientForGroup(groupId) ?: return false
         currentClient.requestGroupAdmins(groupId)
+        return true
+    }
+
+    /**
+     * Handle incoming group roles (kind 39003)
+     */
+    fun handleGroupRoles(roles: GroupRoles, createdAt: Long = 0L) {
+        val existing = roleEventTimestamps[roles.groupId] ?: 0L
+        if (createdAt > 0L && createdAt < existing) {
+            connStats?.onStateConflict(roles.groupId)
+            return
+        }
+        if (createdAt > 0L) roleEventTimestamps[roles.groupId] = createdAt
+        val currentRoles = _groupRoles.value[roles.groupId]
+        if (currentRoles != roles.roles) {
+            _groupRoles.value = _groupRoles.value + (roles.groupId to roles.roles)
+        }
+    }
+
+    /**
+     * Request group roles (kind 39003)
+     */
+    suspend fun requestGroupRoles(groupId: String): Boolean {
+        if (!shouldRequest(groupId, "roles")) return true
+        val currentClient = clientForGroup(groupId) ?: return false
+        currentClient.requestGroupRoles(groupId)
         return true
     }
 
