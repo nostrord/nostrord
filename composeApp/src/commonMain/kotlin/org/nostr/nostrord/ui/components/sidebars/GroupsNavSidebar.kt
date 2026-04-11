@@ -73,6 +73,7 @@ fun GroupsNavSidebar(
     isLoading: Boolean = false,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
+    onJoinGroupClick: () -> Unit = {},
     onAddRelay: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -339,11 +340,12 @@ fun GroupsNavSidebar(
         }
 
         if (onAddRelay == null || relayUrl.isNotBlank()) {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(NostrordColors.Surface)
-                    .padding(Spacing.md)
+                    .padding(Spacing.md),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -358,6 +360,23 @@ fun GroupsNavSidebar(
                     Text(
                         text = "Create Group",
                         color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(NostrordColors.SurfaceVariant)
+                        .clickable(onClick = onJoinGroupClick)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Join Group",
+                        color = NostrordColors.TextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )

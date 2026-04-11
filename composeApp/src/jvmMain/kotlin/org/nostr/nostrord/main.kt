@@ -27,12 +27,44 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpRedirect
 import io.ktor.client.plugins.HttpTimeout
 import okio.Path.Companion.toOkioPath
+import org.nostr.nostrord.startup.ExternalLaunchContext
+import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.ui.window.DesktopWindowControls
 import org.nostr.nostrord.ui.window.LocalAwtWindow
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import java.io.File
+import java.net.URI
 
-fun main() {
+/**
+ * Parse a nostrord:// or https:// URL into an ExternalLaunchContext.
+ * Supports: nostrord://open?relay=X&group=Y&code=Z
+ *           https://nostrord.com/open/?relay=X&group=Y&code=Z
+ */
+private fun parseDeepLinkUrl(url: String): ExternalLaunchContext? {
+    val uri = try { URI(url) } catch (_: Exception) { return null }
+    val query = uri.query ?: return null
+    val params = query.split("&").associate { param ->
+        val idx = param.indexOf("=")
+        if (idx >= 0) param.substring(0, idx) to java.net.URLDecoder.decode(param.substring(idx + 1), "UTF-8")
+        else param to ""
+    }
+    val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
+    val relayUrl = if ("://" in relay) relay else "wss://$relay"
+    val groupId = params["group"]?.takeIf { it.isNotBlank() }
+    val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
+
+    return if (groupId != null) {
+        ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl, inviteCode = inviteCode)
+    } else {
+        ExternalLaunchContext.OpenRelay(relayUrl)
+    }
+}
+
+fun main(args: Array<String> = emptyArray()) {
+    // Parse deep link from CLI args (e.g., OS protocol handler passes URL as first arg)
+    args.firstOrNull()?.let { url ->
+        parseDeepLinkUrl(url)?.let { StartupResolver.setExternalLaunchContext(it) }
+    }
     // Configure Coil before the window opens so the first frame is already using the
     // persistent cache. Without this, Coil defaults to a temp-dir disk cache (wiped on
     // reboot) and a short-lived Ktor client — causing relay icons to flicker on cold starts.

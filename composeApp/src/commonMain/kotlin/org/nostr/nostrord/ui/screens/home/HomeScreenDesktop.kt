@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -71,6 +72,7 @@ import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.home.components.PickGroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.util.buildShareRelayLink
 import org.nostr.nostrord.ui.util.generateColorFromString
 
 enum class GroupFilter { All, Joined }
@@ -454,6 +456,23 @@ internal fun RelayOptionsMenu(
                 },
                 onClick = {
                     copyToClipboard(relayUrl)
+                    expanded = false
+                }
+            )
+            DropdownMenuItem(
+                text = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(
+                            Icons.Default.Share,
+                            contentDescription = null,
+                            tint = NostrordColors.TextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text("Share", color = NostrordColors.TextPrimary, fontSize = 14.sp)
+                    }
+                },
+                onClick = {
+                    copyToClipboard(buildShareRelayLink(relayUrl))
                     expanded = false
                 }
             )

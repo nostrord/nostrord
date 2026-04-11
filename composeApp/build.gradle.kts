@@ -206,6 +206,31 @@ compose.desktop {
                 debPackageVersion = packageVersion
                 appCategory = "Network"
             }
+
+            macOS {
+                iconFile.set(project.file("src/jvmMain/resources/icon-512.png"))
+                bundleID = "org.nostr.nostrord"
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>CFBundleURLTypes</key>
+                        <array>
+                            <dict>
+                                <key>CFBundleURLName</key>
+                                <string>Nostrord Deep Link</string>
+                                <key>CFBundleURLSchemes</key>
+                                <array>
+                                    <string>nostrord</string>
+                                </array>
+                            </dict>
+                        </array>
+                    """
+                }
+            }
+
+            windows {
+                iconFile.set(project.file("src/jvmMain/resources/icon-512.png"))
+                menuGroup = "Nostrord"
+            }
         }
 
         buildTypes.release {
@@ -270,13 +295,13 @@ tasks.register("fixDebPackage") {
             |[Desktop Entry]
             |Name=Nostrord
             |Comment=Nostrord - NOSTR NIP-29 Client
-            |Exec=/opt/nostrord/bin/Nostrord
+            |Exec=/opt/nostrord/bin/Nostrord %u
             |Icon=nostrord
             |Terminal=false
             |Type=Application
             |Categories=Network;InstantMessaging;Chat;
             |StartupWMClass=org-nostr-nostrord-MainKt
-            |MimeType=
+            |MimeType=x-scheme-handler/nostrord;
         """.trimMargin() + "\n"
         desktopFile.writeText(patchedDesktop)
 
@@ -286,6 +311,7 @@ tasks.register("fixDebPackage") {
         val patchedPostinst = postinstText.replace(
             "xdg-desktop-menu install /opt/nostrord/lib/nostrord-Nostrord.desktop",
             "xdg-desktop-menu install /opt/nostrord/lib/nostrord-Nostrord.desktop\n" +
+            "    xdg-mime default nostrord-Nostrord.desktop x-scheme-handler/nostrord 2>/dev/null || true\n" +
             "    xdg-icon-resource forceupdate --theme hicolor 2>/dev/null || true\n" +
             "    gtk-update-icon-cache -f -t /usr/share/icons/hicolor 2>/dev/null || true"
         )

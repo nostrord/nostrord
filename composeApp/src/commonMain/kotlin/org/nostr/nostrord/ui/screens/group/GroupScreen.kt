@@ -546,6 +546,7 @@ fun GroupScreen(
             GroupScreenMobile(
                 groupId = groupId,
                 groupName = groupName,
+                relayUrl = currentRelayUrl,
                 groupMetadata = currentGroupMetadata,
                 selectedChannel = selectedChannel,
                 onChannelSelect = { selectedChannel = it },
@@ -621,6 +622,7 @@ fun GroupScreen(
             GroupScreenDesktop(
                 groupId = groupId,
                 groupName = groupName,
+                relayUrl = currentRelayUrl,
                 groupMetadata = currentGroupMetadata,
                 selectedChannel = selectedChannel,
                 onChannelSelect = { selectedChannel = it },

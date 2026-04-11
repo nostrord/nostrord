@@ -42,6 +42,7 @@ fun DesktopShell(
     onAddRelayClick: () -> Unit,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
+    onJoinGroupClick: () -> Unit = {},
     onAddRelayFromSidebar: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     onUserClick: () -> Unit = {},
@@ -102,6 +103,7 @@ fun DesktopShell(
                     isLoading = isGroupsLoading,
                     onGroupClick = onGroupClick,
                     onCreateGroupClick = onCreateGroupClick,
+                    onJoinGroupClick = onJoinGroupClick,
                     onAddRelay = onAddRelayFromSidebar
                 )
             }

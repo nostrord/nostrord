@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
@@ -39,13 +40,17 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.util.buildShareGroupLink
 import org.nostr.nostrord.ui.util.generateColorFromString
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /** Group header with avatar, name, join/invite actions, and admin menu. */
 @Composable
 fun GroupHeader(
     groupName: String?,
     groupMetadata: GroupMetadata?,
+    relayUrl: String = "",
+    groupId: String = "",
     isJoined: Boolean,
     onJoinClick: (inviteCode: String?) -> Unit,
     onLeaveClick: () -> Unit,
@@ -203,6 +208,7 @@ fun GroupHeader(
                     }
                 } else {
                     var menuExpanded by remember { mutableStateOf(false) }
+                    val copyToClipboard = rememberClipboardWriter()
 
                     Box {
                         IconButton(
@@ -281,6 +287,23 @@ fun GroupHeader(
                                             Icons.Default.Delete,
                                             contentDescription = null,
                                             tint = NostrordColors.Error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                )
+                            }
+                            if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                                DropdownMenuItem(
+                                    text = { Text("Share", color = NostrordColors.TextPrimary) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        copyToClipboard(buildShareGroupLink(relayUrl, groupId))
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Share,
+                                            contentDescription = null,
+                                            tint = NostrordColors.TextSecondary,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }

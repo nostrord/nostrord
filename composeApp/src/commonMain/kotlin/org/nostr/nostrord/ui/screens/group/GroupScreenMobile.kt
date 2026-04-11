@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.CompositionLocalProvider
@@ -51,6 +52,8 @@ import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.util.buildShareGroupLink
+import org.nostr.nostrord.utils.rememberClipboardWriter
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -72,6 +75,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 fun GroupScreenMobile(
     groupId: String,
     groupName: String?,
+    relayUrl: String = "",
     groupMetadata: GroupMetadata?,
     selectedChannel: String,
     onChannelSelect: (String) -> Unit,
@@ -141,6 +145,8 @@ fun GroupScreenMobile(
             MobileGroupTopBar(
                 groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
                 groupMetadata = groupMetadata,
+                relayUrl = relayUrl,
+                groupId = groupId,
                 isJoined = isJoined,
                 isAdmin = isAdmin,
                 onOpenDrawer = onOpenDrawer,
@@ -282,6 +288,8 @@ fun GroupScreenMobile(
 private fun MobileGroupTopBar(
     groupName: String?,
     groupMetadata: GroupMetadata?,
+    relayUrl: String = "",
+    groupId: String = "",
     isJoined: Boolean,
     isAdmin: Boolean = false,
     onOpenDrawer: () -> Unit = {},
@@ -434,6 +442,7 @@ private fun MobileGroupTopBar(
             } else {
                 // Dropdown menu for members
                 var menuExpanded by remember { mutableStateOf(false) }
+                val copyToClipboard = rememberClipboardWriter()
 
                 Box {
                     IconButton(
@@ -511,6 +520,23 @@ private fun MobileGroupTopBar(
                                         Icons.Default.Delete,
                                         contentDescription = null,
                                         tint = NostrordColors.Error,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            )
+                        }
+                        if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                            DropdownMenuItem(
+                                text = { Text("Share", color = NostrordColors.TextPrimary) },
+                                onClick = {
+                                    menuExpanded = false
+                                    copyToClipboard(buildShareGroupLink(relayUrl, groupId))
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Share,
+                                        contentDescription = null,
+                                        tint = NostrordColors.TextSecondary,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }

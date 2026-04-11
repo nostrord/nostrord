@@ -46,6 +46,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 fun GroupScreenDesktop(
     groupId: String,
     groupName: String?,
+    relayUrl: String = "",
     groupMetadata: GroupMetadata?,
     selectedChannel: String,
     onChannelSelect: (String) -> Unit,
@@ -114,6 +115,8 @@ fun GroupScreenDesktop(
             GroupHeader(
                 groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
                 groupMetadata = groupMetadata,
+                relayUrl = relayUrl,
+                groupId = groupId,
                 isJoined = isJoined,
                 isAdmin = isAdmin,
                 onJoinClick = onJoinGroup,

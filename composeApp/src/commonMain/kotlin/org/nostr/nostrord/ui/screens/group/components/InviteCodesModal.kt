@@ -321,22 +321,10 @@ private fun InviteCodeItem(
 }
 
 /**
- * Builds an invite URL in the app's standard query format:
- * {origin}/?relay={host}&group={groupId}&code={code}
- *
- * On web, uses the current page origin (e.g. https://web.nostrord.com).
- * On native platforms, falls back to https://{relayHost}.
+ * Builds an invite URL with code appended to the share link.
  */
 private fun buildInviteUrl(relayUrl: String, groupId: String, code: String): String {
-    val relayHost = relayUrl
-        .removePrefix("wss://")
-        .removePrefix("ws://")
-        .removePrefix("https://")
-        .removePrefix("http://")
-        .trimEnd('/')
-    val origin = org.nostr.nostrord.ui.navigation.platformAppOrigin()
-        ?: "https://$relayHost"
-    return "$origin/?relay=$relayHost&group=$groupId&code=$code"
+    return org.nostr.nostrord.ui.util.buildShareGroupLink(relayUrl, groupId) + "&code=$code"
 }
 
 /**

@@ -49,6 +49,7 @@ import org.nostr.nostrord.ui.navigation.browserGoBack
 import org.nostr.nostrord.ui.navigation.browserGoForward
 import org.nostr.nostrord.ui.navigation.platformHasBrowserNavigation
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
+import org.nostr.nostrord.ui.screens.group.components.JoinGroupModal
 import org.nostr.nostrord.ui.screens.home.HomeScreen
 import org.nostr.nostrord.ui.screens.settings.SettingsScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
@@ -225,6 +226,7 @@ private fun AuthenticatedApp(
     var pendingInviteCode by remember { mutableStateOf(deepLinkInviteCode) }
 
     var showCreateGroupModal by remember { mutableStateOf(false) }
+    var showJoinGroupModal by remember { mutableStateOf(false) }
     var showAddRelayModal by remember { mutableStateOf(false) }
     var addRelayInitialTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
@@ -423,6 +425,23 @@ private fun AuthenticatedApp(
         )
     }
 
+    if (showJoinGroupModal) {
+        JoinGroupModal(
+            onJoin = { relayUrl, groupId, inviteCode ->
+                showJoinGroupModal = false
+                if (relayUrl != selectedRelayUrl) {
+                    selectedRelayUrl = relayUrl
+                    scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
+                }
+                if (inviteCode != null) {
+                    pendingInviteCode = inviteCode
+                }
+                onNavigate(Screen.Group(groupId, null))
+            },
+            onDismiss = { showJoinGroupModal = false }
+        )
+    }
+
     if (showAddRelayModal) {
         AddRelayModal(
             connectedRelays = kind10009Relays,
@@ -471,6 +490,7 @@ private fun AuthenticatedApp(
                         onNavigate(Screen.Group(groupId, groupName))
                     },
                     onCreateGroupClick = { showCreateGroupModal = true },
+                    onJoinGroupClick = { showJoinGroupModal = true },
                     onAddRelayFromSidebar = if (hasNoRelays) {{ addRelayInitialTab = 0; showAddRelayModal = true }} else null,
                     onUserClick = { showSettings = true },
                     isProfileActive = showSettings,
@@ -527,6 +547,10 @@ private fun AuthenticatedApp(
                             onCreateGroupClick = {
                                 scope.launch { drawerState.close() }
                                 showCreateGroupModal = true
+                            },
+                            onJoinGroupClick = {
+                                scope.launch { drawerState.close() }
+                                showJoinGroupModal = true
                             },
                             onAddRelayFromSidebar = if (hasNoRelays) {{
                                 scope.launch { drawerState.close() }
@@ -725,6 +749,7 @@ private fun MobileDrawerContent(
     onAddRelayClick: () -> Unit,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
+    onJoinGroupClick: () -> Unit = {},
     onAddRelayFromSidebar: (() -> Unit)? = null,
     onUserClick: () -> Unit = {}
 ) {
@@ -769,6 +794,7 @@ private fun MobileDrawerContent(
             isLoading = isGroupsLoading,
             onGroupClick = onGroupClick,
             onCreateGroupClick = onCreateGroupClick,
+            onJoinGroupClick = onJoinGroupClick,
             onAddRelay = onAddRelayFromSidebar
         )
     }
