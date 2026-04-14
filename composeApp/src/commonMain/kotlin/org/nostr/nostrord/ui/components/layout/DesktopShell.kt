@@ -7,8 +7,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.navigation.ServerRail
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
@@ -59,12 +61,17 @@ fun DesktopShell(
     val unconfirmedChildren by AppModule.nostrRepository.unconfirmedChildren.collectAsState()
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
+    val sidebarScope = rememberCoroutineScope()
 
     val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
         groupsByRelay[activeRelayUrl] ?: emptyList()
     }
     val joinedGroupIds = remember(activeRelayUrl, joinedGroupsByRelay) {
         joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
+    }
+    val orphanedJoinedIds = remember(activeRelayUrl, orphanedJoinedByRelay) {
+        orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
     }
 
     LaunchedEffect(activeRelayUrl) {
@@ -113,7 +120,13 @@ fun DesktopShell(
                     onGroupClick = onGroupClick,
                     onCreateGroupClick = onCreateGroupClick,
                     onJoinGroupClick = onJoinGroupClick,
-                    onAddRelay = onAddRelayFromSidebar
+                    onAddRelay = onAddRelayFromSidebar,
+                    orphanedJoinedIds = orphanedJoinedIds,
+                    onForgetOrphan = { groupId ->
+                        sidebarScope.launch {
+                            AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
+                        }
+                    }
                 )
             }
 

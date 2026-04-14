@@ -14,9 +14,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
@@ -76,10 +79,13 @@ fun GroupsNavSidebar(
     childrenByParent: Map<String, Set<String>> = emptyMap(),
     /** Group ids flagged as unconfirmed (declared parent doesn't list them back). */
     unconfirmedGroups: Set<String> = emptySet(),
+    /** Joined group ids with no `kind:39000` on this relay — stale `kind:10009` pins. */
+    orphanedJoinedIds: Set<String> = emptySet(),
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
     onJoinGroupClick: () -> Unit = {},
     onAddRelay: (() -> Unit)? = null,
+    onForgetOrphan: (groupId: String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Reset when relay changes
@@ -218,7 +224,7 @@ fun GroupsNavSidebar(
                 )
             } else {
                 // MY GROUPS — pinned at top, always visible
-                if (myGroups.isNotEmpty()) {
+                if (myGroups.isNotEmpty() || orphanedJoinedIds.isNotEmpty()) {
                     Column(modifier = Modifier.padding(horizontal = Spacing.sm)) {
                         SectionToggleHeader(
                             text = "MY GROUPS",
@@ -237,6 +243,12 @@ fun GroupsNavSidebar(
                                     notJoined = group.id !in effectiveJoinedIds,
                                     depth = depth,
                                     onClick = { onGroupClick(group.id, group.name) }
+                                )
+                            }
+                            orphanedJoinedIds.forEach { orphanId ->
+                                OrphanedGroupItem(
+                                    groupId = orphanId,
+                                    onForget = { onForgetOrphan(orphanId) }
                                 )
                             }
                         }
@@ -617,6 +629,92 @@ private fun GroupNavIcon(group: GroupMetadata, size: Dp) {
                 onState = { imageState = it }
             )
         }
+    }
+}
+
+@Composable
+private fun OrphanedGroupItem(
+    groupId: String,
+    onForget: () -> Unit
+) {
+    var showConfirm by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
+            .hoverable(interactionSource)
+            .padding(start = 10.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(22.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(NostrordColors.BackgroundDark),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("?", color = NostrordColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Unavailable group",
+                color = NostrordColors.TextMuted,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = groupId.take(12) + if (groupId.length > 12) "…" else "",
+                color = NostrordColors.TextMuted,
+                fontSize = 10.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .clickable { showConfirm = true }
+                .pointerHoverIcon(PointerIcon.Hand),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Delete,
+                contentDescription = "Remove from list",
+                tint = NostrordColors.TextMuted,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Remove unavailable group?") },
+            text = {
+                Text("This group no longer exists on the relay. Removing it updates your pinned list (kind:10009) so it stops appearing across your devices.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirm = false
+                    onForget()
+                }) { Text("Remove", color = NostrordColors.Primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            }
+        )
     }
 }
 

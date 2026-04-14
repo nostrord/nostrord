@@ -760,12 +760,17 @@ private fun MobileDrawerContent(
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val childrenByParent by AppModule.nostrRepository.childrenByParent.collectAsState()
     val unconfirmedChildren by AppModule.nostrRepository.unconfirmedChildren.collectAsState()
+    val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
+    val sidebarScope = rememberCoroutineScope()
 
     val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
         groupsByRelay[activeRelayUrl] ?: emptyList()
     }
     val joinedGroupIds = remember(activeRelayUrl, joinedGroupsByRelay) {
         joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
+    }
+    val orphanedJoinedIds = remember(activeRelayUrl, orphanedJoinedByRelay) {
+        orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
     }
 
     val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
@@ -796,10 +801,16 @@ private fun MobileDrawerContent(
             isLoading = isGroupsLoading,
             childrenByParent = childrenByParent,
             unconfirmedGroups = unconfirmedChildren,
+            orphanedJoinedIds = orphanedJoinedIds,
             onGroupClick = onGroupClick,
             onCreateGroupClick = onCreateGroupClick,
             onJoinGroupClick = onJoinGroupClick,
-            onAddRelay = onAddRelayFromSidebar
+            onAddRelay = onAddRelayFromSidebar,
+            onForgetOrphan = { groupId ->
+                sidebarScope.launch {
+                    AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
+                }
+            }
         )
     }
 }

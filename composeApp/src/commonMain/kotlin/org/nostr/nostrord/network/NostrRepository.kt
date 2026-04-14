@@ -869,6 +869,16 @@ class NostrRepository(
         )
     }
 
+    override suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+        val changed = groupManager.handleRemoteDeleteGroup(groupId, relayUrl, pubKey)
+        if (changed) publishJoinedGroupsList()
+        return Result.Success(Unit)
+    }
+
+    override val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>>
+        get() = groupManager.orphanedJoinedByRelay
+
     override fun isGroupJoined(groupId: String): Boolean = groupManager.isGroupJoined(groupId)
 
     override suspend fun requestGroupMessages(groupId: String, channel: String?) {

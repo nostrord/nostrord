@@ -127,6 +127,15 @@ interface NostrRepositoryApi {
     ): Result<String>
     suspend fun joinGroup(groupId: String, inviteCode: String? = null): Result<Unit>
     suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit>
+    /**
+     * Locally remove a joined group that no longer has a `kind:39000` on the
+     * relay (deleted while offline, or never existed anymore). Does NOT send
+     * `kind:9022` — the group is gone, so there's no relay-side state to leave.
+     * Republishes `kind:10009` so other devices drop the stale pin too.
+     */
+    suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit>
+    /** Joined groups on a relay that have no corresponding `kind:39000` metadata. */
+    val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>>
     suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String? = null): Result<Unit>
     suspend fun deleteGroup(groupId: String): Result<GroupManager.DeleteGroupOutcome>
     /** Delete a group; when [cascade] is true, the relay also removes all descendants. */

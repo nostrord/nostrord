@@ -78,7 +78,32 @@ class GroupManager(
     // Tracks which relay is currently active and which relays have fully loaded
     // (i.e. received EOSE for the "group-list" subscription).
     private var currentRelayUrl: String? = null
-    private val completeGroupLoadRelays = mutableSetOf<String>()
+    private val _completeGroupLoadRelays = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Joined groups on a relay that have no corresponding `kind:39000` after the
+     * relay finished serving its group list (EOSE received). These are stale pins
+     * from `kind:10009` — the group was deleted while offline, or the relay
+     * dropped it. UI surfaces them so the user can explicitly forget them.
+     */
+    private val _orphanedJoinedByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>> = _orphanedJoinedByRelay.asStateFlow()
+
+    init {
+        scope.launch {
+            kotlinx.coroutines.flow.combine(
+                _groupsByRelay,
+                _joinedGroupsByRelay,
+                _completeGroupLoadRelays
+            ) { groupsMap, joinedMap, doneRelays ->
+                doneRelays.associateWith { relay ->
+                    val known = groupsMap[relay].orEmpty().map { it.id }.toSet()
+                    val joined = joinedMap[relay].orEmpty()
+                    (joined - known) - deletedGroupIds
+                }.filterValues { it.isNotEmpty() }
+            }.collect { _orphanedJoinedByRelay.value = it }
+        }
+    }
 
     // The group currently being viewed by the user.
     // Mux chat/reactions subscriptions are scoped to this group only.
@@ -558,7 +583,7 @@ class GroupManager(
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
         val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
         _joinedGroups.value = groups
-        _joinedGroupsByRelay.update { it + (relayUrl to groups) }
+        _joinedGroupsByRelay.update { it + (relayUrl.normalizeRelayUrl() to groups) }
     }
 
     /**
@@ -566,8 +591,8 @@ class GroupManager(
      * touching the live _joinedGroups state (which belongs to the active relay).
      */
     fun loadAllJoinedGroupsFromStorage(pubKey: String, relayUrls: List<String>) {
-        val updates = relayUrls.associateWith { url ->
-            SecureStorage.getJoinedGroupsForRelay(pubKey, url)
+        val updates = relayUrls.associate { url ->
+            url.normalizeRelayUrl() to SecureStorage.getJoinedGroupsForRelay(pubKey, url)
         }.filter { (_, groups) -> groups.isNotEmpty() }
         if (updates.isNotEmpty()) {
             _joinedGroupsByRelay.update { it + updates }
@@ -1518,7 +1543,7 @@ class GroupManager(
             }
             if (relay != null) {
                 val normalizedRelay = relay.normalizeRelayUrl()
-                completeGroupLoadRelays.add(normalizedRelay)
+                _completeGroupLoadRelays.update { it + normalizedRelay }
                 _loadingRelays.update { it - normalizedRelay }
                 refreshMuxSubscriptionsForRelay(normalizedRelay)
             }
@@ -2009,7 +2034,7 @@ class GroupManager(
         val normalized = relayUrl.normalizeRelayUrl()
         // Only treat as cached if the initial load finished (EOSE received).
         // A partial cache from an interrupted load must trigger a re-fetch.
-        return normalized in completeGroupLoadRelays && _groupsByRelay.value[normalized]?.isNotEmpty() == true
+        return normalized in _completeGroupLoadRelays.value && _groupsByRelay.value[normalized]?.isNotEmpty() == true
     }
 
     /**
@@ -2491,7 +2516,7 @@ class GroupManager(
 
         // Invalidate group-list cache so the next relay fetches all kind:39000
         // instead of relying on stale data from a previous visit.
-        completeGroupLoadRelays.clear()
+        _completeGroupLoadRelays.value = emptySet()
 
         // MUST be synchronous (not scope.launch). If this is async, requestGroupMessages
         // called immediately after switchRelay sees stale HasMore/Exhausted state from the
@@ -2506,7 +2531,7 @@ class GroupManager(
      */
     fun removeRelayEntry(url: String) {
         val normalized = url.normalizeRelayUrl()
-        completeGroupLoadRelays.remove(normalized)
+        _completeGroupLoadRelays.update { it - normalized }
         _groupsByRelay.update { current -> current - normalized }
     }
 
@@ -2516,7 +2541,7 @@ class GroupManager(
      */
     suspend fun clear() {
         eventOrderingBuffer.flushAll()
-        completeGroupLoadRelays.clear()
+        _completeGroupLoadRelays.value = emptySet()
         _loadingRelays.value = emptySet()
         _groupsByRelay.value = emptyMap()
         _openedGroupIds.value = emptySet()

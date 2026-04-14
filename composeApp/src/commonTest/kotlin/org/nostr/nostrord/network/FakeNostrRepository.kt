@@ -134,6 +134,12 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun joinGroup(groupId: String): Result<Unit> = Result.Success(Unit)
     override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> = leaveGroupAction(groupId, reason)
+    override suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit> {
+        _joinedGroups.value = _joinedGroups.value - groupId
+        return Result.Success(Unit)
+    }
+    override val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>> =
+        MutableStateFlow(emptyMap())
     override suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String?): Result<Unit> = Result.Success(Unit)
     override suspend fun deleteGroup(groupId: String): Result<org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome> =
         Result.Success(org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome.Deleted)
