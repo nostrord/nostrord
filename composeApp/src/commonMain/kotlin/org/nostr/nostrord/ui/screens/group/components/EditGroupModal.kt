@@ -28,6 +28,7 @@ import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import androidx.compose.runtime.LaunchedEffect
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -41,7 +42,8 @@ fun EditGroupModal(
     groupId: String,
     currentMetadata: GroupMetadata?,
     onDismiss: () -> Unit,
-    onGroupUpdated: () -> Unit
+    onGroupUpdated: () -> Unit,
+    showSubgroupControls: Boolean = true
 ) {
     val scope = rememberCoroutineScope()
 
@@ -50,6 +52,12 @@ fun EditGroupModal(
     var picture by remember(currentMetadata) { mutableStateOf(currentMetadata?.picture ?: "") }
     var isPrivate by remember(currentMetadata) { mutableStateOf(currentMetadata?.isPublic == false) }
     var isClosed by remember(currentMetadata) { mutableStateOf(currentMetadata?.isOpen == false) }
+    var inheritMembers by remember(currentMetadata) { mutableStateOf(currentMetadata?.inheritMembers == true) }
+    var restricted by remember(currentMetadata) { mutableStateOf(currentMetadata?.restricted == true) }
+    var parentIdInput by remember(currentMetadata) { mutableStateOf(currentMetadata?.parent ?: "") }
+    val originalParent = currentMetadata?.parent
+    val originalInherit = currentMetadata?.inheritMembers == true
+    val originalRestricted = currentMetadata?.restricted == true
     var isSaving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -210,6 +218,55 @@ fun EditGroupModal(
                         onCheckedChange = { isClosed = it }
                     )
 
+                    if (showSubgroupControls) {
+                    Spacer(modifier = Modifier.height(Spacing.xxl))
+
+                    Text(
+                        text = "HIERARCHY",
+                        style = NostrordTypography.SectionHeader,
+                        color = NostrordColors.TextMuted
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.sm))
+
+                    EditFieldLabel("Parent group ID (leave empty to detach)")
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    OutlinedTextField(
+                        value = parentIdInput,
+                        onValueChange = { parentIdInput = it.trim() },
+                        placeholder = {
+                            Text(
+                                "parent-group-id",
+                                color = NostrordColors.TextMuted,
+                                style = NostrordTypography.MessageBody
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = editFieldColors(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.sm))
+
+                    EditAccessToggleRow(
+                        icon = Icons.Default.Lock,
+                        label = "Inherit members",
+                        description = "Children's members are treated as members here",
+                        checked = inheritMembers,
+                        onCheckedChange = { inheritMembers = it }
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+
+                    EditAccessToggleRow(
+                        icon = Icons.Default.Block,
+                        label = "Restricted",
+                        description = "Opt out of parent's inherit-members authorization",
+                        checked = restricted,
+                        onCheckedChange = { restricted = it }
+                    )
+                    }
+
                     if (errorMessage != null) {
                         Spacer(modifier = Modifier.height(Spacing.md))
                         Text(
@@ -252,6 +309,29 @@ fun EditGroupModal(
                                     isSaving = false
                                     when (result) {
                                         is Result.Success -> {
+                                            val newParent = parentIdInput.trim().ifBlank { null }
+                                            val parentOp: GroupManager.ParentOp? = when {
+                                                newParent == originalParent -> null
+                                                newParent == null -> GroupManager.ParentOp.Detach
+                                                else -> GroupManager.ParentOp.SetTo(newParent)
+                                            }
+                                            val inheritChange = if (inheritMembers != originalInherit) inheritMembers else null
+                                            val restrictedChange = if (restricted != originalRestricted) restricted else null
+                                            if (parentOp != null || inheritChange != null || restrictedChange != null) {
+                                                val topoResult = AppModule.nostrRepository.updateGroupTopology(
+                                                    groupId = groupId,
+                                                    parent = parentOp,
+                                                    inheritMembers = inheritChange,
+                                                    restricted = restrictedChange
+                                                )
+                                                if (topoResult is Result.Error) {
+                                                    isSaving = false
+                                                    errorMessage = topoResult.error.cause?.message
+                                                        ?: topoResult.error.message
+                                                        ?: "Failed to update hierarchy."
+                                                    return@launch
+                                                }
+                                            }
                                             AppModule.nostrRepository.refreshGroupMetadata(groupId)
                                             onGroupUpdated()
                                         }

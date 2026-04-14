@@ -129,16 +129,31 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String?, customGroupId: String?): Result<String> =
         Result.Success(customGroupId ?: "fake-group-id")
+    override suspend fun createSubgroup(parentGroupId: String, name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, restricted: Boolean, picture: String?, customGroupId: String?): Result<String> =
+        Result.Success(customGroupId ?: "fake-subgroup-id")
 
     override suspend fun joinGroup(groupId: String): Result<Unit> = Result.Success(Unit)
     override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> = leaveGroupAction(groupId, reason)
     override suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String?): Result<Unit> = Result.Success(Unit)
-    override suspend fun deleteGroup(groupId: String): Result<Unit> = Result.Success(Unit)
+    override suspend fun deleteGroup(groupId: String): Result<org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome> =
+        Result.Success(org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome.Deleted)
+    override suspend fun deleteGroup(groupId: String, cascade: Boolean): Result<org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome> =
+        Result.Success(org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome.Deleted)
+    override suspend fun updateGroupTopology(
+        groupId: String,
+        parent: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
+        inheritMembers: Boolean?,
+        restricted: Boolean?
+    ): Result<Unit> = Result.Success(Unit)
     override fun isGroupJoined(groupId: String): Boolean = joinedGroups.value.contains(groupId)
     override suspend fun requestGroupMessages(groupId: String, channel: String?) {}
     override suspend fun requestGroupMembers(groupId: String) {}
     override suspend fun requestGroupAdmins(groupId: String) {}
     override suspend fun refreshGroupMetadata(groupId: String) {}
+    override suspend fun requestSubgroupManifest(parentId: String) {}
+    override val childrenByParent: StateFlow<Map<String, Set<String>>> = MutableStateFlow(emptyMap())
+    override val unconfirmedChildren: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    override val rootIndex: StateFlow<Set<String>> = MutableStateFlow(emptySet())
     override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean = false
     override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?, extraTags: List<List<String>>): Result<Unit> =
         sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
@@ -178,5 +193,6 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val restrictedRelays: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
     override val kind10009Relays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
     override val groupTagRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
+    override val subgroupAwareRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
     override suspend fun fetchGroupPreview(groupId: String, relayUrl: String) {}
 }

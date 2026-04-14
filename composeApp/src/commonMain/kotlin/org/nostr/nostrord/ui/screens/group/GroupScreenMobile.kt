@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
@@ -98,6 +99,11 @@ fun GroupScreenMobile(
     onEditGroup: () -> Unit = {},
     onDeleteGroup: () -> Unit = {},
     onManageMembers: () -> Unit = {},
+    onCreateSubgroup: () -> Unit = {},
+    showSubgroupControls: Boolean = true,
+    parentGroupName: String? = null,
+    onParentClick: () -> Unit = {},
+    subgroupCount: Int = 0,
     groupMembers: List<MemberInfo> = emptyList(),
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
@@ -157,6 +163,8 @@ fun GroupScreenMobile(
                 onEditClick = onEditGroup,
                 onDeleteClick = onDeleteGroup,
                 onManageMembersClick = onManageMembers,
+                onCreateSubgroupClick = onCreateSubgroup,
+                showSubgroupControls = showSubgroupControls,
                 pendingJoinRequestCount = pendingJoinRequestCount,
                 onJoinRequestsClick = onJoinRequestsClick,
                 onInviteCodesClick = onInviteCodesClick,
@@ -300,6 +308,8 @@ private fun MobileGroupTopBar(
     onEditClick: () -> Unit = {},
     onDeleteClick: () -> Unit = {},
     onManageMembersClick: () -> Unit = {},
+    onCreateSubgroupClick: () -> Unit = {},
+    showSubgroupControls: Boolean = true,
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
@@ -502,6 +512,23 @@ private fun MobileGroupTopBar(
                                     leadingIcon = {
                                         Icon(
                                             Icons.Default.Link,
+                                            contentDescription = null,
+                                            tint = NostrordColors.TextSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                )
+                            }
+                            if (showSubgroupControls) {
+                                DropdownMenuItem(
+                                    text = { Text("Create Subgroup", color = NostrordColors.TextPrimary) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onCreateSubgroupClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Add,
                                             contentDescription = null,
                                             tint = NostrordColors.TextSecondary,
                                             modifier = Modifier.size(20.dp)

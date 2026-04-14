@@ -3,6 +3,7 @@ package org.nostr.nostrord.ui.components.layout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -54,6 +55,8 @@ fun DesktopShell(
     val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
+    val childrenByParent by AppModule.nostrRepository.childrenByParent.collectAsState()
+    val unconfirmedChildren by AppModule.nostrRepository.unconfirmedChildren.collectAsState()
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
 
@@ -62,6 +65,10 @@ fun DesktopShell(
     }
     val joinedGroupIds = remember(activeRelayUrl, joinedGroupsByRelay) {
         joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
+    }
+
+    LaunchedEffect(activeRelayUrl) {
+        AppModule.nostrRepository.requestSubgroupManifest("_")
     }
 
     val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
@@ -101,6 +108,8 @@ fun DesktopShell(
                     unreadCounts = unreadCounts,
                     relayName = relayMetadata[activeRelayUrl]?.name,
                     isLoading = isGroupsLoading,
+                    childrenByParent = childrenByParent,
+                    unconfirmedGroups = unconfirmedChildren,
                     onGroupClick = onGroupClick,
                     onCreateGroupClick = onCreateGroupClick,
                     onJoinGroupClick = onJoinGroupClick,

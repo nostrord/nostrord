@@ -1,7 +1,12 @@
 package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -11,10 +16,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.upload.UploadResult
+import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.network.managers.ConnectionManager
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.utils.epochSeconds
+import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
@@ -76,6 +84,12 @@ fun GroupScreen(
     val loadingMembersSet by vm.loadingMembers.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val allRestrictedGroups by vm.restrictedGroups.collectAsState()
+    val childrenByParent by vm.childrenByParent.collectAsState()
+    val unconfirmedChildren by vm.unconfirmedChildren.collectAsState()
+    val subgroupAwareRelays by vm.subgroupAwareRelays.collectAsState()
+    val showSubgroupControls = remember(currentRelayUrl, subgroupAwareRelays) {
+        currentRelayUrl.normalizeRelayUrl() in subgroupAwareRelays
+    }
     val currentUserPubkey = vm.getPublicKey()
 
     val currentGroupMetadata = remember(groups, groupId) {
@@ -83,6 +97,11 @@ fun GroupScreen(
     }
 
     val isGroupRestricted = allRestrictedGroups.containsKey(groupId)
+
+    val parentGroupName = remember(groups, currentGroupMetadata?.parent) {
+        val parentId = currentGroupMetadata?.parent ?: return@remember null
+        groups.find { it.id == parentId }?.name ?: parentId.take(8)
+    }
 
     val isAdmin = remember(allGroupAdmins, groupId, currentUserPubkey) {
         currentUserPubkey != null && currentUserPubkey in (allGroupAdmins[groupId] ?: emptyList())
@@ -101,6 +120,9 @@ fun GroupScreen(
     var showGroupInfoModal by remember { mutableStateOf(false) }
     var showEditGroupModal by remember { mutableStateOf(false) }
     var showDeleteGroupDialog by remember { mutableStateOf(false) }
+    var deleteInProgress by remember { mutableStateOf(false) }
+    var deleteErrorMessage by remember { mutableStateOf<String?>(null) }
+    var subgroupsBlockingDelete by remember { mutableStateOf<Set<String>?>(null) }
     var messageToDelete by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -108,6 +130,7 @@ fun GroupScreen(
     var showJoinRequestsModal by remember { mutableStateOf(false) }
     var showMemberManagementModal by remember { mutableStateOf(false) }
     var showInviteCodesModal by remember { mutableStateOf(false) }
+    var showCreateSubgroupModal by remember { mutableStateOf(false) }
     var createdInviteCode by remember { mutableStateOf<String?>(null) }
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
     val isJoined = joinedGroups.contains(groupId)
@@ -246,6 +269,7 @@ fun GroupScreen(
 
     LaunchedEffect(groupId) {
         vm.requestGroupMessages(selectedChannel)
+        vm.requestSubgroupManifest()
     }
 
     LaunchedEffect(selectedChannel) {
@@ -275,13 +299,26 @@ fun GroupScreen(
         )
     }
 
+    if (showCreateSubgroupModal) {
+        CreateGroupModal(
+            currentRelayUrl = currentRelayUrl,
+            parentGroupId = groupId,
+            onDismiss = { showCreateSubgroupModal = false },
+            onGroupCreated = { newId, newName ->
+                showCreateSubgroupModal = false
+                onNavigateToGroup(newId, newName)
+            }
+        )
+    }
+
     // Edit group modal (admin only)
     if (showEditGroupModal) {
         EditGroupModal(
             groupId = groupId,
             currentMetadata = currentGroupMetadata,
             onDismiss = { showEditGroupModal = false },
-            onGroupUpdated = { showEditGroupModal = false }
+            onGroupUpdated = { showEditGroupModal = false },
+            showSubgroupControls = showSubgroupControls
         )
     }
 
@@ -320,27 +357,129 @@ fun GroupScreen(
 
     // Delete group confirmation dialog (admin only)
     if (showDeleteGroupDialog) {
+        val childCount = childrenByParent[groupId]?.size ?: 0
+        var cascade by remember(groupId) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showDeleteGroupDialog = false },
             containerColor = NostrordColors.Surface,
             titleContentColor = NostrordColors.TextPrimary,
             textContentColor = NostrordColors.TextSecondary,
             title = { Text("Delete Group") },
-            text = { Text("Are you sure you want to permanently delete \"${currentGroupMetadata?.name ?: groupName ?: "this group"}\"? This action cannot be undone.") },
+            text = {
+                Column {
+                    Text("Are you sure you want to permanently delete \"${currentGroupMetadata?.name ?: groupName ?: "this group"}\"? This action cannot be undone.")
+                    deleteErrorMessage?.let { err ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(err, color = NostrordColors.Error)
+                    }
+                    if (childCount > 0) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "This group has $childCount subgroup${if (childCount == 1) "" else "s"}.",
+                            color = NostrordColors.TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = cascade,
+                                onCheckedChange = { cascade = it },
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = NostrordColors.Error,
+                                    uncheckedColor = NostrordColors.TextSecondary
+                                )
+                            )
+                            Text(
+                                "Also delete all subgroups (cascade)",
+                                color = NostrordColors.TextPrimary
+                            )
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(
+                    enabled = !deleteInProgress,
                     onClick = {
-                        vm.deleteGroup {
-                            showDeleteGroupDialog = false
-                            onNavigateHome()
+                        deleteInProgress = true
+                        deleteErrorMessage = null
+                        vm.deleteGroup(cascade = cascade && childCount > 0) { result ->
+                            deleteInProgress = false
+                            when (result) {
+                                is Result.Success -> when (val outcome = result.data) {
+                                    is org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome.Deleted -> {
+                                        showDeleteGroupDialog = false
+                                        onNavigateHome()
+                                    }
+                                    is org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome.HasSubgroups -> {
+                                        showDeleteGroupDialog = false
+                                        subgroupsBlockingDelete = outcome.childIds
+                                    }
+                                }
+                                is Result.Error -> {
+                                    deleteErrorMessage = result.error.cause?.message
+                                        ?: result.error.message
+                                        ?: "Failed to delete group."
+                                }
+                            }
                         }
                     }
                 ) {
-                    Text("Delete", color = NostrordColors.Error)
+                    Text(
+                        if (cascade && childCount > 0) "Delete with subgroups" else "Delete",
+                        color = NostrordColors.Error
+                    )
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteGroupDialog = false }) {
+                    Text("Cancel", color = NostrordColors.TextSecondary)
+                }
+            }
+        )
+    }
+
+    // Relay refused the delete because the group still has subgroups — offer cascade.
+    subgroupsBlockingDelete?.let { children ->
+        AlertDialog(
+            onDismissRequest = { subgroupsBlockingDelete = null },
+            containerColor = NostrordColors.Surface,
+            titleContentColor = NostrordColors.TextPrimary,
+            textContentColor = NostrordColors.TextSecondary,
+            title = { Text("Group has subgroups") },
+            text = {
+                Text(
+                    "The relay refused to delete this group because it still has " +
+                        "${children.size} subgroup${if (children.size == 1) "" else "s"}. " +
+                        "Delete them all in cascade?"
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !deleteInProgress,
+                    onClick = {
+                        deleteInProgress = true
+                        vm.deleteGroup(cascade = true) { result ->
+                            deleteInProgress = false
+                            when (result) {
+                                is Result.Success -> {
+                                    subgroupsBlockingDelete = null
+                                    onNavigateHome()
+                                }
+                                is Result.Error -> {
+                                    deleteErrorMessage = result.error.cause?.message
+                                        ?: result.error.message
+                                        ?: "Failed to delete group."
+                                    subgroupsBlockingDelete = null
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Text("Delete all in cascade", color = NostrordColors.Error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { subgroupsBlockingDelete = null }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
             }
@@ -576,6 +715,16 @@ fun GroupScreen(
                 onEditGroup = { showEditGroupModal = true },
                 onDeleteGroup = { showDeleteGroupDialog = true },
                 onManageMembers = { showMemberManagementModal = true },
+                onCreateSubgroup = { showCreateSubgroupModal = true },
+                showSubgroupControls = showSubgroupControls,
+                parentGroupName = parentGroupName,
+                onParentClick = {
+                    val parentId = currentGroupMetadata?.parent
+                    if (!parentId.isNullOrBlank()) {
+                        onNavigateToGroup(parentId, parentGroupName)
+                    }
+                },
+                subgroupCount = childrenByParent[groupId]?.size ?: 0,
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
@@ -651,6 +800,16 @@ fun GroupScreen(
                 onEditGroup = { showEditGroupModal = true },
                 onDeleteGroup = { showDeleteGroupDialog = true },
                 onManageMembers = { showMemberManagementModal = true },
+                onCreateSubgroup = { showCreateSubgroupModal = true },
+                showSubgroupControls = showSubgroupControls,
+                parentGroupName = parentGroupName,
+                onParentClick = {
+                    val parentId = currentGroupMetadata?.parent
+                    if (!parentId.isNullOrBlank()) {
+                        onNavigateToGroup(parentId, parentGroupName)
+                    }
+                },
+                subgroupCount = childrenByParent[groupId]?.size ?: 0,
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,

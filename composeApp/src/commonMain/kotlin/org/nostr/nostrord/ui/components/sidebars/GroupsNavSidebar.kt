@@ -71,6 +71,10 @@ fun GroupsNavSidebar(
     unreadCounts: Map<String, Int> = emptyMap(),
     relayName: String? = null,
     isLoading: Boolean = false,
+    /** childrenByParent from NostrRepository — used to render the "has subgroups" hint. */
+    childrenByParent: Map<String, Set<String>> = emptyMap(),
+    /** Group ids flagged as unconfirmed (declared parent doesn't list them back). */
+    unconfirmedGroups: Set<String> = emptySet(),
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
     onJoinGroupClick: () -> Unit = {},
@@ -81,12 +85,13 @@ fun GroupsNavSidebar(
     var searchQuery by remember(relayUrl) { mutableStateOf("") }
 
     val myGroups = remember(groups, joinedGroupIds) {
-        groups.filter { it.id in joinedGroupIds }
+        flattenHierarchy(groups.filter { it.id in joinedGroupIds })
     }
     val otherGroups = remember(groups, joinedGroupIds, searchQuery) {
         val base = groups.filter { it.id !in joinedGroupIds }
-        if (searchQuery.isBlank()) base
+        val filtered = if (searchQuery.isBlank()) base
         else base.filter { it.name?.contains(searchQuery, ignoreCase = true) == true || it.id.contains(searchQuery, ignoreCase = true) }
+        flattenHierarchy(filtered)
     }
 
     var myGroupsExpanded by remember(relayUrl) { mutableStateOf(true) }
@@ -200,11 +205,14 @@ fun GroupsNavSidebar(
                             onToggle = { myGroupsExpanded = !myGroupsExpanded }
                         )
                         if (myGroupsExpanded) {
-                            myGroups.forEach { group ->
+                            myGroups.forEach { (group, depth) ->
                                 GroupItem(
                                     group = group,
                                     isActive = group.id == activeGroupId,
                                     unreadCount = unreadCounts[group.id] ?: 0,
+                                    childCount = childrenByParent[group.id]?.size ?: 0,
+                                    unconfirmed = group.id in unconfirmedGroups,
+                                    depth = depth,
                                     onClick = { onGroupClick(group.id, group.name) }
                                 )
                             }
@@ -308,11 +316,14 @@ fun GroupsNavSidebar(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.sm)
                             ) {
-                                items(otherGroups, key = { "other_${it.id}" }) { group ->
+                                items(otherGroups, key = { "other_${it.first.id}" }) { (group, depth) ->
                                     GroupItem(
                                         group = group,
                                         isActive = group.id == activeGroupId,
                                         unreadCount = unreadCounts[group.id] ?: 0,
+                                        childCount = childrenByParent[group.id]?.size ?: 0,
+                                        unconfirmed = group.id in unconfirmedGroups,
+                                        depth = depth,
                                         onClick = { onGroupClick(group.id, group.name) }
                                     )
                                 }
@@ -454,6 +465,9 @@ private fun GroupItem(
     group: GroupMetadata,
     isActive: Boolean,
     unreadCount: Int,
+    childCount: Int = 0,
+    unconfirmed: Boolean = false,
+    depth: Int = 0,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -481,10 +495,21 @@ private fun GroupItem(
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            // Indent caps at depth 3 so sidebar doesn't overflow horizontally.
+            // Product decision, not a protocol rule — the tree itself keeps rendering
+            // as deep as the data goes; only the visual indent stops growing.
+            .padding(start = (10 + depth.coerceAtMost(3) * 14).dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         val groupName = group.name ?: group.id
+        if (depth > 0) {
+            Text(
+                text = "›",
+                color = NostrordColors.TextMuted,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(end = 4.dp)
+            )
+        }
         GroupNavIcon(group = group, size = 22.dp)
 
         Spacer(modifier = Modifier.width(6.dp))
@@ -498,6 +523,25 @@ private fun GroupItem(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
+
+        // NIP-29 subgroup indicators: restricted (members only), unconfirmed (parent hasn't
+        // listed us yet), and a child-count chip when this group has children.
+        if (group.restricted) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("🔒", fontSize = 11.sp)
+        }
+        if (unconfirmed) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("⚠", color = NostrordColors.TextMuted, fontSize = 11.sp)
+        }
+        if (childCount > 0) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "› $childCount",
+                color = NostrordColors.TextMuted,
+                fontSize = 11.sp
+            )
+        }
 
         if (hasUnread && !isActive) {
             Spacer(modifier = Modifier.width(4.dp))
@@ -549,4 +593,23 @@ private fun GroupNavIcon(group: GroupMetadata, size: Dp) {
             )
         }
     }
+}
+
+/**
+ * Produce a list of (group, depth) ordered as a hierarchy: each parent is followed
+ * by its children (DFS), children indented by depth. Groups whose parent isn't in
+ * the input list are treated as roots.
+ */
+private fun flattenHierarchy(list: List<GroupMetadata>): List<Pair<GroupMetadata, Int>> {
+    if (list.isEmpty()) return emptyList()
+    val byId = list.associateBy { it.id }
+    val childrenOf = list.groupBy { it.parent?.takeIf { p -> p in byId } }
+    val roots = childrenOf[null].orEmpty()
+    val out = mutableListOf<Pair<GroupMetadata, Int>>()
+    fun visit(g: GroupMetadata, depth: Int) {
+        out += g to depth
+        childrenOf[g.id].orEmpty().forEach { visit(it, depth + 1) }
+    }
+    roots.forEach { visit(it, 0) }
+    return out
 }

@@ -57,6 +57,8 @@ interface NostrRepositoryApi {
     val kind10009Relays: StateFlow<Set<String>>
     /** Relay URLs from "group" tags that have no "r" tag — implicit, never persisted. */
     val groupTagRelays: StateFlow<Set<String>>
+    /** Relay URLs where we have positive evidence of subgroup support (any kind:39005 seen). */
+    val subgroupAwareRelays: StateFlow<Set<String>>
 
     // --- Initialization ---
     fun forceInitialized()
@@ -107,15 +109,49 @@ interface NostrRepositoryApi {
 
     // --- Group operations ---
     suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String? = null, customGroupId: String? = null): Result<String>
+    /**
+     * Create a group and immediately declare [parentGroupId] as its parent
+     * (chained kind:9007 + kind:9002). If [restricted] is true, the subgroup
+     * opts out of any `inherit-members` authorization from the parent.
+     */
+    suspend fun createSubgroup(
+        parentGroupId: String,
+        name: String,
+        about: String?,
+        relayUrl: String,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        restricted: Boolean = false,
+        picture: String? = null,
+        customGroupId: String? = null
+    ): Result<String>
     suspend fun joinGroup(groupId: String, inviteCode: String? = null): Result<Unit>
     suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit>
     suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String? = null): Result<Unit>
-    suspend fun deleteGroup(groupId: String): Result<Unit>
+    suspend fun deleteGroup(groupId: String): Result<GroupManager.DeleteGroupOutcome>
+    /** Delete a group; when [cascade] is true, the relay also removes all descendants. */
+    suspend fun deleteGroup(groupId: String, cascade: Boolean): Result<GroupManager.DeleteGroupOutcome>
+    /**
+     * Publish a kind:9002 toggling subgroup-related flags. See [GroupManager.updateGroupTopology].
+     * Null parameters mean "don't touch that flag".
+     */
+    suspend fun updateGroupTopology(
+        groupId: String,
+        parent: GroupManager.ParentOp?,
+        inheritMembers: Boolean?,
+        restricted: Boolean?
+    ): Result<Unit>
     fun isGroupJoined(groupId: String): Boolean
     suspend fun requestGroupMessages(groupId: String, channel: String? = null)
     suspend fun requestGroupMembers(groupId: String)
     suspend fun requestGroupAdmins(groupId: String)
     suspend fun refreshGroupMetadata(groupId: String)
+    /** Request kind:39005 subgroup manifest for a parent (or `"_"` for the relay-wide root index). */
+    suspend fun requestSubgroupManifest(parentId: String)
+    /** Observable maps for NIP-29 subgroup topology. */
+    val childrenByParent: StateFlow<Map<String, Set<String>>>
+    val unconfirmedChildren: StateFlow<Set<String>>
+    val rootIndex: StateFlow<Set<String>>
     /** Connect to a relay in the background and fetch kind 39000 metadata for a group preview. */
     suspend fun fetchGroupPreview(groupId: String, relayUrl: String)
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean

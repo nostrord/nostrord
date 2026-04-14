@@ -758,6 +758,8 @@ private fun MobileDrawerContent(
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val childrenByParent by AppModule.nostrRepository.childrenByParent.collectAsState()
+    val unconfirmedChildren by AppModule.nostrRepository.unconfirmedChildren.collectAsState()
 
     val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
         groupsByRelay[activeRelayUrl] ?: emptyList()
@@ -792,6 +794,8 @@ private fun MobileDrawerContent(
             unreadCounts = unreadCounts,
             relayName = relayMetadata[activeRelayUrl]?.name,
             isLoading = isGroupsLoading,
+            childrenByParent = childrenByParent,
+            unconfirmedGroups = unconfirmedChildren,
             onGroupClick = onGroupClick,
             onCreateGroupClick = onCreateGroupClick,
             onJoinGroupClick = onJoinGroupClick,

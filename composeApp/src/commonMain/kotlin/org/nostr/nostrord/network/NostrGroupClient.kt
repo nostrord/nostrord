@@ -20,8 +20,31 @@ data class GroupMetadata(
     val about: String?,
     val picture: String?,
     val isPublic: Boolean,
-    val isOpen: Boolean
+    val isOpen: Boolean,
+    /** Declared parent group id (from kind:39000 `parent` tag). Null for root groups. */
+    val parent: String? = null,
+    /** Parent authorizes members to write to its direct subgroups without joining. */
+    val inheritMembers: Boolean = false,
+    /** Only explicit members can write (blocks membership inheritance from parent). */
+    val restricted: Boolean = false
 )
+
+/**
+ * Subgroup manifest (kind:39005).
+ *
+ * Published by the relay master key. The `d` tag identifies the parent (or `"_"` for
+ * the relay-wide root index), and each `subgroup` tag lists a direct child id.
+ *
+ * Per NIP-29, the manifest is a discovery aid only — the child's kind:39000 `parent`
+ * tag is the source of truth. Reconciliation happens in GroupManager.
+ */
+@Immutable
+data class GroupSubgroupManifest(
+    val parentId: String,
+    val children: List<String>
+) {
+    val isRootIndex: Boolean get() = parentId == "_"
+}
 
 /**
  * Group members list from kind 39002 event.
@@ -536,6 +559,59 @@ class NostrGroupClient(
     fun groupListSubscriptionId(): String = "group-list-${relayUrl.hashCode().toUInt()}"
 
     /**
+     * Subscribe for the kind:39005 subgroup manifest of a given parent group.
+     * The relay SHOULD reply with one event listing the parent's direct children.
+     *
+     * Pass `"_"` to request the relay-wide root index (all root groups).
+     * Returns the subscription id so callers can CLOSE after EOSE.
+     */
+    suspend fun requestSubgroupManifest(parentId: String): String {
+        val subId = "sub_${parentId.take(8).ifEmpty { "root" }}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(39005) }
+                put("#d", buildJsonArray { add(parentId) })
+            })
+        }
+        sendJson(req)
+        return subId
+    }
+
+    /**
+     * Parse a kind:39005 event into a GroupSubgroupManifest.
+     * `d` tag = parent id, `subgroup` tags = direct children.
+     */
+    fun parseGroupSubgroupManifest(event: JsonObject): GroupSubgroupManifest? {
+        return try {
+            if (event["kind"]?.jsonPrimitive?.int != 39005) return null
+            val tags = event["tags"]?.jsonArray ?: return null
+            val parentId = tags
+                .firstOrNull { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "d" }
+                ?.jsonArray?.get(1)?.jsonPrimitive?.content
+                ?: return null
+            val children = tags
+                .filter { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "subgroup" }
+                .map { it.jsonArray[1].jsonPrimitive.content }
+            GroupSubgroupManifest(parentId, children)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun parseGroupSubgroupManifest(message: String): GroupSubgroupManifest? {
+        return try {
+            val arr = json.parseToJsonElement(message).jsonArray
+            if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
+            parseGroupSubgroupManifest(arr[2].jsonObject)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * Subscribe for kind:39000 metadata for a specific group.
      * Called when entering a group screen to ensure metadata is fresh.
      *
@@ -770,13 +846,21 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
             // Get all tag names (including presence-only tags like ["public"], ["open"])
             val tagNames = tags.map { it.jsonArray[0].jsonPrimitive.content }.toSet()
 
+            // NIP-29 subgroups: `parent` carries the parent d-tag (only when it has a value).
+            // An empty `parent` tag (["parent"]) means "detach to root" on republish, which is
+            // semantically the same as omitting the tag — treat as null.
+            val parent = tagMap["parent"]?.takeIf { it.isNotBlank() }
+
             GroupMetadata(
                 id = tagMap["d"] ?: "unknown",
                 name = tagMap["name"],
                 about = tagMap["about"],
                 picture = tagMap["picture"],
                 isPublic = !tagNames.contains("private"),
-                isOpen = !tagNames.contains("closed")
+                isOpen = !tagNames.contains("closed"),
+                parent = parent,
+                inheritMembers = tagNames.contains("inherit-members"),
+                restricted = tagNames.contains("restricted")
             )
         } catch (e: Exception) {
             null
