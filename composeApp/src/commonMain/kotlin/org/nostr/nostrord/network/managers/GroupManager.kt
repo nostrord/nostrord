@@ -1025,6 +1025,57 @@ class GroupManager(
     }
 
     /**
+     * Apply a deletion broadcast (kind:9008) coming from the relay for a group the
+     * current user didn't initiate. Idempotent; no-op if the group is already gone.
+     *
+     * Returns true when local state actually changed so callers (e.g. NostrRepository)
+     * can republish the user's joined list for cross-device consistency.
+     */
+    suspend fun handleRemoteDeleteGroup(groupId: String, relayUrl: String, pubKey: String?): Boolean {
+        if (groupId in deletedGroupIds && groupId !in _joinedGroups.value) return false
+
+        val idsToRemove = setOf(groupId)
+        val changedJoined = groupId in _joinedGroups.value
+        if (changedJoined) {
+            val updated = _joinedGroups.value - idsToRemove
+            _joinedGroups.value = updated
+            if (pubKey != null) {
+                try { SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, updated) } catch (_: Exception) {}
+            }
+            _joinedGroupsByRelay.update { current ->
+                current + (relayUrl to ((current[relayUrl] ?: emptySet()) - idsToRemove))
+            }
+        }
+
+        _groups.value = _groups.value.filter { it.id !in idsToRemove }
+        _groupsByRelay.update { current ->
+            val updated = (current[relayUrl] ?: emptyList()).filter { it.id !in idsToRemove }
+            current + (relayUrl to updated)
+        }
+        try {
+            val updatedRelayGroups = _groupsByRelay.value[relayUrl] ?: emptyList()
+            SecureStorage.saveGroupsForRelay(relayUrl, json.encodeToString(updatedRelayGroups))
+        } catch (_: Exception) {}
+
+        _messages.update { it - idsToRemove }
+        _isLoadingMore.update { it - idsToRemove }
+        _hasMoreMessages.update { it - idsToRemove }
+        _groupStates.update { it - idsToRemove }
+        _groupAdmins.update { it - idsToRemove }
+        _groupMembers.update { it - idsToRemove }
+        _confirmedChildren.update { current ->
+            current.filterKeys { it !in idsToRemove }
+                .mapValues { (_, set) -> set - idsToRemove }
+                .filterValues { it.isNotEmpty() }
+        }
+        _manifestChildren.update { it.filterKeys { k -> k !in idsToRemove } }
+        idsToRemove.forEach { loadingRegistry.remove(it) }
+        deletedGroupIds.addAll(idsToRemove)
+        recomputeUnconfirmed()
+        return changedJoined
+    }
+
+    /**
      * Add a user to a group (admin only). Sends kind:9000 (put-user).
      * Optionally assigns roles (e.g. "admin", "moderator").
      */

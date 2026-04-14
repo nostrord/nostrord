@@ -1668,6 +1668,19 @@ class NostrRepository(
                         groupManager.handleSubgroupManifest(manifest, client.getRelayUrl())
                     }
 
+                    9008 -> {
+                        val tags = event["tags"]?.jsonArray ?: return
+                        val groupId = tags.firstOrNull {
+                            it.jsonArray.getOrNull(0)?.jsonPrimitive?.contentOrNull == "h"
+                        }?.jsonArray?.getOrNull(1)?.jsonPrimitive?.contentOrNull ?: return
+                        val relayUrl = client.getRelayUrl()
+                        val pubKey = sessionManager.getPublicKey()
+                        scope.launch {
+                            val changed = groupManager.handleRemoteDeleteGroup(groupId, relayUrl, pubKey)
+                            if (changed) publishJoinedGroupsList()
+                        }
+                    }
+
                     0 -> {
                         val (pubkey, metadata) = client.parseUserMetadata(event) ?: return
                         metadataManager.handleMetadataEvent(pubkey, metadata)

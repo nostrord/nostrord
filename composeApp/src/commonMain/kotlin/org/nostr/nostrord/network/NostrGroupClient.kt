@@ -711,6 +711,11 @@ fun muxReactionsSubId(): String = "mux_reactions_${relayUrl.hashCode().toUInt()}
 fun muxMetaSubId(): String = "mux_meta_${relayUrl.hashCode().toUInt()}"
 
 /**
+ * Deterministic sub ID for the relay-level delete-group watch (kind:9008).
+ */
+fun muxDeleteSubId(): String = "mux_del_${relayUrl.hashCode().toUInt()}"
+
+/**
  * Send (or refresh) the three relay-level multiplexed subscriptions.
  *
  * Replaces per-group `live_<id>` + `reactions_<id>` with three relay-scoped REQs that cover
@@ -735,11 +740,13 @@ suspend fun sendMuxSubscriptions(
     val chatSubId = muxChatSubId()
     val reactSubId = muxReactionsSubId()
     val metaSubId = muxMetaSubId()
+    val delSubId = muxDeleteSubId()
 
     // Close the previous mux slots first (idempotent — no-op if not open).
     send(buildJsonArray { add("CLOSE"); add(chatSubId) }.toString())
     send(buildJsonArray { add("CLOSE"); add(reactSubId) }.toString())
     send(buildJsonArray { add("CLOSE"); add(metaSubId) }.toString())
+    send(buildJsonArray { add("CLOSE"); add(delSubId) }.toString())
 
     // Chat + admin events for opened groups.
     if (chatGroupIds.isNotEmpty()) {
@@ -776,6 +783,17 @@ suspend fun sendMuxSubscriptions(
             add(buildJsonObject {
                 putJsonArray("kinds") { add(39000); add(39001); add(39002) }
                 putJsonArray("#d") { metadataGroupIds.forEach { add(it) } }
+            })
+        }.toString())
+
+        // Delete-group watch for every joined group on this relay. kind:9008 is the only
+        // authoritative signal that a group was destroyed; without this, non-admin members
+        // never find out and the stale metadata lingers in their UI.
+        send(buildJsonArray {
+            add("REQ"); add(delSubId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(9008) }
+                putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
             })
         }.toString())
     }
