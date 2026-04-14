@@ -48,6 +48,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.effectivelyJoinedGroupIds
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.components.loading.shimmerEffect
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
@@ -84,11 +85,32 @@ fun GroupsNavSidebar(
     // Reset when relay changes
     var searchQuery by remember(relayUrl) { mutableStateOf("") }
 
-    val myGroups = remember(groups, joinedGroupIds) {
-        flattenHierarchy(groups.filter { it.id in joinedGroupIds })
+    // Groups that appear under "My Groups": joined groups plus any descendants
+    // of joined groups (even if the user hasn't joined them yet), so the hierarchy
+    // stays intact — otherwise children of a joined parent would be orphaned in
+    // "Other Groups". Descendants without effective access are rendered muted
+    // via `notJoined`.
+    val myGroupsIds = remember(groups, joinedGroupIds) {
+        val byParent = groups.groupBy { it.parent }
+        val result = mutableSetOf<String>()
+        val stack = ArrayDeque<String>().apply { joinedGroupIds.forEach { addLast(it) } }
+        while (stack.isNotEmpty()) {
+            val id = stack.removeLast()
+            if (!result.add(id)) continue
+            byParent[id].orEmpty().forEach { stack.addLast(it.id) }
+        }
+        result
     }
-    val otherGroups = remember(groups, joinedGroupIds, searchQuery) {
-        val base = groups.filter { it.id !in joinedGroupIds }
+    // Effective membership honors NIP-29 `inherit-members`: children of a joined
+    // parent with that flag (and not `restricted`) count as joined for gating.
+    val effectiveJoinedIds = remember(groups, joinedGroupIds) {
+        effectivelyJoinedGroupIds(groups, joinedGroupIds)
+    }
+    val myGroups = remember(groups, myGroupsIds) {
+        flattenHierarchy(groups.filter { it.id in myGroupsIds })
+    }
+    val otherGroups = remember(groups, myGroupsIds, searchQuery) {
+        val base = groups.filter { it.id !in myGroupsIds }
         val filtered = if (searchQuery.isBlank()) base
         else base.filter { it.name?.contains(searchQuery, ignoreCase = true) == true || it.id.contains(searchQuery, ignoreCase = true) }
         flattenHierarchy(filtered)
@@ -212,6 +234,7 @@ fun GroupsNavSidebar(
                                     unreadCount = unreadCounts[group.id] ?: 0,
                                     childCount = childrenByParent[group.id]?.size ?: 0,
                                     unconfirmed = group.id in unconfirmedGroups,
+                                    notJoined = group.id !in effectiveJoinedIds,
                                     depth = depth,
                                     onClick = { onGroupClick(group.id, group.name) }
                                 )
@@ -467,6 +490,7 @@ private fun GroupItem(
     unreadCount: Int,
     childCount: Int = 0,
     unconfirmed: Boolean = false,
+    notJoined: Boolean = false,
     depth: Int = 0,
     onClick: () -> Unit
 ) {
@@ -484,6 +508,7 @@ private fun GroupItem(
         isActive -> NostrordColors.TextPrimary
         hasUnread -> NostrordColors.TextPrimary
         isHovered -> NostrordColors.TextPrimary
+        notJoined -> NostrordColors.TextMuted
         else -> NostrordColors.TextSecondary
     }
 

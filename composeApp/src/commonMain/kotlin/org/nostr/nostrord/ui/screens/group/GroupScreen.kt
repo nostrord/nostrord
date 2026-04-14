@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.effectivelyJoinedGroupIds
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.normalizeRelayUrl
@@ -133,7 +134,12 @@ fun GroupScreen(
     var showCreateSubgroupModal by remember { mutableStateOf(false) }
     var createdInviteCode by remember { mutableStateOf<String?>(null) }
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
-    val isJoined = joinedGroups.contains(groupId)
+    // `isJoined` drives write gating (composer, empty states, join prompts), so it
+    // honors NIP-29 `inherit-members`: a user who is a member of the parent can write
+    // to non-restricted children without joining them explicitly.
+    val isJoined = remember(joinedGroups, groups, groupId) {
+        effectivelyJoinedGroupIds(groups, joinedGroups).contains(groupId)
+    }
 
     val initialInviteCode = remember { pendingInviteCode }
     val isConnected = connectionState is ConnectionManager.ConnectionState.Connected
