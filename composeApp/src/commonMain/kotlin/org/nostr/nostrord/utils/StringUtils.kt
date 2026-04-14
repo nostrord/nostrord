@@ -71,3 +71,34 @@ fun String.normalizeRelayUrl(): String {
         trimmed.substring(0, pathStart).lowercase() + trimmed.substring(pathStart)
     }
 }
+
+/**
+ * Validate a relay URL. Accepts `wss://` always, and `ws://` only for
+ * localhost / loopback hosts (useful for local development relays).
+ */
+/**
+ * Add a scheme to a bare relay host. If the input already has `ws://` or `wss://`,
+ * it is returned unchanged. Otherwise, localhost/loopback hosts get `ws://` and
+ * everything else gets `wss://`.
+ */
+fun String.toRelayUrl(): String {
+    val trimmed = trim()
+    if (trimmed.isEmpty()) return trimmed
+    if (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) return trimmed
+    val host = trimmed.substringBefore('/').substringBefore(':').lowercase()
+    val scheme = if (host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1") "ws" else "wss"
+    return "$scheme://$trimmed"
+}
+
+fun isValidRelayUrl(url: String): Boolean {
+    val trimmed = url.trim()
+    if (trimmed.startsWith("wss://") && trimmed.length > 6) return true
+    if (trimmed.startsWith("ws://") && trimmed.length > 5) {
+        val host = trimmed.removePrefix("ws://")
+            .substringBefore('/')
+            .substringBefore(':')
+            .lowercase()
+        return host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
+    }
+    return false
+}

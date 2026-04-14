@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.layout.*
+import org.nostr.nostrord.utils.toRelayUrl
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,7 +40,7 @@ fun JoinGroupModal(
 
         val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
         val group = params["group"]?.takeIf { it.isNotBlank() } ?: return null
-        val relayUrl = if ("://" in relay) relay else "wss://$relay"
+        val relayUrl = relay.toRelayUrl()
         val code = params["code"]?.takeIf { it.isNotBlank() }
 
         return Triple(relayUrl, group, code)

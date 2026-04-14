@@ -1,6 +1,7 @@
 package org.nostr.nostrord
 
 import androidx.compose.runtime.CompositionLocalProvider
+import org.nostr.nostrord.utils.toRelayUrl
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.input.key.Key
@@ -49,7 +50,7 @@ private fun parseDeepLinkUrl(url: String): ExternalLaunchContext? {
         else param to ""
     }
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
-    val relayUrl = if ("://" in relay) relay else "wss://$relay"
+    val relayUrl = relay.toRelayUrl()
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
 
