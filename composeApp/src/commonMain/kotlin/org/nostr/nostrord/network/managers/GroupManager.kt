@@ -1000,11 +1000,13 @@ class GroupManager(
             // per descendant but our sub filters kinds=[39000], so we mirror locally.
             val idsToRemove = if (cascade) {
                 val collected = mutableSetOf(groupId)
-                val tree = _confirmedChildren.value
+                val confirmed = _confirmedChildren.value
+                val manifest = _manifestChildren.value
                 val queue = ArrayDeque<String>().apply { add(groupId) }
                 while (queue.isNotEmpty()) {
                     val head = queue.removeFirst()
-                    tree[head]?.forEach {
+                    val children = confirmed[head].orEmpty() + manifest[head].orEmpty().toSet()
+                    children.forEach {
                         if (collected.add(it)) queue.add(it)
                     }
                 }
@@ -1059,7 +1061,20 @@ class GroupManager(
     suspend fun handleRemoteDeleteGroup(groupId: String, relayUrl: String, pubKey: String?): Boolean {
         if (groupId in deletedGroupIds && groupId !in _joinedGroups.value) return false
 
-        val idsToRemove = setOf(groupId)
+        // Walk descendants locally: the relay cascades kind:9008 per descendant, but
+        // our #h filter only includes groups whose kind:39000 we've seen. Subgroups
+        // reached via `inherit-members` (no explicit kind:10009 pin) won't match that
+        // filter, so their 9008 never arrives. Mirror the cascade from our tree.
+        val idsToRemove = mutableSetOf(groupId).apply {
+            val confirmed = _confirmedChildren.value
+            val manifest = _manifestChildren.value
+            val queue = ArrayDeque<String>().apply { add(groupId) }
+            while (queue.isNotEmpty()) {
+                val head = queue.removeFirst()
+                val children = confirmed[head].orEmpty() + manifest[head].orEmpty().toSet()
+                children.forEach { if (add(it)) queue.add(it) }
+            }
+        }
         // Intentionally do NOT auto-remove from _joinedGroups / kind:10009.
         // Leaving the id pinned while the kind:39000 disappears makes the group
         // surface as an "orphan" in the sidebar so the user can review and
