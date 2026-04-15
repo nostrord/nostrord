@@ -871,7 +871,7 @@ class NostrRepository(
 
     override suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
-        val changed = groupManager.handleRemoteDeleteGroup(groupId, relayUrl, pubKey)
+        val changed = groupManager.forgetJoinedPin(groupId, relayUrl, pubKey)
         if (changed) publishJoinedGroupsList()
         return Result.Success(Unit)
     }

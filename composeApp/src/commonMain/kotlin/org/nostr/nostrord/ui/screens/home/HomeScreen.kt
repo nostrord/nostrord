@@ -27,6 +27,7 @@ fun HomeScreen(
     val groupsByRelay by vm.groupsByRelay.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
+    val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
     val loadingRelays by vm.loadingRelays.collectAsState()
     val pendingDeepLinkRelay by vm.pendingDeepLinkRelay.collectAsState()
@@ -47,8 +48,12 @@ fun HomeScreen(
     var searchQuery by remember(displayRelayUrl) { mutableStateOf("") }
     var activeFilter by remember(displayRelayUrl) { mutableStateOf(GroupFilter.All) }
 
-    val filteredGroups = remember(groups, searchQuery, activeFilter, joinedGroupIds) {
-        groups
+    val orphanedIds = remember(displayRelayUrl, orphanedJoinedByRelay) {
+        orphanedJoinedByRelay[displayRelayUrl] ?: emptySet()
+    }
+
+    val filteredGroups = remember(groups, searchQuery, activeFilter, joinedGroupIds, orphanedIds) {
+        val base = groups
             .filter { group ->
                 when (activeFilter) {
                     GroupFilter.All -> true
@@ -60,6 +65,26 @@ fun HomeScreen(
                 else group.name?.contains(searchQuery, ignoreCase = true) == true ||
                      group.id.contains(searchQuery, ignoreCase = true)
             }
+        // In the Joined tab, surface orphan pins (kind:10009 ids without a
+        // kind:39000) as stub cards so the user can see the count matches
+        // reality. Sidebar ghost rows let them forget.
+        if (activeFilter == GroupFilter.Joined && orphanedIds.isNotEmpty()) {
+            val knownIds = base.map { it.id }.toSet()
+            val stubs = orphanedIds
+                .filter { it !in knownIds }
+                .filter { searchQuery.isBlank() || it.contains(searchQuery, ignoreCase = true) }
+                .map { id ->
+                    org.nostr.nostrord.network.GroupMetadata(
+                        id = id,
+                        name = null,
+                        about = "Deleted or unavailable on this relay",
+                        picture = null,
+                        isPublic = false,
+                        isOpen = false
+                    )
+                }
+            base + stubs
+        } else base
     }
 
     LaunchedEffect(Unit) {

@@ -99,7 +99,7 @@ class GroupManager(
                 doneRelays.associateWith { relay ->
                     val known = groupsMap[relay].orEmpty().map { it.id }.toSet()
                     val joined = joinedMap[relay].orEmpty()
-                    (joined - known) - deletedGroupIds
+                    joined - known
                 }.filterValues { it.isNotEmpty() }
             }.collect { _orphanedJoinedByRelay.value = it }
         }
@@ -1060,17 +1060,10 @@ class GroupManager(
         if (groupId in deletedGroupIds && groupId !in _joinedGroups.value) return false
 
         val idsToRemove = setOf(groupId)
-        val changedJoined = groupId in _joinedGroups.value
-        if (changedJoined) {
-            val updated = _joinedGroups.value - idsToRemove
-            _joinedGroups.value = updated
-            if (pubKey != null) {
-                try { SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, updated) } catch (_: Exception) {}
-            }
-            _joinedGroupsByRelay.update { current ->
-                current + (relayUrl to ((current[relayUrl] ?: emptySet()) - idsToRemove))
-            }
-        }
+        // Intentionally do NOT auto-remove from _joinedGroups / kind:10009.
+        // Leaving the id pinned while the kind:39000 disappears makes the group
+        // surface as an "orphan" in the sidebar so the user can review and
+        // explicitly forget it via forgetGroup.
 
         _groups.value = _groups.value.filter { it.id !in idsToRemove }
         _groupsByRelay.update { current ->
@@ -1097,7 +1090,30 @@ class GroupManager(
         idsToRemove.forEach { loadingRegistry.remove(it) }
         deletedGroupIds.addAll(idsToRemove)
         recomputeUnconfirmed()
-        return changedJoined
+        return false
+    }
+
+    /**
+     * Explicitly forget an orphaned pin: drop the id from the joined set and
+     * persist, so the next publishJoinedGroupsList() writes a kind:10009
+     * without it. Used by the sidebar's "forget orphan" trash action.
+     */
+    fun forgetJoinedPin(groupId: String, relayUrl: String, pubKey: String?): Boolean {
+        val normalized = relayUrl.normalizeRelayUrl()
+        val currentPerRelay = _joinedGroupsByRelay.value[normalized] ?: emptySet()
+        val alsoInActive = groupId in _joinedGroups.value
+        if (groupId !in currentPerRelay && !alsoInActive) return false
+
+        val updatedPerRelay = currentPerRelay - groupId
+        _joinedGroupsByRelay.update { it + (normalized to updatedPerRelay) }
+        if (alsoInActive) {
+            _joinedGroups.value = _joinedGroups.value - groupId
+        }
+        if (pubKey != null) {
+            try { SecureStorage.saveJoinedGroupsForRelay(pubKey, normalized, updatedPerRelay) } catch (_: Exception) {}
+        }
+        deletedGroupIds.add(groupId)
+        return true
     }
 
     /**

@@ -215,7 +215,7 @@ fun GroupsNavSidebar(
                 ) {
                     repeat(6) { GroupNavItemSkeleton() }
                 }
-            } else if (groups.isEmpty()) {
+            } else if (groups.isEmpty() && orphanedJoinedIds.isEmpty()) {
                 Text(
                     text = "No groups on this relay",
                     color = NostrordColors.TextMuted,
