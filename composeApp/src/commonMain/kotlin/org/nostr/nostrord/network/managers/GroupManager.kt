@@ -2022,6 +2022,7 @@ class GroupManager(
         val cached = _groupsByRelay.value[normalized] ?: emptyList()
         if (cached.isNotEmpty()) {
             _groups.value = (_groups.value + cached).distinctBy { it.id }
+            recomputeSubgroupTopology()
         }
     }
 
@@ -2041,6 +2042,7 @@ class GroupManager(
             }.toMap()
             current + updates
         }
+        recomputeSubgroupTopology()
     }
 
     /**
