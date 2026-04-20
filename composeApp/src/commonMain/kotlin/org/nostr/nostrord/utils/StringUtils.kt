@@ -86,7 +86,7 @@ fun String.toRelayUrl(): String {
     if (trimmed.isEmpty()) return trimmed
     if (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) return trimmed
     val host = trimmed.substringBefore('/').substringBefore(':').lowercase()
-    val scheme = if (host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1") "ws" else "wss"
+    val scheme = if (host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1") "ws" else "wss"
     return "$scheme://$trimmed"
 }
 
@@ -98,7 +98,7 @@ fun isValidRelayUrl(url: String): Boolean {
             .substringBefore('/')
             .substringBefore(':')
             .lowercase()
-        return host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1"
+        return host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
     }
     return false
 }

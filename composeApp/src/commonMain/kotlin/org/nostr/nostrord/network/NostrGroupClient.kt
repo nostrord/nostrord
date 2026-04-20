@@ -23,27 +23,40 @@ data class GroupMetadata(
     val isOpen: Boolean,
     /** Declared parent group id (from kind:39000 `parent` tag). Null for root groups. */
     val parent: String? = null,
-    /** Parent authorizes members to write to its direct subgroups without joining. */
-    val inheritMembers: Boolean = false,
-    /** Only explicit members can write (blocks membership inheritance from parent). */
-    val restricted: Boolean = false
+    /**
+     * Optional 3rd element of the `parent` tag: the pubkey of the admin whose
+     * `kind:9002` authored the current parent relationship. Used as an
+     * attestation path — a client confirms the link when this pubkey appears
+     * in the parent's `kind:39001`.
+     */
+    val parentAttestation: String? = null,
+    /**
+     * Bilateral declarations — the parent's own list of accepted children
+     * (`["child", "<id>", ...]` tags in its `kind:39000`). Used together with
+     * [closedChildren] to distinguish legitimate subgroups from unilateral claims.
+     */
+    val children: List<DeclaredChild> = emptyList(),
+    /**
+     * `["closed-children"]` flag in `kind:39000`. When true, only children
+     * explicitly listed in [children] are legitimate; all other parent claims
+     * are invalid and MUST be ignored by the client.
+     */
+    val closedChildren: Boolean = false
 )
 
 /**
- * Subgroup manifest (kind:39005).
- *
- * Published by the relay master key. The `d` tag identifies the parent (or `"_"` for
- * the relay-wide root index), and each `subgroup` tag lists a direct child id.
- *
- * Per NIP-29, the manifest is a discovery aid only — the child's kind:39000 `parent`
- * tag is the source of truth. Reconciliation happens in GroupManager.
+ * A `["child", "<id>", "<order>", "<flags>"]` declaration inside a parent's `kind:39000`.
+ * `order` is a lexicographic sibling-ordering key; `flags` is a comma-separated hint
+ * list (e.g. `"suggested"`). Unknown elements MUST be ignored.
  */
+@Serializable
 @Immutable
-data class GroupSubgroupManifest(
-    val parentId: String,
-    val children: List<String>
+data class DeclaredChild(
+    val id: String,
+    val order: String? = null,
+    val flags: List<String> = emptyList()
 ) {
-    val isRootIndex: Boolean get() = parentId == "_"
+    val isSuggested: Boolean get() = "suggested" in flags
 }
 
 /**
@@ -531,10 +544,6 @@ class NostrGroupClient(
         }
     }
 
-    suspend fun sendAuth(privateKeyHex: String) {
-        // TODO: Implement proper AUTH if needed by the relay
-    }
-
     suspend fun requestGroups() {
         // Use a relay-specific subscription ID to avoid collisions when multiple
         // relay clients are active concurrently. The ID must be stable per relay
@@ -557,59 +566,6 @@ class NostrGroupClient(
      * Used by callers (e.g., EOSE handler) to identify the originating relay.
      */
     fun groupListSubscriptionId(): String = "group-list-${relayUrl.hashCode().toUInt()}"
-
-    /**
-     * Subscribe for the kind:39005 subgroup manifest of a given parent group.
-     * The relay SHOULD reply with one event listing the parent's direct children.
-     *
-     * Pass `"_"` to request the relay-wide root index (all root groups).
-     * Returns the subscription id so callers can CLOSE after EOSE.
-     */
-    suspend fun requestSubgroupManifest(parentId: String): String {
-        val subId = "sub_${parentId.take(8).ifEmpty { "root" }}"
-        trySendClose(subId)
-        val req = buildJsonArray {
-            add("REQ")
-            add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(39005) }
-                put("#d", buildJsonArray { add(parentId) })
-            })
-        }
-        sendJson(req)
-        return subId
-    }
-
-    /**
-     * Parse a kind:39005 event into a GroupSubgroupManifest.
-     * `d` tag = parent id, `subgroup` tags = direct children.
-     */
-    fun parseGroupSubgroupManifest(event: JsonObject): GroupSubgroupManifest? {
-        return try {
-            if (event["kind"]?.jsonPrimitive?.int != 39005) return null
-            val tags = event["tags"]?.jsonArray ?: return null
-            val parentId = tags
-                .firstOrNull { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "d" }
-                ?.jsonArray?.get(1)?.jsonPrimitive?.content
-                ?: return null
-            val children = tags
-                .filter { it.jsonArray.size >= 2 && it.jsonArray[0].jsonPrimitive.content == "subgroup" }
-                .map { it.jsonArray[1].jsonPrimitive.content }
-            GroupSubgroupManifest(parentId, children)
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    fun parseGroupSubgroupManifest(message: String): GroupSubgroupManifest? {
-        return try {
-            val arr = json.parseToJsonElement(message).jsonArray
-            if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
-            parseGroupSubgroupManifest(arr[2].jsonObject)
-        } catch (_: Exception) {
-            null
-        }
-    }
 
     /**
      * Subscribe for kind:39000 metadata for a specific group.
@@ -789,11 +745,15 @@ suspend fun sendMuxSubscriptions(
         // Delete-group watch for every joined group on this relay. kind:9008 is the only
         // authoritative signal that a group was destroyed; without this, non-admin members
         // never find out and the stale metadata lingers in their UI.
+        // Uses `since` so historical deletions don't poison the in-memory deletedGroupIds
+        // set and make existing groups disappear until the user reloads.
+        val delSince = epochMillis() / 1000 - 60
         send(buildJsonArray {
             add("REQ"); add(delSubId)
             add(buildJsonObject {
                 putJsonArray("kinds") { add(9008) }
                 putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
+                put("since", delSince)
             })
         }.toString())
     }
@@ -866,8 +826,27 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
 
             // NIP-29 subgroups: `parent` carries the parent d-tag (only when it has a value).
             // An empty `parent` tag (["parent"]) means "detach to root" on republish, which is
-            // semantically the same as omitting the tag — treat as null.
-            val parent = tagMap["parent"]?.takeIf { it.isNotBlank() }
+            // semantically the same as omitting the tag — treat as null. A third element,
+            // when present, is the pubkey of the admin whose `kind:9002` set the parent link.
+            val parentTag = tags.firstOrNull {
+                it.jsonArray.isNotEmpty() && it.jsonArray[0].jsonPrimitive.content == "parent"
+            }?.jsonArray
+            val parent = parentTag?.getOrNull(1)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            val parentAttestation = parentTag?.getOrNull(2)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+
+            // Bilateral declarations: parent lists its accepted children via `["child", ...]` tags.
+            // Optional positional elements: order (sibling sort key) and flags (comma-separated hints).
+            val children = tags.mapNotNull { tag ->
+                val arr = tag.jsonArray
+                if (arr.size < 2 || arr[0].jsonPrimitive.content != "child") return@mapNotNull null
+                val childId = arr[1].jsonPrimitive.content.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val order = arr.getOrNull(2)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                val flags = arr.getOrNull(3)?.jsonPrimitive?.content
+                    ?.split(',')
+                    ?.mapNotNull { it.trim().takeIf { t -> t.isNotEmpty() } }
+                    ?: emptyList()
+                DeclaredChild(id = childId, order = order, flags = flags)
+            }
 
             GroupMetadata(
                 id = tagMap["d"] ?: "unknown",
@@ -877,8 +856,9 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                 isPublic = !tagNames.contains("private"),
                 isOpen = !tagNames.contains("closed"),
                 parent = parent,
-                inheritMembers = tagNames.contains("inherit-members"),
-                restricted = tagNames.contains("restricted")
+                parentAttestation = parentAttestation,
+                children = children,
+                closedChildren = tagNames.contains("closed-children")
             )
         } catch (e: Exception) {
             null

@@ -177,15 +177,4 @@ class SessionManager(
         }
     }
 
-    /**
-     * Send AUTH to relay if using local keypair
-     */
-    suspend fun sendAuthIfNeeded(client: NostrGroupClient) {
-        if (!isUsingBunker()) {
-            getPrivateKey()?.let { privateKey ->
-                client.sendAuth(privateKey)
-            }
-        }
-    }
-
 }

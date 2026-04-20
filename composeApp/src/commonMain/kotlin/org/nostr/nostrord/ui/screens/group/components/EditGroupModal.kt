@@ -9,8 +9,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,12 +24,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.upload.UploadImageField
@@ -35,6 +40,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,18 +52,38 @@ fun EditGroupModal(
     showSubgroupControls: Boolean = true
 ) {
     val scope = rememberCoroutineScope()
+    val copyToClipboard = rememberClipboardWriter()
 
     var name by remember(currentMetadata) { mutableStateOf(currentMetadata?.name ?: "") }
     var about by remember(currentMetadata) { mutableStateOf(currentMetadata?.about ?: "") }
     var picture by remember(currentMetadata) { mutableStateOf(currentMetadata?.picture ?: "") }
     var isPrivate by remember(currentMetadata) { mutableStateOf(currentMetadata?.isPublic == false) }
     var isClosed by remember(currentMetadata) { mutableStateOf(currentMetadata?.isOpen == false) }
-    var inheritMembers by remember(currentMetadata) { mutableStateOf(currentMetadata?.inheritMembers == true) }
-    var restricted by remember(currentMetadata) { mutableStateOf(currentMetadata?.restricted == true) }
     var parentIdInput by remember(currentMetadata) { mutableStateOf(currentMetadata?.parent ?: "") }
     val originalParent = currentMetadata?.parent
-    val originalInherit = currentMetadata?.inheritMembers == true
-    val originalRestricted = currentMetadata?.restricted == true
+
+    // Parent-side consent state (bilateral `child` declarations + `closed-children` flag).
+    // Edits are batched and published as one kind:9002 on save, so the user can approve
+    // pending claims / remove existing children / toggle the flag without spraying events.
+    var acceptedChildren by remember(currentMetadata) {
+        mutableStateOf(currentMetadata?.children.orEmpty())
+    }
+    var closedChildren by remember(currentMetadata) {
+        mutableStateOf(currentMetadata?.closedChildren == true)
+    }
+    var newChildInput by remember(currentMetadata) { mutableStateOf("") }
+    val originalChildren = currentMetadata?.children.orEmpty()
+    val originalClosedChildren = currentMetadata?.closedChildren == true
+
+    // Groups currently declaring this group as parent but not in `acceptedChildren` —
+    // i.e. claims awaiting approval (covers both Unverified and, if closedChildren was on,
+    // previously Invalid ones the admin might now want to accept).
+    val allGroups by AppModule.nostrRepository.groups.collectAsState()
+    val pendingClaims = remember(allGroups, groupId, acceptedChildren) {
+        val approved = acceptedChildren.map { it.id }.toSet()
+        allGroups.filter { it.parent == groupId && it.id !in approved && it.id != groupId }
+    }
+
     var isSaving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
@@ -138,6 +164,40 @@ fun EditGroupModal(
                     }
 
                     Spacer(modifier = Modifier.height(Spacing.xxl))
+
+                    EditFieldLabel("Group ID")
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(NostrordColors.SurfaceVariant, RoundedCornerShape(8.dp))
+                            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = groupId,
+                            style = NostrordTypography.Caption,
+                            color = NostrordColors.TextPrimary,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.sm))
+                        IconButton(
+                            onClick = { copyToClipboard(groupId) },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ContentCopy,
+                                contentDescription = "Copy group ID",
+                                tint = NostrordColors.TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(Spacing.lg))
 
                     // Group Name
                     EditFieldLabel("Group Name")
@@ -246,25 +306,109 @@ fun EditGroupModal(
                         shape = RoundedCornerShape(8.dp)
                     )
 
+                    Spacer(modifier = Modifier.height(Spacing.xxl))
+
+                    Text(
+                        text = "CHILD GROUPS",
+                        style = NostrordTypography.SectionHeader,
+                        color = NostrordColors.TextMuted
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Text(
+                        text = "Approve subgroups that declare this group as parent. Bilateral approval removes the ⚠ warning shown to other users.",
+                        style = NostrordTypography.Caption,
+                        color = NostrordColors.TextSecondary
+                    )
+
                     Spacer(modifier = Modifier.height(Spacing.sm))
 
                     EditAccessToggleRow(
-                        icon = Icons.Default.Lock,
-                        label = "Inherit members",
-                        description = "Children's members are treated as members here",
-                        checked = inheritMembers,
-                        onCheckedChange = { inheritMembers = it }
+                        icon = Icons.Default.Block,
+                        label = "Closed children",
+                        description = "Only children listed below are accepted; all other parent claims are rejected.",
+                        checked = closedChildren,
+                        onCheckedChange = { closedChildren = it }
                     )
+
+                    if (pendingClaims.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(Spacing.md))
+                        EditFieldLabel("Pending claims (${pendingClaims.size})")
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        pendingClaims.forEach { claim ->
+                            ChildClaimRow(
+                                groupId = claim.id,
+                                groupName = claim.name,
+                                isApproved = false,
+                                onActionClick = {
+                                    acceptedChildren = acceptedChildren + DeclaredChild(id = claim.id)
+                                }
+                            )
+                            Spacer(modifier = Modifier.height(Spacing.xs))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(Spacing.md))
+                    EditFieldLabel(
+                        if (acceptedChildren.isEmpty()) "Approved children (none)"
+                        else "Approved children (${acceptedChildren.size})"
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    acceptedChildren.forEach { child ->
+                        val claimedName = allGroups.firstOrNull { it.id == child.id }?.name
+                        ChildClaimRow(
+                            groupId = child.id,
+                            groupName = claimedName,
+                            isApproved = true,
+                            onActionClick = {
+                                acceptedChildren = acceptedChildren.filterNot { it.id == child.id }
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                    }
 
                     Spacer(modifier = Modifier.height(Spacing.xs))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = newChildInput,
+                            onValueChange = { newChildInput = it.trim() },
+                            placeholder = {
+                                Text(
+                                    "child-group-id",
+                                    color = NostrordColors.TextMuted,
+                                    style = NostrordTypography.MessageBody
+                                )
+                            },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            colors = editFieldColors(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                        Spacer(modifier = Modifier.width(Spacing.sm))
+                        TextButton(
+                            onClick = {
+                                val id = newChildInput.trim()
+                                if (id.isNotBlank() && acceptedChildren.none { it.id == id } && id != groupId) {
+                                    acceptedChildren = acceptedChildren + DeclaredChild(id = id)
+                                    newChildInput = ""
+                                }
+                            },
+                            enabled = newChildInput.isNotBlank() &&
+                                acceptedChildren.none { it.id == newChildInput } &&
+                                newChildInput != groupId
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                tint = NostrordColors.Primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.xs))
+                            Text("Add", color = NostrordColors.Primary)
+                        }
+                    }
 
-                    EditAccessToggleRow(
-                        icon = Icons.Default.Block,
-                        label = "Restricted",
-                        description = "Opt out of parent's inherit-members authorization",
-                        checked = restricted,
-                        onCheckedChange = { restricted = it }
-                    )
+                    Spacer(modifier = Modifier.height(Spacing.sm))
+
                     }
 
                     if (errorMessage != null) {
@@ -315,20 +459,32 @@ fun EditGroupModal(
                                                 newParent == null -> GroupManager.ParentOp.Detach
                                                 else -> GroupManager.ParentOp.SetTo(newParent)
                                             }
-                                            val inheritChange = if (inheritMembers != originalInherit) inheritMembers else null
-                                            val restrictedChange = if (restricted != originalRestricted) restricted else null
-                                            if (parentOp != null || inheritChange != null || restrictedChange != null) {
+                                            if (parentOp != null) {
                                                 val topoResult = AppModule.nostrRepository.updateGroupTopology(
                                                     groupId = groupId,
-                                                    parent = parentOp,
-                                                    inheritMembers = inheritChange,
-                                                    restricted = restrictedChange
+                                                    parent = parentOp
                                                 )
                                                 if (topoResult is Result.Error) {
                                                     isSaving = false
                                                     errorMessage = topoResult.error.cause?.message
                                                         ?: topoResult.error.message
                                                         ?: "Failed to update hierarchy."
+                                                    return@launch
+                                                }
+                                            }
+                                            val childrenChanged = acceptedChildren != originalChildren ||
+                                                closedChildren != originalClosedChildren
+                                            if (childrenChanged) {
+                                                val childResult = AppModule.nostrRepository.updateChildren(
+                                                    groupId = groupId,
+                                                    children = acceptedChildren,
+                                                    closedChildren = closedChildren
+                                                )
+                                                if (childResult is Result.Error) {
+                                                    isSaving = false
+                                                    errorMessage = childResult.error.cause?.message
+                                                        ?: childResult.error.message
+                                                        ?: "Failed to update child list."
                                                     return@launch
                                                 }
                                             }
@@ -430,6 +586,57 @@ private fun EditAccessToggleRow(
             ),
             modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
         )
+    }
+}
+
+@Composable
+private fun ChildClaimRow(
+    groupId: String,
+    groupName: String?,
+    isApproved: Boolean,
+    onActionClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(NostrordColors.SurfaceVariant, RoundedCornerShape(8.dp))
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = groupName?.takeIf { it.isNotBlank() } ?: groupId,
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextPrimary,
+                fontWeight = FontWeight.Medium
+            )
+            if (!groupName.isNullOrBlank()) {
+                Text(
+                    text = groupId,
+                    style = NostrordTypography.Caption,
+                    color = NostrordColors.TextMuted
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(Spacing.sm))
+        TextButton(
+            onClick = onActionClick,
+            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+        ) {
+            Icon(
+                imageVector = if (isApproved) Icons.Default.Close else Icons.Default.Check,
+                contentDescription = null,
+                tint = if (isApproved) NostrordColors.Error else NostrordColors.Primary,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(Spacing.xs))
+            Text(
+                text = if (isApproved) "Remove" else "Approve",
+                color = if (isApproved) NostrordColors.Error else NostrordColors.Primary,
+                style = NostrordTypography.Caption
+            )
+        }
     }
 }
 

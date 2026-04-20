@@ -80,6 +80,10 @@ class NostrRepository(
      */
     private var activeRelayUrl: String? = null
 
+    // Debounced metadata refresh — when multiple mux subs are CLOSED at once
+    // (idle drop), only one refreshVisibleUserMetadata() fires.
+    private var metadataRefreshJob: kotlinx.coroutines.Job? = null
+
     // Per-relay bounded message pipelines — prevents unbounded coroutine creation under burst load.
     // Map: relayUrl -> (client, pipeline). The client reference is used to detect reconnects:
     // when a new NostrGroupClient is created for the same URL, the old pipeline is closed and a
@@ -172,7 +176,6 @@ class NostrRepository(
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadataManager.relayMetadata
     override val kind10009Relays: StateFlow<Set<String>> = outboxManager.kind10009Relays
     override val groupTagRelays: StateFlow<Set<String>> = outboxManager.groupTagRelays
-    override val subgroupAwareRelays: StateFlow<Set<String>> = groupManager.subgroupAwareRelays
 
     override fun forceInitialized() {
         _isInitialized.value = true
@@ -191,7 +194,6 @@ class NostrRepository(
             }
         }
         connectionManager.onReconnected = { client ->
-            sessionManager.sendAuthIfNeeded(client)
             resubscribeAllGroups(client)
             pendingEventManager?.onConnectionRestored()
             reconnectDroppedNip29PoolRelays()
@@ -450,7 +452,6 @@ class NostrRepository(
         if (connected) {
             val client = connectionManager.getPrimaryClient()
             if (client != null) {
-                sessionManager.sendAuthIfNeeded(client)
                 resubscribeAllGroups(client)
                 pendingEventManager?.onConnectionRestored()
             }
@@ -837,18 +838,15 @@ class NostrRepository(
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
-        restricted: Boolean,
         picture: String?,
         customGroupId: String?
     ): Result<String> {
         val created = createGroup(name, about, relayUrl, isPrivate, isClosed, picture, customGroupId)
         if (created !is Result.Success) return created
-        // Attach to parent (and set restricted flag if requested) via a second kind:9002.
+        // Attach to parent via kind:9002.
         val topology = updateGroupTopology(
             groupId = created.data,
-            parent = GroupManager.ParentOp.SetTo(parentGroupId),
-            inheritMembers = null,
-            restricted = if (restricted) true else null
+            parent = GroupManager.ParentOp.SetTo(parentGroupId)
         )
         return when (topology) {
             is Result.Success -> created
@@ -926,13 +924,7 @@ class NostrRepository(
     }
 
     override val childrenByParent: StateFlow<Map<String, Set<String>>> = groupManager.childrenByParent
-    override val unconfirmedChildren: StateFlow<Set<String>> = groupManager.unconfirmedChildren
-    override val rootIndex: StateFlow<Set<String>> = groupManager.rootIndex
-
-    override suspend fun requestSubgroupManifest(parentId: String) {
-        val client = connectionManager.getPrimaryClient() ?: return
-        client.requestSubgroupManifest(parentId)
-    }
+    override val unverifiedChildren: StateFlow<Set<String>> = groupManager.unverifiedChildren
 
     override suspend fun refreshGroupMetadata(groupId: String) {
         val relayUrl = groupManager.getRelayForGroup(groupId)
@@ -982,10 +974,7 @@ class NostrRepository(
         return result
     }
 
-    override suspend fun deleteGroup(groupId: String): Result<GroupManager.DeleteGroupOutcome> =
-        deleteGroup(groupId, cascade = false)
-
-    override suspend fun deleteGroup(groupId: String, cascade: Boolean): Result<GroupManager.DeleteGroupOutcome> {
+    override suspend fun deleteGroup(groupId: String): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.deleteGroup(
@@ -993,24 +982,36 @@ class NostrRepository(
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
-            publishJoinedGroups = { publishJoinedGroupsList() },
-            cascade = cascade
+            publishJoinedGroups = { publishJoinedGroupsList() }
         )
     }
 
     override suspend fun updateGroupTopology(
         groupId: String,
-        parent: GroupManager.ParentOp?,
-        inheritMembers: Boolean?,
-        restricted: Boolean?
+        parent: GroupManager.ParentOp?
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return groupManager.updateGroupTopology(
             groupId = groupId,
             parent = parent,
-            inheritMembers = inheritMembers,
-            restricted = restricted,
+            pubKey = pubKey,
+            currentRelayUrl = connectionManager.currentRelayUrl.value,
+            signEvent = { sessionManager.signEvent(it) }
+        )
+    }
+
+    override suspend fun updateChildren(
+        groupId: String,
+        children: List<org.nostr.nostrord.network.DeclaredChild>,
+        closedChildren: Boolean
+    ): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return groupManager.updateChildren(
+            groupId = groupId,
+            children = children,
+            closedChildren = closedChildren,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) }
@@ -1620,6 +1621,11 @@ class NostrRepository(
                         delay(2_000)  // brief back-off before re-opening
                         groupManager.refreshMuxDebounced(relayUrl)
                     }
+                    metadataRefreshJob?.cancel()
+                    metadataRefreshJob = scope.launch {
+                        delay(3_000)
+                        refreshVisibleUserMetadata()
+                    }
                 }
             }
 
@@ -1671,11 +1677,6 @@ class NostrRepository(
                         val groupRoles = client.parseGroupRoles(event) ?: return
                         val createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L
                         groupManager.handleGroupRoles(groupRoles, createdAt)
-                    }
-
-                    39005 -> {
-                        val manifest = client.parseGroupSubgroupManifest(event) ?: return
-                        groupManager.handleSubgroupManifest(manifest, client.getRelayUrl())
                     }
 
                     9008 -> {

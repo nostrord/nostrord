@@ -39,7 +39,7 @@ class EditProfileViewModelTest {
         val vm = EditProfileViewModel(fake)
 
         var result: kotlin.Result<Unit>? = null
-        vm.saveProfile("Alice", "alice", "bio", null, null) { result = it }
+        vm.saveProfile("Alice", "alice", "bio", null, null, null, null, null) { result = it }
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertNotNull(result)
@@ -49,13 +49,13 @@ class EditProfileViewModelTest {
     @Test
     fun `saveProfile failure calls onResult with failure`() = runTest {
         val fake = FakeNostrRepository()
-        fake.updateProfileMetadataAction = { _, _, _, _, _ ->
+        fake.updateProfileMetadataAction = { _, _, _, _, _, _, _, _ ->
             Result.Error(AppError.Unknown("server error"))
         }
         val vm = EditProfileViewModel(fake)
 
         var result: kotlin.Result<Unit>? = null
-        vm.saveProfile("Alice", null, null, null, null) { result = it }
+        vm.saveProfile("Alice", null, null, null, null, null, null, null) { result = it }
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertNotNull(result)

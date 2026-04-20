@@ -51,7 +51,6 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.network.effectivelyJoinedGroupIds
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.components.loading.shimmerEffect
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
@@ -77,8 +76,6 @@ fun GroupsNavSidebar(
     isLoading: Boolean = false,
     /** childrenByParent from NostrRepository — used to render the "has subgroups" hint. */
     childrenByParent: Map<String, Set<String>> = emptyMap(),
-    /** Group ids flagged as unconfirmed (declared parent doesn't list them back). */
-    unconfirmedGroups: Set<String> = emptySet(),
     /** Joined group ids with no `kind:39000` on this relay — stale `kind:10009` pins. */
     orphanedJoinedIds: Set<String> = emptySet(),
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
@@ -96,30 +93,24 @@ fun GroupsNavSidebar(
     // stays intact — otherwise children of a joined parent would be orphaned in
     // "Other Groups". Descendants without effective access are rendered muted
     // via `notJoined`.
-    val myGroupsIds = remember(groups, joinedGroupIds) {
-        val byParent = groups.groupBy { it.parent }
+    val myGroupsIds = remember(groups, joinedGroupIds, childrenByParent) {
         val result = mutableSetOf<String>()
         val stack = ArrayDeque<String>().apply { joinedGroupIds.forEach { addLast(it) } }
         while (stack.isNotEmpty()) {
             val id = stack.removeLast()
             if (!result.add(id)) continue
-            byParent[id].orEmpty().forEach { stack.addLast(it.id) }
+            childrenByParent[id].orEmpty().forEach { stack.addLast(it) }
         }
         result
     }
-    // Effective membership honors NIP-29 `inherit-members`: children of a joined
-    // parent with that flag (and not `restricted`) count as joined for gating.
-    val effectiveJoinedIds = remember(groups, joinedGroupIds) {
-        effectivelyJoinedGroupIds(groups, joinedGroupIds)
-    }
-    val myGroups = remember(groups, myGroupsIds) {
-        flattenHierarchy(groups.filter { it.id in myGroupsIds })
+    val myGroups = remember(groups, myGroupsIds, childrenByParent) {
+        flattenHierarchy(groups.filter { it.id in myGroupsIds }, childrenByParent)
     }
     val otherGroups = remember(groups, myGroupsIds, searchQuery) {
         val base = groups.filter { it.id !in myGroupsIds }
         val filtered = if (searchQuery.isBlank()) base
         else base.filter { it.name?.contains(searchQuery, ignoreCase = true) == true || it.id.contains(searchQuery, ignoreCase = true) }
-        flattenHierarchy(filtered)
+        flattenHierarchy(filtered, childrenByParent)
     }
 
     var myGroupsExpanded by remember(relayUrl) { mutableStateOf(true) }
@@ -239,8 +230,7 @@ fun GroupsNavSidebar(
                                     isActive = group.id == activeGroupId,
                                     unreadCount = unreadCounts[group.id] ?: 0,
                                     childCount = childrenByParent[group.id]?.size ?: 0,
-                                    unconfirmed = group.id in unconfirmedGroups,
-                                    notJoined = group.id !in effectiveJoinedIds,
+                                    notJoined = group.id !in joinedGroupIds,
                                     depth = depth,
                                     onClick = { onGroupClick(group.id, group.name) }
                                 )
@@ -357,8 +347,7 @@ fun GroupsNavSidebar(
                                         isActive = group.id == activeGroupId,
                                         unreadCount = unreadCounts[group.id] ?: 0,
                                         childCount = childrenByParent[group.id]?.size ?: 0,
-                                        unconfirmed = group.id in unconfirmedGroups,
-                                        depth = depth,
+                                            depth = depth,
                                         onClick = { onGroupClick(group.id, group.name) }
                                     )
                                 }
@@ -501,7 +490,6 @@ private fun GroupItem(
     isActive: Boolean,
     unreadCount: Int,
     childCount: Int = 0,
-    unconfirmed: Boolean = false,
     notJoined: Boolean = false,
     depth: Int = 0,
     onClick: () -> Unit
@@ -561,16 +549,6 @@ private fun GroupItem(
             modifier = Modifier.weight(1f)
         )
 
-        // NIP-29 subgroup indicators: restricted (members only), unconfirmed (parent hasn't
-        // listed us yet), and a child-count chip when this group has children.
-        if (group.restricted) {
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("🔒", fontSize = 11.sp)
-        }
-        if (unconfirmed) {
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("⚠", color = NostrordColors.TextMuted, fontSize = 11.sp)
-        }
         if (childCount > 0) {
             Spacer(modifier = Modifier.width(4.dp))
             Text(
@@ -720,18 +698,27 @@ private fun OrphanedGroupItem(
 
 /**
  * Produce a list of (group, depth) ordered as a hierarchy: each parent is followed
- * by its children (DFS), children indented by depth. Groups whose parent isn't in
- * the input list are treated as roots.
+ * by its children (DFS), children indented by depth.
+ *
+ * Only relationships present in [confirmedChildren] are rendered as tree nesting.
+ * Groups whose parent claim is unverified appear as roots.
  */
-private fun flattenHierarchy(list: List<GroupMetadata>): List<Pair<GroupMetadata, Int>> {
+private fun flattenHierarchy(
+    list: List<GroupMetadata>,
+    confirmedChildren: Map<String, Set<String>> = emptyMap()
+): List<Pair<GroupMetadata, Int>> {
     if (list.isEmpty()) return emptyList()
     val byId = list.associateBy { it.id }
-    val childrenOf = list.groupBy { it.parent?.takeIf { p -> p in byId } }
-    val roots = childrenOf[null].orEmpty()
+    // A group is only nested if its confirmed parent is also in the list;
+    // otherwise it must appear as a root (e.g. user left the parent group).
+    val confirmedChildIds = confirmedChildren
+        .filter { (parentId, _) -> parentId in byId }
+        .values.flatten().toSet()
+    val roots = list.filter { it.id !in confirmedChildIds }
     val out = mutableListOf<Pair<GroupMetadata, Int>>()
     fun visit(g: GroupMetadata, depth: Int) {
         out += g to depth
-        childrenOf[g.id].orEmpty().forEach { visit(it, depth + 1) }
+        confirmedChildren[g.id]?.mapNotNull { byId[it] }?.forEach { visit(it, depth + 1) }
     }
     roots.forEach { visit(it, 0) }
     return out

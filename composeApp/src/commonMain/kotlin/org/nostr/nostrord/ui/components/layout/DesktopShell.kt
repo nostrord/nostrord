@@ -58,7 +58,7 @@ fun DesktopShell(
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val childrenByParent by AppModule.nostrRepository.childrenByParent.collectAsState()
-    val unconfirmedChildren by AppModule.nostrRepository.unconfirmedChildren.collectAsState()
+
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
@@ -74,9 +74,6 @@ fun DesktopShell(
         orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
     }
 
-    LaunchedEffect(activeRelayUrl) {
-        AppModule.nostrRepository.requestSubgroupManifest("_")
-    }
 
     val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
     val currentUserMetadata = remember(pubKey, userMetadata) {
@@ -116,7 +113,6 @@ fun DesktopShell(
                     relayName = relayMetadata[activeRelayUrl]?.name,
                     isLoading = isGroupsLoading,
                     childrenByParent = childrenByParent,
-                    unconfirmedGroups = unconfirmedChildren,
                     onGroupClick = onGroupClick,
                     onCreateGroupClick = onCreateGroupClick,
                     onJoinGroupClick = onJoinGroupClick,

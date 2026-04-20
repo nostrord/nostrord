@@ -28,8 +28,6 @@ class GroupViewModel(
     val hasMoreMessages = repo.hasMoreMessages
     val currentRelayUrl = repo.currentRelayUrl
     val childrenByParent = repo.childrenByParent
-    val unconfirmedChildren = repo.unconfirmedChildren
-    val subgroupAwareRelays = repo.subgroupAwareRelays
 
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending
@@ -95,26 +93,19 @@ class GroupViewModel(
     }
 
     fun deleteGroup(
-        cascade: Boolean = false,
-        onResult: (Result<org.nostr.nostrord.network.managers.GroupManager.DeleteGroupOutcome>) -> Unit
+        onResult: (Result<Unit>) -> Unit
     ) {
         viewModelScope.launch {
-            onResult(repo.deleteGroup(groupId, cascade))
+            onResult(repo.deleteGroup(groupId))
         }
-    }
-
-    fun requestSubgroupManifest() {
-        viewModelScope.launch { repo.requestSubgroupManifest(groupId) }
     }
 
     fun updateTopology(
         parent: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
-        inheritMembers: Boolean?,
-        restricted: Boolean?,
         onDone: (Result<Unit>) -> Unit = {}
     ) {
         viewModelScope.launch {
-            onDone(repo.updateGroupTopology(groupId, parent, inheritMembers, restricted))
+            onDone(repo.updateGroupTopology(groupId, parent))
         }
     }
 
