@@ -57,8 +57,14 @@ fun DesktopShell(
     val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
-    val childrenByParent by AppModule.nostrRepository.childrenByParent.collectAsState()
-    val unverifiedChildren by AppModule.nostrRepository.unverifiedChildren.collectAsState()
+    val childrenByParentRaw by AppModule.nostrRepository.childrenByParent.collectAsState()
+    val unverifiedChildrenRaw by AppModule.nostrRepository.unverifiedChildren.collectAsState()
+    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
+    // When the experimental subgroups flag is off, pass through empty maps/sets
+    // so the sidebar renders a flat list — hides the hierarchy indent and the
+    // unverified-claims subheader until the user opts in.
+    val childrenByParent = if (subgroupsEnabled) childrenByParentRaw else emptyMap()
+    val unverifiedChildren = if (subgroupsEnabled) unverifiedChildrenRaw else emptySet()
 
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()

@@ -86,6 +86,7 @@ fun GroupScreen(
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val allRestrictedGroups by vm.restrictedGroups.collectAsState()
     val childrenByParent by vm.childrenByParent.collectAsState()
+    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
     val currentUserPubkey = vm.getPublicKey()
 
     val currentGroupMetadata = remember(groups, groupId) {
@@ -318,7 +319,7 @@ fun GroupScreen(
             currentMetadata = currentGroupMetadata,
             onDismiss = { showEditGroupModal = false },
             onGroupUpdated = { showEditGroupModal = false },
-            showSubgroupControls = true
+            showSubgroupControls = subgroupsEnabled
         )
     }
 
@@ -655,7 +656,7 @@ fun GroupScreen(
                 onManageMembers = { showMemberManagementModal = true },
                 onCreateSubgroup = { showCreateSubgroupModal = true },
                 onManageChildren = { showManageChildrenModal = true },
-                showSubgroupControls = true,
+                showSubgroupControls = subgroupsEnabled,
                 parentGroupName = parentGroupName,
                 onParentClick = {
                     val parentId = currentGroupMetadata?.parent
@@ -741,7 +742,7 @@ fun GroupScreen(
                 onManageMembers = { showMemberManagementModal = true },
                 onCreateSubgroup = { showCreateSubgroupModal = true },
                 onManageChildren = { showManageChildrenModal = true },
-                showSubgroupControls = true,
+                showSubgroupControls = subgroupsEnabled,
                 parentGroupName = parentGroupName,
                 onParentClick = {
                     val parentId = currentGroupMetadata?.parent

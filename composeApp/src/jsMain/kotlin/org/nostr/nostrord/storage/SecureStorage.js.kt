@@ -281,4 +281,13 @@ actual object SecureStorage {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         localStorage.removeItem(key)
     }
+
+    actual fun saveBooleanPref(key: String, value: Boolean) {
+        localStorage.setItem(key, if (value) "1" else "0")
+    }
+
+    actual fun getBooleanPref(key: String, default: Boolean): Boolean {
+        val raw = localStorage.getItem(key) ?: return default
+        return raw == "1" || raw.equals("true", ignoreCase = true)
+    }
 }

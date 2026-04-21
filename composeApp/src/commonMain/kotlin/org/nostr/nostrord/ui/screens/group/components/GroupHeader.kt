@@ -110,7 +110,7 @@ fun GroupHeader(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    if (parentGroupName != null) {
+                    if (showSubgroupControls && parentGroupName != null) {
                         Text(
                             text = "◀ $parentGroupName",
                             color = NostrordColors.TextSecondary,
@@ -132,7 +132,7 @@ fun GroupHeader(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
-                        if (childCount > 0) {
+                        if (showSubgroupControls && childCount > 0) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Box(
                                 modifier = Modifier

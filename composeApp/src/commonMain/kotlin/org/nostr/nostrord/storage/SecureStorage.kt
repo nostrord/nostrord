@@ -84,6 +84,10 @@ expect object SecureStorage {
     fun saveLiveCursors(relayUrl: String, json: String)
     fun getLiveCursors(relayUrl: String): String?
     fun clearLiveCursors(relayUrl: String)
+
+    // Generic boolean preference — backs user-facing feature flags / settings.
+    fun saveBooleanPref(key: String, value: Boolean)
+    fun getBooleanPref(key: String, default: Boolean): Boolean
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)

@@ -288,4 +288,13 @@ actual object SecureStorage {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         jsRemoveItem(key)
     }
+
+    actual fun saveBooleanPref(key: String, value: Boolean) {
+        jsSetItem(key, if (value) "1" else "0")
+    }
+
+    actual fun getBooleanPref(key: String, default: Boolean): Boolean {
+        val raw = jsGetItem(key) ?: return default
+        return raw == "1" || raw.equals("true", ignoreCase = true)
+    }
 }
