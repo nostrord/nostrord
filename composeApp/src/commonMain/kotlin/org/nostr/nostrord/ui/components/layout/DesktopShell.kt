@@ -58,6 +58,7 @@ fun DesktopShell(
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val childrenByParent by AppModule.nostrRepository.childrenByParent.collectAsState()
+    val unverifiedChildren by AppModule.nostrRepository.unverifiedChildren.collectAsState()
 
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
@@ -113,6 +114,7 @@ fun DesktopShell(
                     relayName = relayMetadata[activeRelayUrl]?.name,
                     isLoading = isGroupsLoading,
                     childrenByParent = childrenByParent,
+                    unverifiedChildren = unverifiedChildren,
                     onGroupClick = onGroupClick,
                     onCreateGroupClick = onCreateGroupClick,
                     onJoinGroupClick = onJoinGroupClick,

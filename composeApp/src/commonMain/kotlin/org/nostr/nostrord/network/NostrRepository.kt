@@ -955,7 +955,9 @@ class NostrRepository(
         about: String?,
         isPrivate: Boolean,
         isClosed: Boolean,
-        picture: String?
+        picture: String?,
+        parentOp: GroupManager.ParentOp?,
+        childrenEdit: GroupManager.ChildrenEdit?
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -968,7 +970,9 @@ class NostrRepository(
             isClosed = isClosed,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
+            parentOp = parentOp,
+            childrenEdit = childrenEdit
         )
         if (result is Result.Success) refreshGroupMetadata(groupId)
         return result

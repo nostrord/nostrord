@@ -9,7 +9,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -31,7 +30,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.upload.UploadImageField
@@ -61,28 +59,6 @@ fun EditGroupModal(
     var isClosed by remember(currentMetadata) { mutableStateOf(currentMetadata?.isOpen == false) }
     var parentIdInput by remember(currentMetadata) { mutableStateOf(currentMetadata?.parent ?: "") }
     val originalParent = currentMetadata?.parent
-
-    // Parent-side consent state (bilateral `child` declarations + `closed-children` flag).
-    // Edits are batched and published as one kind:9002 on save, so the user can approve
-    // pending claims / remove existing children / toggle the flag without spraying events.
-    var acceptedChildren by remember(currentMetadata) {
-        mutableStateOf(currentMetadata?.children.orEmpty())
-    }
-    var closedChildren by remember(currentMetadata) {
-        mutableStateOf(currentMetadata?.closedChildren == true)
-    }
-    var newChildInput by remember(currentMetadata) { mutableStateOf("") }
-    val originalChildren = currentMetadata?.children.orEmpty()
-    val originalClosedChildren = currentMetadata?.closedChildren == true
-
-    // Groups currently declaring this group as parent but not in `acceptedChildren` —
-    // i.e. claims awaiting approval (covers both Unverified and, if closedChildren was on,
-    // previously Invalid ones the admin might now want to accept).
-    val allGroups by AppModule.nostrRepository.groups.collectAsState()
-    val pendingClaims = remember(allGroups, groupId, acceptedChildren) {
-        val approved = acceptedChildren.map { it.id }.toSet()
-        allGroups.filter { it.parent == groupId && it.id !in approved && it.id != groupId }
-    }
 
     var isSaving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -306,107 +282,6 @@ fun EditGroupModal(
                         shape = RoundedCornerShape(8.dp)
                     )
 
-                    Spacer(modifier = Modifier.height(Spacing.xxl))
-
-                    Text(
-                        text = "CHILD GROUPS",
-                        style = NostrordTypography.SectionHeader,
-                        color = NostrordColors.TextMuted
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    Text(
-                        text = "Approve subgroups that declare this group as parent. Bilateral approval removes the ⚠ warning shown to other users.",
-                        style = NostrordTypography.Caption,
-                        color = NostrordColors.TextSecondary
-                    )
-
-                    Spacer(modifier = Modifier.height(Spacing.sm))
-
-                    EditAccessToggleRow(
-                        icon = Icons.Default.Block,
-                        label = "Closed children",
-                        description = "Only children listed below are accepted; all other parent claims are rejected.",
-                        checked = closedChildren,
-                        onCheckedChange = { closedChildren = it }
-                    )
-
-                    if (pendingClaims.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(Spacing.md))
-                        EditFieldLabel("Pending claims (${pendingClaims.size})")
-                        Spacer(modifier = Modifier.height(Spacing.xs))
-                        pendingClaims.forEach { claim ->
-                            ChildClaimRow(
-                                groupId = claim.id,
-                                groupName = claim.name,
-                                isApproved = false,
-                                onActionClick = {
-                                    acceptedChildren = acceptedChildren + DeclaredChild(id = claim.id)
-                                }
-                            )
-                            Spacer(modifier = Modifier.height(Spacing.xs))
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(Spacing.md))
-                    EditFieldLabel(
-                        if (acceptedChildren.isEmpty()) "Approved children (none)"
-                        else "Approved children (${acceptedChildren.size})"
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    acceptedChildren.forEach { child ->
-                        val claimedName = allGroups.firstOrNull { it.id == child.id }?.name
-                        ChildClaimRow(
-                            groupId = child.id,
-                            groupName = claimedName,
-                            isApproved = true,
-                            onActionClick = {
-                                acceptedChildren = acceptedChildren.filterNot { it.id == child.id }
-                            }
-                        )
-                        Spacer(modifier = Modifier.height(Spacing.xs))
-                    }
-
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = newChildInput,
-                            onValueChange = { newChildInput = it.trim() },
-                            placeholder = {
-                                Text(
-                                    "child-group-id",
-                                    color = NostrordColors.TextMuted,
-                                    style = NostrordTypography.MessageBody
-                                )
-                            },
-                            singleLine = true,
-                            modifier = Modifier.weight(1f),
-                            colors = editFieldColors(),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-                        Spacer(modifier = Modifier.width(Spacing.sm))
-                        TextButton(
-                            onClick = {
-                                val id = newChildInput.trim()
-                                if (id.isNotBlank() && acceptedChildren.none { it.id == id } && id != groupId) {
-                                    acceptedChildren = acceptedChildren + DeclaredChild(id = id)
-                                    newChildInput = ""
-                                }
-                            },
-                            enabled = newChildInput.isNotBlank() &&
-                                acceptedChildren.none { it.id == newChildInput } &&
-                                newChildInput != groupId
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = null,
-                                tint = NostrordColors.Primary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(Spacing.xs))
-                            Text("Add", color = NostrordColors.Primary)
-                        }
-                    }
-
                     Spacer(modifier = Modifier.height(Spacing.sm))
 
                     }
@@ -442,55 +317,24 @@ fun EditGroupModal(
                                 }
                                 isSaving = true
                                 scope.launch {
+                                    val newParent = parentIdInput.trim().ifBlank { null }
+                                    val parentOp: GroupManager.ParentOp? = when {
+                                        newParent == originalParent -> null
+                                        newParent == null -> GroupManager.ParentOp.Detach
+                                        else -> GroupManager.ParentOp.SetTo(newParent)
+                                    }
                                     val result = AppModule.nostrRepository.editGroup(
                                         groupId = groupId,
                                         name = name.trim(),
                                         about = about.trim().ifBlank { null },
                                         isPrivate = isPrivate,
                                         isClosed = isClosed,
-                                        picture = picture.trim().ifBlank { null }
+                                        picture = picture.trim().ifBlank { null },
+                                        parentOp = parentOp
                                     )
                                     isSaving = false
                                     when (result) {
-                                        is Result.Success -> {
-                                            val newParent = parentIdInput.trim().ifBlank { null }
-                                            val parentOp: GroupManager.ParentOp? = when {
-                                                newParent == originalParent -> null
-                                                newParent == null -> GroupManager.ParentOp.Detach
-                                                else -> GroupManager.ParentOp.SetTo(newParent)
-                                            }
-                                            if (parentOp != null) {
-                                                val topoResult = AppModule.nostrRepository.updateGroupTopology(
-                                                    groupId = groupId,
-                                                    parent = parentOp
-                                                )
-                                                if (topoResult is Result.Error) {
-                                                    isSaving = false
-                                                    errorMessage = topoResult.error.cause?.message
-                                                        ?: topoResult.error.message
-                                                        ?: "Failed to update hierarchy."
-                                                    return@launch
-                                                }
-                                            }
-                                            val childrenChanged = acceptedChildren != originalChildren ||
-                                                closedChildren != originalClosedChildren
-                                            if (childrenChanged) {
-                                                val childResult = AppModule.nostrRepository.updateChildren(
-                                                    groupId = groupId,
-                                                    children = acceptedChildren,
-                                                    closedChildren = closedChildren
-                                                )
-                                                if (childResult is Result.Error) {
-                                                    isSaving = false
-                                                    errorMessage = childResult.error.cause?.message
-                                                        ?: childResult.error.message
-                                                        ?: "Failed to update child list."
-                                                    return@launch
-                                                }
-                                            }
-                                            AppModule.nostrRepository.refreshGroupMetadata(groupId)
-                                            onGroupUpdated()
-                                        }
+                                        is Result.Success -> onGroupUpdated()
                                         is Result.Error -> errorMessage = result.error.cause?.message
                                             ?: result.error.message
                                             ?: "Failed to update group."
@@ -525,7 +369,7 @@ fun EditGroupModal(
 }
 
 @Composable
-private fun EditFieldLabel(text: String) {
+internal fun EditFieldLabel(text: String) {
     Text(
         text = text,
         style = NostrordTypography.Caption,
@@ -535,7 +379,7 @@ private fun EditFieldLabel(text: String) {
 }
 
 @Composable
-private fun EditAccessToggleRow(
+internal fun EditAccessToggleRow(
     icon: ImageVector,
     label: String,
     description: String,
@@ -590,11 +434,12 @@ private fun EditAccessToggleRow(
 }
 
 @Composable
-private fun ChildClaimRow(
+internal fun ChildClaimRow(
     groupId: String,
     groupName: String?,
     isApproved: Boolean,
-    onActionClick: () -> Unit
+    onActionClick: () -> Unit,
+    actionLabel: String? = null
 ) {
     Row(
         modifier = Modifier
@@ -632,7 +477,7 @@ private fun ChildClaimRow(
             )
             Spacer(modifier = Modifier.width(Spacing.xs))
             Text(
-                text = if (isApproved) "Remove" else "Approve",
+                text = actionLabel ?: if (isApproved) "Remove" else "Approve",
                 color = if (isApproved) NostrordColors.Error else NostrordColors.Primary,
                 style = NostrordTypography.Caption
             )
@@ -642,7 +487,7 @@ private fun ChildClaimRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun editFieldColors() = OutlinedTextFieldDefaults.colors(
+internal fun editFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = NostrordColors.TextPrimary,
     unfocusedTextColor = NostrordColors.TextPrimary,
     focusedBorderColor = NostrordColors.Primary,

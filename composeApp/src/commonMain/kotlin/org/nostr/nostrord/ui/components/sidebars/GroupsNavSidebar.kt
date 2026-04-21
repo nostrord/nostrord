@@ -13,13 +13,20 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
@@ -76,6 +83,12 @@ fun GroupsNavSidebar(
     isLoading: Boolean = false,
     /** childrenByParent from NostrRepository — used to render the "has subgroups" hint. */
     childrenByParent: Map<String, Set<String>> = emptyMap(),
+    /**
+     * Subgroup ids whose parent-claim is unverified per NIP-29 §"Parent consent"
+     * (parent doesn't list them back and no admin attestation). Rendered nested
+     * under their declared parent but visually flagged.
+     */
+    unverifiedChildren: Set<String> = emptySet(),
     /** Joined group ids with no `kind:39000` on this relay — stale `kind:10009` pins. */
     orphanedJoinedIds: Set<String> = emptySet(),
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
@@ -88,11 +101,16 @@ fun GroupsNavSidebar(
     // Reset when relay changes
     var searchQuery by remember(relayUrl) { mutableStateOf("") }
 
+    // Per-parent expansion state for the "Unconfirmed claims" subheader.
+    // Missing key = collapsed (default) — admin sees only the confirmed tree
+    // until they explicitly reveal the disputed claims.
+    val expandedUnverified = remember(relayUrl) { mutableStateMapOf<String, Boolean>() }
+
     // Groups that appear under "My Groups": joined groups plus any descendants
     // of joined groups (even if the user hasn't joined them yet), so the hierarchy
     // stays intact — otherwise children of a joined parent would be orphaned in
     // "Other Groups". Descendants without effective access are rendered muted
-    // via `notJoined`.
+    // via `notJoined`. Unverified descendants are included but visually demoted.
     val myGroupsIds = remember(groups, joinedGroupIds, childrenByParent) {
         val result = mutableSetOf<String>()
         val stack = ArrayDeque<String>().apply { joinedGroupIds.forEach { addLast(it) } }
@@ -103,14 +121,19 @@ fun GroupsNavSidebar(
         }
         result
     }
-    val myGroups = remember(groups, myGroupsIds, childrenByParent) {
-        flattenHierarchy(groups.filter { it.id in myGroupsIds }, childrenByParent)
+    val myGroups = remember(groups, myGroupsIds, childrenByParent, unverifiedChildren, expandedUnverified.toMap()) {
+        flattenHierarchy(
+            groups.filter { it.id in myGroupsIds },
+            childrenByParent,
+            unverifiedChildren,
+            expandedUnverified
+        )
     }
-    val otherGroups = remember(groups, myGroupsIds, searchQuery) {
+    val otherGroups = remember(groups, myGroupsIds, searchQuery, childrenByParent, unverifiedChildren, expandedUnverified.toMap()) {
         val base = groups.filter { it.id !in myGroupsIds }
         val filtered = if (searchQuery.isBlank()) base
         else base.filter { it.name?.contains(searchQuery, ignoreCase = true) == true || it.id.contains(searchQuery, ignoreCase = true) }
-        flattenHierarchy(filtered, childrenByParent)
+        flattenHierarchy(filtered, childrenByParent, unverifiedChildren, expandedUnverified)
     }
 
     var myGroupsExpanded by remember(relayUrl) { mutableStateOf(true) }
@@ -224,16 +247,28 @@ fun GroupsNavSidebar(
                             onToggle = { myGroupsExpanded = !myGroupsExpanded }
                         )
                         if (myGroupsExpanded) {
-                            myGroups.forEach { (group, depth) ->
-                                GroupItem(
-                                    group = group,
-                                    isActive = group.id == activeGroupId,
-                                    unreadCount = unreadCounts[group.id] ?: 0,
-                                    childCount = childrenByParent[group.id]?.size ?: 0,
-                                    notJoined = group.id !in joinedGroupIds,
-                                    depth = depth,
-                                    onClick = { onGroupClick(group.id, group.name) }
-                                )
+                            myGroups.forEach { item ->
+                                when (item) {
+                                    is SidebarItem.Group -> GroupItem(
+                                        group = item.group,
+                                        isActive = item.group.id == activeGroupId,
+                                        unreadCount = unreadCounts[item.group.id] ?: 0,
+                                        childCount = childrenByParent[item.group.id]?.size ?: 0,
+                                        notJoined = item.group.id !in joinedGroupIds,
+                                        unverified = item.unverified,
+                                        depth = item.depth,
+                                        onClick = { onGroupClick(item.group.id, item.group.name) }
+                                    )
+                                    is SidebarItem.UnverifiedHeader -> UnverifiedClaimsHeader(
+                                        count = item.count,
+                                        expanded = expandedUnverified[item.parentId] == true,
+                                        depth = item.depth,
+                                        onToggle = {
+                                            expandedUnverified[item.parentId] =
+                                                !(expandedUnverified[item.parentId] ?: false)
+                                        }
+                                    )
+                                }
                             }
                             orphanedJoinedIds.forEach { orphanId ->
                                 OrphanedGroupItem(
@@ -341,15 +376,35 @@ fun GroupsNavSidebar(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.sm)
                             ) {
-                                items(otherGroups, key = { "other_${it.first.id}" }) { (group, depth) ->
-                                    GroupItem(
-                                        group = group,
-                                        isActive = group.id == activeGroupId,
-                                        unreadCount = unreadCounts[group.id] ?: 0,
-                                        childCount = childrenByParent[group.id]?.size ?: 0,
-                                            depth = depth,
-                                        onClick = { onGroupClick(group.id, group.name) }
-                                    )
+                                items(
+                                    otherGroups,
+                                    key = { item ->
+                                        when (item) {
+                                            is SidebarItem.Group -> "other_${item.group.id}"
+                                            is SidebarItem.UnverifiedHeader -> "other_unverified_${item.parentId}"
+                                        }
+                                    }
+                                ) { item ->
+                                    when (item) {
+                                        is SidebarItem.Group -> GroupItem(
+                                            group = item.group,
+                                            isActive = item.group.id == activeGroupId,
+                                            unreadCount = unreadCounts[item.group.id] ?: 0,
+                                            childCount = childrenByParent[item.group.id]?.size ?: 0,
+                                            unverified = item.unverified,
+                                            depth = item.depth,
+                                            onClick = { onGroupClick(item.group.id, item.group.name) }
+                                        )
+                                        is SidebarItem.UnverifiedHeader -> UnverifiedClaimsHeader(
+                                            count = item.count,
+                                            expanded = expandedUnverified[item.parentId] == true,
+                                            depth = item.depth,
+                                            onToggle = {
+                                                expandedUnverified[item.parentId] =
+                                                    !(expandedUnverified[item.parentId] ?: false)
+                                            }
+                                        )
+                                    }
                                 }
 
                                 if (otherGroups.isEmpty() && searchQuery.isNotBlank()) {
@@ -459,6 +514,57 @@ private fun SectionToggleHeader(
     }
 }
 
+/**
+ * Collapsible subheader nested under a parent group that groups its unverified
+ * child-claims. Collapsed by default — admins see only confirmed children until
+ * they open this row to review disputed claims.
+ */
+@Composable
+private fun UnverifiedClaimsHeader(
+    count: Int,
+    expanded: Boolean,
+    depth: Int,
+    onToggle: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val chevronRotation by animateFloatAsState(targetValue = if (expanded) 0f else -90f)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
+            .hoverable(interactionSource)
+            .clickable(onClick = onToggle)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(
+                start = (10 + depth.coerceAtMost(3) * 14).dp,
+                end = 10.dp,
+                top = 6.dp,
+                bottom = 6.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "▼",
+            color = NostrordColors.TextMuted,
+            fontSize = 8.sp,
+            modifier = Modifier.rotate(chevronRotation)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "Unconfirmed claims ($count)",
+            color = NostrordColors.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.02.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
 @Composable
 private fun GroupNavItemSkeleton() {
     Row(
@@ -484,6 +590,7 @@ private fun GroupNavItemSkeleton() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GroupItem(
     group: GroupMetadata,
@@ -491,6 +598,7 @@ private fun GroupItem(
     unreadCount: Int,
     childCount: Int = 0,
     notJoined: Boolean = false,
+    unverified: Boolean = false,
     depth: Int = 0,
     onClick: () -> Unit
 ) {
@@ -505,6 +613,9 @@ private fun GroupItem(
     }
 
     val textColor = when {
+        // Unverified subgroups are greyed even when active/hovered so the
+        // "claim is not confirmed" hint stays visible while the user reads it.
+        unverified -> NostrordColors.TextMuted
         isActive -> NostrordColors.TextPrimary
         hasUnread -> NostrordColors.TextPrimary
         isHovered -> NostrordColors.TextPrimary
@@ -544,10 +655,36 @@ private fun GroupItem(
             color = textColor,
             fontSize = 15.sp,
             fontWeight = if (hasUnread && !isActive) FontWeight.Bold else FontWeight.Normal,
+            fontStyle = if (unverified) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
+
+        if (unverified) {
+            Spacer(modifier = Modifier.width(4.dp))
+            TooltipBox(
+                positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
+                    TooltipAnchorPosition.Above
+                ),
+                tooltip = {
+                    PlainTooltip(
+                        containerColor = NostrordColors.Surface,
+                        contentColor = NostrordColors.TextPrimary
+                    ) {
+                        Text("Unverified subgroup — this group claims a parent that hasn't listed it back.")
+                    }
+                },
+                state = rememberTooltipState()
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.HelpOutline,
+                    contentDescription = "Unverified subgroup",
+                    tint = NostrordColors.TextMuted,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        }
 
         if (childCount > 0) {
             Spacer(modifier = Modifier.width(4.dp))
@@ -697,28 +834,61 @@ private fun OrphanedGroupItem(
 }
 
 /**
- * Produce a list of (group, depth) ordered as a hierarchy: each parent is followed
- * by its children (DFS), children indented by depth.
+ * Item emitted by [flattenHierarchy]: either a group row or a collapsible
+ * "Unconfirmed claims" subheader that groups unverified children under their
+ * claimed parent.
+ */
+private sealed class SidebarItem {
+    abstract val depth: Int
+    data class Group(
+        val group: GroupMetadata,
+        override val depth: Int,
+        val unverified: Boolean
+    ) : SidebarItem()
+    data class UnverifiedHeader(
+        val parentId: String,
+        override val depth: Int,
+        val count: Int
+    ) : SidebarItem()
+}
+
+/**
+ * Produce a flat list ordered as a hierarchy: each parent is followed by its
+ * confirmed children (DFS), then — if the parent has any unverified claims —
+ * an [SidebarItem.UnverifiedHeader] row. The unverified children themselves are
+ * only emitted when the header is expanded in [expandedUnverified].
  *
- * Only relationships present in [confirmedChildren] are rendered as tree nesting.
- * Groups whose parent claim is unverified appear as roots.
+ * Unverified groups are rendered as leaves — their own descendants are not
+ * visited since the parent link is disputed.
  */
 private fun flattenHierarchy(
     list: List<GroupMetadata>,
-    confirmedChildren: Map<String, Set<String>> = emptyMap()
-): List<Pair<GroupMetadata, Int>> {
+    childrenByParent: Map<String, Set<String>> = emptyMap(),
+    unverifiedChildren: Set<String> = emptySet(),
+    expandedUnverified: Map<String, Boolean> = emptyMap()
+): List<SidebarItem> {
     if (list.isEmpty()) return emptyList()
     val byId = list.associateBy { it.id }
-    // A group is only nested if its confirmed parent is also in the list;
-    // otherwise it must appear as a root (e.g. user left the parent group).
-    val confirmedChildIds = confirmedChildren
+    // A group is only nested if its parent is also in the list; otherwise it must
+    // appear as a root (e.g. user left the parent group).
+    val nestedChildIds = childrenByParent
         .filter { (parentId, _) -> parentId in byId }
         .values.flatten().toSet()
-    val roots = list.filter { it.id !in confirmedChildIds }
-    val out = mutableListOf<Pair<GroupMetadata, Int>>()
+    val roots = list.filter { it.id !in nestedChildIds }
+    val out = mutableListOf<SidebarItem>()
     fun visit(g: GroupMetadata, depth: Int) {
-        out += g to depth
-        confirmedChildren[g.id]?.mapNotNull { byId[it] }?.forEach { visit(it, depth + 1) }
+        out += SidebarItem.Group(g, depth, g.id in unverifiedChildren)
+        val kids = childrenByParent[g.id].orEmpty().mapNotNull { byId[it] }
+        val (unverified, confirmed) = kids.partition { it.id in unverifiedChildren }
+        confirmed.forEach { visit(it, depth + 1) }
+        if (unverified.isNotEmpty()) {
+            out += SidebarItem.UnverifiedHeader(g.id, depth + 1, unverified.size)
+            if (expandedUnverified[g.id] == true) {
+                unverified.forEach {
+                    out += SidebarItem.Group(it, depth + 2, unverified = true)
+                }
+            }
+        }
     }
     roots.forEach { visit(it, 0) }
     return out

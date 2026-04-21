@@ -835,16 +835,17 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
             val parentAttestation = parentTag?.getOrNull(2)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
 
             // Bilateral declarations: parent lists its accepted children via `["child", ...]` tags.
-            // Optional positional elements: order (sibling sort key) and flags (comma-separated hints).
+            // Layout: ["child", id, order, flag1, flag2, ...] — each flag is its own element.
             val children = tags.mapNotNull { tag ->
                 val arr = tag.jsonArray
                 if (arr.size < 2 || arr[0].jsonPrimitive.content != "child") return@mapNotNull null
                 val childId = arr[1].jsonPrimitive.content.takeIf { it.isNotBlank() } ?: return@mapNotNull null
                 val order = arr.getOrNull(2)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                val flags = arr.getOrNull(3)?.jsonPrimitive?.content
-                    ?.split(',')
-                    ?.mapNotNull { it.trim().takeIf { t -> t.isNotEmpty() } }
-                    ?: emptyList()
+                val flags = if (arr.size > 3) {
+                    arr.drop(3).mapNotNull {
+                        it.jsonPrimitive.content.takeIf { s -> s.isNotEmpty() }
+                    }
+                } else emptyList()
                 DeclaredChild(id = childId, order = order, flags = flags)
             }
 

@@ -132,7 +132,21 @@ interface NostrRepositoryApi {
     suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit>
     /** Joined groups on a relay that have no corresponding `kind:39000` metadata. */
     val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>>
-    suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String? = null): Result<Unit>
+    /**
+     * Edit a group in one kind:9002 event. [parentOp] and [childrenEdit]
+     * are optional — omit them to leave those fields unchanged
+     * (NIP-29 partial-update semantics).
+     */
+    suspend fun editGroup(
+        groupId: String,
+        name: String,
+        about: String?,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        picture: String? = null,
+        parentOp: GroupManager.ParentOp? = null,
+        childrenEdit: GroupManager.ChildrenEdit? = null
+    ): Result<Unit>
     suspend fun deleteGroup(groupId: String): Result<Unit>
     /**
      * Publish a kind:9002 to re-parent a group or promote it to root.

@@ -120,8 +120,10 @@ class GroupManager(
     // NIP-29 subgroups — topology derived from `parent` tags in kind:39000.
     // Tree is built client-side: groups without a parent tag are roots, the
     // rest are grouped under the `d` referenced by their `parent` tag.
-    // `childrenByParent` only contains Confirmed + Unverified relationships;
-    // Invalid claims (closed-children rejection) are hoisted back to the root.
+    // `childrenByParent` contains Confirmed AND Unverified relationships
+    // (the latter are also listed in `unverifiedChildren` so the UI can flag
+    // them visually per NIP-29 §"Parent consent"). Invalid claims
+    // (closed-children rejection) are hoisted back to the root.
     private val _childrenByParent = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val childrenByParent: StateFlow<Map<String, Set<String>>> = _childrenByParent.asStateFlow()
 
@@ -789,8 +791,20 @@ class GroupManager(
     }
 
     /**
-     * Edit a group's metadata and/or status (admin only).
-     * Sends kind:9004 (edit-metadata) and kind:9008 (edit-status).
+     * Edit a group's metadata, its place in the hierarchy, and the list of
+     * accepted children — all in a single kind:9002 event (admin only).
+     *
+     * NIP-29 permits partial-update semantics on kind:9002: tags that are
+     * present overwrite that field; tags that are omitted leave it unchanged.
+     * Batching metadata + parent + children into one event avoids the relay
+     * briefly seeing intermediate states and halves round-trips from the
+     * modal save flow.
+     *
+     * - [parentOp]: null leaves the current parent alone. `SetTo(id)` links
+     *   this group under `id`; `Detach` emits `["parent"]` to promote to root.
+     * - [childrenEdit]: null leaves the child list alone. Otherwise emits the
+     *   full list (or the bare `["child"]` clear marker when empty) and the
+     *   paired `["open-children"]`/`["closed-children"]` flag.
      */
     suspend fun editGroup(
         groupId: String,
@@ -801,7 +815,9 @@ class GroupManager(
         isClosed: Boolean,
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
+        parentOp: ParentOp? = null,
+        childrenEdit: ChildrenEdit? = null
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -809,7 +825,6 @@ class GroupManager(
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
-            // kind 9002: edit-metadata — name, about, picture, visibility, access all in one event
             val metaTags = mutableListOf(
                 listOf("h", groupId),
                 listOf("name", name),
@@ -818,6 +833,34 @@ class GroupManager(
             )
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
+
+            when (parentOp) {
+                is ParentOp.SetTo -> metaTags.add(listOf("parent", parentOp.id))
+                ParentOp.Detach -> metaTags.add(listOf("parent"))
+                null -> Unit
+            }
+
+            if (childrenEdit != null) {
+                if (childrenEdit.children.isEmpty()) {
+                    // Explicit clear marker; zero child tags would mean "unchanged".
+                    metaTags.add(listOf("child"))
+                } else {
+                    childrenEdit.children.forEach { child ->
+                        val parts = mutableListOf("child", child.id)
+                        val hasFlags = child.flags.isNotEmpty()
+                        if (child.order != null || hasFlags) {
+                            parts.add(child.order.orEmpty())
+                        }
+                        if (hasFlags) parts.addAll(child.flags)
+                        metaTags.add(parts)
+                    }
+                }
+                metaTags.add(
+                    if (childrenEdit.closedChildren) listOf("closed-children")
+                    else listOf("open-children")
+                )
+            }
+
             val signedMeta = signEvent(Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
@@ -845,6 +888,12 @@ class GroupManager(
             Result.Error(AppError.Group.CreateFailed(e))
         }
     }
+
+    /** Child-list edit for [editGroup]: the full desired list plus the flag. */
+    data class ChildrenEdit(
+        val children: List<DeclaredChild>,
+        val closedChildren: Boolean
+    )
 
     /**
      * Publish a kind:9002 that re-parents a group or promotes it to root.
@@ -937,16 +986,22 @@ class GroupManager(
             meta?.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
             meta?.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
 
-            children.forEach { child ->
-                val parts = mutableListOf("child", child.id)
-                val hasFlags = child.flags.isNotEmpty()
-                if (child.order != null || hasFlags) {
-                    parts.add(child.order.orEmpty())
+            if (children.isEmpty()) {
+                // NIP-29: a `kind:9002` with no `child` tags at all leaves the list
+                // unchanged; a single `["child"]` with no id is the explicit clear marker.
+                tags.add(listOf("child"))
+            } else {
+                children.forEach { child ->
+                    val parts = mutableListOf("child", child.id)
+                    val hasFlags = child.flags.isNotEmpty()
+                    if (child.order != null || hasFlags) {
+                        parts.add(child.order.orEmpty())
+                    }
+                    if (hasFlags) {
+                        parts.addAll(child.flags)
+                    }
+                    tags.add(parts)
                 }
-                if (hasFlags) {
-                    parts.add(child.flags.joinToString(","))
-                }
-                tags.add(parts)
             }
             if (closedChildren) {
                 tags.add(listOf("closed-children"))
@@ -1999,8 +2054,9 @@ class GroupManager(
                     nextChildren.getOrPut(parentId) { mutableSetOf() }.add(child.id)
                 }
                 else -> {
-                    // Unverified: child claims parent but no bilateral confirmation.
-                    // Show as root until confirmed — nesting would imply legitimacy.
+                    // Unverified — nest under the declared parent but tag it so the
+                    // UI can grey-it-out / badge it per NIP-29 §"Parent consent".
+                    nextChildren.getOrPut(parentId) { mutableSetOf() }.add(child.id)
                     nextUnverified.add(child.id)
                 }
             }

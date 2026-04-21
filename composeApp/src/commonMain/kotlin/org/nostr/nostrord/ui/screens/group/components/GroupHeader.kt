@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -61,6 +62,7 @@ fun GroupHeader(
     onManageMembersClick: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
     onCreateSubgroupClick: () -> Unit = {},
+    onManageChildrenClick: () -> Unit = {},
     showSubgroupControls: Boolean = true,
     parentGroupName: String? = null,
     onParentClick: () -> Unit = {},
@@ -328,6 +330,21 @@ fun GroupHeader(
                                         )
                                     }
                                 )
+                                    DropdownMenuItem(
+                                        text = { Text("Manage Children", color = NostrordColors.TextPrimary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onManageChildrenClick()
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.AccountTree,
+                                                contentDescription = null,
+                                                tint = NostrordColors.TextSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    )
                                 }
                                 DropdownMenuItem(
                                     text = { Text("Delete Group", color = NostrordColors.Error) },

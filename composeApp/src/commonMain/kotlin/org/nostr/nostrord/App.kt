@@ -759,6 +759,7 @@ private fun MobileDrawerContent(
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val childrenByParent by AppModule.nostrRepository.childrenByParent.collectAsState()
+    val unverifiedChildren by AppModule.nostrRepository.unverifiedChildren.collectAsState()
 
     val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
     val sidebarScope = rememberCoroutineScope()
@@ -800,6 +801,7 @@ private fun MobileDrawerContent(
             relayName = relayMetadata[activeRelayUrl]?.name,
             isLoading = isGroupsLoading,
             childrenByParent = childrenByParent,
+            unverifiedChildren = unverifiedChildren,
             orphanedJoinedIds = orphanedJoinedIds,
             onGroupClick = onGroupClick,
             onCreateGroupClick = onCreateGroupClick,
