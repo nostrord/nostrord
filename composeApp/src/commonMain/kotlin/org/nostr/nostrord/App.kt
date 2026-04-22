@@ -448,10 +448,10 @@ private fun AuthenticatedApp(
             onSwitchRelay = { url ->
                 scope.launch {
                     AppModule.nostrRepository.addRelay(url)
-                    AppModule.nostrRepository.switchRelay(url)
                     selectedRelayUrl = url
                     onNavigate(Screen.Home)
                     showAddRelayModal = false
+                    AppModule.nostrRepository.switchRelay(url)
                 }
             },
             onDismiss = { showAddRelayModal = false },
