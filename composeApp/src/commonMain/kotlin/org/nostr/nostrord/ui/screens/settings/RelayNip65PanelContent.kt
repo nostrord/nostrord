@@ -25,6 +25,8 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.isValidRelayUrl
+import org.nostr.nostrord.utils.toRelayUrl
 
 @Composable
 fun RelayNip65PanelContent(
@@ -42,7 +44,6 @@ fun RelayNip65PanelContent(
     var newUrl by remember { mutableStateOf("") }
     var newRead by remember { mutableStateOf(true) }
     var newWrite by remember { mutableStateOf(true) }
-    var urlError by remember { mutableStateOf<String?>(null) }
 
     var isSaving by remember { mutableStateOf(false) }
     var showSuccess by remember { mutableStateOf(false) }
@@ -177,11 +178,9 @@ fun RelayNip65PanelContent(
 
                 OutlinedTextField(
                     value = newUrl,
-                    onValueChange = { newUrl = it; urlError = null },
+                    onValueChange = { newUrl = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("wss://relay.example.com", color = NostrordColors.TextMuted) },
-                    isError = urlError != null,
-                    supportingText = urlError?.let { { Text(it, color = NostrordColors.Error, fontSize = 11.sp) } },
+                    placeholder = { Text("relay.example.com", color = NostrordColors.TextMuted) },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = NostrordColors.Primary,
@@ -229,35 +228,29 @@ fun RelayNip65PanelContent(
                         Text("Write", color = NostrordColors.TextSecondary, fontSize = 14.sp)
                     }
                     Spacer(Modifier.weight(1f))
+                    val normalizedNewUrl = newUrl.trim().toRelayUrl()
+                    val canAdd = isValidRelayUrl(normalizedNewUrl) &&
+                        (newRead || newWrite) &&
+                        relays.none { it.url == normalizedNewUrl }
+                    val addTint = if (canAdd) NostrordColors.Primary else NostrordColors.TextMuted
                     TextButton(
                         onClick = {
-                            val url = newUrl.trim()
-                            when {
-                                url.isBlank() -> urlError = "URL is required"
-                                !url.startsWith("wss://") && !url.startsWith("ws://") ->
-                                    urlError = "Must start with wss:// or ws://"
-                                !newRead && !newWrite ->
-                                    urlError = "Select at least Read or Write"
-                                relays.any { it.url == url } ->
-                                    urlError = "Relay already in list"
-                                else -> {
-                                    relays = relays + Nip65Relay(url, newRead, newWrite)
-                                    newUrl = ""
-                                    newRead = true
-                                    newWrite = true
-                                }
-                            }
+                            relays = relays + Nip65Relay(normalizedNewUrl, newRead, newWrite)
+                            newUrl = ""
+                            newRead = true
+                            newWrite = true
                         },
+                        enabled = canAdd,
                         modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
                     ) {
                         Icon(
                             Icons.Default.Add,
                             contentDescription = null,
-                            tint = NostrordColors.Primary,
+                            tint = addTint,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text("Add", color = NostrordColors.Primary, style = NostrordTypography.Button)
+                        Text("Add", color = addTint, style = NostrordTypography.Button)
                     }
                 }
             }

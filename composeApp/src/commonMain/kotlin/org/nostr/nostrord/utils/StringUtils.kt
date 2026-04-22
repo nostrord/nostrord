@@ -104,7 +104,13 @@ fun isValidRelayUrl(url: String): Boolean {
     }
     val authority = afterScheme.substringBefore('/')
     if ('@' in authority) return false
-    if (trimmed.startsWith("wss://")) return true
     val host = authority.substringBefore(':').lowercase()
-    return host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
+    if (host.isBlank()) return false
+    val isLoopback = host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
+    if (trimmed.startsWith("ws://")) return isLoopback
+    if (isLoopback) return true
+    val labels = host.split('.')
+    return labels.size >= 2 &&
+        labels.all { it.isNotEmpty() } &&
+        labels.last().length >= 2
 }

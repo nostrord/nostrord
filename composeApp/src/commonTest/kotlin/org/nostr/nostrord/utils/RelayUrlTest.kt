@@ -60,4 +60,22 @@ class RelayUrlTest {
         assertFalse(isValidRelayUrl(""))
         assertFalse(isValidRelayUrl("relay.example.com"))
     }
+
+    @Test
+    fun `isValidRelayUrl rejects wss host with no dot`() {
+        assertFalse(isValidRelayUrl("wss://foo"))
+    }
+
+    @Test
+    fun `isValidRelayUrl rejects wss host with trailing or leading dot`() {
+        assertFalse(isValidRelayUrl("wss://asdsa."))
+        assertFalse(isValidRelayUrl("wss://.com"))
+        assertFalse(isValidRelayUrl("wss://foo..bar"))
+    }
+
+    @Test
+    fun `isValidRelayUrl rejects wss host with single-char TLD`() {
+        assertFalse(isValidRelayUrl("wss://test.c"))
+        assertFalse(isValidRelayUrl("wss://a.b"))
+    }
 }
