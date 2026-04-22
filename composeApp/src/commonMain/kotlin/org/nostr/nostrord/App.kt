@@ -348,8 +348,8 @@ private fun AuthenticatedApp(
         }
     }
 
-    // Android system back button
-    PlatformBackHandler(enabled = navHistory.canGoBack) { onHistoryBack() }
+    // Android system back button — disabled when settings overlay is open (SettingsScreen handles it)
+    PlatformBackHandler(enabled = !showSettings && navHistory.canGoBack) { onHistoryBack() }
 
     // Browser back/forward buttons (JS/WasmJS only, no-op on other platforms).
     // Uses URL-based navigation: on popstate, the URL is parsed and applied directly.
@@ -357,27 +357,32 @@ private fun AuthenticatedApp(
         currentScreen = currentScreen,
         selectedRelayUrl = selectedRelayUrl,
         onUrlNavigation = { relayUrl, groupId, inviteCode ->
-            // Switch relay if different
-            if (relayUrl != selectedRelayUrl) {
-                selectedRelayUrl = relayUrl
-                scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
-            }
-            // Set pending invite code if present
-            if (inviteCode != null) {
-                pendingInviteCode = inviteCode
-            }
-            // Navigate to the correct screen
-            val targetScreen = if (groupId != null) {
-                Screen.Group(groupId, null)
+            if (showSettings) {
+                // Browser back pressed while settings overlay is open — close it instead of navigating
+                showSettings = false
             } else {
-                Screen.Home
-            }
-            if (targetScreen != currentScreen) {
-                navHistory.navigate(targetScreen, relayUrl)
-                persistScreenState(targetScreen)
-                AppModule.nostrRepository.setActiveGroup(
-                    if (targetScreen is Screen.Group) targetScreen.groupId else null
-                )
+                // Switch relay if different
+                if (relayUrl != selectedRelayUrl) {
+                    selectedRelayUrl = relayUrl
+                    scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
+                }
+                // Set pending invite code if present
+                if (inviteCode != null) {
+                    pendingInviteCode = inviteCode
+                }
+                // Navigate to the correct screen
+                val targetScreen = if (groupId != null) {
+                    Screen.Group(groupId, null)
+                } else {
+                    Screen.Home
+                }
+                if (targetScreen != currentScreen) {
+                    navHistory.navigate(targetScreen, relayUrl)
+                    persistScreenState(targetScreen)
+                    AppModule.nostrRepository.setActiveGroup(
+                        if (targetScreen is Screen.Group) targetScreen.groupId else null
+                    )
+                }
             }
         }
     )

@@ -58,6 +58,7 @@ import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.components.cards.KeyCard
 import org.nostr.nostrord.ui.components.cards.WarningCard
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
+import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -223,6 +224,10 @@ fun SettingsScreen(
 
     var activeSection by remember { mutableStateOf(SettingsSection.Profile) }
     var showMobilePanel by remember { mutableStateOf(false) }
+
+    // Android back button: panel → list → close modal
+    PlatformBackHandler(enabled = showMobilePanel) { showMobilePanel = false }
+    PlatformBackHandler(enabled = !showMobilePanel) { onClose() }
 
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
