@@ -98,6 +98,7 @@ fun GroupsNavSidebar(
     onJoinGroupClick: () -> Unit = {},
     onAddRelay: (() -> Unit)? = null,
     onForgetOrphan: (groupId: String) -> Unit = {},
+    showRelayTitle: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     // Reset when relay changes
@@ -147,32 +148,34 @@ fun GroupsNavSidebar(
             .fillMaxHeight()
             .background(NostrordColors.Surface)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(Spacing.headerHeight)
-                .background(NostrordColors.Surface)
-                .padding(horizontal = Spacing.lg),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Text(
-                text = if (relayUrl.isBlank()) "No Relay" else (relayName?.takeIf { it.isNotBlank() } ?: relayUrl).uppercase(),
-                color = NostrordColors.TextSecondary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.02.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+        if (showRelayTitle) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(Spacing.headerHeight)
+                    .background(NostrordColors.Surface)
+                    .padding(horizontal = Spacing.lg),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Text(
+                    text = if (relayUrl.isBlank()) "No Relay" else (relayName?.takeIf { it.isNotBlank() } ?: relayUrl).uppercase(),
+                    color = NostrordColors.TextSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.02.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Divider
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(NostrordColors.BackgroundDark)
             )
         }
-
-        // Divider
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(NostrordColors.BackgroundDark)
-        )
 
         Column(modifier = Modifier.weight(1f)) {
             val listState = rememberLazyListState()
@@ -239,10 +242,17 @@ fun GroupsNavSidebar(
                     modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)
                 )
             } else {
-                // MY GROUPS — scrollable, capped height so OTHER GROUPS always visible
+                val hasOtherGroups = otherGroups.isNotEmpty() || searchQuery.isNotBlank()
+                Column(modifier = Modifier.fillMaxSize()) {
+                // MY GROUPS — weight gives verticalScroll a bounded viewport; OTHER GROUPS header always visible
                 if (myGroups.isNotEmpty() || orphanedJoinedIds.isNotEmpty()) {
                     val myGroupsScrollState = remember(relayUrl) { ScrollState(0) }
-                    Column(modifier = Modifier.padding(horizontal = Spacing.sm)) {
+                    val expandedWithOtherGroups = hasOtherGroups && otherGroupsExpanded
+                    Column(modifier = if (expandedWithOtherGroups)
+                        Modifier.padding(horizontal = Spacing.sm)
+                    else
+                        Modifier.padding(horizontal = Spacing.sm).weight(1f)
+                    ) {
                         SectionToggleHeader(
                             text = "MY GROUPS",
                             expanded = myGroupsExpanded,
@@ -250,7 +260,11 @@ fun GroupsNavSidebar(
                             onToggle = { myGroupsExpanded = !myGroupsExpanded }
                         )
                         if (myGroupsExpanded) {
-                            Box(modifier = Modifier.heightIn(max = 240.dp)) {
+                            Box(modifier = if (expandedWithOtherGroups)
+                                Modifier.heightIn(max = 240.dp)
+                            else
+                                Modifier.weight(1f)
+                            ) {
                                 Column(modifier = Modifier.verticalScroll(myGroupsScrollState)) {
                                     myGroups.forEach { item ->
                                         when (item) {
@@ -432,6 +446,7 @@ fun GroupsNavSidebar(
                             )
                         }
                     }
+                }
                 }
             }
         }

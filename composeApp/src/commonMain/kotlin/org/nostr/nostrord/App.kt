@@ -822,7 +822,8 @@ private fun MobileDrawerContent(
                 sidebarScope.launch {
                     AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
                 }
-            }
+            },
+            showRelayTitle = false
         )
     }
 }
