@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.KeyPair
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -48,14 +49,23 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     fun login() {
         isLoading = true
         errorMessage = null
+        val input = privateKey.trim()
+        val hex = if (input.startsWith("nsec1")) {
+            (Nip19.decode(input) as? Nip19.Entity.Nsec)?.privkey
+        } else input
+        if (hex == null) {
+            errorMessage = "Invalid private key or login failed"
+            isLoading = false
+            return
+        }
         val keyPair = try {
-            KeyPair.fromPrivateKeyHex(privateKey)
+            KeyPair.fromPrivateKeyHex(hex)
         } catch (e: Exception) {
             errorMessage = "Invalid private key or login failed"
             isLoading = false
             return
         }
-        vm.loginWithPrivateKey(privateKey, keyPair.publicKeyHex) { result ->
+        vm.loginWithPrivateKey(hex, keyPair.publicKeyHex) { result ->
             isLoading = false
             if (result.isSuccess) onLoginSuccess()
             else errorMessage = "Invalid private key or login failed"
