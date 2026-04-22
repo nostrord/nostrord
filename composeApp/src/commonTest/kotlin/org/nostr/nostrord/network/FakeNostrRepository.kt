@@ -142,7 +142,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     }
     override val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>> =
         MutableStateFlow(emptyMap())
-    override suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String?): Result<Unit> = Result.Success(Unit)
+    override suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String?, parentOp: org.nostr.nostrord.network.managers.GroupManager.ParentOp?, childrenEdit: org.nostr.nostrord.network.managers.GroupManager.ChildrenEdit?): Result<Unit> = Result.Success(Unit)
     override suspend fun deleteGroup(groupId: String): Result<Unit> = Result.Success(Unit)
     override suspend fun updateGroupTopology(
         groupId: String,
