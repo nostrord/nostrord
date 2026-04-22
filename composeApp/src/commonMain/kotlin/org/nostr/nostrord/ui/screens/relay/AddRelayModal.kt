@@ -38,6 +38,7 @@ import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.isValidRelayUrl
+import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.ui.util.buildRelayIconRequest
 import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.ui.util.relayFallbackPainter
@@ -381,7 +382,7 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
 @Composable
 private fun CustomUrlTab(onAdd: (String) -> Unit, onCancel: () -> Unit) {
     var relayUrl by remember { mutableStateOf("") }
-    val isValid = isValidRelayUrl(relayUrl)
+    val isValid = isValidRelayUrl(relayUrl.toRelayUrl())
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Form
@@ -409,7 +410,7 @@ private fun CustomUrlTab(onAdd: (String) -> Unit, onCancel: () -> Unit) {
             ) {
                 if (relayUrl.isEmpty()) {
                     Text(
-                        text = "wss://relay.example.com",
+                        text = "relay.example.com",
                         color = NostrordColors.TextMuted,
                         fontSize = 13.sp
                     )
@@ -442,7 +443,8 @@ private fun CustomUrlTab(onAdd: (String) -> Unit, onCancel: () -> Unit) {
                 modifier = Modifier
                     .clip(RoundedCornerShape(4.dp))
                     .background(if (isValid) NostrordColors.Primary else NostrordColors.SurfaceVariant)
-                    .then(if (isValid) Modifier.clickable { onAdd(relayUrl.trim()) }.pointerHoverIcon(PointerIcon.Hand) else Modifier)
+                    .then(if (isValid) Modifier.clickable { onAdd(relayUrl.trim().toRelayUrl()) }
+                        .pointerHoverIcon(PointerIcon.Hand) else Modifier)
                     .padding(horizontal = 20.dp, vertical = 8.dp)
             ) {
                 Text(
