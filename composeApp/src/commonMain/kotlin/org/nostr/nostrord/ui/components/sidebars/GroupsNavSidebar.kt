@@ -60,6 +60,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.components.loading.shimmerEffect
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
@@ -140,7 +141,9 @@ fun GroupsNavSidebar(
     }
 
     var myGroupsExpanded by remember(relayUrl) { mutableStateOf(true) }
-    var otherGroupsExpanded by remember(relayUrl) { mutableStateOf(true) }
+    var otherGroupsExpanded by remember(relayUrl) {
+        mutableStateOf(SecureStorage.getBooleanPref("sidebar_other_expanded_$relayUrl", default = true))
+    }
 
     Column(
         modifier = modifier
@@ -308,7 +311,11 @@ fun GroupsNavSidebar(
                             text = "OTHER GROUPS",
                             expanded = otherGroupsExpanded,
                             topPadding = if (myGroups.isNotEmpty()) Spacing.md else Spacing.xs,
-                            onToggle = { otherGroupsExpanded = !otherGroupsExpanded }
+                            onToggle = {
+                                val next = !otherGroupsExpanded
+                                otherGroupsExpanded = next
+                                SecureStorage.saveBooleanPref("sidebar_other_expanded_$relayUrl", next)
+                            }
                         )
                         if (otherGroupsExpanded) {
                             val focusRequester = remember { FocusRequester() }
