@@ -13,6 +13,7 @@ import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.screens.relay.model.RelayInfo
 import org.nostr.nostrord.ui.screens.relay.model.RelayStatus
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.isValidRelayUrl
 
 @Composable
 fun RelaySettingsScreen(
@@ -80,13 +81,13 @@ fun RelaySettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        if (newRelayUrl.isNotBlank() && newRelayUrl.startsWith("wss://")) {
+                        if (isValidRelayUrl(newRelayUrl)) {
                             relays = relays + RelayInfo(newRelayUrl)
                             newRelayUrl = ""
                             showAddDialog = false
                         }
                     },
-                    enabled = newRelayUrl.isNotBlank() && newRelayUrl.startsWith("wss://")
+                    enabled = isValidRelayUrl(newRelayUrl)
                 ) {
                     Text("Add", color = NostrordColors.Primary)
                 }

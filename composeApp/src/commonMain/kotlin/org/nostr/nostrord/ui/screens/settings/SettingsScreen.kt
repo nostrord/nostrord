@@ -24,6 +24,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -66,7 +68,8 @@ import org.nostr.nostrord.utils.rememberClipboardWriter
 enum class SettingsSection(val label: String) {
     Profile("Profile"),
     BackupKeys("Backup Keys"),
-    RelaysNip65("Relays (NIP-65)")
+    RelaysNip65("Relays (NIP-65)"),
+    Experimental("Experimental")
 }
 
 /**
@@ -210,6 +213,14 @@ fun SettingsScreen(
         )
     }
 
+    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
+    val experimentalContent: @Composable () -> Unit = {
+        ExperimentalPanelContent(
+            subgroupsEnabled = subgroupsEnabled,
+            onToggleSubgroups = { AppModule.featureFlags.setSubgroupsEnabled(it) }
+        )
+    }
+
     var activeSection by remember { mutableStateOf(SettingsSection.Profile) }
     var showMobilePanel by remember { mutableStateOf(false) }
 
@@ -243,7 +254,8 @@ fun SettingsScreen(
                 onLogout = onLogout,
                 profileContent = profileContent,
                 backupContent = backupContent,
-                relaysContent = relaysContent
+                relaysContent = relaysContent,
+                experimentalContent = experimentalContent
             )
         } else {
             DesktopSettings(
@@ -254,6 +266,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                experimentalContent = experimentalContent,
                 showToolbar = showToolbar,
                 canGoBack = canGoBack,
                 canGoForward = canGoForward,
@@ -275,6 +288,7 @@ private fun DesktopSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    experimentalContent: @Composable () -> Unit,
     showToolbar: Boolean = false,
     canGoBack: Boolean = false,
     canGoForward: Boolean = false,
@@ -335,7 +349,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp)
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, experimentalContent)
                     }
                 }
 
@@ -359,7 +373,8 @@ private fun MobileSettings(
     onLogout: () -> Unit,
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
-    relaysContent: @Composable () -> Unit
+    relaysContent: @Composable () -> Unit,
+    experimentalContent: @Composable () -> Unit
 ) {
     if (!showPanel) {
         Column(modifier = Modifier.fillMaxSize().background(NostrordColors.BackgroundDark)) {
@@ -400,7 +415,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp)
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, experimentalContent)
             }
         }
     }
@@ -449,6 +464,9 @@ private fun SettingsSidebar(
     }
     SettingsNavItem("Relays (NIP-65)", activeSection == SettingsSection.RelaysNip65, compact = compact) {
         onSelectSection(SettingsSection.RelaysNip65)
+    }
+    SettingsNavItem("Experimental", activeSection == SettingsSection.Experimental, compact = compact) {
+        onSelectSection(SettingsSection.Experimental)
     }
     SettingsNavDivider(compact)
     SettingsNavItem("Log Out", isActive = false, isDanger = true, compact = compact,
@@ -548,7 +566,8 @@ private fun SettingsPanel(
     section: SettingsSection,
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
-    relaysContent: @Composable () -> Unit
+    relaysContent: @Composable () -> Unit,
+    experimentalContent: @Composable () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -565,6 +584,7 @@ private fun SettingsPanel(
             SettingsSection.Profile    -> profileContent()
             SettingsSection.BackupKeys -> backupContent()
             SettingsSection.RelaysNip65 -> relaysContent()
+            SettingsSection.Experimental -> experimentalContent()
         }
     }
 }
@@ -812,6 +832,86 @@ private fun BackupPanelContent(
                     "4. Never send it via email or messaging apps\n" +
                     "5. Consider using a hardware wallet for long-term storage",
             isCompact = false
+        )
+    }
+}
+
+// ── Experimental panel content ───────────────────────────────────────────────
+
+@Composable
+private fun ExperimentalPanelContent(
+    subgroupsEnabled: Boolean,
+    onToggleSubgroups: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        InfoCard(
+            title = "Draft protocol features",
+            titleColor = NostrordColors.Warning,
+            icon = Icons.Default.Lightbulb,
+            content = "Features here rely on NIP drafts that haven't been accepted " +
+                    "upstream yet. Behavior, event kinds, and tags may change — use " +
+                    "at your own risk.",
+            isCompact = false
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+        ) {
+            ExperimentalToggleRow(
+                label = "NIP-29 Subgroups (draft)",
+                description = "Show parent/child group hierarchy, create subgroups, " +
+                        "and manage attestations. When off, groups are rendered as a " +
+                        "flat list and subgroup actions are hidden.",
+                checked = subgroupsEnabled,
+                onCheckedChange = onToggleSubgroups
+            )
+        }
+    }
+}
+
+@Composable
+private fun ExperimentalToggleRow(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(Spacing.xl),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = NostrordColors.TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                text = description,
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextMuted
+            )
+        }
+        Spacer(Modifier.width(Spacing.md))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = NostrordColors.Primary,
+                uncheckedThumbColor = NostrordColors.TextMuted,
+                uncheckedTrackColor = NostrordColors.InputBackground
+            ),
+            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
         )
     }
 }

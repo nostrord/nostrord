@@ -21,6 +21,7 @@ import org.nostr.nostrord.network.managers.MuxSubscriptionTracker
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.settings.FeatureFlags
 import org.nostr.nostrord.storage.SecureStorage
 
 /**
@@ -117,6 +118,8 @@ object AppModule {
     val relayMetadataManager: RelayMetadataManager by lazy {
         RelayMetadataManager(scope = appScope)
     }
+
+    val featureFlags: FeatureFlags by lazy { FeatureFlags() }
 
     val nostrRepository: NostrRepository by lazy {
         NostrRepository(

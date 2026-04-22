@@ -758,12 +758,25 @@ private fun MobileDrawerContent(
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val childrenByParentRaw by AppModule.nostrRepository.childrenByParent.collectAsState()
+    val unverifiedChildrenRaw by AppModule.nostrRepository.unverifiedChildren.collectAsState()
+    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
+    // See DesktopShell.kt — when the experimental flag is off, hide the hierarchy
+    // in the mobile drawer too.
+    val childrenByParent = if (subgroupsEnabled) childrenByParentRaw else emptyMap()
+    val unverifiedChildren = if (subgroupsEnabled) unverifiedChildrenRaw else emptySet()
+
+    val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
+    val sidebarScope = rememberCoroutineScope()
 
     val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
         groupsByRelay[activeRelayUrl] ?: emptyList()
     }
     val joinedGroupIds = remember(activeRelayUrl, joinedGroupsByRelay) {
         joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
+    }
+    val orphanedJoinedIds = remember(activeRelayUrl, orphanedJoinedByRelay) {
+        orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
     }
 
     val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
@@ -792,10 +805,18 @@ private fun MobileDrawerContent(
             unreadCounts = unreadCounts,
             relayName = relayMetadata[activeRelayUrl]?.name,
             isLoading = isGroupsLoading,
+            childrenByParent = childrenByParent,
+            unverifiedChildren = unverifiedChildren,
+            orphanedJoinedIds = orphanedJoinedIds,
             onGroupClick = onGroupClick,
             onCreateGroupClick = onCreateGroupClick,
             onJoinGroupClick = onJoinGroupClick,
-            onAddRelay = onAddRelayFromSidebar
+            onAddRelay = onAddRelayFromSidebar,
+            onForgetOrphan = { groupId ->
+                sidebarScope.launch {
+                    AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
+                }
+            }
         )
     }
 }

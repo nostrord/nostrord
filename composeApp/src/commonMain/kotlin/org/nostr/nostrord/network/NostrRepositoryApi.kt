@@ -107,15 +107,81 @@ interface NostrRepositoryApi {
 
     // --- Group operations ---
     suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String? = null, customGroupId: String? = null): Result<String>
+    /**
+     * Create a group and immediately declare [parentGroupId] as its parent
+     * (chained kind:9007 + kind:9002).
+     */
+    suspend fun createSubgroup(
+        parentGroupId: String,
+        name: String,
+        about: String?,
+        relayUrl: String,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        picture: String? = null,
+        customGroupId: String? = null
+    ): Result<String>
     suspend fun joinGroup(groupId: String, inviteCode: String? = null): Result<Unit>
     suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit>
-    suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String? = null): Result<Unit>
+    /**
+     * Locally remove a joined group that no longer has a `kind:39000` on the
+     * relay (deleted while offline, or never existed anymore). Does NOT send
+     * `kind:9022` — the group is gone, so there's no relay-side state to leave.
+     * Republishes `kind:10009` so other devices drop the stale pin too.
+     */
+    suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit>
+    /** Joined groups on a relay that have no corresponding `kind:39000` metadata. */
+    val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>>
+    /**
+     * Edit a group in one kind:9002 event. [parentOp] and [childrenEdit]
+     * are optional — omit them to leave those fields unchanged
+     * (NIP-29 partial-update semantics).
+     */
+    suspend fun editGroup(
+        groupId: String,
+        name: String,
+        about: String?,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        picture: String? = null,
+        parentOp: GroupManager.ParentOp? = null,
+        childrenEdit: GroupManager.ChildrenEdit? = null
+    ): Result<Unit>
     suspend fun deleteGroup(groupId: String): Result<Unit>
+    /**
+     * Publish a kind:9002 to re-parent a group or promote it to root.
+     * See [GroupManager.updateGroupTopology].
+     */
+    suspend fun updateGroupTopology(
+        groupId: String,
+        parent: GroupManager.ParentOp?
+    ): Result<Unit>
+    /**
+     * Publish a kind:9002 that declares the parent's accepted children
+     * (`["child", id, order?, flags?]`) and, optionally, `["closed-children"]`.
+     * Empty [children] + `closedChildren=true` signals "accepts no children",
+     * per NIP-29 "Parent consent".
+     */
+    suspend fun updateChildren(
+        groupId: String,
+        children: List<DeclaredChild>,
+        closedChildren: Boolean
+    ): Result<Unit>
     fun isGroupJoined(groupId: String): Boolean
     suspend fun requestGroupMessages(groupId: String, channel: String? = null)
     suspend fun requestGroupMembers(groupId: String)
     suspend fun requestGroupAdmins(groupId: String)
     suspend fun refreshGroupMetadata(groupId: String)
+    /** Observable parent→children map derived from `parent` tags in kind:39000. */
+    val childrenByParent: StateFlow<Map<String, Set<String>>>
+    /**
+     * Subgroups whose declared parent neither lists them via `["child", ...]` nor
+     * attests via an admin pubkey currently in the parent's `kind:39001`. Per NIP-29
+     * these MAY be rendered but SHOULD be flagged (⚠) so users know the relationship
+     * is one-sided. Invalid claims (closed-children rejection) are already hoisted
+     * to root and do not appear here.
+     */
+    val unverifiedChildren: StateFlow<Set<String>>
     /** Connect to a relay in the background and fetch kind 39000 metadata for a group preview. */
     suspend fun fetchGroupPreview(groupId: String, relayUrl: String)
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean

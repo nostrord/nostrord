@@ -37,6 +37,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.ui.util.buildRelayIconRequest
 import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.ui.util.relayFallbackPainter
@@ -380,7 +381,7 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
 @Composable
 private fun CustomUrlTab(onAdd: (String) -> Unit, onCancel: () -> Unit) {
     var relayUrl by remember { mutableStateOf("") }
-    val isValid = relayUrl.startsWith("wss://") && relayUrl.length > 6
+    val isValid = isValidRelayUrl(relayUrl)
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Form

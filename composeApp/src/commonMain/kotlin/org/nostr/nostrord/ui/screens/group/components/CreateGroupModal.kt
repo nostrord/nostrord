@@ -44,9 +44,11 @@ import org.nostr.nostrord.utils.Result
 fun CreateGroupModal(
     currentRelayUrl: String,
     userRelays: Set<String> = emptySet(),
+    parentGroupId: String? = null,
     onDismiss: () -> Unit,
     onGroupCreated: (groupId: String, groupName: String) -> Unit
 ) {
+    val isSubgroup = parentGroupId != null
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
 
@@ -126,7 +128,7 @@ fun CreateGroupModal(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Create a Group",
+                                text = if (isSubgroup) "Create Subgroup" else "Create a Group",
                                 style = NostrordTypography.ServerHeader,
                                 color = NostrordColors.TextPrimary,
                                 fontWeight = FontWeight.Bold
@@ -401,15 +403,28 @@ fun CreateGroupModal(
                                 isCreating = true
                                 creatingJob = scope.launch {
                                     try {
-                                        val result = AppModule.nostrRepository.createGroup(
-                                            name = name.trim(),
-                                            about = about.trim().ifBlank { null },
-                                            relayUrl = selectedRelay,
-                                            isPrivate = isPrivate,
-                                            isClosed = isClosed,
-                                            picture = picture.trim().ifBlank { null },
-                                            customGroupId = customGroupId.trim().ifBlank { null }
-                                        )
+                                        val result = if (parentGroupId != null) {
+                                            AppModule.nostrRepository.createSubgroup(
+                                                parentGroupId = parentGroupId,
+                                                name = name.trim(),
+                                                about = about.trim().ifBlank { null },
+                                                relayUrl = selectedRelay,
+                                                isPrivate = isPrivate,
+                                                isClosed = isClosed,
+                                                picture = picture.trim().ifBlank { null },
+                                                customGroupId = customGroupId.trim().ifBlank { null }
+                                            )
+                                        } else {
+                                            AppModule.nostrRepository.createGroup(
+                                                name = name.trim(),
+                                                about = about.trim().ifBlank { null },
+                                                relayUrl = selectedRelay,
+                                                isPrivate = isPrivate,
+                                                isClosed = isClosed,
+                                                picture = picture.trim().ifBlank { null },
+                                                customGroupId = customGroupId.trim().ifBlank { null }
+                                            )
+                                        }
                                         isCreating = false
                                         creatingJob = null
                                         when (result) {
@@ -444,7 +459,7 @@ fun CreateGroupModal(
                                 )
                                 Spacer(modifier = Modifier.width(Spacing.sm))
                             }
-                            Text("Create Group", style = NostrordTypography.Button)
+                            Text(if (isSubgroup) "Create Subgroup" else "Create Group", style = NostrordTypography.Button)
                         }
                     }
                 }

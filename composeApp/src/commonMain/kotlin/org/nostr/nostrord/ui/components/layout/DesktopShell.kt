@@ -3,11 +3,14 @@ package org.nostr.nostrord.ui.components.layout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.navigation.ServerRail
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
@@ -54,8 +57,19 @@ fun DesktopShell(
     val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
+    val childrenByParentRaw by AppModule.nostrRepository.childrenByParent.collectAsState()
+    val unverifiedChildrenRaw by AppModule.nostrRepository.unverifiedChildren.collectAsState()
+    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
+    // When the experimental subgroups flag is off, pass through empty maps/sets
+    // so the sidebar renders a flat list — hides the hierarchy indent and the
+    // unverified-claims subheader until the user opts in.
+    val childrenByParent = if (subgroupsEnabled) childrenByParentRaw else emptyMap()
+    val unverifiedChildren = if (subgroupsEnabled) unverifiedChildrenRaw else emptySet()
+
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
+    val sidebarScope = rememberCoroutineScope()
 
     val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
         groupsByRelay[activeRelayUrl] ?: emptyList()
@@ -63,6 +77,10 @@ fun DesktopShell(
     val joinedGroupIds = remember(activeRelayUrl, joinedGroupsByRelay) {
         joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
     }
+    val orphanedJoinedIds = remember(activeRelayUrl, orphanedJoinedByRelay) {
+        orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
+    }
+
 
     val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
     val currentUserMetadata = remember(pubKey, userMetadata) {
@@ -101,10 +119,18 @@ fun DesktopShell(
                     unreadCounts = unreadCounts,
                     relayName = relayMetadata[activeRelayUrl]?.name,
                     isLoading = isGroupsLoading,
+                    childrenByParent = childrenByParent,
+                    unverifiedChildren = unverifiedChildren,
                     onGroupClick = onGroupClick,
                     onCreateGroupClick = onCreateGroupClick,
                     onJoinGroupClick = onJoinGroupClick,
-                    onAddRelay = onAddRelayFromSidebar
+                    onAddRelay = onAddRelayFromSidebar,
+                    orphanedJoinedIds = orphanedJoinedIds,
+                    onForgetOrphan = { groupId ->
+                        sidebarScope.launch {
+                            AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
+                        }
+                    }
                 )
             }
 

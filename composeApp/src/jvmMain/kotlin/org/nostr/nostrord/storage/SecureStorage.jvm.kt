@@ -404,4 +404,13 @@ actual object SecureStorage {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         remove(key)
     }
+
+    actual fun saveBooleanPref(key: String, value: Boolean) {
+        prefs.putBoolean(key, value)
+        prefs.flush()
+    }
+
+    actual fun getBooleanPref(key: String, default: Boolean): Boolean {
+        return prefs.getBoolean(key, default)
+    }
 }

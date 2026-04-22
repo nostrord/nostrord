@@ -9,6 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.browser.window
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.utils.toRelayUrl
 import org.w3c.dom.PopStateEvent
 
 private fun buildUrlQuery(relayUrl: String, screen: Screen): String {
@@ -34,7 +35,7 @@ private fun parseUrlQuery(search: String): UrlParams {
         else param to ""
     }
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: ""
-    val relayUrl = if (relay.isNotBlank() && "://" !in relay) "wss://$relay" else relay
+    val relayUrl = relay.toRelayUrl()
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
     return UrlParams(relayUrl, groupId, inviteCode)

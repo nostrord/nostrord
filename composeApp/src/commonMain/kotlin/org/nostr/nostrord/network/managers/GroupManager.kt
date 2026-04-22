@@ -18,6 +18,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.GroupAdmins
 import org.nostr.nostrord.network.GroupMembers
+import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.GroupRoles
 import org.nostr.nostrord.network.NostrGroupClient
@@ -78,7 +79,32 @@ class GroupManager(
     // Tracks which relay is currently active and which relays have fully loaded
     // (i.e. received EOSE for the "group-list" subscription).
     private var currentRelayUrl: String? = null
-    private val completeGroupLoadRelays = mutableSetOf<String>()
+    private val _completeGroupLoadRelays = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * Joined groups on a relay that have no corresponding `kind:39000` after the
+     * relay finished serving its group list (EOSE received). These are stale pins
+     * from `kind:10009` — the group was deleted while offline, or the relay
+     * dropped it. UI surfaces them so the user can explicitly forget them.
+     */
+    private val _orphanedJoinedByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>> = _orphanedJoinedByRelay.asStateFlow()
+
+    init {
+        scope.launch {
+            kotlinx.coroutines.flow.combine(
+                _groupsByRelay,
+                _joinedGroupsByRelay,
+                _completeGroupLoadRelays
+            ) { groupsMap, joinedMap, doneRelays ->
+                doneRelays.associateWith { relay ->
+                    val known = groupsMap[relay].orEmpty().map { it.id }.toSet()
+                    val joined = joinedMap[relay].orEmpty()
+                    joined - known
+                }.filterValues { it.isNotEmpty() }
+            }.collect { _orphanedJoinedByRelay.value = it }
+        }
+    }
 
     // The group currently being viewed by the user.
     // Mux chat/reactions subscriptions are scoped to this group only.
@@ -90,6 +116,29 @@ class GroupManager(
     // Only cleared on full disconnect/logout, NOT on relay switch.
     // Backed by StateFlow for thread-safe reads/writes from any dispatcher.
     private val _openedGroupIds = MutableStateFlow<Set<String>>(emptySet())
+
+    // NIP-29 subgroups — topology derived from `parent` tags in kind:39000.
+    // Tree is built client-side: groups without a parent tag are roots, the
+    // rest are grouped under the `d` referenced by their `parent` tag.
+    // `childrenByParent` contains Confirmed AND Unverified relationships
+    // (the latter are also listed in `unverifiedChildren` so the UI can flag
+    // them visually per NIP-29 §"Parent consent"). Invalid claims
+    // (closed-children rejection) are hoisted back to the root.
+    private val _childrenByParent = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val childrenByParent: StateFlow<Map<String, Set<String>>> = _childrenByParent.asStateFlow()
+
+    // Child ids whose declared parent does NOT list them back and whose parent
+    // tag carries no attestation confirming the link. Per NIP-29 these MAY be
+    // rendered but SHOULD be flagged visually (⚠ badge / tooltip).
+    private val _unverifiedChildren = MutableStateFlow<Set<String>>(emptySet())
+    val unverifiedChildren: StateFlow<Set<String>> = _unverifiedChildren.asStateFlow()
+
+    /**
+     * Groups the user locally deleted. We ignore incoming kind:39000 for these ids so a
+     * re-emitted metadata event (relay replaying, or a relay that doesn't actually honor
+     * 9008) doesn't resurrect the group into "Other Groups".
+     */
+    private val deletedGroupIds = mutableSetOf<String>()
 
     // Debounce mux refresh: coalesces rapid calls (auth + EOSE + CLOSED) into one.
     private val muxRefreshJobs = mutableMapOf<String, Job>()
@@ -527,7 +576,7 @@ class GroupManager(
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
         val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
         _joinedGroups.value = groups
-        _joinedGroupsByRelay.update { it + (relayUrl to groups) }
+        _joinedGroupsByRelay.update { it + (relayUrl.normalizeRelayUrl() to groups) }
     }
 
     /**
@@ -535,8 +584,8 @@ class GroupManager(
      * touching the live _joinedGroups state (which belongs to the active relay).
      */
     fun loadAllJoinedGroupsFromStorage(pubKey: String, relayUrls: List<String>) {
-        val updates = relayUrls.associateWith { url ->
-            SecureStorage.getJoinedGroupsForRelay(pubKey, url)
+        val updates = relayUrls.associate { url ->
+            url.normalizeRelayUrl() to SecureStorage.getJoinedGroupsForRelay(pubKey, url)
         }.filter { (_, groups) -> groups.isNotEmpty() }
         if (updates.isNotEmpty()) {
             _joinedGroupsByRelay.update { it + updates }
@@ -598,6 +647,7 @@ class GroupManager(
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
+            deletedGroupIds.remove(groupId)
             val tags = mutableListOf(listOf("h", groupId))
             val effectiveCode = inviteCode?.takeIf { it.isNotBlank() }
             if (effectiveCode != null) {
@@ -741,8 +791,20 @@ class GroupManager(
     }
 
     /**
-     * Edit a group's metadata and/or status (admin only).
-     * Sends kind:9004 (edit-metadata) and kind:9008 (edit-status).
+     * Edit a group's metadata, its place in the hierarchy, and the list of
+     * accepted children — all in a single kind:9002 event (admin only).
+     *
+     * NIP-29 permits partial-update semantics on kind:9002: tags that are
+     * present overwrite that field; tags that are omitted leave it unchanged.
+     * Batching metadata + parent + children into one event avoids the relay
+     * briefly seeing intermediate states and halves round-trips from the
+     * modal save flow.
+     *
+     * - [parentOp]: null leaves the current parent alone. `SetTo(id)` links
+     *   this group under `id`; `Detach` emits `["parent"]` to promote to root.
+     * - [childrenEdit]: null leaves the child list alone. Otherwise emits the
+     *   full list (or the bare `["child"]` clear marker when empty) and the
+     *   paired `["open-children"]`/`["closed-children"]` flag.
      */
     suspend fun editGroup(
         groupId: String,
@@ -753,7 +815,9 @@ class GroupManager(
         isClosed: Boolean,
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
+        parentOp: ParentOp? = null,
+        childrenEdit: ChildrenEdit? = null
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -761,7 +825,6 @@ class GroupManager(
             ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
-            // kind 9002: edit-metadata — name, about, picture, visibility, access all in one event
             val metaTags = mutableListOf(
                 listOf("h", groupId),
                 listOf("name", name),
@@ -770,6 +833,34 @@ class GroupManager(
             )
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
+
+            when (parentOp) {
+                is ParentOp.SetTo -> metaTags.add(listOf("parent", parentOp.id))
+                ParentOp.Detach -> metaTags.add(listOf("parent"))
+                null -> Unit
+            }
+
+            if (childrenEdit != null) {
+                if (childrenEdit.children.isEmpty()) {
+                    // Explicit clear marker; zero child tags would mean "unchanged".
+                    metaTags.add(listOf("child"))
+                } else {
+                    childrenEdit.children.forEach { child ->
+                        val parts = mutableListOf("child", child.id)
+                        val hasFlags = child.flags.isNotEmpty()
+                        if (child.order != null || hasFlags) {
+                            parts.add(child.order.orEmpty())
+                        }
+                        if (hasFlags) parts.addAll(child.flags)
+                        metaTags.add(parts)
+                    }
+                }
+                metaTags.add(
+                    if (childrenEdit.closedChildren) listOf("closed-children")
+                    else listOf("open-children")
+                )
+            }
+
             val signedMeta = signEvent(Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
@@ -798,9 +889,157 @@ class GroupManager(
         }
     }
 
+    /** Child-list edit for [editGroup]: the full desired list plus the flag. */
+    data class ChildrenEdit(
+        val children: List<DeclaredChild>,
+        val closedChildren: Boolean
+    )
+
     /**
-     * Delete a group (admin only).
-     * Sends kind:9006 (delete-group).
+     * Publish a kind:9002 that re-parents a group or promotes it to root.
+     *
+     * - [parent]: `ParentOp.SetTo(id)` moves the group under a parent,
+     *   `ParentOp.Detach` promotes to root (empty parent tag), null = no change.
+     */
+    suspend fun updateGroupTopology(
+        groupId: String,
+        parent: ParentOp?,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<Unit> {
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
+
+        return try {
+            val tags = mutableListOf<List<String>>(listOf("h", groupId))
+            when (parent) {
+                is ParentOp.SetTo -> tags.add(listOf("parent", parent.id))
+                ParentOp.Detach -> tags.add(listOf("parent"))
+                null -> Unit
+            }
+            val signed = signEvent(Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9002,
+                tags = tags,
+                content = ""
+            ))
+            val eventJson = buildJsonArray {
+                add("EVENT"); add(signed.toJsonObject())
+            }.toString()
+            val eventId = signed.id
+                ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
+            when (val res = currentClient.sendAndAwaitOk(eventJson, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.CreateFailed(Exception(res.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.CreateFailed(Exception("Relay did not respond in time")))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.CreateFailed(res.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.CreateFailed(e))
+        }
+    }
+
+    sealed class ParentOp {
+        data class SetTo(val id: String) : ParentOp()
+        /** Republish metadata without a parent (promotes subgroup back to root). */
+        object Detach : ParentOp()
+    }
+
+    /**
+     * Publish a kind:9002 that sets the parent's bilateral child-acceptance list
+     * and the `closed-children` / `open-children` flag (NIP-29 "Parent consent").
+     *
+     * The event carries the required metadata tags (name, visibility, access) so
+     * the relay accepts it, plus one `["child", id, order?, flags?]` per entry and
+     * `["closed-children"]` or `["open-children"]` to toggle the flag.
+     */
+    suspend fun updateChildren(
+        groupId: String,
+        children: List<DeclaredChild>,
+        closedChildren: Boolean,
+        pubKey: String,
+        currentRelayUrl: String,
+        signEvent: suspend (Event) -> Event
+    ): Result<Unit> {
+        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
+
+        // Include current metadata so the relay accepts the kind:9002.
+        val meta = _groups.value.find { it.id == groupId }
+
+        return try {
+            val tags = mutableListOf<List<String>>(
+                listOf("h", groupId),
+                listOf("name", meta?.name ?: groupId),
+                if (meta?.isPublic != false) listOf("public") else listOf("private"),
+                if (meta?.isOpen != false) listOf("open") else listOf("closed")
+            )
+            meta?.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
+            meta?.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
+
+            if (children.isEmpty()) {
+                // NIP-29: a `kind:9002` with no `child` tags at all leaves the list
+                // unchanged; a single `["child"]` with no id is the explicit clear marker.
+                tags.add(listOf("child"))
+            } else {
+                children.forEach { child ->
+                    val parts = mutableListOf("child", child.id)
+                    val hasFlags = child.flags.isNotEmpty()
+                    if (child.order != null || hasFlags) {
+                        parts.add(child.order.orEmpty())
+                    }
+                    if (hasFlags) {
+                        parts.addAll(child.flags)
+                    }
+                    tags.add(parts)
+                }
+            }
+            if (closedChildren) {
+                tags.add(listOf("closed-children"))
+            } else {
+                tags.add(listOf("open-children"))
+            }
+
+            val signed = signEvent(Event(
+                pubkey = pubKey,
+                createdAt = epochMillis() / 1000,
+                kind = 9002,
+                tags = tags,
+                content = ""
+            ))
+            val eventJson = buildJsonArray {
+                add("EVENT"); add(signed.toJsonObject())
+            }.toString()
+            val eventId = signed.id
+                ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
+
+            when (val res = currentClient.sendAndAwaitOk(eventJson, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    Result.Error(AppError.Group.CreateFailed(Exception(res.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    Result.Error(AppError.Group.CreateFailed(Exception("Relay did not respond in time")))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    Result.Error(AppError.Group.CreateFailed(res.exception))
+            }
+        } catch (e: Throwable) {
+            Result.Error(AppError.Group.CreateFailed(e))
+        }
+    }
+
+    /**
+     * Delete a group (admin only). Sends kind:9008 (delete-group).
+     * Per NIP-29: when a parent is deleted, its children become roots —
+     * the relay re-emits their kind:39000 without the parent tag.
      */
     suspend fun deleteGroup(
         groupId: String,
@@ -818,47 +1057,125 @@ class GroupManager(
             val event = Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
-                kind = 9008, // delete-group (NIP-29)
+                kind = 9008,
                 tags = listOf(listOf("h", groupId)),
                 content = ""
             )
             val signedEvent = signEvent(event)
-            currentClient.send(buildJsonArray {
+            val eventId = signedEvent.id
+                ?: return Result.Error(AppError.Group.LeaveFailed(groupId, Exception("Event ID not generated")))
+            val message = buildJsonArray {
                 add("EVENT")
                 add(signedEvent.toJsonObject())
-            }.toString())
+            }.toString()
 
-            // Remove from joined groups
-            val updatedAfterLeave = _joinedGroups.value - groupId
+            when (val pub = currentClient.sendAndAwaitOk(message, eventId)) {
+                is org.nostr.nostrord.network.PublishResult.Rejected ->
+                    return Result.Error(AppError.Group.LeaveFailed(groupId, Exception(pub.reason)))
+                is org.nostr.nostrord.network.PublishResult.Timeout ->
+                    return Result.Error(AppError.Group.LeaveFailed(groupId, Exception("Relay did not respond in time")))
+                is org.nostr.nostrord.network.PublishResult.Error ->
+                    return Result.Error(AppError.Group.LeaveFailed(groupId, pub.exception))
+                is org.nostr.nostrord.network.PublishResult.Success -> Unit
+            }
+
+            val idsToRemove = setOf(groupId)
+            val updatedAfterLeave = _joinedGroups.value - idsToRemove
             _joinedGroups.value = updatedAfterLeave
             SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave)
             _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave) }
             publishJoinedGroups()
 
-            // Remove group from live list and per-relay cache
-            _groups.value = _groups.value.filter { it.id != groupId }
+            _groups.value = _groups.value.filter { it.id !in idsToRemove }
             _groupsByRelay.update { current ->
-                val updated = (current[groupRelayUrl] ?: emptyList()).filter { it.id != groupId }
+                val updated = (current[groupRelayUrl] ?: emptyList()).filter { it.id !in idsToRemove }
                 current + (groupRelayUrl to updated)
             }
-            // Persist the updated relay group list so the group doesn't reappear on restart
             try {
                 val updatedRelayGroups = _groupsByRelay.value[groupRelayUrl] ?: emptyList()
                 SecureStorage.saveGroupsForRelay(groupRelayUrl, json.encodeToString(updatedRelayGroups))
             } catch (_: Exception) {}
 
-            _messages.update { it - groupId }
-            _isLoadingMore.update { it - groupId }
-            _hasMoreMessages.update { it - groupId }
-            _groupStates.update { it - groupId }
-            _groupAdmins.value = _groupAdmins.value - groupId
-            _groupMembers.update { it - groupId }
-            loadingRegistry.remove(groupId)
+            _messages.update { it - idsToRemove }
+            _isLoadingMore.update { it - idsToRemove }
+            _hasMoreMessages.update { it - idsToRemove }
+            _groupStates.update { it - idsToRemove }
+            _groupAdmins.update { it - idsToRemove }
+            _groupMembers.update { it - idsToRemove }
+            idsToRemove.forEach { loadingRegistry.remove(it) }
+            deletedGroupIds.addAll(idsToRemove)
+            recomputeSubgroupTopology()
 
             Result.Success(Unit)
         } catch (e: Throwable) {
             Result.Error(AppError.Group.LeaveFailed(groupId, e))
         }
+    }
+
+    /**
+     * Apply a deletion broadcast (kind:9008) coming from the relay for a group the
+     * current user didn't initiate. Idempotent; no-op if the group is already gone.
+     *
+     * Returns true when local state actually changed so callers (e.g. NostrRepository)
+     * can republish the user's joined list for cross-device consistency.
+     */
+    suspend fun handleRemoteDeleteGroup(groupId: String, relayUrl: String, pubKey: String?): Boolean {
+        // Once a deletion has been processed, don't re-process it. The joinGroup()
+        // method clears the id from deletedGroupIds, so a future deletion after
+        // re-join will still be handled correctly.
+        if (groupId in deletedGroupIds) return false
+
+        val idsToRemove = setOf(groupId)
+        // Intentionally do NOT auto-remove from _joinedGroups / kind:10009.
+        // Leaving the id pinned while the kind:39000 disappears makes the group
+        // surface as an "orphan" in the sidebar so the user can review and
+        // explicitly forget it via forgetGroup.
+        // Per NIP-29: when a parent is deleted, its children become roots —
+        // the relay re-emits their kind:39000 without the parent tag.
+
+        _groups.value = _groups.value.filter { it.id !in idsToRemove }
+        _groupsByRelay.update { current ->
+            val updated = (current[relayUrl] ?: emptyList()).filter { it.id !in idsToRemove }
+            current + (relayUrl to updated)
+        }
+        try {
+            val updatedRelayGroups = _groupsByRelay.value[relayUrl] ?: emptyList()
+            SecureStorage.saveGroupsForRelay(relayUrl, json.encodeToString(updatedRelayGroups))
+        } catch (_: Exception) {}
+
+        _messages.update { it - idsToRemove }
+        _isLoadingMore.update { it - idsToRemove }
+        _hasMoreMessages.update { it - idsToRemove }
+        _groupStates.update { it - idsToRemove }
+        _groupAdmins.update { it - idsToRemove }
+        _groupMembers.update { it - idsToRemove }
+        idsToRemove.forEach { loadingRegistry.remove(it) }
+        deletedGroupIds.addAll(idsToRemove)
+        recomputeSubgroupTopology()
+        return false
+    }
+
+    /**
+     * Explicitly forget an orphaned pin: drop the id from the joined set and
+     * persist, so the next publishJoinedGroupsList() writes a kind:10009
+     * without it. Used by the sidebar's "forget orphan" trash action.
+     */
+    fun forgetJoinedPin(groupId: String, relayUrl: String, pubKey: String?): Boolean {
+        val normalized = relayUrl.normalizeRelayUrl()
+        val currentPerRelay = _joinedGroupsByRelay.value[normalized] ?: emptySet()
+        val alsoInActive = groupId in _joinedGroups.value
+        if (groupId !in currentPerRelay && !alsoInActive) return false
+
+        val updatedPerRelay = currentPerRelay - groupId
+        _joinedGroupsByRelay.update { it + (normalized to updatedPerRelay) }
+        if (alsoInActive) {
+            _joinedGroups.value = _joinedGroups.value - groupId
+        }
+        if (pubKey != null) {
+            try { SecureStorage.saveJoinedGroupsForRelay(pubKey, normalized, updatedPerRelay) } catch (_: Exception) {}
+        }
+        deletedGroupIds.add(groupId)
+        return true
     }
 
     /**
@@ -1304,7 +1621,7 @@ class GroupManager(
             }
             if (relay != null) {
                 val normalizedRelay = relay.normalizeRelayUrl()
-                completeGroupLoadRelays.add(normalizedRelay)
+                _completeGroupLoadRelays.update { it + normalizedRelay }
                 _loadingRelays.update { it - normalizedRelay }
                 refreshMuxSubscriptionsForRelay(normalizedRelay)
             }
@@ -1663,6 +1980,7 @@ class GroupManager(
      * so returning to this relay later is instant without a network re-fetch.
      */
     fun handleGroupMetadata(metadata: GroupMetadata, relayUrl: String) {
+        if (metadata.id in deletedGroupIds) return
         val normalized = relayUrl.normalizeRelayUrl()
         // ALL relays contribute to the unified group list regardless of which relay
         // is currently active. _groupsByRelay handles per-relay filtering for the UI.
@@ -1689,6 +2007,63 @@ class GroupManager(
         try {
             SecureStorage.saveGroupsForRelay(normalized, json.encodeToString(relayGroups))
         } catch (_: Exception) {}
+
+        // Recompute the full tree because a kind:39000 update can add/remove children,
+        // toggle `closed-children`, or carry new `child`/`parent` tags that change classification
+        // for groups other than `metadata` itself.
+        recomputeSubgroupTopology()
+    }
+
+    /**
+     * Recompute the parent→children map and the unverified set from the current
+     * `_groups` list and admin map. Called on every kind:39000 / kind:39001 update
+     * since classification depends on both the child's `parent` tag and the
+     * parent's `child` list / `closed-children` flag / admin list (attestation).
+     *
+     * Per NIP-29 classification:
+     * - **confirmed**: parent lists child back, OR the child's parent tag carries
+     *   an attestation pubkey that appears in the parent's `kind:39001`.
+     * - **unverified**: only the child declares and no attestation is present;
+     *   rendered but flagged.
+     * - **invalid**: parent has `closed-children` and does NOT list child;
+     *   claim is ignored — child is hoisted to root.
+     */
+    private fun recomputeSubgroupTopology() {
+        val groups = _groups.value
+        val byId = groups.associateBy { it.id }
+        val admins = _groupAdmins.value
+
+        val nextChildren = mutableMapOf<String, MutableSet<String>>()
+        val nextUnverified = mutableSetOf<String>()
+
+        for (child in groups) {
+            val parentId = child.parent ?: continue
+            val parent = byId[parentId]
+            // Missing parent → treat child as root (nothing to verify, per spec).
+            if (parent == null) continue
+
+            val listed = parent.children.any { it.id == child.id }
+            val attestation = child.parentAttestation
+            val attestationValid = attestation != null && attestation in admins[parent.id].orEmpty()
+
+            when {
+                parent.closedChildren && !listed -> {
+                    // Invalid — overrides any attestation. Hoist to root by omitting.
+                }
+                listed || attestationValid -> {
+                    nextChildren.getOrPut(parentId) { mutableSetOf() }.add(child.id)
+                }
+                else -> {
+                    // Unverified — nest under the declared parent but tag it so the
+                    // UI can grey-it-out / badge it per NIP-29 §"Parent consent".
+                    nextChildren.getOrPut(parentId) { mutableSetOf() }.add(child.id)
+                    nextUnverified.add(child.id)
+                }
+            }
+        }
+
+        _childrenByParent.value = nextChildren.mapValues { (_, s) -> s.toSet() }
+        _unverifiedChildren.value = nextUnverified
     }
 
     /**
@@ -1703,6 +2078,7 @@ class GroupManager(
         val cached = _groupsByRelay.value[normalized] ?: emptyList()
         if (cached.isNotEmpty()) {
             _groups.value = (_groups.value + cached).distinctBy { it.id }
+            recomputeSubgroupTopology()
         }
     }
 
@@ -1722,6 +2098,7 @@ class GroupManager(
             }.toMap()
             current + updates
         }
+        recomputeSubgroupTopology()
     }
 
     /**
@@ -1731,7 +2108,7 @@ class GroupManager(
         val normalized = relayUrl.normalizeRelayUrl()
         // Only treat as cached if the initial load finished (EOSE received).
         // A partial cache from an interrupted load must trigger a re-fetch.
-        return normalized in completeGroupLoadRelays && _groupsByRelay.value[normalized]?.isNotEmpty() == true
+        return normalized in _completeGroupLoadRelays.value && _groupsByRelay.value[normalized]?.isNotEmpty() == true
     }
 
     /**
@@ -1788,6 +2165,9 @@ class GroupManager(
         val currentAdmins = _groupAdmins.value[admins.groupId]
         if (currentAdmins != admins.admins) {
             _groupAdmins.value = _groupAdmins.value + (admins.groupId to admins.admins)
+            // An admin removal can flip an attestation-based `confirmed` relation back
+            // to `unverified` (spec: evaluated against current kind:39001).
+            recomputeSubgroupTopology()
         }
     }
 
@@ -2213,7 +2593,7 @@ class GroupManager(
 
         // Invalidate group-list cache so the next relay fetches all kind:39000
         // instead of relying on stale data from a previous visit.
-        completeGroupLoadRelays.clear()
+        _completeGroupLoadRelays.value = emptySet()
 
         // MUST be synchronous (not scope.launch). If this is async, requestGroupMessages
         // called immediately after switchRelay sees stale HasMore/Exhausted state from the
@@ -2228,7 +2608,7 @@ class GroupManager(
      */
     fun removeRelayEntry(url: String) {
         val normalized = url.normalizeRelayUrl()
-        completeGroupLoadRelays.remove(normalized)
+        _completeGroupLoadRelays.update { it - normalized }
         _groupsByRelay.update { current -> current - normalized }
     }
 
@@ -2238,7 +2618,7 @@ class GroupManager(
      */
     suspend fun clear() {
         eventOrderingBuffer.flushAll()
-        completeGroupLoadRelays.clear()
+        _completeGroupLoadRelays.value = emptySet()
         _loadingRelays.value = emptySet()
         _groupsByRelay.value = emptyMap()
         _openedGroupIds.value = emptySet()

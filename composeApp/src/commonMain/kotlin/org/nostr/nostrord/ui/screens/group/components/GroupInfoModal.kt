@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
@@ -43,6 +44,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.generateColorFromString
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /**
  * Group info modal displaying group details and cover image.
@@ -63,6 +65,8 @@ fun GroupInfoModal(
     onUserClick: ((String) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
+    val copyToClipboard = rememberClipboardWriter()
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -175,13 +179,35 @@ fun GroupInfoModal(
 
                         Spacer(modifier = Modifier.height(Spacing.sm))
 
-                        Text(
-                            text = groupId,
-                            style = NostrordTypography.Caption,
-                            color = NostrordColors.TextSecondary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = groupId,
+                                style = NostrordTypography.Caption,
+                                color = NostrordColors.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            Spacer(modifier = Modifier.width(Spacing.sm))
+
+                            IconButton(
+                                onClick = { copyToClipboard(groupId) },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .pointerHoverIcon(PointerIcon.Hand)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copy group ID",
+                                    tint = NostrordColors.TextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.utils.toRelayUrl
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,7 +29,7 @@ class MainActivity : ComponentActivity() {
     private fun handleDeepLink(intent: Intent?) {
         val uri = intent?.data ?: return
         val relay = uri.getQueryParameter("relay")?.takeIf { it.isNotBlank() } ?: return
-        val relayUrl = if ("://" in relay) relay else "wss://$relay"
+        val relayUrl = relay.toRelayUrl()
         val groupId = uri.getQueryParameter("group")?.takeIf { it.isNotBlank() }
         val inviteCode = uri.getQueryParameter("code")?.takeIf { it.isNotBlank() }
 

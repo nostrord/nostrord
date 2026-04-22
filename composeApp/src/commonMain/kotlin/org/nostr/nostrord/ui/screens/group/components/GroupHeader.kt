@@ -7,6 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.AccountTree
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
@@ -59,6 +61,12 @@ fun GroupHeader(
     onDeleteClick: () -> Unit = {},
     onManageMembersClick: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
+    onCreateSubgroupClick: () -> Unit = {},
+    onManageChildrenClick: () -> Unit = {},
+    showSubgroupControls: Boolean = true,
+    parentGroupName: String? = null,
+    onParentClick: () -> Unit = {},
+    childCount: Int = 0,
     isAdmin: Boolean = false,
     isClosed: Boolean = false,
     initialInviteCode: String? = null,
@@ -102,14 +110,44 @@ fun GroupHeader(
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = groupMetadata?.name ?: groupName ?: "Unknown Group",
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (showSubgroupControls && parentGroupName != null) {
+                        Text(
+                            text = "◀ $parentGroupName",
+                            color = NostrordColors.TextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clickable(onClick = onParentClick)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = groupMetadata?.name ?: groupName ?: "Unknown Group",
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (showSubgroupControls && childCount > 0) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(NostrordColors.SurfaceVariant, RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "› $childCount",
+                                    color = NostrordColors.TextSecondary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
 
                     if (!groupMetadata?.about.isNullOrBlank()) {
                         Text(
@@ -269,6 +307,38 @@ fun GroupHeader(
                                         leadingIcon = {
                                             Icon(
                                                 Icons.Default.Link,
+                                                contentDescription = null,
+                                                tint = NostrordColors.TextSecondary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    )
+                                }
+                                if (showSubgroupControls) {
+                                    DropdownMenuItem(
+                                    text = { Text("Create Subgroup", color = NostrordColors.TextPrimary) },
+                                    onClick = {
+                                        menuExpanded = false
+                                        onCreateSubgroupClick()
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Add,
+                                            contentDescription = null,
+                                            tint = NostrordColors.TextSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                )
+                                    DropdownMenuItem(
+                                        text = { Text("Manage Children", color = NostrordColors.TextPrimary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onManageChildrenClick()
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.AccountTree,
                                                 contentDescription = null,
                                                 tint = NostrordColors.TextSecondary,
                                                 modifier = Modifier.size(20.dp)

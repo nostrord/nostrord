@@ -1,6 +1,7 @@
 package org.nostr.nostrord
 
 import androidx.compose.foundation.background
+import org.nostr.nostrord.utils.toRelayUrl
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import kotlinx.browser.document
@@ -43,7 +44,7 @@ private fun parseDeepLinkFromUrl() {
     }
 
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return
-    val relayUrl = if ("://" in relay) relay else "wss://$relay"
+    val relayUrl = relay.toRelayUrl()
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
 

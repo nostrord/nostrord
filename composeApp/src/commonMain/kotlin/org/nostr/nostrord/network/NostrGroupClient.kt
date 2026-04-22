@@ -20,8 +20,44 @@ data class GroupMetadata(
     val about: String?,
     val picture: String?,
     val isPublic: Boolean,
-    val isOpen: Boolean
+    val isOpen: Boolean,
+    /** Declared parent group id (from kind:39000 `parent` tag). Null for root groups. */
+    val parent: String? = null,
+    /**
+     * Optional 3rd element of the `parent` tag: the pubkey of the admin whose
+     * `kind:9002` authored the current parent relationship. Used as an
+     * attestation path — a client confirms the link when this pubkey appears
+     * in the parent's `kind:39001`.
+     */
+    val parentAttestation: String? = null,
+    /**
+     * Bilateral declarations — the parent's own list of accepted children
+     * (`["child", "<id>", ...]` tags in its `kind:39000`). Used together with
+     * [closedChildren] to distinguish legitimate subgroups from unilateral claims.
+     */
+    val children: List<DeclaredChild> = emptyList(),
+    /**
+     * `["closed-children"]` flag in `kind:39000`. When true, only children
+     * explicitly listed in [children] are legitimate; all other parent claims
+     * are invalid and MUST be ignored by the client.
+     */
+    val closedChildren: Boolean = false
 )
+
+/**
+ * A `["child", "<id>", "<order>", "<flags>"]` declaration inside a parent's `kind:39000`.
+ * `order` is a lexicographic sibling-ordering key; `flags` is a comma-separated hint
+ * list (e.g. `"suggested"`). Unknown elements MUST be ignored.
+ */
+@Serializable
+@Immutable
+data class DeclaredChild(
+    val id: String,
+    val order: String? = null,
+    val flags: List<String> = emptyList()
+) {
+    val isSuggested: Boolean get() = "suggested" in flags
+}
 
 /**
  * Group members list from kind 39002 event.
@@ -508,10 +544,6 @@ class NostrGroupClient(
         }
     }
 
-    suspend fun sendAuth(privateKeyHex: String) {
-        // TODO: Implement proper AUTH if needed by the relay
-    }
-
     suspend fun requestGroups() {
         // Use a relay-specific subscription ID to avoid collisions when multiple
         // relay clients are active concurrently. The ID must be stable per relay
@@ -635,6 +667,11 @@ fun muxReactionsSubId(): String = "mux_reactions_${relayUrl.hashCode().toUInt()}
 fun muxMetaSubId(): String = "mux_meta_${relayUrl.hashCode().toUInt()}"
 
 /**
+ * Deterministic sub ID for the relay-level delete-group watch (kind:9008).
+ */
+fun muxDeleteSubId(): String = "mux_del_${relayUrl.hashCode().toUInt()}"
+
+/**
  * Send (or refresh) the three relay-level multiplexed subscriptions.
  *
  * Replaces per-group `live_<id>` + `reactions_<id>` with three relay-scoped REQs that cover
@@ -659,11 +696,13 @@ suspend fun sendMuxSubscriptions(
     val chatSubId = muxChatSubId()
     val reactSubId = muxReactionsSubId()
     val metaSubId = muxMetaSubId()
+    val delSubId = muxDeleteSubId()
 
     // Close the previous mux slots first (idempotent — no-op if not open).
     send(buildJsonArray { add("CLOSE"); add(chatSubId) }.toString())
     send(buildJsonArray { add("CLOSE"); add(reactSubId) }.toString())
     send(buildJsonArray { add("CLOSE"); add(metaSubId) }.toString())
+    send(buildJsonArray { add("CLOSE"); add(delSubId) }.toString())
 
     // Chat + admin events for opened groups.
     if (chatGroupIds.isNotEmpty()) {
@@ -700,6 +739,21 @@ suspend fun sendMuxSubscriptions(
             add(buildJsonObject {
                 putJsonArray("kinds") { add(39000); add(39001); add(39002) }
                 putJsonArray("#d") { metadataGroupIds.forEach { add(it) } }
+            })
+        }.toString())
+
+        // Delete-group watch for every joined group on this relay. kind:9008 is the only
+        // authoritative signal that a group was destroyed; without this, non-admin members
+        // never find out and the stale metadata lingers in their UI.
+        // Uses `since` so historical deletions don't poison the in-memory deletedGroupIds
+        // set and make existing groups disappear until the user reloads.
+        val delSince = epochMillis() / 1000 - 60
+        send(buildJsonArray {
+            add("REQ"); add(delSubId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(9008) }
+                putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
+                put("since", delSince)
             })
         }.toString())
     }
@@ -770,13 +824,42 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
             // Get all tag names (including presence-only tags like ["public"], ["open"])
             val tagNames = tags.map { it.jsonArray[0].jsonPrimitive.content }.toSet()
 
+            // NIP-29 subgroups: `parent` carries the parent d-tag (only when it has a value).
+            // An empty `parent` tag (["parent"]) means "detach to root" on republish, which is
+            // semantically the same as omitting the tag — treat as null. A third element,
+            // when present, is the pubkey of the admin whose `kind:9002` set the parent link.
+            val parentTag = tags.firstOrNull {
+                it.jsonArray.isNotEmpty() && it.jsonArray[0].jsonPrimitive.content == "parent"
+            }?.jsonArray
+            val parent = parentTag?.getOrNull(1)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            val parentAttestation = parentTag?.getOrNull(2)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+
+            // Bilateral declarations: parent lists its accepted children via `["child", ...]` tags.
+            // Layout: ["child", id, order, flag1, flag2, ...] — each flag is its own element.
+            val children = tags.mapNotNull { tag ->
+                val arr = tag.jsonArray
+                if (arr.size < 2 || arr[0].jsonPrimitive.content != "child") return@mapNotNull null
+                val childId = arr[1].jsonPrimitive.content.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val order = arr.getOrNull(2)?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                val flags = if (arr.size > 3) {
+                    arr.drop(3).mapNotNull {
+                        it.jsonPrimitive.content.takeIf { s -> s.isNotEmpty() }
+                    }
+                } else emptyList()
+                DeclaredChild(id = childId, order = order, flags = flags)
+            }
+
             GroupMetadata(
                 id = tagMap["d"] ?: "unknown",
                 name = tagMap["name"],
                 about = tagMap["about"],
                 picture = tagMap["picture"],
                 isPublic = !tagNames.contains("private"),
-                isOpen = !tagNames.contains("closed")
+                isOpen = !tagNames.contains("closed"),
+                parent = parent,
+                parentAttestation = parentAttestation,
+                children = children,
+                closedChildren = tagNames.contains("closed-children")
             )
         } catch (e: Exception) {
             null

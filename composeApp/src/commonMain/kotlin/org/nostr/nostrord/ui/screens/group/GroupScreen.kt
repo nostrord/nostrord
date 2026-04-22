@@ -1,7 +1,12 @@
 package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -11,11 +16,15 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.upload.UploadResult
+import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.network.managers.ConnectionManager
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.utils.epochSeconds
+import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
+import org.nostr.nostrord.ui.screens.group.components.ManageChildrenModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
 import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
@@ -76,6 +85,8 @@ fun GroupScreen(
     val loadingMembersSet by vm.loadingMembers.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val allRestrictedGroups by vm.restrictedGroups.collectAsState()
+    val childrenByParent by vm.childrenByParent.collectAsState()
+    val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
     val currentUserPubkey = vm.getPublicKey()
 
     val currentGroupMetadata = remember(groups, groupId) {
@@ -83,6 +94,14 @@ fun GroupScreen(
     }
 
     val isGroupRestricted = allRestrictedGroups.containsKey(groupId)
+
+    val parentGroupName = remember(groups, currentGroupMetadata?.parent, childrenByParent, groupId) {
+        val parentId = currentGroupMetadata?.parent ?: return@remember null
+        // Only show breadcrumb when the parent-child relationship is confirmed
+        val isConfirmed = childrenByParent[parentId]?.contains(groupId) == true
+        if (!isConfirmed) return@remember null
+        groups.find { it.id == parentId }?.name ?: parentId.take(8)
+    }
 
     val isAdmin = remember(allGroupAdmins, groupId, currentUserPubkey) {
         currentUserPubkey != null && currentUserPubkey in (allGroupAdmins[groupId] ?: emptyList())
@@ -100,7 +119,10 @@ fun GroupScreen(
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showGroupInfoModal by remember { mutableStateOf(false) }
     var showEditGroupModal by remember { mutableStateOf(false) }
+    var showManageChildrenModal by remember { mutableStateOf(false) }
     var showDeleteGroupDialog by remember { mutableStateOf(false) }
+    var deleteInProgress by remember { mutableStateOf(false) }
+    var deleteErrorMessage by remember { mutableStateOf<String?>(null) }
     var messageToDelete by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -108,9 +130,12 @@ fun GroupScreen(
     var showJoinRequestsModal by remember { mutableStateOf(false) }
     var showMemberManagementModal by remember { mutableStateOf(false) }
     var showInviteCodesModal by remember { mutableStateOf(false) }
+    var showCreateSubgroupModal by remember { mutableStateOf(false) }
     var createdInviteCode by remember { mutableStateOf<String?>(null) }
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
-    val isJoined = joinedGroups.contains(groupId)
+    val isJoined = remember(joinedGroups, groupId) {
+        joinedGroups.contains(groupId)
+    }
 
     val initialInviteCode = remember { pendingInviteCode }
     val isConnected = connectionState is ConnectionManager.ConnectionState.Connected
@@ -275,13 +300,36 @@ fun GroupScreen(
         )
     }
 
+    if (showCreateSubgroupModal) {
+        CreateGroupModal(
+            currentRelayUrl = currentRelayUrl,
+            parentGroupId = groupId,
+            onDismiss = { showCreateSubgroupModal = false },
+            onGroupCreated = { newId, newName ->
+                showCreateSubgroupModal = false
+                onNavigateToGroup(newId, newName)
+            }
+        )
+    }
+
     // Edit group modal (admin only)
     if (showEditGroupModal) {
         EditGroupModal(
             groupId = groupId,
             currentMetadata = currentGroupMetadata,
             onDismiss = { showEditGroupModal = false },
-            onGroupUpdated = { showEditGroupModal = false }
+            onGroupUpdated = { showEditGroupModal = false },
+            showSubgroupControls = subgroupsEnabled
+        )
+    }
+
+    // Manage children modal (admin only)
+    if (showManageChildrenModal) {
+        ManageChildrenModal(
+            groupId = groupId,
+            currentMetadata = currentGroupMetadata,
+            onDismiss = { showManageChildrenModal = false },
+            onSaved = { showManageChildrenModal = false }
         )
     }
 
@@ -318,7 +366,8 @@ fun GroupScreen(
         )
     }
 
-    // Delete group confirmation dialog (admin only)
+    // Delete group confirmation dialog (admin only).
+    // Per NIP-29: when a parent is deleted, its children become roots.
     if (showDeleteGroupDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteGroupDialog = false },
@@ -326,13 +375,42 @@ fun GroupScreen(
             titleContentColor = NostrordColors.TextPrimary,
             textContentColor = NostrordColors.TextSecondary,
             title = { Text("Delete Group") },
-            text = { Text("Are you sure you want to permanently delete \"${currentGroupMetadata?.name ?: groupName ?: "this group"}\"? This action cannot be undone.") },
+            text = {
+                Column {
+                    Text("Are you sure you want to permanently delete \"${currentGroupMetadata?.name ?: groupName ?: "this group"}\"? This action cannot be undone.")
+                    deleteErrorMessage?.let { err ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(err, color = NostrordColors.Error)
+                    }
+                    val childCount = childrenByParent[groupId]?.size ?: 0
+                    if (childCount > 0) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "This group has $childCount subgroup${if (childCount == 1) "" else "s"} that will become root groups.",
+                            color = NostrordColors.TextPrimary
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(
+                    enabled = !deleteInProgress,
                     onClick = {
-                        vm.deleteGroup {
-                            showDeleteGroupDialog = false
-                            onNavigateHome()
+                        deleteInProgress = true
+                        deleteErrorMessage = null
+                        vm.deleteGroup { result ->
+                            deleteInProgress = false
+                            when (result) {
+                                is Result.Success -> {
+                                    showDeleteGroupDialog = false
+                                    onNavigateHome()
+                                }
+                                is Result.Error -> {
+                                    deleteErrorMessage = result.error.cause?.message
+                                        ?: result.error.message
+                                        ?: "Failed to delete group."
+                                }
+                            }
                         }
                     }
                 ) {
@@ -537,7 +615,7 @@ fun GroupScreen(
     // Responsive layout
     val parentHidden = LocalAnimatedImageHidden.current
     val anyDialogOpen = parentHidden || showLeaveDialog || showGroupInfoModal || showEditGroupModal ||
-        showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet || memberToRemove != null || showJoinRequestsModal || showInviteCodesModal
+        showManageChildrenModal || showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet || memberToRemove != null || showJoinRequestsModal || showInviteCodesModal
     CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isCompact = !forceDesktop
@@ -576,6 +654,17 @@ fun GroupScreen(
                 onEditGroup = { showEditGroupModal = true },
                 onDeleteGroup = { showDeleteGroupDialog = true },
                 onManageMembers = { showMemberManagementModal = true },
+                onCreateSubgroup = { showCreateSubgroupModal = true },
+                onManageChildren = { showManageChildrenModal = true },
+                showSubgroupControls = subgroupsEnabled,
+                parentGroupName = parentGroupName,
+                onParentClick = {
+                    val parentId = currentGroupMetadata?.parent
+                    if (!parentId.isNullOrBlank()) {
+                        onNavigateToGroup(parentId, parentGroupName)
+                    }
+                },
+                subgroupCount = childrenByParent[groupId]?.size ?: 0,
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
@@ -651,6 +740,17 @@ fun GroupScreen(
                 onEditGroup = { showEditGroupModal = true },
                 onDeleteGroup = { showDeleteGroupDialog = true },
                 onManageMembers = { showMemberManagementModal = true },
+                onCreateSubgroup = { showCreateSubgroupModal = true },
+                onManageChildren = { showManageChildrenModal = true },
+                showSubgroupControls = subgroupsEnabled,
+                parentGroupName = parentGroupName,
+                onParentClick = {
+                    val parentId = currentGroupMetadata?.parent
+                    if (!parentId.isNullOrBlank()) {
+                        onNavigateToGroup(parentId, parentGroupName)
+                    }
+                },
+                subgroupCount = childrenByParent[groupId]?.size ?: 0,
                 groupMembers = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,

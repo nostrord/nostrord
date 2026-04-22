@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import kotlin.js.ExperimentalWasmJsInterop
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.utils.toRelayUrl
 
 @JsFun("(url) => window.history.replaceState(null, '', url)")
 private external fun jsHistoryReplaceState(url: String)
@@ -59,7 +60,7 @@ private fun parseUrlQuery(search: String): UrlParams {
         else param to ""
     }
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: ""
-    val relayUrl = if (relay.isNotBlank() && "://" !in relay) "wss://$relay" else relay
+    val relayUrl = relay.toRelayUrl()
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
     return UrlParams(relayUrl, groupId, inviteCode)
