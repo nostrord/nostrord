@@ -84,6 +84,9 @@ class NostrRepository(
     // (idle drop), only one refreshVisibleUserMetadata() fires.
     private var metadataRefreshJob: kotlinx.coroutines.Job? = null
 
+    // Tracks the intended relay; stale concurrent switchRelay() calls bail out when they see a mismatch.
+    private val _targetSwitchRelayUrl = MutableStateFlow<String?>(null)
+
     // Per-relay bounded message pipelines — prevents unbounded coroutine creation under burst load.
     // Map: relayUrl -> (client, pipeline). The client reference is used to detect reconnects:
     // when a new NostrGroupClient is created for the same URL, the old pipeline is closed and a
@@ -624,6 +627,8 @@ class NostrRepository(
     }
 
     override suspend fun switchRelay(newRelayUrl: String) {
+        _targetSwitchRelayUrl.value = newRelayUrl
+
         // Skip if already on this relay — avoids unnecessary disconnect/reconnect/AUTH cycle.
         if (newRelayUrl == connectionManager.currentRelayUrl.value &&
             connectionManager.getPrimaryClient()?.isConnected() == true) {
@@ -652,15 +657,21 @@ class NostrRepository(
         // Clears messages/state but NOT the group metadata cache (_groupsByRelay).
         groupManager.clearForRelaySwitch()
 
+        if (_targetSwitchRelayUrl.value != newRelayUrl) return
+
         connectionManager.switchRelay(newRelayUrl) { msg, client ->
             enqueueToRelayPipeline(msg, client)
         }
+
+        if (_targetSwitchRelayUrl.value != newRelayUrl) return
 
         val pubKey = sessionManager.getPublicKey() ?: ""
 
         groupManager.restoreGroupsForRelay(newRelayUrl)
 
-        val cachedJoined = outboxManager.getJoinedGroupsForRelay(newRelayUrl)
+        val outboxCached = outboxManager.getJoinedGroupsForRelay(newRelayUrl)
+        val inMemoryCached = groupManager.joinedGroupsByRelay.value[normalized] ?: emptySet()
+        val cachedJoined = outboxCached + inMemoryCached
         if (cachedJoined.isNotEmpty()) {
             groupManager.setJoinedGroups(cachedJoined)
         } else {
@@ -671,6 +682,7 @@ class NostrRepository(
         if (client != null) {
             // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
             val authHandled = client.awaitAuthOrTimeout()
+            if (_targetSwitchRelayUrl.value != newRelayUrl) return
             // Skip re-fetch if cached; re-fetching races against restored state.
             if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
                 // Always request groups here. Even if AUTH was already handled
@@ -1405,9 +1417,6 @@ class NostrRepository(
         pubKey: String,
         nip29Relays: List<String> = outboxManager.kind10009Relays.value.toList()
     ): Result<Unit> {
-        // _joinedGroupsByRelay is the single authoritative per-relay membership map.
-        // DO NOT merge _joinedGroups (the active-relay view) — it only reflects a
-        // single relay and would overwrite correct per-relay data on cross-relay ops.
         val perRelay = groupManager.joinedGroupsByRelay.value
         return outboxManager.publishJoinedGroupsList(
             pubKey = pubKey,

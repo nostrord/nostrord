@@ -203,7 +203,9 @@ class ConnectionManager(
                 newClient.onConnectionLost = null
                 newClient.cancelAndClose()
                 primaryClient = null
-                _connectionState.value = ConnectionState.Error("Connection timed out")
+                if (_currentRelayUrl.value == relayUrl.normalizeRelayUrl()) {
+                    _connectionState.value = ConnectionState.Error("Connection timed out")
+                }
                 connStats?.onConnectFailed(relayUrl)
                 return@withLock false
             }
@@ -216,7 +218,9 @@ class ConnectionManager(
             reconnectAttempts = 0
             true
         } catch (e: Exception) {
-            _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
+            if (_currentRelayUrl.value == relayUrl.normalizeRelayUrl()) {
+                _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
+            }
             primaryClient?.let { it.onConnectionLost = null; it.cancelAndClose() }
             primaryClient = null
             connStats?.onConnectFailed(relayUrl)

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -78,7 +79,10 @@ class GroupManager(
 
     // Tracks which relay is currently active and which relays have fully loaded
     // (i.e. received EOSE for the "group-list" subscription).
-    private var currentRelayUrl: String? = null
+    private val _currentRelayUrl = MutableStateFlow<String?>(null)
+    private var currentRelayUrl: String?
+        get() = _currentRelayUrl.value
+        set(value) { _currentRelayUrl.value = value }
     private val _completeGroupLoadRelays = MutableStateFlow<Set<String>>(emptySet())
 
     /**
@@ -182,12 +186,21 @@ class GroupManager(
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages.asStateFlow()
 
-    private val _joinedGroups = MutableStateFlow<Set<String>>(emptySet())
-    val joinedGroups: StateFlow<Set<String>> = _joinedGroups.asStateFlow()
-
-    // Per-relay joined groups cache — persists across relay view switches
+    // Per-relay joined groups cache — the single source of truth for membership.
     private val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = _joinedGroupsByRelay.asStateFlow()
+
+    // Active-relay view — derived so it can never drift from _joinedGroupsByRelay.
+    val joinedGroups: StateFlow<Set<String>> = combine(
+        _joinedGroupsByRelay,
+        _currentRelayUrl
+    ) { map, relay ->
+        relay?.normalizeRelayUrl()?.let { map[it] } ?: emptySet()
+    }.stateIn(scope, SharingStarted.Eagerly, emptySet())
+
+    // Synchronous active-relay view for internal use (avoids stateIn dispatch lag).
+    private val activeJoinedGroups: Set<String>
+        get() = currentRelayUrl?.normalizeRelayUrl()?.let { _joinedGroupsByRelay.value[it] } ?: emptySet()
 
     // ==========================================================================
     // STATE MACHINE: Per-group loading controller with formal state transitions
@@ -575,13 +588,12 @@ class GroupManager(
      */
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
         val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
-        _joinedGroups.value = groups
         _joinedGroupsByRelay.update { it + (relayUrl.normalizeRelayUrl() to groups) }
     }
 
     /**
      * Load joined groups for all given relays into the per-relay cache without
-     * touching the live _joinedGroups state (which belongs to the active relay).
+     * only touching the per-relay cache.
      */
     fun loadAllJoinedGroupsFromStorage(pubKey: String, relayUrls: List<String>) {
         val updates = relayUrls.associate { url ->
@@ -613,21 +625,16 @@ class GroupManager(
     }
 
     fun setJoinedGroups(groups: Set<String>) {
-        _joinedGroups.value = groups
-        currentRelayUrl?.let { url ->
-            val normalized = url.normalizeRelayUrl()
-            _joinedGroupsByRelay.update { it + (normalized to groups) }
+        val url = currentRelayUrl?.normalizeRelayUrl() ?: return
+        _joinedGroupsByRelay.update { existing ->
+            val current = existing[url] ?: emptySet()
+            existing + (url to (current + groups))
         }
     }
 
     fun updateAllRelayJoinedGroups(relayGroups: Map<String, Set<String>>) {
         if (relayGroups.isEmpty()) return
-        _joinedGroupsByRelay.value = relayGroups
-        // Also sync _joinedGroups if the active relay is in the event
-        currentRelayUrl?.let { url ->
-            val normalized = url.normalizeRelayUrl()
-            relayGroups[normalized]?.let { groups -> _joinedGroups.value = groups }
-        }
+        _joinedGroupsByRelay.update { it + relayGroups }
     }
 
     /**
@@ -670,16 +677,10 @@ class GroupManager(
 
             currentClient.send(message)
 
-            // Use the TARGET relay's group set, not the active-view _joinedGroups,
-            // because the group may live on a different relay than the one being viewed.
             val relayGroups = _joinedGroupsByRelay.value[groupRelayUrl] ?: emptySet()
             val updated = relayGroups + groupId
             SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updated)
             _joinedGroupsByRelay.update { it + (groupRelayUrl to updated) }
-            // Keep the active-relay view in sync if this group is on the current relay.
-            if (groupRelayUrl == currentRelayUrl) {
-                _joinedGroups.value = updated
-            }
 
             publishJoinedGroups()
 
@@ -775,10 +776,8 @@ class GroupManager(
                 add(signedMeta.toJsonObject())
             }.toString())
 
-            // Auto-join with the confirmed ID — use per-relay set, not active view.
             val relayGroups = _joinedGroupsByRelay.value[currentRelayUrl] ?: emptySet()
             val updatedAfterCreate = relayGroups + confirmedGroupId
-            _joinedGroups.value = updatedAfterCreate
             SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterCreate)
             _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterCreate) }
             publishJoinedGroups()
@@ -1080,10 +1079,11 @@ class GroupManager(
             }
 
             val idsToRemove = setOf(groupId)
-            val updatedAfterLeave = _joinedGroups.value - idsToRemove
-            _joinedGroups.value = updatedAfterLeave
+            val normalizedGroupRelay = groupRelayUrl.normalizeRelayUrl()
+            val relayGroupsBefore = _joinedGroupsByRelay.value[normalizedGroupRelay] ?: emptySet()
+            val updatedAfterLeave = relayGroupsBefore - idsToRemove
             SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave)
-            _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave) }
+            _joinedGroupsByRelay.update { it + (normalizedGroupRelay to updatedAfterLeave) }
             publishJoinedGroups()
 
             _groups.value = _groups.value.filter { it.id !in idsToRemove }
@@ -1126,10 +1126,8 @@ class GroupManager(
         if (groupId in deletedGroupIds) return false
 
         val idsToRemove = setOf(groupId)
-        // Intentionally do NOT auto-remove from _joinedGroups / kind:10009.
-        // Leaving the id pinned while the kind:39000 disappears makes the group
-        // surface as an "orphan" in the sidebar so the user can review and
-        // explicitly forget it via forgetGroup.
+        // Intentionally do NOT remove from _joinedGroupsByRelay / kind:10009 — orphaned groups
+        // surface in the sidebar so the user can review and explicitly forget them.
         // Per NIP-29: when a parent is deleted, its children become roots —
         // the relay re-emits their kind:39000 without the parent tag.
 
@@ -1163,13 +1161,15 @@ class GroupManager(
     fun forgetJoinedPin(groupId: String, relayUrl: String, pubKey: String?): Boolean {
         val normalized = relayUrl.normalizeRelayUrl()
         val currentPerRelay = _joinedGroupsByRelay.value[normalized] ?: emptySet()
-        val alsoInActive = groupId in _joinedGroups.value
+        val activeKey = currentRelayUrl?.normalizeRelayUrl()
+        val activeGroups = activeKey?.let { _joinedGroupsByRelay.value[it] } ?: emptySet()
+        val alsoInActive = activeKey != null && activeKey != normalized && groupId in activeGroups
         if (groupId !in currentPerRelay && !alsoInActive) return false
 
         val updatedPerRelay = currentPerRelay - groupId
-        _joinedGroupsByRelay.update { it + (normalized to updatedPerRelay) }
-        if (alsoInActive) {
-            _joinedGroups.value = _joinedGroups.value - groupId
+        _joinedGroupsByRelay.update { current ->
+            val next = current + (normalized to updatedPerRelay)
+            if (alsoInActive) next + (activeKey!! to (activeGroups - groupId)) else next
         }
         if (pubKey != null) {
             try { SecureStorage.saveJoinedGroupsForRelay(pubKey, normalized, updatedPerRelay) } catch (_: Exception) {}
@@ -1454,16 +1454,10 @@ class GroupManager(
 
             currentClient.send(message)
 
-            // Use the TARGET relay's group set, not the active-view _joinedGroups,
-            // because the group may live on a different relay than the one being viewed.
             val relayGroups = _joinedGroupsByRelay.value[groupRelayUrl] ?: emptySet()
             val updatedAfterLeave = relayGroups - groupId
             SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave)
             _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave) }
-            // Keep the active-relay view in sync if this group is on the current relay.
-            if (groupRelayUrl == currentRelayUrl) {
-                _joinedGroups.value = updatedAfterLeave
-            }
 
             publishJoinedGroups()
 
@@ -1486,7 +1480,7 @@ class GroupManager(
      * Check if a group is joined
      */
     fun isGroupJoined(groupId: String): Boolean {
-        return _joinedGroups.value.contains(groupId)
+        return groupId in activeJoinedGroups
     }
 
     /**
@@ -2630,7 +2624,7 @@ class GroupManager(
      */
     fun clearJoinedGroupsForAccount(pubKey: String) {
         SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
-        _joinedGroups.value = emptySet()
+        _joinedGroupsByRelay.value = emptyMap()
     }
 
     // ==========================================================================
