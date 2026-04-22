@@ -377,7 +377,7 @@ private fun MobileSettings(
     experimentalContent: @Composable () -> Unit
 ) {
     if (!showPanel) {
-        Column(modifier = Modifier.fillMaxSize().background(NostrordColors.BackgroundDark)) {
+        Column(modifier = Modifier.fillMaxSize().background(NostrordColors.BackgroundDark).statusBarsPadding()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -396,7 +396,7 @@ private fun MobileSettings(
             }
         }
     } else {
-        Column(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
+        Column(modifier = Modifier.fillMaxSize().background(NostrordColors.Background).statusBarsPadding()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
