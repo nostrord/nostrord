@@ -800,7 +800,8 @@ private fun MobileDrawerContent(
             userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
             userPubkey = pubKey,
             onUserClick = onUserClick,
-            isProfileActive = isProfileActive
+            isProfileActive = isProfileActive,
+            showTooltips = false
         )
         GroupsNavSidebar(
             relayUrl = activeRelayUrl,

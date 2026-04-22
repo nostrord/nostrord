@@ -76,7 +76,8 @@ fun ServerRail(
     userDisplayName: String? = null,
     userPubkey: String? = null,
     onUserClick: () -> Unit = {},
-    isProfileActive: Boolean = false
+    isProfileActive: Boolean = false,
+    showTooltips: Boolean = true
 ) {
     val listState = rememberLazyListState()
 
@@ -102,7 +103,7 @@ fun ServerRail(
                 ServerRailItem(
                     isActive = isActive,
                     onClick = { onRelayClick(relayUrl) },
-                    tooltip = tooltipText
+                    tooltip = if (showTooltips) tooltipText else null
                 ) {
                     RelayIcon(relayUrl = relayUrl, isActive = isActive, iconUrl = meta?.icon)
                 }
@@ -115,7 +116,7 @@ fun ServerRail(
                     isActive = false,
                     onClick = onAddRelayClick,
                     showIndicator = false,
-                    tooltip = "Add relay"
+                    tooltip = if (showTooltips) "Add relay" else null
                 ) {
                     Box(
                         modifier = Modifier
@@ -144,7 +145,7 @@ fun ServerRail(
             displayName = userDisplayName,
             pubkey = userPubkey,
             onClick = onUserClick,
-            tooltip = userDisplayName ?: "Profile",
+            tooltip = if (showTooltips) userDisplayName ?: "Profile" else null,
             isActive = isProfileActive
         )
     }
@@ -362,7 +363,7 @@ private fun UserAvatar(
     displayName: String?,
     pubkey: String?,
     onClick: () -> Unit,
-    tooltip: String = "Profile",
+    tooltip: String? = "Profile",
     isActive: Boolean = false
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -419,18 +420,22 @@ private fun UserAvatar(
         }
     }
 
-    TooltipBox(
-        positionProvider = RightSideTooltipPositionProvider(),
-        tooltip = {
-            PlainTooltip(
-                containerColor = NostrordColors.Surface,
-                contentColor = NostrordColors.TextPrimary
-            ) {
-                Text(tooltip)
-            }
-        },
-        state = rememberTooltipState()
-    ) {
+    if (tooltip != null) {
+        TooltipBox(
+            positionProvider = RightSideTooltipPositionProvider(),
+            tooltip = {
+                PlainTooltip(
+                    containerColor = NostrordColors.Surface,
+                    contentColor = NostrordColors.TextPrimary
+                ) {
+                    Text(tooltip)
+                }
+            },
+            state = rememberTooltipState()
+        ) {
+            avatarContent()
+        }
+    } else {
         avatarContent()
     }
 }
