@@ -50,7 +50,7 @@ private fun parseDeepLinkUrl(url: String): ExternalLaunchContext? {
         else param to ""
     }
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
-    val relayUrl = relay.toRelayUrl()
+    val relayUrl = relay.toRelayUrl().takeIf { it.isNotBlank() } ?: return null
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
 

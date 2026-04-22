@@ -29,7 +29,7 @@ class MainActivity : ComponentActivity() {
     private fun handleDeepLink(intent: Intent?) {
         val uri = intent?.data ?: return
         val relay = uri.getQueryParameter("relay")?.takeIf { it.isNotBlank() } ?: return
-        val relayUrl = relay.toRelayUrl()
+        val relayUrl = relay.toRelayUrl().takeIf { it.isNotBlank() } ?: return
         val groupId = uri.getQueryParameter("group")?.takeIf { it.isNotBlank() }
         val inviteCode = uri.getQueryParameter("code")?.takeIf { it.isNotBlank() }
 

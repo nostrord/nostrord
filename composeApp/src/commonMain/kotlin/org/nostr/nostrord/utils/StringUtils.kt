@@ -84,21 +84,27 @@ fun String.normalizeRelayUrl(): String {
 fun String.toRelayUrl(): String {
     val trimmed = trim()
     if (trimmed.isEmpty()) return trimmed
-    if (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) return trimmed
-    val host = trimmed.substringBefore('/').substringBefore(':').lowercase()
+    val hadScheme = trimmed.startsWith("ws://") || trimmed.startsWith("wss://")
+    val afterScheme = trimmed.removePrefix("wss://").removePrefix("ws://")
+    val authority = afterScheme.substringBefore('/')
+    // Reject userinfo: `ws://localhost:7777@evil.com` would bypass loopback checks.
+    if ('@' in authority) return ""
+    if (hadScheme) return trimmed
+    val host = authority.substringBefore(':').lowercase()
     val scheme = if (host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1") "ws" else "wss"
     return "$scheme://$trimmed"
 }
 
 fun isValidRelayUrl(url: String): Boolean {
     val trimmed = url.trim()
-    if (trimmed.startsWith("wss://") && trimmed.length > 6) return true
-    if (trimmed.startsWith("ws://") && trimmed.length > 5) {
-        val host = trimmed.removePrefix("ws://")
-            .substringBefore('/')
-            .substringBefore(':')
-            .lowercase()
-        return host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
+    val afterScheme = when {
+        trimmed.startsWith("wss://") && trimmed.length > 6 -> trimmed.removePrefix("wss://")
+        trimmed.startsWith("ws://") && trimmed.length > 5 -> trimmed.removePrefix("ws://")
+        else -> return false
     }
-    return false
+    val authority = afterScheme.substringBefore('/')
+    if ('@' in authority) return false
+    if (trimmed.startsWith("wss://")) return true
+    val host = authority.substringBefore(':').lowercase()
+    return host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0" || host == "[::1]" || host == "::1"
 }

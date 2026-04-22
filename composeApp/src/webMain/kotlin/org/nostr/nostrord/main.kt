@@ -44,7 +44,7 @@ private fun parseDeepLinkFromUrl() {
     }
 
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return
-    val relayUrl = relay.toRelayUrl()
+    val relayUrl = relay.toRelayUrl().takeIf { it.isNotBlank() } ?: return
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
 
