@@ -2,8 +2,10 @@ package org.nostr.nostrord.ui.components.sidebars
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
@@ -237,8 +239,9 @@ fun GroupsNavSidebar(
                     modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)
                 )
             } else {
-                // MY GROUPS — pinned at top, always visible
+                // MY GROUPS — scrollable, capped height so OTHER GROUPS always visible
                 if (myGroups.isNotEmpty() || orphanedJoinedIds.isNotEmpty()) {
+                    val myGroupsScrollState = remember(relayUrl) { ScrollState(0) }
                     Column(modifier = Modifier.padding(horizontal = Spacing.sm)) {
                         SectionToggleHeader(
                             text = "MY GROUPS",
@@ -247,34 +250,38 @@ fun GroupsNavSidebar(
                             onToggle = { myGroupsExpanded = !myGroupsExpanded }
                         )
                         if (myGroupsExpanded) {
-                            myGroups.forEach { item ->
-                                when (item) {
-                                    is SidebarItem.Group -> GroupItem(
-                                        group = item.group,
-                                        isActive = item.group.id == activeGroupId,
-                                        unreadCount = unreadCounts[item.group.id] ?: 0,
-                                        childCount = childrenByParent[item.group.id]?.size ?: 0,
-                                        notJoined = item.group.id !in joinedGroupIds,
-                                        unverified = item.unverified,
-                                        depth = item.depth,
-                                        onClick = { onGroupClick(item.group.id, item.group.name) }
-                                    )
-                                    is SidebarItem.UnverifiedHeader -> UnverifiedClaimsHeader(
-                                        count = item.count,
-                                        expanded = expandedUnverified[item.parentId] == true,
-                                        depth = item.depth,
-                                        onToggle = {
-                                            expandedUnverified[item.parentId] =
-                                                !(expandedUnverified[item.parentId] ?: false)
+                            Box(modifier = Modifier.heightIn(max = 240.dp)) {
+                                Column(modifier = Modifier.verticalScroll(myGroupsScrollState)) {
+                                    myGroups.forEach { item ->
+                                        when (item) {
+                                            is SidebarItem.Group -> GroupItem(
+                                                group = item.group,
+                                                isActive = item.group.id == activeGroupId,
+                                                unreadCount = unreadCounts[item.group.id] ?: 0,
+                                                childCount = childrenByParent[item.group.id]?.size ?: 0,
+                                                notJoined = item.group.id !in joinedGroupIds,
+                                                unverified = item.unverified,
+                                                depth = item.depth,
+                                                onClick = { onGroupClick(item.group.id, item.group.name) }
+                                            )
+                                            is SidebarItem.UnverifiedHeader -> UnverifiedClaimsHeader(
+                                                count = item.count,
+                                                expanded = expandedUnverified[item.parentId] == true,
+                                                depth = item.depth,
+                                                onToggle = {
+                                                    expandedUnverified[item.parentId] =
+                                                        !(expandedUnverified[item.parentId] ?: false)
+                                                }
+                                            )
                                         }
-                                    )
+                                    }
+                                    orphanedJoinedIds.forEach { orphanId ->
+                                        OrphanedGroupItem(
+                                            groupId = orphanId,
+                                            onForget = { onForgetOrphan(orphanId) }
+                                        )
+                                    }
                                 }
-                            }
-                            orphanedJoinedIds.forEach { orphanId ->
-                                OrphanedGroupItem(
-                                    groupId = orphanId,
-                                    onForget = { onForgetOrphan(orphanId) }
-                                )
                             }
                         }
                     }
