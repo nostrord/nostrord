@@ -477,6 +477,9 @@ class OutboxManager(
             allRelayGroups = emptyMap()
             latestKind10009CreatedAt = 0
         }
+        _kind10009Relays.value = emptySet()
+        _groupTagRelays.value = emptySet()
+        kind10009SubId = null
         kind10009Received = false
         eoseReceived = false
     }
