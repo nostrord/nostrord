@@ -10,6 +10,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
@@ -195,35 +200,54 @@ private fun MiniAvatar(
     metadata: UserMetadata?,
     size: Int = 20
 ) {
-    val context = LocalPlatformContext.current
-    val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(2)
+    val pictureUrl = metadata?.picture?.takeIf { it.isNotBlank() }
 
-    if (!metadata?.picture.isNullOrBlank()) {
-        AsyncImage(
-            model = ImageRequest.Builder(context)
-                .data(metadata?.picture!!)
-                .crossfade(true)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .build(),
-            contentDescription = displayName,
-            modifier = Modifier
-                .size(size.dp)
-                .clip(CircleShape),
-            contentScale = ContentScale.Crop
-        )
-    } else {
-        // Use Jdenticon for fallback avatar
+    if (pictureUrl != null) {
+        val context = LocalPlatformContext.current
+        val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(2)
+        var imageState by remember(pictureUrl) {
+            mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+        }
+
         Box(
             modifier = Modifier
                 .size(size.dp)
                 .clip(CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Jdenticon(
-                value = pubkey,
-                size = size.dp
-            )
+            if (imageState is AsyncImagePainter.State.Error) {
+                Jdenticon(value = pubkey, size = size.dp)
+            } else {
+                val imageRequest = remember(pictureUrl, context) {
+                    ImageRequest.Builder(context)
+                        .data(pictureUrl)
+                        .crossfade(true)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                }
+                if (imageState is AsyncImagePainter.State.Loading || imageState is AsyncImagePainter.State.Empty) {
+                    Jdenticon(value = pubkey, size = size.dp)
+                }
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = displayName,
+                    modifier = Modifier
+                        .size(size.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop,
+                    onState = { imageState = it }
+                )
+            }
+        }
+    } else {
+        Box(
+            modifier = Modifier
+                .size(size.dp)
+                .clip(CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Jdenticon(value = pubkey, size = size.dp)
         }
     }
 }
