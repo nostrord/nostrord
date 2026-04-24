@@ -13,64 +13,26 @@ private val joinedGroupMetaIdbCache = mutableMapOf<String, String>()
 private var _idbDb: dynamic = null
 
 private fun idbWrite(key: String, value: String) {
-    val db = _idbDb ?: run {
-        console.error("[IDB-JS] idbWrite skipped — DB not ready. key=$key")
-        return
-    }
+    val db = _idbDb ?: return
     try {
-        val tx: dynamic = db.transaction("kv", "readwrite")
-        val req: dynamic = tx.objectStore("kv").put(value, key)
-        req.onsuccess = { _: dynamic -> console.log("[IDB-JS] put ok: $key") }
-        req.onerror = { e: dynamic -> console.error("[IDB-JS] put error: $key — ${e.target.error}") }
-        tx.oncomplete = { _: dynamic -> console.log("[IDB-JS] tx committed: $key") }
-        tx.onerror = { e: dynamic -> console.error("[IDB-JS] tx error: $key — ${e.target.error}") }
-        tx.onabort = { e: dynamic -> console.error("[IDB-JS] tx aborted: $key — ${e.target.error}") }
-    } catch (e: Throwable) {
-        console.error("[IDB-JS] idbWrite threw: $key — ${e.message}")
-    }
-}
-
-private fun idbDelete(key: String) {
-    val db = _idbDb ?: run {
-        console.error("[IDB-JS] idbDelete skipped — DB not ready. key=$key")
-        return
-    }
-    try {
-        val tx: dynamic = db.transaction("kv", "readwrite")
-        val req: dynamic = tx.objectStore("kv").delete(key)
-        req.onerror = { e: dynamic -> console.error("[IDB-JS] delete error: $key — ${e.target.error}") }
-        tx.onerror = { e: dynamic -> console.error("[IDB-JS] delete tx error: $key — ${e.target.error}") }
-        tx.onabort = { e: dynamic -> console.error("[IDB-JS] delete tx aborted: $key — ${e.target.error}") }
-    } catch (e: Throwable) {
-        console.error("[IDB-JS] idbDelete threw: $key — ${e.message}")
-    }
+        db.transaction("kv", "readwrite").objectStore("kv").put(value, key)
+    } catch (_: Throwable) {}
 }
 
 private fun idbDeleteWithPrefix(prefix: String) {
-    val db = _idbDb ?: run {
-        console.error("[IDB-JS] idbDeleteWithPrefix skipped — DB not ready. prefix=$prefix")
-        return
-    }
+    val db = _idbDb ?: return
     try {
-        val tx: dynamic = db.transaction("kv", "readwrite")
-        val store: dynamic = tx.objectStore("kv")
+        val store: dynamic = db.transaction("kv", "readwrite").objectStore("kv")
         val keysReq: dynamic = store.getAllKeys()
         keysReq.onsuccess = { ke: dynamic ->
             val keys = ke.target.result.unsafeCast<Array<String>>()
             val toDelete = keys.filter { it.startsWith(prefix) }
             if (toDelete.isNotEmpty()) {
-                console.log("[IDB-JS] deleteWithPrefix: deleting ${toDelete.size} keys for prefix=$prefix")
-                val tx2: dynamic = db.transaction("kv", "readwrite")
-                val store2: dynamic = tx2.objectStore("kv")
+                val store2: dynamic = db.transaction("kv", "readwrite").objectStore("kv")
                 for (k in toDelete) store2.delete(k)
-                tx2.onerror = { e: dynamic -> console.error("[IDB-JS] deleteWithPrefix tx2 error: ${e.target.error}") }
-                tx2.onabort = { e: dynamic -> console.error("[IDB-JS] deleteWithPrefix tx2 aborted: ${e.target.error}") }
             }
         }
-        keysReq.onerror = { e: dynamic -> console.error("[IDB-JS] deleteWithPrefix getAllKeys error: ${e.target.error}") }
-    } catch (e: Throwable) {
-        console.error("[IDB-JS] idbDeleteWithPrefix threw: $prefix — ${e.message}")
-    }
+    } catch (_: Throwable) {}
 }
 
 actual object SecureStorage {
@@ -337,12 +299,6 @@ actual object SecureStorage {
         return joinedGroupMetaIdbCache[cacheKey]
     }
 
-    actual fun clearJoinedGroupMetadata(pubkey: String, relayUrl: String) {
-        val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
-        joinedGroupMetaIdbCache.remove(cacheKey)
-        idbDelete(IDB_JOINED_GROUP_META_PREFIX + cacheKey)
-    }
-
     actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
         val accountPrefix = "${pubkey.hashCode()}_"
         joinedGroupMetaIdbCache.keys.filter { it.startsWith(accountPrefix) }
@@ -393,7 +349,6 @@ actual object SecureStorage {
     // Open IndexedDB, read all kv entries, and populate in-memory caches.
     // Stores the DB connection for subsequent writes — must be called before any reads or writes.
     actual suspend fun preloadMetadata() {
-        console.log("[IDB-JS] preloadMetadata: starting")
         try {
             val loaded = mutableMapOf<String, String>()
             suspendCoroutine<Unit> { cont ->
@@ -404,33 +359,23 @@ actual object SecureStorage {
 
                 val idb: dynamic = window.asDynamic().indexedDB
                 if (idb == null || idb == undefined) {
-                    console.error("[IDB-JS] preloadMetadata: indexedDB not available")
                     safeResume()
                     return@suspendCoroutine
                 }
                 val req: dynamic = idb.open("nostrord_meta_db", 1)
                 req.onupgradeneeded = { e: dynamic ->
-                    console.log("[IDB-JS] preloadMetadata: onupgradeneeded — creating kv store")
                     val db: dynamic = e.target.result
                     if (!(db.objectStoreNames.contains("kv").unsafeCast<Boolean>())) {
                         db.createObjectStore("kv")
                     }
                 }
-                req.onerror = { e: dynamic ->
-                    console.error("[IDB-JS] preloadMetadata: DB open error — ${e.target.error}")
-                    safeResume()
-                }
+                req.onerror = { _: dynamic -> safeResume() }
                 req.onsuccess = { e: dynamic ->
-                    console.log("[IDB-JS] preloadMetadata: DB opened successfully")
                     _idbDb = e.target.result
                     val db: dynamic = _idbDb
-                    // Re-open connection if the browser closes it (e.g. version change from another tab)
-                    db.onclose = { _: dynamic ->
-                        console.error("[IDB-JS] DB connection closed unexpectedly — clearing _idbDb")
-                        _idbDb = null
-                    }
+                    // Drop the handle if the browser closes it (e.g. version change from another tab).
+                    db.onclose = { _: dynamic -> _idbDb = null }
                     db.onversionchange = { _: dynamic ->
-                        console.error("[IDB-JS] DB versionchange — closing connection")
                         db.close()
                         _idbDb = null
                     }
@@ -445,7 +390,6 @@ actual object SecureStorage {
                     fun tryDone() {
                         val k = dbKeys ?: return
                         val v = dbVals ?: return
-                        console.log("[IDB-JS] preloadMetadata: loaded ${k.size} entries from IDB")
                         for (i in k.indices) {
                             val value = v[i]
                             if (value != null) loaded[k[i]] = value.toString()
@@ -461,35 +405,18 @@ actual object SecureStorage {
                         dbVals = ve.target.result.unsafeCast<Array<dynamic>>()
                         tryDone()
                     }
-                    keysReq.onerror = { er: dynamic ->
-                        console.error("[IDB-JS] preloadMetadata: getAllKeys error — ${er.target.error}")
-                        safeResume()
-                    }
-                    valsReq.onerror = { er: dynamic ->
-                        console.error("[IDB-JS] preloadMetadata: getAll error — ${er.target.error}")
-                        safeResume()
-                    }
-                    tx.onerror = { er: dynamic ->
-                        console.error("[IDB-JS] preloadMetadata: read tx error — ${er.target.error}")
-                        safeResume()
-                    }
+                    keysReq.onerror = { _: dynamic -> safeResume() }
+                    valsReq.onerror = { _: dynamic -> safeResume() }
+                    tx.onerror = { _: dynamic -> safeResume() }
                 }
             }
 
-            loaded[IDB_RELAY_META_KEY]?.let {
-                relayMetaIdbCache = it
-                console.log("[IDB-JS] preloadMetadata: restored relay metadata (${it.length} bytes)")
-            }
-            var groupCount = 0
+            loaded[IDB_RELAY_META_KEY]?.let { relayMetaIdbCache = it }
             loaded.forEach { (key, value) ->
                 if (key.startsWith(IDB_JOINED_GROUP_META_PREFIX)) {
                     joinedGroupMetaIdbCache[key.removePrefix(IDB_JOINED_GROUP_META_PREFIX)] = value
-                    groupCount++
                 }
             }
-            console.log("[IDB-JS] preloadMetadata: restored $groupCount joined-group-meta entries")
-        } catch (e: Throwable) {
-            console.error("[IDB-JS] preloadMetadata: uncaught exception — ${e.message}")
-        }
+        } catch (_: Throwable) {}
     }
 }

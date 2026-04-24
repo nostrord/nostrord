@@ -81,7 +81,6 @@ expect object SecureStorage {
     // Read on startup for instant sidebar display without waiting for the network.
     fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String)
     fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String?
-    fun clearJoinedGroupMetadata(pubkey: String, relayUrl: String)
     fun clearAllJoinedGroupMetadataForAccount(pubkey: String)
 
     // NIP-11 relay metadata cache (persisted across restarts)

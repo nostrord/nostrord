@@ -117,8 +117,8 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
                     _relayMetadata.value = updated
                     try {
                         SecureStorage.saveRelayMetadata(json.encodeToString(nip11RelayInfoMapSerializer, updated))
-                    } catch (e: Exception) {
-                        println("[IDB] saveRelayMetadata failed: ${e.message}")
+                    } catch (_: Exception) {
+                        // Non-critical — cache write failure doesn't break anything
                     }
                 } else {
                     if (attempt < MAX_RETRIES) {

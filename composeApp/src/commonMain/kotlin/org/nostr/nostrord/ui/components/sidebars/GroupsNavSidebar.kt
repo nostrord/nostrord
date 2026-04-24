@@ -337,11 +337,8 @@ fun GroupsNavSidebar(
                                 val next = !otherGroupsExpanded
                                 otherGroupsExpanded = next
                                 SecureStorage.saveBooleanPref("sidebar_other_expanded_$relayUrl", next)
-                                // Opening OTHER GROUPS on a lazy relay: trigger the download
-                                // immediately instead of relying on the LaunchedEffect.
-                                // needsFullFetch covers both the normal "not yet fetched" case and
-                                // the stale-timestamp case where hasFullGroupListBeenFetched=true
-                                // but the section is empty because no data arrived this session.
+                                // Trigger immediately rather than waiting for the LaunchedEffect
+                                // below to recompose with the new otherGroupsExpanded value.
                                 if (next && isGroupFetchLazy && needsFullFetch) {
                                     onRequestFullGroupList()
                                 }

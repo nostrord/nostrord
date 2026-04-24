@@ -289,8 +289,6 @@ class NostrRepository(
             if (pubkey != null) {
                 groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
                 groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
-                // Restore only kind:10009 group metadata — fast, bounded dataset.
-                // Non-joined groups (OTHER GROUPS) are fetched on-demand from the network.
                 groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
                 unreadManager.initialize(pubkey)
             }
@@ -678,11 +676,11 @@ class NostrRepository(
         connectionManager.loadSavedRelay()
 
         val pubkey = sessionManager.getPublicKey()
-        groupManager.restoreAllGroupsFromStorage(relays)
         liveCursorStore?.loadAll(relays)
         if (pubkey != null) {
             groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
             groupManager.loadAllJoinedGroupsFromStorage(pubkey, relays)
+            groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, relays)
         }
         connect(primaryRelay)
     }

@@ -335,12 +335,6 @@ actual object SecureStorage {
         return prefs.getString(key, null)
     }
 
-    actual fun clearJoinedGroupMetadata(pubkey: String, relayUrl: String) {
-        ensureInitialized()
-        val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
-        prefs.edit().remove(key).apply()
-    }
-
     actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
         ensureInitialized()
         val accountPrefix = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_"

@@ -31,27 +31,18 @@ private external fun jsGetKeysWithPrefix(prefix: String): JsArray<JsString>
     globalThis.__nostrordIdbReady = false;
     globalThis.__nostrordIdbData = '{}';
     if (typeof indexedDB === 'undefined') {
-        console.error('[IDB-WASM] indexedDB not available in this context');
-        globalThis.__nostrordIdbData = '{}';
         globalThis.__nostrordIdbReady = true;
         return;
     }
-    console.log('[IDB-WASM] opening nostrord_meta_db...');
     var req = indexedDB.open('nostrord_meta_db', 1);
     req.onupgradeneeded = function(e) {
-        console.log('[IDB-WASM] onupgradeneeded — creating kv store');
         var db = e.target.result;
         if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
     };
     req.onsuccess = function(e) {
-        console.log('[IDB-WASM] DB opened — reading all entries');
         globalThis.__nostrordIdb = e.target.result;
-        globalThis.__nostrordIdb.onclose = function() {
-            console.error('[IDB-WASM] DB connection closed unexpectedly');
-            globalThis.__nostrordIdb = null;
-        };
+        globalThis.__nostrordIdb.onclose = function() { globalThis.__nostrordIdb = null; };
         globalThis.__nostrordIdb.onversionchange = function() {
-            console.error('[IDB-WASM] DB versionchange — closing connection');
             globalThis.__nostrordIdb.close();
             globalThis.__nostrordIdb = null;
         };
@@ -67,30 +58,16 @@ private external fun jsGetKeysWithPrefix(prefix: String): JsArray<JsString>
                 for (var i = 0; i < keys.length; i++) {
                     if (vals[i] !== null && vals[i] !== undefined) result[keys[i]] = vals[i];
                 }
-                var jsonStr = JSON.stringify(result);
-                console.log('[IDB-WASM] loaded ' + keys.length + ' entries from IDB');
-                globalThis.__nostrordIdbData = jsonStr;
+                globalThis.__nostrordIdbData = JSON.stringify(result);
                 globalThis.__nostrordIdbReady = true;
             }
         }
         keysReq.onsuccess = function(e2) { keys = e2.target.result; tryDone(); };
         valsReq.onsuccess = function(e2) { vals = e2.target.result; tryDone(); };
-        keysReq.onerror = function(e2) {
-            console.error('[IDB-WASM] getAllKeys error: ' + e2.target.error);
-            globalThis.__nostrordIdbData = '{}';
-            globalThis.__nostrordIdbReady = true;
-        };
-        valsReq.onerror = function(e2) {
-            console.error('[IDB-WASM] getAll error: ' + e2.target.error);
-            globalThis.__nostrordIdbData = '{}';
-            globalThis.__nostrordIdbReady = true;
-        };
+        keysReq.onerror = function() { globalThis.__nostrordIdbReady = true; };
+        valsReq.onerror = function() { globalThis.__nostrordIdbReady = true; };
     };
-    req.onerror = function(e) {
-        console.error('[IDB-WASM] DB open error: ' + e.target.error);
-        globalThis.__nostrordIdbData = '{}';
-        globalThis.__nostrordIdbReady = true;
-    };
+    req.onerror = function() { globalThis.__nostrordIdbReady = true; };
 }
 """)
 private external fun jsStartIdbPreload()
@@ -107,73 +84,30 @@ private external fun jsGetIdbData(): JsString
 @JsFun("""
 (key, value) => {
     var db = globalThis.__nostrordIdb;
-    if (!db) {
-        console.error('[IDB-WASM] idbWrite skipped — DB not ready. key=' + key);
-        return;
-    }
+    if (!db) return;
     try {
-        var tx = db.transaction('kv', 'readwrite');
-        var req = tx.objectStore('kv').put(value, key);
-        req.onsuccess = function() { console.log('[IDB-WASM] put ok: ' + key); };
-        req.onerror = function(e) { console.error('[IDB-WASM] put error: ' + key + ' — ' + e.target.error); };
-        tx.oncomplete = function() { console.log('[IDB-WASM] tx committed: ' + key); };
-        tx.onerror = function(e) { console.error('[IDB-WASM] tx error: ' + key + ' — ' + e.target.error); };
-        tx.onabort = function(e) { console.error('[IDB-WASM] tx aborted: ' + key + ' — ' + e.target.error); };
-    } catch(e) {
-        console.error('[IDB-WASM] idbWrite threw: ' + key + ' — ' + e);
-    }
+        db.transaction('kv', 'readwrite').objectStore('kv').put(value, key);
+    } catch(e) {}
 }
 """)
 private external fun jsIdbWrite(key: String, value: String)
-
-// Delete a single key from the kv store.
-@JsFun("""
-(key) => {
-    var db = globalThis.__nostrordIdb;
-    if (!db) {
-        console.error('[IDB-WASM] idbDelete skipped — DB not ready. key=' + key);
-        return;
-    }
-    try {
-        var tx = db.transaction('kv', 'readwrite');
-        var req = tx.objectStore('kv').delete(key);
-        req.onerror = function(e) { console.error('[IDB-WASM] delete error: ' + key + ' — ' + e.target.error); };
-        tx.onerror = function(e) { console.error('[IDB-WASM] delete tx error: ' + key + ' — ' + e.target.error); };
-        tx.onabort = function(e) { console.error('[IDB-WASM] delete tx aborted: ' + key + ' — ' + e.target.error); };
-    } catch(e) {
-        console.error('[IDB-WASM] idbDelete threw: ' + key + ' — ' + e);
-    }
-}
-""")
-private external fun jsIdbDelete(key: String)
 
 // Delete all keys that start with prefix.
 @JsFun("""
 (prefix) => {
     var db = globalThis.__nostrordIdb;
-    if (!db) {
-        console.error('[IDB-WASM] idbDeleteWithPrefix skipped — DB not ready. prefix=' + prefix);
-        return;
-    }
+    if (!db) return;
     try {
-        var tx = db.transaction('kv', 'readwrite');
-        var store = tx.objectStore('kv');
+        var store = db.transaction('kv', 'readwrite').objectStore('kv');
         var req = store.getAllKeys();
         req.onsuccess = function(e) {
             var keys = e.target.result;
             var toDelete = keys.filter(function(k) { return k.startsWith(prefix); });
             if (toDelete.length === 0) return;
-            console.log('[IDB-WASM] deleteWithPrefix: ' + toDelete.length + ' keys for prefix=' + prefix);
-            var tx2 = db.transaction('kv', 'readwrite');
-            var store2 = tx2.objectStore('kv');
+            var store2 = db.transaction('kv', 'readwrite').objectStore('kv');
             for (var i = 0; i < toDelete.length; i++) store2.delete(toDelete[i]);
-            tx2.onerror = function(e2) { console.error('[IDB-WASM] deleteWithPrefix tx2 error: ' + e2.target.error); };
-            tx2.onabort = function(e2) { console.error('[IDB-WASM] deleteWithPrefix tx2 aborted: ' + e2.target.error); };
         };
-        req.onerror = function(e) { console.error('[IDB-WASM] deleteWithPrefix getAllKeys error: ' + e.target.error); };
-    } catch(e) {
-        console.error('[IDB-WASM] idbDeleteWithPrefix threw: ' + prefix + ' — ' + e);
-    }
+    } catch(e) {}
 }
 """)
 private external fun jsIdbDeleteWithPrefix(prefix: String)
@@ -437,12 +371,6 @@ actual object SecureStorage {
         return joinedGroupMetaIdbCache[cacheKey]
     }
 
-    actual fun clearJoinedGroupMetadata(pubkey: String, relayUrl: String) {
-        val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
-        joinedGroupMetaIdbCache.remove(cacheKey)
-        jsIdbDelete(IDB_JOINED_GROUP_META_PREFIX + cacheKey)
-    }
-
     actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
         val accountPrefix = "${pubkey.hashCode()}_"
         joinedGroupMetaIdbCache.keys.filter { it.startsWith(accountPrefix) }
@@ -494,7 +422,6 @@ actual object SecureStorage {
     // into globalThis.__nostrordIdbData. Polls until ready, then populates in-memory caches.
     // Avoids passing Kotlin lambdas to JS — uses a global ready-flag instead.
     actual suspend fun preloadMetadata() {
-        println("[IDB-WASM] preloadMetadata: starting")
         try {
             jsStartIdbPreload()
             // Yield to the JS event loop until the IDB open + read completes (max 3s).
@@ -503,35 +430,22 @@ actual object SecureStorage {
                 delay(5)
                 attempts++
             }
-            if (!jsIsIdbReady()) {
-                println("[IDB-WASM] preloadMetadata: timed out after ${attempts * 5}ms — continuing without cache")
-                return
-            }
-            println("[IDB-WASM] preloadMetadata: IDB ready after ${attempts * 5}ms")
+            if (!jsIsIdbReady()) return
 
             val json = jsGetIdbData().toString()
-            if (json == "{}") {
-                println("[IDB-WASM] preloadMetadata: IDB empty — nothing to restore")
-                return
-            }
+            if (json == "{}") return
 
             val parsed = Json.parseToJsonElement(json).jsonObject
             parsed[IDB_RELAY_META_KEY]?.jsonPrimitive?.contentOrNull?.let {
                 relayMetaIdbCache = it
-                println("[IDB-WASM] preloadMetadata: restored relay metadata (${it.length} bytes)")
             }
-            var groupCount = 0
             parsed.forEach { (key, value) ->
                 if (key.startsWith(IDB_JOINED_GROUP_META_PREFIX)) {
                     value.jsonPrimitive.contentOrNull?.let { v ->
                         joinedGroupMetaIdbCache[key.removePrefix(IDB_JOINED_GROUP_META_PREFIX)] = v
-                        groupCount++
                     }
                 }
             }
-            println("[IDB-WASM] preloadMetadata: restored $groupCount joined-group-meta entries")
-        } catch (e: Throwable) {
-            println("[IDB-WASM] preloadMetadata: uncaught exception — ${e.message}")
-        }
+        } catch (_: Throwable) {}
     }
 }

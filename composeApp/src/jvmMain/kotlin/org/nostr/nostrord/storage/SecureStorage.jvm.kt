@@ -374,11 +374,6 @@ actual object SecureStorage {
         return getString(key)
     }
 
-    actual fun clearJoinedGroupMetadata(pubkey: String, relayUrl: String) {
-        val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
-        remove(key)
-    }
-
     actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
         try {
             val accountPrefix = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_"
