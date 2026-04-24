@@ -4,7 +4,10 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -33,7 +36,13 @@ data class Nip11RelayInfo(
     val version: String? = null,
     val authRequired: Boolean? = null,
     val paymentRequired: Boolean? = null,
-)
+) {
+    companion object
+}
+
+/** Explicit serializer — required on Kotlin/Wasm where runtime serializer lookup fails for user classes. */
+val nip11RelayInfoMapSerializer: KSerializer<Map<String, Nip11RelayInfo>> =
+    MapSerializer(String.serializer(), Nip11RelayInfo.serializer())
 
 /** Converts a WebSocket relay URL to its HTTPS equivalent for the NIP-11 fetch. */
 fun relayUrlToHttps(relayUrl: String): String =

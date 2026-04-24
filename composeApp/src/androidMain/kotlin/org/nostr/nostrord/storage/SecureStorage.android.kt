@@ -21,6 +21,7 @@ actual object SecureStorage {
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
+    private const val JOINED_GROUP_META_PREFIX = "joined_group_meta_"
     private const val RELAY_METADATA_KEY = "relay_metadata"
     private const val LIVE_CURSORS_PREFIX = "live_cursors_"
 
@@ -322,6 +323,34 @@ actual object SecureStorage {
         prefs.edit().remove(key).apply()
     }
 
+    actual fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String) {
+        ensureInitialized()
+        val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
+        prefs.edit().putString(key, groupsJson).apply()
+    }
+
+    actual fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String? {
+        ensureInitialized()
+        val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
+        return prefs.getString(key, null)
+    }
+
+    actual fun clearJoinedGroupMetadata(pubkey: String, relayUrl: String) {
+        ensureInitialized()
+        val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
+        prefs.edit().remove(key).apply()
+    }
+
+    actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
+        ensureInitialized()
+        val accountPrefix = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_"
+        try {
+            val editor = prefs.edit()
+            prefs.all.keys.filter { it.startsWith(accountPrefix) }.forEach { editor.remove(it) }
+            editor.apply()
+        } catch (_: Exception) {}
+    }
+
     actual fun saveRelayMetadata(json: String) {
         ensureInitialized()
         prefs.edit().putString(RELAY_METADATA_KEY, json).apply()
@@ -359,4 +388,16 @@ actual object SecureStorage {
         ensureInitialized()
         return prefs.getBoolean(key, default)
     }
+
+    actual fun saveStringPref(key: String, value: String) {
+        ensureInitialized()
+        prefs.edit().putString(key, value).apply()
+    }
+
+    actual fun getStringPref(key: String, default: String): String {
+        ensureInitialized()
+        return prefs.getString(key, default) ?: default
+    }
+
+    actual suspend fun preloadMetadata() {}
 }

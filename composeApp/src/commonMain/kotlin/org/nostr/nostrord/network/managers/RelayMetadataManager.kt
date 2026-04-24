@@ -10,9 +10,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.nostr.nip11RelayInfoMapSerializer
 import org.nostr.nostrord.nostr.fetchNip11RelayInfo
 import org.nostr.nostrord.storage.SecureStorage
 
@@ -57,15 +57,19 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
         private const val BACKOFF_CAP_MS = 5 * 60_000L // 5 minutes
     }
 
-    init {
-        // Pre-populate the StateFlow from storage so icons appear immediately on startup,
-        // without waiting for the network fetch. We intentionally do NOT add these URLs to
-        // `succeeded` so that fetch() still runs once per session and picks up any changes
-        // to relay metadata (e.g. updated icon URL, new name).
+    /**
+     * Pre-populates the StateFlow from storage so icons appear immediately on startup,
+     * without waiting for the network fetch. Must be called AFTER [SecureStorage.preloadMetadata]
+     * on web targets, since IndexedDB reads are async there and the cache would otherwise be empty.
+     *
+     * Intentionally does NOT add the URLs to `succeeded` so that fetch() still runs once per
+     * session and picks up any changes (updated icon URL, new name, etc.).
+     */
+    fun restoreFromCache() {
         try {
             val cached = SecureStorage.getRelayMetadata()
             if (!cached.isNullOrBlank()) {
-                val map = json.decodeFromString<Map<String, Nip11RelayInfo>>(cached)
+                val map = json.decodeFromString(nip11RelayInfoMapSerializer, cached)
                 if (map.isNotEmpty()) {
                     _relayMetadata.value = map
                 }
@@ -112,9 +116,9 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
                     val updated = _relayMetadata.value + (relayUrl to info)
                     _relayMetadata.value = updated
                     try {
-                        SecureStorage.saveRelayMetadata(json.encodeToString(updated))
-                    } catch (_: Exception) {
-                        // Non-critical — cache write failure doesn't break anything
+                        SecureStorage.saveRelayMetadata(json.encodeToString(nip11RelayInfoMapSerializer, updated))
+                    } catch (e: Exception) {
+                        println("[IDB] saveRelayMetadata failed: ${e.message}")
                     }
                 } else {
                     if (attempt < MAX_RETRIES) {

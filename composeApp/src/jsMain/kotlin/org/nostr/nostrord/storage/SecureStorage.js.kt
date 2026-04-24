@@ -1,6 +1,77 @@
 package org.nostr.nostrord.storage
 
 import kotlinx.browser.localStorage
+import kotlinx.browser.window
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+
+// In-memory caches for IndexedDB-backed data (synchronous read access after preloadMetadata).
+private var relayMetaIdbCache: String? = null
+private val joinedGroupMetaIdbCache = mutableMapOf<String, String>()
+
+// Single persistent DB connection — set once by preloadMetadata(), reused for all writes.
+private var _idbDb: dynamic = null
+
+private fun idbWrite(key: String, value: String) {
+    val db = _idbDb ?: run {
+        console.error("[IDB-JS] idbWrite skipped — DB not ready. key=$key")
+        return
+    }
+    try {
+        val tx: dynamic = db.transaction("kv", "readwrite")
+        val req: dynamic = tx.objectStore("kv").put(value, key)
+        req.onsuccess = { _: dynamic -> console.log("[IDB-JS] put ok: $key") }
+        req.onerror = { e: dynamic -> console.error("[IDB-JS] put error: $key — ${e.target.error}") }
+        tx.oncomplete = { _: dynamic -> console.log("[IDB-JS] tx committed: $key") }
+        tx.onerror = { e: dynamic -> console.error("[IDB-JS] tx error: $key — ${e.target.error}") }
+        tx.onabort = { e: dynamic -> console.error("[IDB-JS] tx aborted: $key — ${e.target.error}") }
+    } catch (e: Throwable) {
+        console.error("[IDB-JS] idbWrite threw: $key — ${e.message}")
+    }
+}
+
+private fun idbDelete(key: String) {
+    val db = _idbDb ?: run {
+        console.error("[IDB-JS] idbDelete skipped — DB not ready. key=$key")
+        return
+    }
+    try {
+        val tx: dynamic = db.transaction("kv", "readwrite")
+        val req: dynamic = tx.objectStore("kv").delete(key)
+        req.onerror = { e: dynamic -> console.error("[IDB-JS] delete error: $key — ${e.target.error}") }
+        tx.onerror = { e: dynamic -> console.error("[IDB-JS] delete tx error: $key — ${e.target.error}") }
+        tx.onabort = { e: dynamic -> console.error("[IDB-JS] delete tx aborted: $key — ${e.target.error}") }
+    } catch (e: Throwable) {
+        console.error("[IDB-JS] idbDelete threw: $key — ${e.message}")
+    }
+}
+
+private fun idbDeleteWithPrefix(prefix: String) {
+    val db = _idbDb ?: run {
+        console.error("[IDB-JS] idbDeleteWithPrefix skipped — DB not ready. prefix=$prefix")
+        return
+    }
+    try {
+        val tx: dynamic = db.transaction("kv", "readwrite")
+        val store: dynamic = tx.objectStore("kv")
+        val keysReq: dynamic = store.getAllKeys()
+        keysReq.onsuccess = { ke: dynamic ->
+            val keys = ke.target.result.unsafeCast<Array<String>>()
+            val toDelete = keys.filter { it.startsWith(prefix) }
+            if (toDelete.isNotEmpty()) {
+                console.log("[IDB-JS] deleteWithPrefix: deleting ${toDelete.size} keys for prefix=$prefix")
+                val tx2: dynamic = db.transaction("kv", "readwrite")
+                val store2: dynamic = tx2.objectStore("kv")
+                for (k in toDelete) store2.delete(k)
+                tx2.onerror = { e: dynamic -> console.error("[IDB-JS] deleteWithPrefix tx2 error: ${e.target.error}") }
+                tx2.onabort = { e: dynamic -> console.error("[IDB-JS] deleteWithPrefix tx2 aborted: ${e.target.error}") }
+            }
+        }
+        keysReq.onerror = { e: dynamic -> console.error("[IDB-JS] deleteWithPrefix getAllKeys error: ${e.target.error}") }
+    } catch (e: Throwable) {
+        console.error("[IDB-JS] idbDeleteWithPrefix threw: $prefix — ${e.message}")
+    }
+}
 
 actual object SecureStorage {
     private const val PRIVATE_KEY_PREF = "nostr_private_key"
@@ -16,33 +87,36 @@ actual object SecureStorage {
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
-    private const val RELAY_METADATA_KEY = "relay_metadata"
     private const val LIVE_CURSORS_PREFIX = "live_cursors_"
+
+    // IDB key constants
+    private const val IDB_RELAY_META_KEY = "relay_meta:relay_metadata"
+    private const val IDB_JOINED_GROUP_META_PREFIX = "joined_group_meta:"
 
     actual fun savePrivateKey(privateKeyHex: String) {
         localStorage.setItem(PRIVATE_KEY_PREF, privateKeyHex)
     }
-    
+
     actual fun getPrivateKey(): String? {
         return localStorage.getItem(PRIVATE_KEY_PREF)
     }
-    
+
     actual fun hasPrivateKey(): Boolean {
         return localStorage.getItem(PRIVATE_KEY_PREF) != null
     }
-    
+
     actual fun clearPrivateKey() {
         localStorage.removeItem(PRIVATE_KEY_PREF)
     }
-    
+
     actual fun saveCurrentRelayUrl(relayUrl: String) {
         localStorage.setItem(CURRENT_RELAY_URL, relayUrl)
     }
-    
+
     actual fun getCurrentRelayUrl(): String? {
         return localStorage.getItem(CURRENT_RELAY_URL)
     }
-    
+
     actual fun clearCurrentRelayUrl() {
         localStorage.removeItem(CURRENT_RELAY_URL)
     }
@@ -84,38 +158,35 @@ actual object SecureStorage {
         }
         keysToRemove.forEach { localStorage.removeItem(it) }
     }
-    
-    // NIP-46 Bunker URL support
+
     actual fun saveBunkerUrl(bunkerUrl: String) {
         localStorage.setItem(BUNKER_URL_PREF, bunkerUrl)
     }
-    
+
     actual fun getBunkerUrl(): String? {
         return localStorage.getItem(BUNKER_URL_PREF)
     }
-    
+
     actual fun hasBunkerUrl(): Boolean {
         return localStorage.getItem(BUNKER_URL_PREF) != null
     }
-    
+
     actual fun clearBunkerUrl() {
         localStorage.removeItem(BUNKER_URL_PREF)
     }
-    
-    // NIP-46 Bunker User Pubkey support
+
     actual fun saveBunkerUserPubkey(pubkey: String) {
         localStorage.setItem(BUNKER_USER_PUBKEY_PREF, pubkey)
     }
-    
+
     actual fun getBunkerUserPubkey(): String? {
         return localStorage.getItem(BUNKER_USER_PUBKEY_PREF)
     }
-    
+
     actual fun clearBunkerUserPubkey() {
         localStorage.removeItem(BUNKER_USER_PUBKEY_PREF)
     }
-    
-    // NIP-46 Bunker Client Private Key (for session persistence)
+
     actual fun saveBunkerClientPrivateKey(privateKey: String) {
         localStorage.setItem(BUNKER_CLIENT_PRIVATE_KEY_PREF, privateKey)
     }
@@ -128,7 +199,6 @@ actual object SecureStorage {
         localStorage.removeItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
     }
 
-    // NIP-07 Browser Extension
     actual fun saveNip07UserPubkey(pubkey: String) {
         localStorage.setItem(NIP07_USER_PUBKEY_PREF, pubkey)
     }
@@ -143,9 +213,10 @@ actual object SecureStorage {
 
     actual fun clearAll() {
         localStorage.clear()
+        relayMetaIdbCache = null
+        joinedGroupMetaIdbCache.clear()
     }
 
-    // Last read timestamp tracking
     actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         localStorage.setItem(key, timestamp.toString())
@@ -176,10 +247,8 @@ actual object SecureStorage {
         return result
     }
 
-    // Last viewed group persistence
     actual fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?) {
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
-        // Store as "groupId|groupName" (groupName can be empty)
         val value = "$groupId|${groupName ?: ""}"
         localStorage.setItem(key, value)
     }
@@ -199,7 +268,6 @@ actual object SecureStorage {
         localStorage.removeItem(key)
     }
 
-    // Message persistence
     actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         localStorage.setItem(key, messagesJson)
@@ -227,7 +295,6 @@ actual object SecureStorage {
         keysToRemove.forEach { localStorage.removeItem(it) }
     }
 
-    // Pending events persistence
     actual fun savePendingEvents(pubkey: String, eventsJson: String) {
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         localStorage.setItem(key, eventsJson)
@@ -243,7 +310,6 @@ actual object SecureStorage {
         localStorage.removeItem(key)
     }
 
-    // Group metadata cache
     actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         localStorage.setItem(key, groupsJson)
@@ -259,13 +325,38 @@ actual object SecureStorage {
         localStorage.removeItem(key)
     }
 
-    actual fun saveRelayMetadata(json: String) {
-        localStorage.setItem(RELAY_METADATA_KEY, json)
+    // Joined-group metadata — backed by IndexedDB, read via in-memory cache.
+    actual fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String) {
+        val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
+        joinedGroupMetaIdbCache[cacheKey] = groupsJson
+        idbWrite(IDB_JOINED_GROUP_META_PREFIX + cacheKey, groupsJson)
     }
 
-    actual fun getRelayMetadata(): String? {
-        return localStorage.getItem(RELAY_METADATA_KEY)
+    actual fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String? {
+        val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
+        return joinedGroupMetaIdbCache[cacheKey]
     }
+
+    actual fun clearJoinedGroupMetadata(pubkey: String, relayUrl: String) {
+        val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
+        joinedGroupMetaIdbCache.remove(cacheKey)
+        idbDelete(IDB_JOINED_GROUP_META_PREFIX + cacheKey)
+    }
+
+    actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
+        val accountPrefix = "${pubkey.hashCode()}_"
+        joinedGroupMetaIdbCache.keys.filter { it.startsWith(accountPrefix) }
+            .forEach { joinedGroupMetaIdbCache.remove(it) }
+        idbDeleteWithPrefix(IDB_JOINED_GROUP_META_PREFIX + accountPrefix)
+    }
+
+    // NIP-11 relay metadata — backed by IndexedDB, read via in-memory cache.
+    actual fun saveRelayMetadata(json: String) {
+        relayMetaIdbCache = json
+        idbWrite(IDB_RELAY_META_KEY, json)
+    }
+
+    actual fun getRelayMetadata(): String? = relayMetaIdbCache
 
     actual fun saveLiveCursors(relayUrl: String, json: String) {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
@@ -289,5 +380,116 @@ actual object SecureStorage {
     actual fun getBooleanPref(key: String, default: Boolean): Boolean {
         val raw = localStorage.getItem(key) ?: return default
         return raw == "1" || raw.equals("true", ignoreCase = true)
+    }
+
+    actual fun saveStringPref(key: String, value: String) {
+        localStorage.setItem(key, value)
+    }
+
+    actual fun getStringPref(key: String, default: String): String {
+        return localStorage.getItem(key) ?: default
+    }
+
+    // Open IndexedDB, read all kv entries, and populate in-memory caches.
+    // Stores the DB connection for subsequent writes — must be called before any reads or writes.
+    actual suspend fun preloadMetadata() {
+        console.log("[IDB-JS] preloadMetadata: starting")
+        try {
+            val loaded = mutableMapOf<String, String>()
+            suspendCoroutine<Unit> { cont ->
+                var resumed = false
+                fun safeResume() {
+                    if (!resumed) { resumed = true; cont.resume(Unit) }
+                }
+
+                val idb: dynamic = window.asDynamic().indexedDB
+                if (idb == null || idb == undefined) {
+                    console.error("[IDB-JS] preloadMetadata: indexedDB not available")
+                    safeResume()
+                    return@suspendCoroutine
+                }
+                val req: dynamic = idb.open("nostrord_meta_db", 1)
+                req.onupgradeneeded = { e: dynamic ->
+                    console.log("[IDB-JS] preloadMetadata: onupgradeneeded — creating kv store")
+                    val db: dynamic = e.target.result
+                    if (!(db.objectStoreNames.contains("kv").unsafeCast<Boolean>())) {
+                        db.createObjectStore("kv")
+                    }
+                }
+                req.onerror = { e: dynamic ->
+                    console.error("[IDB-JS] preloadMetadata: DB open error — ${e.target.error}")
+                    safeResume()
+                }
+                req.onsuccess = { e: dynamic ->
+                    console.log("[IDB-JS] preloadMetadata: DB opened successfully")
+                    _idbDb = e.target.result
+                    val db: dynamic = _idbDb
+                    // Re-open connection if the browser closes it (e.g. version change from another tab)
+                    db.onclose = { _: dynamic ->
+                        console.error("[IDB-JS] DB connection closed unexpectedly — clearing _idbDb")
+                        _idbDb = null
+                    }
+                    db.onversionchange = { _: dynamic ->
+                        console.error("[IDB-JS] DB versionchange — closing connection")
+                        db.close()
+                        _idbDb = null
+                    }
+
+                    val tx: dynamic = db.transaction("kv", "readonly")
+                    val store: dynamic = tx.objectStore("kv")
+                    val keysReq: dynamic = store.getAllKeys()
+                    val valsReq: dynamic = store.getAll()
+                    var dbKeys: Array<String>? = null
+                    var dbVals: Array<dynamic>? = null
+
+                    fun tryDone() {
+                        val k = dbKeys ?: return
+                        val v = dbVals ?: return
+                        console.log("[IDB-JS] preloadMetadata: loaded ${k.size} entries from IDB")
+                        for (i in k.indices) {
+                            val value = v[i]
+                            if (value != null) loaded[k[i]] = value.toString()
+                        }
+                        safeResume()
+                    }
+
+                    keysReq.onsuccess = { ke: dynamic ->
+                        dbKeys = ke.target.result.unsafeCast<Array<String>>()
+                        tryDone()
+                    }
+                    valsReq.onsuccess = { ve: dynamic ->
+                        dbVals = ve.target.result.unsafeCast<Array<dynamic>>()
+                        tryDone()
+                    }
+                    keysReq.onerror = { er: dynamic ->
+                        console.error("[IDB-JS] preloadMetadata: getAllKeys error — ${er.target.error}")
+                        safeResume()
+                    }
+                    valsReq.onerror = { er: dynamic ->
+                        console.error("[IDB-JS] preloadMetadata: getAll error — ${er.target.error}")
+                        safeResume()
+                    }
+                    tx.onerror = { er: dynamic ->
+                        console.error("[IDB-JS] preloadMetadata: read tx error — ${er.target.error}")
+                        safeResume()
+                    }
+                }
+            }
+
+            loaded[IDB_RELAY_META_KEY]?.let {
+                relayMetaIdbCache = it
+                console.log("[IDB-JS] preloadMetadata: restored relay metadata (${it.length} bytes)")
+            }
+            var groupCount = 0
+            loaded.forEach { (key, value) ->
+                if (key.startsWith(IDB_JOINED_GROUP_META_PREFIX)) {
+                    joinedGroupMetaIdbCache[key.removePrefix(IDB_JOINED_GROUP_META_PREFIX)] = value
+                    groupCount++
+                }
+            }
+            console.log("[IDB-JS] preloadMetadata: restored $groupCount joined-group-meta entries")
+        } catch (e: Throwable) {
+            console.error("[IDB-JS] preloadMetadata: uncaught exception — ${e.message}")
+        }
     }
 }

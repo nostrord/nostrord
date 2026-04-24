@@ -100,6 +100,14 @@ fun GroupsNavSidebar(
     onAddRelay: (() -> Unit)? = null,
     onForgetOrphan: (groupId: String) -> Unit = {},
     showRelayTitle: Boolean = true,
+    /** True when this relay uses lazy fetch mode — full group list is fetched on-demand. */
+    isGroupFetchLazy: Boolean = false,
+    /** True when the full group list has already been fetched this session (LAZY mode only). */
+    hasFullGroupListBeenFetched: Boolean = true,
+    /** Called when OTHER GROUPS first expands on a lazy relay that hasn't fetched the full list yet. */
+    onRequestFullGroupList: () -> Unit = {},
+    /** True when the relay WebSocket is connected — used to re-trigger the fetch once connection is ready. */
+    isRelayConnected: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     // Reset when relay changes
@@ -143,6 +151,20 @@ fun GroupsNavSidebar(
     var myGroupsExpanded by remember(relayUrl) { mutableStateOf(true) }
     var otherGroupsExpanded by remember(relayUrl) {
         mutableStateOf(SecureStorage.getBooleanPref("sidebar_other_expanded_$relayUrl", default = true))
+    }
+
+    // A stale persisted full-list timestamp can make hasFullGroupListBeenFetched=true even when
+    // the current session has no data. Guard against that by also checking otherGroups.isEmpty()
+    // so an empty panel always triggers a fetch regardless of the cached timestamp.
+    val needsFullFetch = !hasFullGroupListBeenFetched || otherGroups.isEmpty()
+
+    // On a LAZY relay, trigger the full group list fetch when OTHER GROUPS is expanded and
+    // the connection is ready. isRelayConnected is included as a key so that if the sidebar
+    // renders before the WebSocket handshake completes, the effect re-fires once connected.
+    LaunchedEffect(otherGroupsExpanded, isGroupFetchLazy, needsFullFetch, isRelayConnected) {
+        if (otherGroupsExpanded && isGroupFetchLazy && needsFullFetch && isRelayConnected) {
+            onRequestFullGroupList()
+        }
     }
 
     Column(
@@ -245,7 +267,7 @@ fun GroupsNavSidebar(
                     modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)
                 )
             } else {
-                val hasOtherGroups = otherGroups.isNotEmpty() || searchQuery.isNotBlank()
+                val hasOtherGroups = otherGroups.isNotEmpty() || searchQuery.isNotBlank() || isGroupFetchLazy
                 Column(modifier = Modifier.fillMaxSize()) {
                 // MY GROUPS — weight gives verticalScroll a bounded viewport; OTHER GROUPS header always visible
                 if (myGroups.isNotEmpty() || orphanedJoinedIds.isNotEmpty()) {
@@ -305,7 +327,7 @@ fun GroupsNavSidebar(
                 }
 
                 // OTHER GROUPS — scrollable, fills remaining space
-                if (otherGroups.isNotEmpty() || searchQuery.isNotBlank()) {
+                if (otherGroups.isNotEmpty() || searchQuery.isNotBlank() || isGroupFetchLazy) {
                     Column(modifier = Modifier.padding(horizontal = Spacing.sm)) {
                         SectionToggleHeader(
                             text = "OTHER GROUPS",
@@ -315,6 +337,14 @@ fun GroupsNavSidebar(
                                 val next = !otherGroupsExpanded
                                 otherGroupsExpanded = next
                                 SecureStorage.saveBooleanPref("sidebar_other_expanded_$relayUrl", next)
+                                // Opening OTHER GROUPS on a lazy relay: trigger the download
+                                // immediately instead of relying on the LaunchedEffect.
+                                // needsFullFetch covers both the normal "not yet fetched" case and
+                                // the stale-timestamp case where hasFullGroupListBeenFetched=true
+                                // but the section is empty because no data arrived this session.
+                                if (next && isGroupFetchLazy && needsFullFetch) {
+                                    onRequestFullGroupList()
+                                }
                             }
                         )
                         if (otherGroupsExpanded) {
@@ -439,6 +469,17 @@ fun GroupsNavSidebar(
                                     item(key = "no_results") {
                                         Text(
                                             text = "No groups match \"$searchQuery\"",
+                                            color = NostrordColors.TextMuted,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                                        )
+                                    }
+                                }
+
+                                if (otherGroups.isEmpty() && isGroupFetchLazy) {
+                                    item(key = "lazy_placeholder") {
+                                        Text(
+                                            text = if (isLoading) "Loading groups…" else "No other groups",
                                             color = NostrordColors.TextMuted,
                                             fontSize = 12.sp,
                                             modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)

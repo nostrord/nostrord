@@ -76,6 +76,14 @@ expect object SecureStorage {
     fun getGroupsForRelay(relayUrl: String): String?
     fun clearGroupsForRelay(relayUrl: String)
 
+    // Joined-group metadata cache — only the groups from kind:10009, scoped by pubkey.
+    // Written on every kind:39000 event for a joined group and on leave/create.
+    // Read on startup for instant sidebar display without waiting for the network.
+    fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String)
+    fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String?
+    fun clearJoinedGroupMetadata(pubkey: String, relayUrl: String)
+    fun clearAllJoinedGroupMetadataForAccount(pubkey: String)
+
     // NIP-11 relay metadata cache (persisted across restarts)
     fun saveRelayMetadata(json: String)
     fun getRelayMetadata(): String?
@@ -88,6 +96,55 @@ expect object SecureStorage {
     // Generic boolean preference — backs user-facing feature flags / settings.
     fun saveBooleanPref(key: String, value: Boolean)
     fun getBooleanPref(key: String, default: Boolean): Boolean
+
+    // Generic string preference — backs per-relay settings that aren't booleans (e.g. timestamps).
+    fun saveStringPref(key: String, value: String)
+    fun getStringPref(key: String, default: String): String
+
+    // Preload large metadata blobs from async storage (IndexedDB on web) into the in-memory cache.
+    // Must be called once before restoreJoinedGroupMetadataFromStorage to ensure synchronous reads work.
+    // No-op on Android and JVM (EncryptedSharedPreferences / Preferences are synchronous).
+    suspend fun preloadMetadata()
+}
+
+// Per-relay group-list EOSE timestamp — lets the app skip requestGroups() when the
+// cached group list is fresh enough (< GROUP_CACHE_TTL_S seconds old).
+private const val GROUP_CACHE_TTL_S = 3600L // 1 hour
+
+fun SecureStorage.saveGroupListEoseTimestamp(relayUrl: String, timestampSeconds: Long) {
+    saveStringPref("group_eose_ts_${relayUrl.hashCode()}", timestampSeconds.toString())
+}
+
+fun SecureStorage.getGroupListEoseTimestamp(relayUrl: String): Long {
+    return getStringPref("group_eose_ts_${relayUrl.hashCode()}", "0").toLongOrNull() ?: 0L
+}
+
+fun SecureStorage.isGroupListCacheFresh(relayUrl: String, nowSeconds: Long): Boolean {
+    val ts = getGroupListEoseTimestamp(relayUrl)
+    return ts > 0L && (nowSeconds - ts) < GROUP_CACHE_TTL_S
+}
+
+// Per-relay full group-list EOSE timestamp — set only when requestGroups() (unfiltered) EOSE
+// arrives, distinct from the joined-only timestamp saved by requestGroupsForIds().
+// Lets hasFullGroupListBeenFetched() return true after an app restart without re-fetching.
+fun SecureStorage.saveFullGroupListEoseTimestamp(relayUrl: String, timestampSeconds: Long) {
+    saveStringPref("group_full_eose_ts_${relayUrl.hashCode()}", timestampSeconds.toString())
+}
+
+fun SecureStorage.isFullGroupListCacheFresh(relayUrl: String, nowSeconds: Long): Boolean {
+    val ts = getStringPref("group_full_eose_ts_${relayUrl.hashCode()}", "0").toLongOrNull() ?: 0L
+    return ts > 0L && (nowSeconds - ts) < GROUP_CACHE_TTL_S
+}
+
+// Per-relay lazy fetch mode — when true (the default), only joined-group metadata is fetched on
+// connect; the full group list is deferred until the user expands "OTHER GROUPS".
+// Set to false on relays where you always want the full list loaded at startup (EAGER mode).
+fun SecureStorage.saveGroupFetchLazy(relayUrl: String, lazy: Boolean) {
+    saveBooleanPref("group_fetch_lazy_${relayUrl.hashCode()}", lazy)
+}
+
+fun SecureStorage.isGroupFetchLazy(relayUrl: String): Boolean {
+    return getBooleanPref("group_fetch_lazy_${relayUrl.hashCode()}", true)
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)

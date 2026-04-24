@@ -11,6 +11,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,7 +43,9 @@ fun RelayCard(
     relay: RelayInfo,
     isCompact: Boolean,
     onSelectRelay: () -> Unit,
-    onDeleteRelay: (() -> Unit)? = null
+    onDeleteRelay: (() -> Unit)? = null,
+    isLazyFetch: Boolean = false,
+    onToggleLazyFetch: ((Boolean) -> Unit)? = null
 ) {
     val statusColor = when (relay.status) {
         RelayStatus.CONNECTED -> NostrordColors.StatusOnline
@@ -154,6 +160,41 @@ fun RelayCard(
                         overflow = TextOverflow.Ellipsis,
                         lineHeight = 16.sp
                     )
+                }
+
+                // Fetch mode toggle
+                if (onToggleLazyFetch != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Always fetch all groups",
+                                color = NostrordColors.TextPrimary,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Load the full group list at startup instead of waiting until Other Groups is opened",
+                                color = NostrordColors.TextMuted,
+                                style = MaterialTheme.typography.bodySmall,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = !isLazyFetch,
+                            onCheckedChange = { onToggleLazyFetch(!it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = NostrordColors.Primary,
+                                uncheckedThumbColor = NostrordColors.TextMuted,
+                                uncheckedTrackColor = NostrordColors.SurfaceVariant
+                            )
+                        )
+                    }
                 }
             }
 

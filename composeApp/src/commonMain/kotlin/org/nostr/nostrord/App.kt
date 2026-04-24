@@ -58,6 +58,7 @@ import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
+import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 /**
@@ -772,6 +773,9 @@ private fun MobileDrawerContent(
     val unverifiedChildren = if (subgroupsEnabled) unverifiedChildrenRaw else emptySet()
 
     val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
+    val fullGroupListFetchedRelays by AppModule.nostrRepository.fullGroupListFetchedRelays.collectAsState()
+    val connectionState by AppModule.nostrRepository.connectionState.collectAsState()
+    val isRelayConnected = connectionState is ConnectionManager.ConnectionState.Connected
     val sidebarScope = rememberCoroutineScope()
 
     val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
@@ -823,7 +827,15 @@ private fun MobileDrawerContent(
                     AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
                 }
             },
-            showRelayTitle = false
+            showRelayTitle = false,
+            isGroupFetchLazy = AppModule.nostrRepository.isGroupFetchLazy(activeRelayUrl),
+            hasFullGroupListBeenFetched = activeRelayUrl in fullGroupListFetchedRelays,
+            onRequestFullGroupList = {
+                sidebarScope.launch {
+                    AppModule.nostrRepository.requestFullGroupListForRelay(activeRelayUrl)
+                }
+            },
+            isRelayConnected = isRelayConnected
         )
     }
 }

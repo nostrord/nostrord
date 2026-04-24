@@ -14,9 +14,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.network.groupMetadataListSerializer
 import org.nostr.nostrord.network.GroupAdmins
 import org.nostr.nostrord.network.GroupMembers
 import org.nostr.nostrord.network.DeclaredChild
@@ -27,9 +26,15 @@ import org.nostr.nostrord.network.RoleDefinition
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.isFullGroupListCacheFresh
+import org.nostr.nostrord.storage.isGroupListCacheFresh
+import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
+import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
+import org.nostr.nostrord.storage.getGroupListEoseTimestamp
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
+import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
@@ -174,6 +179,44 @@ class GroupManager(
     // Used by the UI to show skeleton loaders while groups are being fetched.
     private val _loadingRelays = MutableStateFlow<Set<String>>(emptySet())
     val loadingRelays: StateFlow<Set<String>> = _loadingRelays.asStateFlow()
+
+    // Relays for which requestGroups() (unfiltered, no #d tag) was sent this session but
+    // EOSE hasn't arrived yet. Lets handleEoseSuspend() distinguish a full fetch from a
+    // lazy (joined-only) fetch when the same sub ID is reused.
+    private val pendingFullFetchRelays = mutableSetOf<String>()
+
+    fun markPendingFullFetch(relayUrl: String) {
+        pendingFullFetchRelays.add(relayUrl.normalizeRelayUrl())
+    }
+
+    /**
+     * Remove [relayUrl] from [pendingFullFetchRelays] without marking the full list as fetched.
+     * Call this when a partial (joined-only) REQ is sent after a full REQ was already marked
+     * pending, to prevent the partial EOSE from incorrectly setting fullGroupListFetchedRelays.
+     */
+    fun cancelPendingFullFetch(relayUrl: String) {
+        pendingFullFetchRelays.remove(relayUrl.normalizeRelayUrl())
+    }
+
+    /**
+     * Returns true if [relayUrl] has a pending full-fetch REQ that hasn't received EOSE yet.
+     * Used by [NostrRepository.requestFullGroupListForRelay] to skip a duplicate REQ when
+     * [requestGroupsForRelay] already scheduled a full fetch on connect.
+     */
+    fun hasPendingFullFetch(relayUrl: String): Boolean {
+        return relayUrl.normalizeRelayUrl() in pendingFullFetchRelays
+    }
+
+    // Relays whose FULL group list (unfiltered requestGroups()) EOSE was received this session.
+    // Updated by handleEoseSuspend when the relay is in pendingFullFetchRelays.
+    private val _fullGroupListFetchedRelays = MutableStateFlow<Set<String>>(emptySet())
+    val fullGroupListFetchedRelays: StateFlow<Set<String>> = _fullGroupListFetchedRelays.asStateFlow()
+
+    fun hasFullGroupListBeenFetched(relayUrl: String): Boolean {
+        val normalized = relayUrl.normalizeRelayUrl()
+        if (normalized in _fullGroupListFetchedRelays.value) return true
+        return SecureStorage.isFullGroupListCacheFresh(normalized, epochSeconds())
+    }
 
     fun markRelayLoading(relayUrl: String) {
         _loadingRelays.update { it + relayUrl.normalizeRelayUrl() }
@@ -587,6 +630,7 @@ class GroupManager(
      * Load joined groups from storage
      */
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
+        currentPubkey = pubKey
         val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
         _joinedGroupsByRelay.update { it + (relayUrl.normalizeRelayUrl() to groups) }
     }
@@ -1091,10 +1135,7 @@ class GroupManager(
                 val updated = (current[groupRelayUrl] ?: emptyList()).filter { it.id !in idsToRemove }
                 current + (groupRelayUrl to updated)
             }
-            try {
-                val updatedRelayGroups = _groupsByRelay.value[groupRelayUrl] ?: emptyList()
-                SecureStorage.saveGroupsForRelay(groupRelayUrl, json.encodeToString(updatedRelayGroups))
-            } catch (_: Exception) {}
+            persistJoinedGroupMetadataSnapshot(groupRelayUrl)
 
             _messages.update { it - idsToRemove }
             _isLoadingMore.update { it - idsToRemove }
@@ -1136,10 +1177,9 @@ class GroupManager(
             val updated = (current[relayUrl] ?: emptyList()).filter { it.id !in idsToRemove }
             current + (relayUrl to updated)
         }
-        try {
-            val updatedRelayGroups = _groupsByRelay.value[relayUrl] ?: emptyList()
-            SecureStorage.saveGroupsForRelay(relayUrl, json.encodeToString(updatedRelayGroups))
-        } catch (_: Exception) {}
+        // The group is intentionally kept in _joinedGroupsByRelay (shows as orphan in sidebar).
+        // Rebuild the snapshot so next startup sees it as an orphan (in joined but not in metadata).
+        persistJoinedGroupMetadataSnapshot(relayUrl)
 
         _messages.update { it - idsToRemove }
         _isLoadingMore.update { it - idsToRemove }
@@ -1458,6 +1498,7 @@ class GroupManager(
             val updatedAfterLeave = relayGroups - groupId
             SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave)
             _joinedGroupsByRelay.update { it + (groupRelayUrl to updatedAfterLeave) }
+            persistJoinedGroupMetadataSnapshot(groupRelayUrl)
 
             publishJoinedGroups()
 
@@ -1617,6 +1658,16 @@ class GroupManager(
                 val normalizedRelay = relay.normalizeRelayUrl()
                 _completeGroupLoadRelays.update { it + normalizedRelay }
                 _loadingRelays.update { it - normalizedRelay }
+                val now = epochSeconds()
+                val isFull = pendingFullFetchRelays.remove(normalizedRelay)
+                if (isFull) {
+                    // Full unfiltered fetch — save dedicated full-list timestamp so
+                    // hasFullGroupListBeenFetched() returns true after an app restart.
+                    _fullGroupListFetchedRelays.update { it + normalizedRelay }
+                    try { SecureStorage.saveFullGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
+                }
+                // Always update the general cache timestamp (used by hasCachedGroupsForRelay).
+                try { SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
                 refreshMuxSubscriptionsForRelay(normalizedRelay)
             }
             return true
@@ -1973,6 +2024,24 @@ class GroupManager(
      * Updates the live flow for the current relay AND stores in the per-relay cache
      * so returning to this relay later is instant without a network re-fetch.
      */
+    /**
+     * Rebuild and persist the joined-group metadata snapshot for [relayUrl].
+     * Filters [_groupsByRelay] to only the groups the user has joined on that relay,
+     * then writes to the pubkey-scoped storage key used for fast startup restore.
+     * No-op when [currentPubkey] is not set (unauthenticated state).
+     */
+    private fun persistJoinedGroupMetadataSnapshot(relayUrl: String) {
+        val pubKey = currentPubkey ?: return
+        val normalized = relayUrl.normalizeRelayUrl()
+        val joinedIds = _joinedGroupsByRelay.value[normalized] ?: emptySet()
+        val snapshot = (_groupsByRelay.value[normalized] ?: emptyList()).filter { it.id in joinedIds }
+        try {
+            SecureStorage.saveJoinedGroupMetadata(pubKey, normalized, json.encodeToString(groupMetadataListSerializer, snapshot))
+        } catch (e: Exception) {
+            println("[IDB] persistJoinedGroupMetadataSnapshot failed relay=$normalized: ${e.message}")
+        }
+    }
+
     fun handleGroupMetadata(metadata: GroupMetadata, relayUrl: String) {
         if (metadata.id in deletedGroupIds) return
         val normalized = relayUrl.normalizeRelayUrl()
@@ -1996,11 +2065,9 @@ class GroupManager(
             }
             current + (normalized to updated)
         }
-        // Persist the updated group list for this relay so it survives app restarts
-        val relayGroups = _groupsByRelay.value[normalized] ?: emptyList()
-        try {
-            SecureStorage.saveGroupsForRelay(normalized, json.encodeToString(relayGroups))
-        } catch (_: Exception) {}
+        // Persist only joined-group metadata for fast startup restore.
+        // Non-joined groups are fetched on-demand and not cached.
+        persistJoinedGroupMetadataSnapshot(relayUrl)
 
         // Recompute the full tree because a kind:39000 update can add/remove children,
         // toggle `closed-children`, or carry new `child`/`parent` tags that change classification
@@ -2077,20 +2144,74 @@ class GroupManager(
     }
 
     /**
+     * Restore only the joined-group metadata snapshot for fast startup display.
+     * Reads from the pubkey-scoped cache written by [persistJoinedGroupMetadataSnapshot],
+     * which contains only the kind:10009 groups — a small, bounded dataset.
+     * Does NOT restore [_fullGroupListFetchedRelays]: a joined-only restore does not
+     * constitute a full list fetch, so OTHER GROUPS will trigger a network fetch when opened.
+     */
+    fun restoreJoinedGroupMetadataFromStorage(pubkey: String, relayUrls: List<String>) {
+        val now = epochSeconds()
+        _groupsByRelay.update { current ->
+            val updates = relayUrls.mapNotNull { url ->
+                val normalized = url.normalizeRelayUrl()
+                val jsonStr = SecureStorage.getJoinedGroupMetadata(pubkey, normalized) ?: return@mapNotNull null
+                try {
+                    val groups = json.decodeFromString(groupMetadataListSerializer, jsonStr)
+                    if (groups.isNotEmpty()) normalized to groups else null
+                } catch (_: Exception) { null }
+            }.toMap()
+            current + updates
+        }
+        // Restore general cache freshness flags so hasCachedGroupsForRelay() skips the
+        // network fetch when the joined-group snapshot is still within the TTL window.
+        val normalizedUrls = relayUrls.map { it.normalizeRelayUrl() }
+        val freshRelays = normalizedUrls.filter { normalized ->
+            SecureStorage.isGroupListCacheFresh(normalized, now) &&
+                _groupsByRelay.value[normalized]?.isNotEmpty() == true
+        }.toSet()
+        if (freshRelays.isNotEmpty()) {
+            _completeGroupLoadRelays.update { it + freshRelays }
+        }
+        recomputeSubgroupTopology()
+    }
+
+    /**
      * Restore group metadata for all known relays from SecureStorage.
      * Called on startup before any WebSocket connects so relay switching is instant.
      */
     fun restoreAllGroupsFromStorage(relayUrls: List<String>) {
+        val now = epochSeconds()
         _groupsByRelay.update { current ->
             val updates = relayUrls.mapNotNull { url ->
                 val normalized = url.normalizeRelayUrl()
                 val jsonStr = SecureStorage.getGroupsForRelay(normalized) ?: return@mapNotNull null
                 try {
-                    val groups = json.decodeFromString<List<GroupMetadata>>(jsonStr)
+                    val groups = json.decodeFromString(groupMetadataListSerializer, jsonStr)
                     if (groups.isNotEmpty()) normalized to groups else null
                 } catch (_: Exception) { null }
             }.toMap()
             current + updates
+        }
+        // Restore session flags for relays with fresh enough caches.
+        val normalizedUrls = relayUrls.map { it.normalizeRelayUrl() }
+        val freshRelays = normalizedUrls
+            .filter { normalized ->
+                SecureStorage.isGroupListCacheFresh(normalized, now) &&
+                    _groupsByRelay.value[normalized]?.isNotEmpty() == true
+            }
+            .toSet()
+        if (freshRelays.isNotEmpty()) {
+            _completeGroupLoadRelays.update { it + freshRelays }
+        }
+        // Restore _fullGroupListFetchedRelays for relays whose full list is still fresh,
+        // so hasFullGroupListBeenFetched() returns true and the LaunchedEffect in the sidebar
+        // doesn't re-fetch when OTHER GROUPS was already open on the previous session.
+        val fullFreshRelays = normalizedUrls
+            .filter { SecureStorage.isFullGroupListCacheFresh(it, now) }
+            .toSet()
+        if (fullFreshRelays.isNotEmpty()) {
+            _fullGroupListFetchedRelays.update { it + fullFreshRelays }
         }
         recomputeSubgroupTopology()
     }
@@ -2100,9 +2221,11 @@ class GroupManager(
      */
     fun hasCachedGroupsForRelay(relayUrl: String): Boolean {
         val normalized = relayUrl.normalizeRelayUrl()
-        // Only treat as cached if the initial load finished (EOSE received).
-        // A partial cache from an interrupted load must trigger a re-fetch.
-        return normalized in _completeGroupLoadRelays.value && _groupsByRelay.value[normalized]?.isNotEmpty() == true
+        if (_groupsByRelay.value[normalized]?.isNotEmpty() != true) return false
+        // Session flag set (EOSE received this session) — always valid.
+        if (normalized in _completeGroupLoadRelays.value) return true
+        // No session flag: check persisted timestamp so a fresh app restart can skip requestGroups().
+        return SecureStorage.isGroupListCacheFresh(normalized, epochSeconds())
     }
 
     /**
@@ -2603,6 +2726,7 @@ class GroupManager(
     fun removeRelayEntry(url: String) {
         val normalized = url.normalizeRelayUrl()
         _completeGroupLoadRelays.update { it - normalized }
+        _fullGroupListFetchedRelays.update { it - normalized }
         _groupsByRelay.update { current -> current - normalized }
     }
 
@@ -2613,6 +2737,7 @@ class GroupManager(
     suspend fun clear() {
         eventOrderingBuffer.flushAll()
         _completeGroupLoadRelays.value = emptySet()
+        _fullGroupListFetchedRelays.value = emptySet()
         _loadingRelays.value = emptySet()
         _groupsByRelay.value = emptyMap()
         _openedGroupIds.value = emptySet()
@@ -2624,7 +2749,9 @@ class GroupManager(
      */
     fun clearJoinedGroupsForAccount(pubKey: String) {
         SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
+        SecureStorage.clearAllJoinedGroupMetadataForAccount(pubKey)
         _joinedGroupsByRelay.value = emptyMap()
+        currentPubkey = null
     }
 
     // ==========================================================================

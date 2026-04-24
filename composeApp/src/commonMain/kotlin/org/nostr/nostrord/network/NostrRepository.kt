@@ -25,6 +25,8 @@ import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.isGroupFetchLazy
+import org.nostr.nostrord.storage.saveGroupFetchLazy
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
@@ -211,6 +213,18 @@ class NostrRepository(
         // Deep link relay from URL query params (web) — merge into relay list
         val deepLinkRelay = StartupResolver.deepLinkRelayUrl
 
+        // Populate IndexedDB-backed caches (relay_metadata, joined_group_meta) before any reads.
+        // No-op on Android/JVM where storage is synchronous.
+        SecureStorage.preloadMetadata()
+
+        // Now that the IDB cache is populated, prime the relay-metadata StateFlow so the sidebar
+        // shows icons/names immediately instead of waiting for NIP-11 HTTP fetches.
+        _relayMetadataManager.restoreFromCache()
+
+        // Seed the kind:10009 relay set from the persisted relay list so all joined relays appear
+        // in the sidebar immediately, instead of appearing one-by-one as network fetches complete.
+        outboxManager.seedFromCache()
+
         val restored = sessionManager.restoreSession()
         if (restored) {
             val pubkey = sessionManager.getPublicKey()
@@ -240,11 +254,11 @@ class NostrRepository(
                             connectionManager.loadSavedRelay()
 
                             groupManager.prePopulateRelayList(restoredRelays)
-                            groupManager.restoreAllGroupsFromStorage(restoredRelays)
                             _relayMetadataManager.fetchAll(restoredRelays)
                             liveCursorStore?.loadAll(restoredRelays)
                             groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
                             groupManager.loadAllJoinedGroupsFromStorage(pubkey, restoredRelays)
+                            groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, restoredRelays)
                             connect(primaryRelay)
                         }
                     }
@@ -270,12 +284,14 @@ class NostrRepository(
             }
             liveCursorStore?.loadAll(allRelays)
             groupManager.prePopulateRelayList(allRelays)
-            groupManager.restoreAllGroupsFromStorage(allRelays)
             _relayMetadataManager.fetchAll(allRelays)
 
             if (pubkey != null) {
                 groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
                 groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
+                // Restore only kind:10009 group metadata — fast, bounded dataset.
+                // Non-joined groups (OTHER GROUPS) are fetched on-demand from the network.
+                groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
                 unreadManager.initialize(pubkey)
             }
             initializeOutboxModel()
@@ -565,6 +581,41 @@ class NostrRepository(
         }
     }
 
+    /**
+     * Send the appropriate group-list REQ depending on the relay's fetch mode and whether
+     * the "OTHER GROUPS" section is currently expanded.
+     *
+     * Decision table:
+     * - EAGER mode → always full fetch (mark pending, send requestGroups())
+     * - LAZY mode + OTHER GROUPS open → full fetch (mark pending, send requestGroups())
+     * - LAZY mode + OTHER GROUPS closed + joined IDs present → partial fetch (joined only)
+     * - LAZY mode + OTHER GROUPS closed + no joined IDs → full fetch (relay would be silent)
+     */
+    private suspend fun requestGroupsForRelay(client: NostrGroupClient, relayUrl: String) {
+        if (SecureStorage.isGroupFetchLazy(relayUrl)) {
+            val otherGroupsOpen = SecureStorage.getBooleanPref(
+                "sidebar_other_expanded_$relayUrl", default = true
+            )
+            if (!otherGroupsOpen) {
+                // OTHER GROUPS is closed — only fetch joined group metadata.
+                val joinedIds = groupManager.joinedGroupsByRelay.value[relayUrl.normalizeRelayUrl()]
+                    .orEmpty().toList()
+                if (joinedIds.isNotEmpty()) {
+                    // Ensure any stale pending-full-fetch marker is cleared so EOSE for this
+                    // partial REQ doesn't incorrectly mark the relay as having a full list.
+                    groupManager.cancelPendingFullFetch(relayUrl)
+                    client.requestGroupsForIds(joinedIds)
+                    return
+                }
+                // No joined groups — fall through to full fetch so OTHER GROUPS populates
+            }
+            // OTHER GROUPS is open (or no joined groups) — full fetch
+        }
+        // EAGER mode or LAZY with OTHER GROUPS open: full unfiltered fetch
+        groupManager.markPendingFullFetch(relayUrl)
+        client.requestGroups()
+    }
+
     private suspend fun connect(relayUrl: String) {
         if (relayUrl.isBlank()) return
         _relayMetadataManager.fetch(relayUrl)
@@ -587,8 +638,18 @@ class NostrRepository(
                     if (!authHandled) {
                         lastRequestGroupsAt[relayUrl] = epochSeconds()
                         groupManager.markRelayLoading(relayUrl)
-                        client.requestGroups()
+                        requestGroupsForRelay(client, relayUrl)
                     }
+                } else if (
+                    SecureStorage.isGroupFetchLazy(relayUrl) &&
+                    !groupManager.hasFullGroupListBeenFetched(relayUrl) &&
+                    SecureStorage.getBooleanPref("sidebar_other_expanded_$relayUrl", default = true)
+                ) {
+                    // Cache is fresh (partial, joined-only) but OTHER GROUPS is open and the full
+                    // list was never fetched. Trigger a full fetch now so the sidebar populates.
+                    groupManager.markPendingFullFetch(relayUrl)
+                    groupManager.markRelayLoading(relayUrl)
+                    client.requestGroups()
                 }
                 // After AUTH (or if no AUTH needed), request metadata for private
                 // groups that are in the joined list (kind 10009) but not in the
@@ -691,7 +752,7 @@ class NostrRepository(
                 // promoted from the pool (e.g. connected by a link preview),
                 // AUTH happened while it was a pool client and requestGroups()
                 // was never sent.
-                client.requestGroups()
+                requestGroupsForRelay(client, newRelayUrl)
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
@@ -764,6 +825,44 @@ class NostrRepository(
     override suspend fun disconnect() {
         connectionManager.disconnectPrimary()
         groupManager.clear()
+    }
+
+    override fun setGroupFetchLazy(relayUrl: String, lazy: Boolean) {
+        SecureStorage.saveGroupFetchLazy(relayUrl, lazy)
+    }
+
+    override fun isGroupFetchLazy(relayUrl: String): Boolean {
+        return SecureStorage.isGroupFetchLazy(relayUrl)
+    }
+
+    override val fullGroupListFetchedRelays: StateFlow<Set<String>> =
+        groupManager.fullGroupListFetchedRelays
+
+    override suspend fun requestFullGroupListForRelay(relayUrl: String) {
+        // Only guard against in-flight duplicates — hasFullGroupListBeenFetched is intentionally
+        // NOT checked here: a stale persisted timestamp can make it return true when the current
+        // session has no data, silently blocking user-triggered fetches.
+        if (groupManager.hasPendingFullFetch(relayUrl)) return
+
+        // Wait up to 30 s for the WebSocket to connect before giving up.
+        // This handles the race where the user opens OTHER GROUPS immediately after
+        // app startup, before the handshake completes.
+        val connected = withTimeoutOrNull(30_000L) {
+            connectionManager.connectionState.first {
+                it is ConnectionManager.ConnectionState.Connected
+            }
+        }
+        if (connected == null) return   // timed out
+
+        // Re-check after waiting — connect() may have already sent a full REQ.
+        if (groupManager.hasPendingFullFetch(relayUrl)) return
+
+        val client = connectionManager.getClientForRelay(relayUrl)
+            ?: connectionManager.getPrimaryClient()
+            ?: return
+        groupManager.markPendingFullFetch(relayUrl)
+        groupManager.markRelayLoading(relayUrl)
+        client.requestGroups()
     }
 
     override suspend fun addRelay(url: String) {
@@ -1891,6 +1990,16 @@ class NostrRepository(
         if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
             lastRequestGroupsAt[relayUrl] = epochSeconds()
             groupManager.markRelayLoading(relayUrl)
+            requestGroupsForRelay(client, relayUrl)
+        } else if (
+            SecureStorage.isGroupFetchLazy(relayUrl) &&
+            !groupManager.hasFullGroupListBeenFetched(relayUrl) &&
+            SecureStorage.getBooleanPref("sidebar_other_expanded_$relayUrl", default = true)
+        ) {
+            // Cache is fresh (partial, joined-only) but OTHER GROUPS is open and the full
+            // list was never fetched. Re-fetch on reconnect so OTHER GROUPS stays populated.
+            groupManager.markPendingFullFetch(relayUrl)
+            groupManager.markRelayLoading(relayUrl)
             client.requestGroups()
         }
 
@@ -1939,7 +2048,7 @@ class NostrRepository(
             if (now - lastAt > 10L) {
                 lastRequestGroupsAt[relayUrl] = now
                 groupManager.markRelayLoading(relayUrl)
-                client.requestGroups()
+                requestGroupsForRelay(client, relayUrl)
             }
         }
 
