@@ -26,6 +26,7 @@ actual object SecureStorage {
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
+    private const val JOINED_GROUP_META_PREFIX = "joined_group_meta_"
     private const val LIVE_CURSORS_PREFIX = "live_cursors_"
     private const val RELAY_METADATA_KEY = "relay_metadata"
 
@@ -363,6 +364,26 @@ actual object SecureStorage {
         remove(key)
     }
 
+    actual fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String) {
+        val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
+        saveString(key, groupsJson)
+    }
+
+    actual fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String? {
+        val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
+        return getString(key)
+    }
+
+    actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
+        try {
+            val accountPrefix = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_"
+            prefs.keys().forEach { key ->
+                if (key.startsWith(accountPrefix)) prefs.remove(key)
+            }
+            prefs.flush()
+        } catch (_: Exception) {}
+    }
+
     // Relay metadata is NOT stored in Preferences because java.util.prefs.Preferences.put()
     // rejects values longer than MAX_VALUE_LENGTH (8192 chars). Encrypted+Base64 relay metadata
     // for even a handful of relays can exceed this limit, causing silent save failures and a
@@ -413,4 +434,14 @@ actual object SecureStorage {
     actual fun getBooleanPref(key: String, default: Boolean): Boolean {
         return prefs.getBoolean(key, default)
     }
+
+    actual fun saveStringPref(key: String, value: String) {
+        saveString(key, value)
+    }
+
+    actual fun getStringPref(key: String, default: String): String {
+        return getString(key) ?: default
+    }
+
+    actual suspend fun preloadMetadata() {}
 }

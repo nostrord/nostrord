@@ -14,6 +14,7 @@ import org.nostr.nostrord.ui.screens.relay.model.RelayInfo
 import org.nostr.nostrord.ui.screens.relay.model.RelayStatus
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.isValidRelayUrl
+import androidx.compose.runtime.mutableStateMapOf
 
 @Composable
 fun RelaySettingsScreen(
@@ -38,6 +39,15 @@ fun RelaySettingsScreen(
 
     var newRelayUrl by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
+
+    // Per-relay lazy fetch state — initialised from SecureStorage, written back on toggle.
+    val lazyFetchStates = remember(relays) {
+        mutableStateMapOf<String, Boolean>().also { map ->
+            relays.forEach { relay ->
+                map[relay.url] = AppModule.nostrRepository.isGroupFetchLazy(relay.url)
+            }
+        }
+    }
 
     LaunchedEffect(currentRelay) {
         relays = relays.map { relay ->
@@ -116,7 +126,12 @@ fun RelaySettingsScreen(
                     onNavigate(Screen.Home)
                     vm.switchRelay(relayUrl)
                 },
-                onAddRelay = { showAddDialog = true }
+                onAddRelay = { showAddDialog = true },
+                lazyFetchStates = lazyFetchStates,
+                onToggleLazyFetch = { relayUrl, lazy ->
+                    lazyFetchStates[relayUrl] = lazy
+                    AppModule.nostrRepository.setGroupFetchLazy(relayUrl, lazy)
+                }
             )
         } else {
             RelaySettingsDesktop(
@@ -127,7 +142,12 @@ fun RelaySettingsScreen(
                     onNavigate(Screen.Home)
                     vm.switchRelay(relayUrl)
                 },
-                onAddRelay = { showAddDialog = true }
+                onAddRelay = { showAddDialog = true },
+                lazyFetchStates = lazyFetchStates,
+                onToggleLazyFetch = { relayUrl, lazy ->
+                    lazyFetchStates[relayUrl] = lazy
+                    AppModule.nostrRepository.setGroupFetchLazy(relayUrl, lazy)
+                }
             )
         }
     }

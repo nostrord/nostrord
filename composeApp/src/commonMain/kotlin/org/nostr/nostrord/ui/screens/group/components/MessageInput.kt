@@ -44,6 +44,7 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
+import org.nostr.nostrord.utils.formatTimestamp
 
 /**
  * Message input field with Discord-style keyboard behavior.
@@ -64,6 +65,8 @@ import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 fun MessageInput(
     isJoined: Boolean,
     isPendingApproval: Boolean = false,
+    pendingRequestedAtSeconds: Long? = null,
+    onCancelJoinRequest: () -> Unit = {},
     selectedChannel: String,
     groupName: String?,
     messageInput: String,
@@ -227,18 +230,38 @@ fun MessageInput(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(NostrordColors.SurfaceVariant)
-                .padding(Spacing.lg)
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Your join request is pending admin approval",
-                    color = NostrordColors.TextMuted,
-                    style = NostrordTypography.MessageBody
-                )
+                Column(
+                    modifier = Modifier.weight(1f, fill = false),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Your join request is pending admin approval",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.MessageBody
+                    )
+                    if (pendingRequestedAtSeconds != null) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Requested ${formatTimestamp(pendingRequestedAtSeconds)}",
+                            color = NostrordColors.TextMuted,
+                            style = NostrordTypography.Caption
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(Spacing.sm))
+                TextButton(
+                    onClick = onCancelJoinRequest,
+                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.TextSecondary)
+                ) {
+                    Text("Cancel request", style = NostrordTypography.Button)
+                }
             }
         }
         return

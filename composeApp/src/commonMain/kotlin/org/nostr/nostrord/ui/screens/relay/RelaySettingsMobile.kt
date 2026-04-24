@@ -30,7 +30,9 @@ fun RelaySettingsMobile(
     onNavigate: (Screen) -> Unit,
     onSelectRelay: (String) -> Unit,
     onAddRelay: () -> Unit,
-    onDeleteRelay: ((String) -> Unit)? = null
+    onDeleteRelay: ((String) -> Unit)? = null,
+    lazyFetchStates: Map<String, Boolean> = emptyMap(),
+    onToggleLazyFetch: ((String, Boolean) -> Unit)? = null
 ) {
     Scaffold(
         topBar = {
@@ -100,7 +102,9 @@ fun RelaySettingsMobile(
                     relay = relay,
                     isCompact = true,
                     onSelectRelay = { onSelectRelay(relay.url) },
-                    onDeleteRelay = onDeleteRelay?.let { cb -> { cb(relay.url) } }
+                    onDeleteRelay = onDeleteRelay?.let { cb -> { cb(relay.url) } },
+                    isLazyFetch = lazyFetchStates[relay.url] ?: false,
+                    onToggleLazyFetch = onToggleLazyFetch?.let { cb -> { v -> cb(relay.url, v) } }
                 )
             }
 

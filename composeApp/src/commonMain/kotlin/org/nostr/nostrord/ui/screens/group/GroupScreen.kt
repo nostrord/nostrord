@@ -213,6 +213,19 @@ fun GroupScreen(
         }
     }
 
+    // Timestamp of the user's most recent pending join request (kind:9021),
+    // so the input banner can show "Requested Xh ago" — a quiet signal that
+    // the request has been seen by the relay.
+    val pendingRequestedAtSeconds by remember(groupId, currentUserPubkey) {
+        derivedStateOf {
+            val pubkey = currentUserPubkey ?: return@derivedStateOf null
+            (allMessages[groupId] ?: emptyList())
+                .asSequence()
+                .filter { it.kind == 9021 && it.pubkey == pubkey }
+                .maxOfOrNull { it.createdAt }
+        }
+    }
+
     // Refresh group data on join; poll while pending approval
     LaunchedEffect(isPendingApproval, isJoined, groupId) {
         if (!isJoined) return@LaunchedEffect
@@ -267,7 +280,10 @@ fun GroupScreen(
     }
 
     val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
-    val isMembersLoading = groupId in loadingMembersSet && groupMembers.isEmpty()
+    // Pending/restricted relays never deliver the member list, so the skeleton
+    // would spin forever — force-off so the sidebar can render its empty state.
+    val isMembersLoading = groupId in loadingMembersSet && groupMembers.isEmpty() &&
+            !isPendingApproval && !isGroupRestricted
 
     LaunchedEffect(groupId) {
         vm.requestGroupMessages(selectedChannel)
@@ -702,6 +718,10 @@ fun GroupScreen(
                 pendingJoinRequestCount = pendingJoinRequests.size,
                 onJoinRequestsClick = { showJoinRequestsModal = true },
                 isPendingApproval = isPendingApproval,
+                pendingRequestedAtSeconds = pendingRequestedAtSeconds,
+                onCancelJoinRequest = {
+                    vm.leaveGroup { onNavigateHome() }
+                },
                 onInviteCodesClick = { showInviteCodesModal = true },
                 isClosed = currentGroupMetadata?.isOpen == false,
                 isGroupRestricted = isGroupRestricted,
@@ -791,6 +811,10 @@ fun GroupScreen(
                 pendingJoinRequestCount = pendingJoinRequests.size,
                 onJoinRequestsClick = { showJoinRequestsModal = true },
                 isPendingApproval = isPendingApproval,
+                pendingRequestedAtSeconds = pendingRequestedAtSeconds,
+                onCancelJoinRequest = {
+                    vm.leaveGroup { onNavigateHome() }
+                },
                 onInviteCodesClick = { showInviteCodesModal = true },
                 isClosed = currentGroupMetadata?.isOpen == false,
                 isGroupRestricted = isGroupRestricted,

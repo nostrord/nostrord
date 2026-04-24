@@ -30,7 +30,9 @@ fun RelaySettingsDesktop(
     onNavigate: (Screen) -> Unit,
     onSelectRelay: (String) -> Unit,
     onAddRelay: () -> Unit,
-    onDeleteRelay: ((String) -> Unit)? = null
+    onDeleteRelay: ((String) -> Unit)? = null,
+    lazyFetchStates: Map<String, Boolean> = emptyMap(),
+    onToggleLazyFetch: ((String, Boolean) -> Unit)? = null
 ) {
     Column(
         modifier = Modifier
@@ -119,7 +121,9 @@ fun RelaySettingsDesktop(
                             relay = relay,
                             isCompact = false,
                             onSelectRelay = { onSelectRelay(relay.url) },
-                            onDeleteRelay = onDeleteRelay?.let { cb -> { cb(relay.url) } }
+                            onDeleteRelay = onDeleteRelay?.let { cb -> { cb(relay.url) } },
+                            isLazyFetch = lazyFetchStates[relay.url] ?: false,
+                            onToggleLazyFetch = onToggleLazyFetch?.let { cb -> { v -> cb(relay.url, v) } }
                         )
                     }
 

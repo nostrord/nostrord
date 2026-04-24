@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.components.navigation.ServerRail
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -69,6 +70,9 @@ fun DesktopShell(
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val orphanedJoinedByRelay by AppModule.nostrRepository.orphanedJoinedByRelay.collectAsState()
+    val fullGroupListFetchedRelays by AppModule.nostrRepository.fullGroupListFetchedRelays.collectAsState()
+    val connectionState by AppModule.nostrRepository.connectionState.collectAsState()
+    val isRelayConnected = connectionState is ConnectionManager.ConnectionState.Connected
     val sidebarScope = rememberCoroutineScope()
 
     val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
@@ -130,7 +134,15 @@ fun DesktopShell(
                         sidebarScope.launch {
                             AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
                         }
-                    }
+                    },
+                    isGroupFetchLazy = AppModule.nostrRepository.isGroupFetchLazy(activeRelayUrl),
+                    hasFullGroupListBeenFetched = activeRelayUrl in fullGroupListFetchedRelays,
+                    onRequestFullGroupList = {
+                        sidebarScope.launch {
+                            AppModule.nostrRepository.requestFullGroupListForRelay(activeRelayUrl)
+                        }
+                    },
+                    isRelayConnected = isRelayConnected
                 )
             }
 

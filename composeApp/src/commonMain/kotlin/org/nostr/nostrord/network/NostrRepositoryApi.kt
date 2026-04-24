@@ -35,6 +35,8 @@ interface NostrRepositoryApi {
     val joinedGroups: StateFlow<Set<String>>
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
     val loadingRelays: StateFlow<Set<String>>
+    /** Relays (in LAZY mode) whose full group list has been fetched this session. */
+    val fullGroupListFetchedRelays: StateFlow<Set<String>>
     /** Relays that returned CLOSED "restricted" — access permanently denied. */
     val restrictedRelays: StateFlow<Map<String, String>>
     val isLoadingMore: StateFlow<Map<String, Boolean>>
@@ -85,6 +87,13 @@ interface NostrRepositoryApi {
     suspend fun switchRelay(newRelayUrl: String)
     suspend fun removeRelay(url: String)
     suspend fun disconnect()
+
+    // --- Per-relay fetch mode ---
+    /** Set whether a relay uses lazy fetch mode (only joined-group metadata on connect). */
+    fun setGroupFetchLazy(relayUrl: String, lazy: Boolean)
+    fun isGroupFetchLazy(relayUrl: String): Boolean
+    /** Fetch the full group list for a relay — used when the user expands OTHER GROUPS on a lazy relay. */
+    suspend fun requestFullGroupListForRelay(relayUrl: String)
     /** Add a relay to the user's saved list and publish kind:10009. */
     suspend fun addRelay(url: String)
     /** Dismiss the deep link relay prompt without saving. */

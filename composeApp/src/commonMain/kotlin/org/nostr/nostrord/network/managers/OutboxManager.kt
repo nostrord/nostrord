@@ -62,6 +62,21 @@ class OutboxManager(
             .toSet()
     }
 
+    /**
+     * Seed [kind10009Relays] from the locally-persisted relay list so the sidebar
+     * shows all joined relays instantly on startup, without waiting for the kind:10009
+     * network fetch. The network fetch still runs and overwrites this with fresh data.
+     */
+    fun seedFromCache() {
+        val saved = SecureStorage.loadRelayList()
+            .map { it.normalizeRelayUrl() }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (saved.isNotEmpty()) {
+            _kind10009Relays.value = saved
+        }
+    }
+
     fun initialize(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit,

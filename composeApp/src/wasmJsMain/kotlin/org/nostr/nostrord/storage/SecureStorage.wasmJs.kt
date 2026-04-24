@@ -1,6 +1,11 @@
 @file:OptIn(ExperimentalWasmJsInterop::class)
 package org.nostr.nostrord.storage
 
+import kotlinx.coroutines.delay
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlin.js.ExperimentalWasmJsInterop
 
 @JsFun("(key) => localStorage.getItem(key)")
@@ -18,6 +23,99 @@ private external fun jsClear()
 @JsFun("(prefix) => { const keys = []; for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith(prefix)) keys.push(key); } return keys; }")
 private external fun jsGetKeysWithPrefix(prefix: String): JsArray<JsString>
 
+// Opens IndexedDB, creates kv store if needed, stores the open DB in globalThis.__nostrordIdb,
+// reads all entries into globalThis.__nostrordIdbData (JSON string), and sets globalThis.__nostrordIdbReady.
+// Uses globalThis instead of window to work in all JS environments (Workers, bundlers, etc.).
+@JsFun("""
+() => {
+    globalThis.__nostrordIdbReady = false;
+    globalThis.__nostrordIdbData = '{}';
+    if (typeof indexedDB === 'undefined') {
+        globalThis.__nostrordIdbReady = true;
+        return;
+    }
+    var req = indexedDB.open('nostrord_meta_db', 1);
+    req.onupgradeneeded = function(e) {
+        var db = e.target.result;
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+    };
+    req.onsuccess = function(e) {
+        globalThis.__nostrordIdb = e.target.result;
+        globalThis.__nostrordIdb.onclose = function() { globalThis.__nostrordIdb = null; };
+        globalThis.__nostrordIdb.onversionchange = function() {
+            globalThis.__nostrordIdb.close();
+            globalThis.__nostrordIdb = null;
+        };
+        var db = globalThis.__nostrordIdb;
+        var tx = db.transaction('kv', 'readonly');
+        var store = tx.objectStore('kv');
+        var keysReq = store.getAllKeys();
+        var valsReq = store.getAll();
+        var keys = null, vals = null;
+        function tryDone() {
+            if (keys !== null && vals !== null) {
+                var result = {};
+                for (var i = 0; i < keys.length; i++) {
+                    if (vals[i] !== null && vals[i] !== undefined) result[keys[i]] = vals[i];
+                }
+                globalThis.__nostrordIdbData = JSON.stringify(result);
+                globalThis.__nostrordIdbReady = true;
+            }
+        }
+        keysReq.onsuccess = function(e2) { keys = e2.target.result; tryDone(); };
+        valsReq.onsuccess = function(e2) { vals = e2.target.result; tryDone(); };
+        keysReq.onerror = function() { globalThis.__nostrordIdbReady = true; };
+        valsReq.onerror = function() { globalThis.__nostrordIdbReady = true; };
+    };
+    req.onerror = function() { globalThis.__nostrordIdbReady = true; };
+}
+""")
+private external fun jsStartIdbPreload()
+
+// Returns true once jsStartIdbPreload() has finished and globalThis.__nostrordIdb is set.
+@JsFun("() => globalThis.__nostrordIdbReady === true")
+private external fun jsIsIdbReady(): Boolean
+
+// Returns the JSON string produced by jsStartIdbPreload().
+@JsFun("() => globalThis.__nostrordIdbData || '{}'")
+private external fun jsGetIdbData(): JsString
+
+// Write a value to the kv store using the already-open DB connection.
+@JsFun("""
+(key, value) => {
+    var db = globalThis.__nostrordIdb;
+    if (!db) return;
+    try {
+        db.transaction('kv', 'readwrite').objectStore('kv').put(value, key);
+    } catch(e) {}
+}
+""")
+private external fun jsIdbWrite(key: String, value: String)
+
+// Delete all keys that start with prefix.
+@JsFun("""
+(prefix) => {
+    var db = globalThis.__nostrordIdb;
+    if (!db) return;
+    try {
+        var store = db.transaction('kv', 'readwrite').objectStore('kv');
+        var req = store.getAllKeys();
+        req.onsuccess = function(e) {
+            var keys = e.target.result;
+            var toDelete = keys.filter(function(k) { return k.startsWith(prefix); });
+            if (toDelete.length === 0) return;
+            var store2 = db.transaction('kv', 'readwrite').objectStore('kv');
+            for (var i = 0; i < toDelete.length; i++) store2.delete(toDelete[i]);
+        };
+    } catch(e) {}
+}
+""")
+private external fun jsIdbDeleteWithPrefix(prefix: String)
+
+// In-memory caches for IndexedDB-backed data (synchronous read access after preloadMetadata).
+private var relayMetaIdbCache: String? = null
+private val joinedGroupMetaIdbCache = mutableMapOf<String, String>()
+
 actual object SecureStorage {
     private const val PRIVATE_KEY_PREF = "nostr_private_key"
     private const val JOINED_GROUPS_PREFIX = "joined_groups_"
@@ -32,33 +130,36 @@ actual object SecureStorage {
     private const val MESSAGES_PREFIX = "messages_"
     private const val PENDING_EVENTS_PREFIX = "pending_events_"
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
-    private const val RELAY_METADATA_KEY = "relay_metadata"
     private const val LIVE_CURSORS_PREFIX = "live_cursors_"
+
+    // IDB key constants
+    private const val IDB_RELAY_META_KEY = "relay_meta:relay_metadata"
+    private const val IDB_JOINED_GROUP_META_PREFIX = "joined_group_meta:"
 
     actual fun savePrivateKey(privateKeyHex: String) {
         jsSetItem(PRIVATE_KEY_PREF, privateKeyHex)
     }
-    
+
     actual fun getPrivateKey(): String? {
         return jsGetItem(PRIVATE_KEY_PREF)
     }
-    
+
     actual fun hasPrivateKey(): Boolean {
         return jsGetItem(PRIVATE_KEY_PREF) != null
     }
-    
+
     actual fun clearPrivateKey() {
         jsRemoveItem(PRIVATE_KEY_PREF)
     }
-    
+
     actual fun saveCurrentRelayUrl(relayUrl: String) {
         jsSetItem(CURRENT_RELAY_URL, relayUrl)
     }
-    
+
     actual fun getCurrentRelayUrl(): String? {
         return jsGetItem(CURRENT_RELAY_URL)
     }
-    
+
     actual fun clearCurrentRelayUrl() {
         jsRemoveItem(CURRENT_RELAY_URL)
     }
@@ -96,51 +197,47 @@ actual object SecureStorage {
             jsRemoveItem(keys[i].toString())
         }
     }
-    
-    // NIP-46 Bunker URL support
+
     actual fun saveBunkerUrl(bunkerUrl: String) {
         jsSetItem(BUNKER_URL_PREF, bunkerUrl)
     }
-    
+
     actual fun getBunkerUrl(): String? {
         return jsGetItem(BUNKER_URL_PREF)
     }
-    
+
     actual fun hasBunkerUrl(): Boolean {
         return jsGetItem(BUNKER_URL_PREF) != null
     }
-    
+
     actual fun clearBunkerUrl() {
         jsRemoveItem(BUNKER_URL_PREF)
     }
-    
-    // NIP-46 Bunker User Pubkey support
+
     actual fun saveBunkerUserPubkey(pubkey: String) {
         jsSetItem(BUNKER_USER_PUBKEY_PREF, pubkey)
     }
-    
+
     actual fun getBunkerUserPubkey(): String? {
         return jsGetItem(BUNKER_USER_PUBKEY_PREF)
     }
-    
+
     actual fun clearBunkerUserPubkey() {
         jsRemoveItem(BUNKER_USER_PUBKEY_PREF)
     }
-    
-    // NIP-46 Bunker Client Private Key (for session persistence)
+
     actual fun saveBunkerClientPrivateKey(privateKey: String) {
         jsSetItem(BUNKER_CLIENT_PRIVATE_KEY_PREF, privateKey)
     }
-    
+
     actual fun getBunkerClientPrivateKey(): String? {
         return jsGetItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
     }
-    
+
     actual fun clearBunkerClientPrivateKey() {
         jsRemoveItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
     }
 
-    // NIP-07 Browser Extension
     actual fun saveNip07UserPubkey(pubkey: String) {
         jsSetItem(NIP07_USER_PUBKEY_PREF, pubkey)
     }
@@ -155,9 +252,10 @@ actual object SecureStorage {
 
     actual fun clearAll() {
         jsClear()
+        relayMetaIdbCache = null
+        joinedGroupMetaIdbCache.clear()
     }
 
-    // Last read timestamp tracking
     actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         jsSetItem(key, timestamp.toString())
@@ -187,10 +285,8 @@ actual object SecureStorage {
         return result
     }
 
-    // Last viewed group persistence
     actual fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?) {
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
-        // Store as "groupId|groupName" (groupName can be empty)
         val value = "$groupId|${groupName ?: ""}"
         jsSetItem(key, value)
     }
@@ -210,7 +306,6 @@ actual object SecureStorage {
         jsRemoveItem(key)
     }
 
-    // Message persistence
     actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         jsSetItem(key, messagesJson)
@@ -234,7 +329,6 @@ actual object SecureStorage {
         }
     }
 
-    // Pending events persistence
     actual fun savePendingEvents(pubkey: String, eventsJson: String) {
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         jsSetItem(key, eventsJson)
@@ -250,7 +344,6 @@ actual object SecureStorage {
         jsRemoveItem(key)
     }
 
-    // Group metadata cache
     actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         jsSetItem(key, groupsJson)
@@ -266,13 +359,32 @@ actual object SecureStorage {
         jsRemoveItem(key)
     }
 
-    actual fun saveRelayMetadata(json: String) {
-        jsSetItem(RELAY_METADATA_KEY, json)
+    // Joined-group metadata — backed by IndexedDB, read via in-memory cache.
+    actual fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String) {
+        val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
+        joinedGroupMetaIdbCache[cacheKey] = groupsJson
+        jsIdbWrite(IDB_JOINED_GROUP_META_PREFIX + cacheKey, groupsJson)
     }
 
-    actual fun getRelayMetadata(): String? {
-        return jsGetItem(RELAY_METADATA_KEY)
+    actual fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String? {
+        val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
+        return joinedGroupMetaIdbCache[cacheKey]
     }
+
+    actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
+        val accountPrefix = "${pubkey.hashCode()}_"
+        joinedGroupMetaIdbCache.keys.filter { it.startsWith(accountPrefix) }
+            .forEach { joinedGroupMetaIdbCache.remove(it) }
+        jsIdbDeleteWithPrefix(IDB_JOINED_GROUP_META_PREFIX + accountPrefix)
+    }
+
+    // NIP-11 relay metadata — backed by IndexedDB, read via in-memory cache.
+    actual fun saveRelayMetadata(json: String) {
+        relayMetaIdbCache = json
+        jsIdbWrite(IDB_RELAY_META_KEY, json)
+    }
+
+    actual fun getRelayMetadata(): String? = relayMetaIdbCache
 
     actual fun saveLiveCursors(relayUrl: String, json: String) {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
@@ -296,5 +408,44 @@ actual object SecureStorage {
     actual fun getBooleanPref(key: String, default: Boolean): Boolean {
         val raw = jsGetItem(key) ?: return default
         return raw == "1" || raw.equals("true", ignoreCase = true)
+    }
+
+    actual fun saveStringPref(key: String, value: String) {
+        jsSetItem(key, value)
+    }
+
+    actual fun getStringPref(key: String, default: String): String {
+        return jsGetItem(key) ?: default
+    }
+
+    // Opens IndexedDB (storing the connection in globalThis.__nostrordIdb) and reads all kv entries
+    // into globalThis.__nostrordIdbData. Polls until ready, then populates in-memory caches.
+    // Avoids passing Kotlin lambdas to JS — uses a global ready-flag instead.
+    actual suspend fun preloadMetadata() {
+        try {
+            jsStartIdbPreload()
+            // Yield to the JS event loop until the IDB open + read completes (max 3s).
+            var attempts = 0
+            while (!jsIsIdbReady() && attempts < 600) {
+                delay(5)
+                attempts++
+            }
+            if (!jsIsIdbReady()) return
+
+            val json = jsGetIdbData().toString()
+            if (json == "{}") return
+
+            val parsed = Json.parseToJsonElement(json).jsonObject
+            parsed[IDB_RELAY_META_KEY]?.jsonPrimitive?.contentOrNull?.let {
+                relayMetaIdbCache = it
+            }
+            parsed.forEach { (key, value) ->
+                if (key.startsWith(IDB_JOINED_GROUP_META_PREFIX)) {
+                    value.jsonPrimitive.contentOrNull?.let { v ->
+                        joinedGroupMetaIdbCache[key.removePrefix(IDB_JOINED_GROUP_META_PREFIX)] = v
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
     }
 }

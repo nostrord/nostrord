@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
@@ -40,6 +41,7 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
@@ -65,6 +67,8 @@ fun MemberSidebar(
     members: List<MemberInfo>,
     recentlyActiveMembers: Set<String> = emptySet(),
     isLoading: Boolean = false,
+    isPendingApproval: Boolean = false,
+    isGroupRestricted: Boolean = false,
     onMemberClick: (MemberInfo) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
     currentUserPubkey: String? = null,
@@ -264,6 +268,37 @@ fun MemberSidebar(
                                 text = "No members found",
                                 color = NostrordColors.TextMuted,
                                 style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+
+                // Locked empty state — pending approval or restricted group.
+                if (!isLoading && members.isEmpty() && searchQuery.isBlank() &&
+                    (isPendingApproval || isGroupRestricted)) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = NostrordColors.TextMuted,
+                                modifier = Modifier.size(28.dp)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = if (isPendingApproval)
+                                    "Members hidden until approved"
+                                else
+                                    "Members are private",
+                                color = NostrordColors.TextMuted,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }

@@ -8,7 +8,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.utils.epochMillis
 
@@ -42,7 +44,12 @@ data class GroupMetadata(
      * are invalid and MUST be ignored by the client.
      */
     val closedChildren: Boolean = false
-)
+) {
+    companion object
+}
+
+/** Explicit serializer — required on Kotlin/Wasm where runtime serializer lookup fails for user classes. */
+val groupMetadataListSerializer: KSerializer<List<GroupMetadata>> = ListSerializer(GroupMetadata.serializer())
 
 /**
  * A `["child", "<id>", "<order>", "<flags>"]` declaration inside a parent's `kind:39000`.
@@ -566,6 +573,26 @@ class NostrGroupClient(
      * Used by callers (e.g., EOSE handler) to identify the originating relay.
      */
     fun groupListSubscriptionId(): String = "group-list-${relayUrl.hashCode().toUInt()}"
+
+    /**
+     * Fetch kind:39000 metadata only for the given group IDs.
+     * Used in LAZY fetch mode: on connect we only pull metadata for joined groups,
+     * deferring the full list until the user opens "OTHER GROUPS".
+     * Reuses the same sub ID as requestGroups() so the EOSE handler works unchanged.
+     */
+    suspend fun requestGroupsForIds(groupIds: List<String>) {
+        if (groupIds.isEmpty()) return
+        val subId = groupListSubscriptionId()
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(buildJsonObject {
+                putJsonArray("kinds") { add(39000) }
+                putJsonArray("#d") { groupIds.forEach { add(it) } }
+            })
+        }
+        sendJson(req)
+    }
 
     /**
      * Subscribe for kind:39000 metadata for a specific group.
