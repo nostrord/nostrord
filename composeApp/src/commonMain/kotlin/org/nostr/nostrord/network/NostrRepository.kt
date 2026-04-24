@@ -418,6 +418,10 @@ class NostrRepository(
 
         sessionManager.getPublicKey()?.let { pubKey ->
             groupManager.clearJoinedGroupsForAccount(pubKey)
+            // Drop persisted UI state for this account — otherwise the next login
+            // (same pubkey) would restore a group whose relay is no longer the
+            // primary, leaving the user on the wrong relay with a stale group open.
+            try { SecureStorage.clearLastViewedGroup(pubKey) } catch (_: Exception) {}
         }
         _isDiscoveringRelays.value = false
         outboxManager.clear()
