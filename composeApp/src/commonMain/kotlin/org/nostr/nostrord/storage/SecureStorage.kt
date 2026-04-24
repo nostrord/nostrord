@@ -1,5 +1,6 @@
 package org.nostr.nostrord.storage
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -144,6 +145,80 @@ fun SecureStorage.saveGroupFetchLazy(relayUrl: String, lazy: Boolean) {
 
 fun SecureStorage.isGroupFetchLazy(relayUrl: String): Boolean {
     return getBooleanPref("group_fetch_lazy_${relayUrl.hashCode()}", true)
+}
+
+// Per-relay restricted groups — groupIds the relay CLOSED with "restricted" for this
+// pubkey. Persisted so subsequent sessions exclude them from batched #d/#h REQs from
+// the start (otherwise pyramid-style relays CLOSE the whole batch on the first
+// connect, starving non-restricted groups of metadata until per-group CLOSEDs arrive).
+// Scoped by pubkey+relay so different accounts don't leak each other's state.
+// Entries auto-expire after RESTRICTED_GROUPS_TTL_S (7 days) — approval may have been
+// granted since the last session and we want to retry.
+private const val RESTRICTED_GROUPS_TTL_S = 7 * 24 * 3600L
+
+@Serializable
+private data class RestrictedGroupEntry(val reason: String, val ts: Long)
+
+private fun restrictedGroupsKey(pubkey: String, relayUrl: String): String =
+    "restricted_groups_${pubkey.hashCode()}_${relayUrl.hashCode()}"
+
+fun SecureStorage.getRestrictedGroupsForRelay(
+    pubkey: String,
+    relayUrl: String,
+    nowSeconds: Long
+): Map<String, String> {
+    val key = restrictedGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    if (raw.isBlank()) return emptyMap()
+    val parsed: Map<String, RestrictedGroupEntry> = try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        return emptyMap()
+    }
+    val fresh = parsed.filterValues { nowSeconds - it.ts < RESTRICTED_GROUPS_TTL_S }
+    if (fresh.size != parsed.size) {
+        // Prune stale entries from storage so the blob doesn't grow unbounded.
+        try { saveStringPref(key, Json.encodeToString(fresh)) } catch (_: Exception) {}
+    }
+    return fresh.mapValues { it.value.reason }
+}
+
+fun SecureStorage.addRestrictedGroupForRelay(
+    pubkey: String,
+    relayUrl: String,
+    groupId: String,
+    reason: String,
+    nowSeconds: Long
+) {
+    val key = restrictedGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    val current: MutableMap<String, RestrictedGroupEntry> = if (raw.isBlank()) {
+        mutableMapOf()
+    } else try {
+        Json.decodeFromString<Map<String, RestrictedGroupEntry>>(raw).toMutableMap()
+    } catch (_: Exception) {
+        mutableMapOf()
+    }
+    current[groupId] = RestrictedGroupEntry(reason, nowSeconds)
+    try { saveStringPref(key, Json.encodeToString<Map<String, RestrictedGroupEntry>>(current)) } catch (_: Exception) {}
+}
+
+fun SecureStorage.removeRestrictedGroupForRelay(
+    pubkey: String,
+    relayUrl: String,
+    groupId: String
+) {
+    val key = restrictedGroupsKey(pubkey, relayUrl)
+    val raw = getStringPref(key, "")
+    if (raw.isBlank()) return
+    val current: MutableMap<String, RestrictedGroupEntry> = try {
+        Json.decodeFromString<Map<String, RestrictedGroupEntry>>(raw).toMutableMap()
+    } catch (_: Exception) {
+        return
+    }
+    if (current.remove(groupId) != null) {
+        try { saveStringPref(key, Json.encodeToString<Map<String, RestrictedGroupEntry>>(current)) } catch (_: Exception) {}
+    }
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)

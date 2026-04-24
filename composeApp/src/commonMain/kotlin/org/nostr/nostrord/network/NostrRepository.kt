@@ -596,8 +596,13 @@ class NostrRepository(
             )
             if (!otherGroupsOpen) {
                 // OTHER GROUPS is closed — only fetch joined group metadata.
+                // Exclude groups already known to be restricted (the relay would
+                // CLOSE the entire batch if any single ID is denied).
+                val restricted = groupManager.restrictedGroups.value.keys
                 val joinedIds = groupManager.joinedGroupsByRelay.value[relayUrl.normalizeRelayUrl()]
-                    .orEmpty().toList()
+                    .orEmpty()
+                    .filter { it !in restricted }
+                    .toList()
                 if (joinedIds.isNotEmpty()) {
                     // Ensure any stale pending-full-fetch marker is cleared so EOSE for this
                     // partial REQ doesn't incorrectly mark the relay as having a full list.
@@ -605,7 +610,7 @@ class NostrRepository(
                     client.requestGroupsForIds(joinedIds)
                     return
                 }
-                // No joined groups — fall through to full fetch so OTHER GROUPS populates
+                // No (non-restricted) joined groups — fall through to full fetch so OTHER GROUPS populates
             }
             // OTHER GROUPS is open (or no joined groups) — full fetch
         }
@@ -681,6 +686,7 @@ class NostrRepository(
             groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
             groupManager.loadAllJoinedGroupsFromStorage(pubkey, relays)
             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, relays)
+            groupManager.loadRestrictedGroupsFromStorage(pubkey, relays)
         }
         connect(primaryRelay)
     }
@@ -1688,13 +1694,25 @@ class NostrRepository(
                 val isRestricted = reason.contains("restricted")
                 val isAuthRequired = reason.contains("auth-required")
 
-                // "restricted" on the group-list subscription means the relay
-                // actively denies access — stop loading, show error, disconnect.
+                // "restricted" on the group-list subscription: distinguish between
+                // (a) unfiltered requestGroups() failing — relay genuinely denies access,
+                // and (b) #d-filtered requestGroupsForIds() failing because one of the
+                // joined groups in the batch is restricted. Only (a) marks the whole
+                // relay. (b) is silent — OTHER GROUPS is collapsed by design, so no
+                // fallback unfiltered fetch (that would leak OTHER groups into the
+                // homescreen). Per-group meta_/msg_ CLOSEDs from requestPrivateGroupData
+                // and resubscribeAfterAuth identify the specific offender.
                 if (isRestricted && subId.startsWith("group-list")) {
                     val relayUrl = client.getRelayUrl()
-                    _restrictedRelays.value = _restrictedRelays.value + (relayUrl to reason)
-                    groupManager.markRelayLoaded(relayUrl)
-                    connectionManager.setError(reason)
+                    val wasFullFetch = groupManager.hasPendingFullFetch(relayUrl)
+                    if (wasFullFetch) {
+                        _restrictedRelays.value = _restrictedRelays.value + (relayUrl to reason)
+                        groupManager.cancelPendingFullFetch(relayUrl)
+                        groupManager.markRelayLoaded(relayUrl)
+                        connectionManager.setError(reason)
+                    } else {
+                        groupManager.markRelayLoaded(relayUrl)
+                    }
                     return
                 }
 
@@ -1707,14 +1725,24 @@ class NostrRepository(
                 }
 
                 // Track per-group "restricted" status so the UI can show a private
-                // group placeholder with invite code input. Extract the group ID
-                // from msg_ subscriptions (format: msg_<8-char-prefix>_<timestamp>).
-                if (isRestricted && subId.startsWith("msg_")) {
-                    val prefix = subId.removePrefix("msg_").substringBefore("_")
-                    val groupId = groupManager.getGroupIdByPrefix(prefix)
-                        ?: groupManager.activeGroupId?.takeIf { it.startsWith(prefix) }
-                    if (groupId != null) {
-                        groupManager.markGroupRestricted(groupId, reason)
+                // group placeholder with invite code input. Any per-group sub whose
+                // ID embeds an 8-char group prefix is a reliable signal when it
+                // closes with "restricted" — msg_, meta_, members_, admins_ all
+                // isolate exactly one group.
+                if (isRestricted) {
+                    val prefix = when {
+                        subId.startsWith("msg_") -> subId.removePrefix("msg_").substringBefore("_")
+                        subId.startsWith("meta_") -> subId.removePrefix("meta_")
+                        subId.startsWith("members_") -> subId.removePrefix("members_")
+                        subId.startsWith("admins_") -> subId.removePrefix("admins_")
+                        else -> null
+                    }
+                    if (prefix != null) {
+                        val groupId = groupManager.getGroupIdByPrefix(prefix)
+                            ?: groupManager.activeGroupId?.takeIf { it.startsWith(prefix) }
+                        if (groupId != null) {
+                            groupManager.markGroupRestricted(groupId, reason)
+                        }
                     }
                 }
 

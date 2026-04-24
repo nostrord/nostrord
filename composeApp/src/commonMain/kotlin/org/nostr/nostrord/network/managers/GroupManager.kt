@@ -26,8 +26,11 @@ import org.nostr.nostrord.network.RoleDefinition
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.addRestrictedGroupForRelay
+import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
+import org.nostr.nostrord.storage.removeRestrictedGroupForRelay
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
 import org.nostr.nostrord.utils.AppError
@@ -325,16 +328,62 @@ class GroupManager(
     /**
      * Mark a group as restricted (relay denied access).
      * Called when a CLOSED "restricted" message arrives for a group subscription.
+     *
+     * Kicks off a debounced mux refresh so mux_meta / mux_del / mux_chat are
+     * re-sent with this group excluded from the #d/#h batch — otherwise the
+     * relay would keep CLOSE-ing the whole mux whenever this group is in it,
+     * starving the other joined groups of metadata/delete updates.
      */
     fun markGroupRestricted(groupId: String, reason: String) {
+        val wasAlreadyRestricted = groupId in _restrictedGroups.value
         _restrictedGroups.update { it + (groupId to reason) }
+        if (!wasAlreadyRestricted) {
+            val relayUrl = getRelayForGroup(groupId)
+            if (relayUrl != null) {
+                currentPubkey?.let { pk ->
+                    try {
+                        SecureStorage.addRestrictedGroupForRelay(pk, relayUrl, groupId, reason, epochSeconds())
+                    } catch (_: Exception) {}
+                }
+                refreshMuxDebounced(relayUrl)
+            }
+        }
     }
 
     /**
      * Clear restricted status for a group (e.g. after successful join).
      */
     fun clearGroupRestricted(groupId: String) {
+        if (groupId !in _restrictedGroups.value) return
         _restrictedGroups.update { it - groupId }
+        val relayUrl = getRelayForGroup(groupId)
+        if (relayUrl != null) {
+            currentPubkey?.let { pk ->
+                try {
+                    SecureStorage.removeRestrictedGroupForRelay(pk, relayUrl, groupId)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /**
+     * Load persisted restricted groups for [relayUrls] into [_restrictedGroups].
+     * Called on startup before the first connect, so batched REQs exclude known
+     * restricted IDs from the start. Entries older than 7 days are auto-expired
+     * by [SecureStorage.getRestrictedGroupsForRelay].
+     */
+    fun loadRestrictedGroupsFromStorage(pubKey: String, relayUrls: List<String>) {
+        if (relayUrls.isEmpty()) return
+        val now = epochSeconds()
+        val loaded = mutableMapOf<String, String>()
+        for (url in relayUrls) {
+            try {
+                loaded.putAll(SecureStorage.getRestrictedGroupsForRelay(pubKey, url, now))
+            } catch (_: Exception) {}
+        }
+        if (loaded.isNotEmpty()) {
+            _restrictedGroups.update { it + loaded }
+        }
     }
 
     companion object {
@@ -522,7 +571,11 @@ class GroupManager(
     }
 
     private suspend fun refreshMuxSubscriptionsForRelayImpl(relayUrl: String) {
-        val allGroupIds = getGroupIdsForMux(relayUrl)
+        // Drop restricted groups from every batched filter — including a single
+        // restricted #d/#h value makes the relay CLOSE the entire subscription,
+        // silencing metadata/delete updates for the groups we DO belong to.
+        val restricted = _restrictedGroups.value.keys
+        val allGroupIds = getGroupIdsForMux(relayUrl).filter { it !in restricted }
         if (allGroupIds.isEmpty()) return
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
