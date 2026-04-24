@@ -848,22 +848,33 @@ class NostrRepository(
         // session has no data, silently blocking user-triggered fetches.
         if (groupManager.hasPendingFullFetch(relayUrl)) return
 
-        // Wait up to 30 s for the WebSocket to connect before giving up.
-        // This handles the race where the user opens OTHER GROUPS immediately after
-        // app startup, before the handshake completes.
-        val connected = withTimeoutOrNull(30_000L) {
-            connectionManager.connectionState.first {
-                it is ConnectionManager.ConnectionState.Connected
-            }
-        }
-        if (connected == null) return   // timed out
+        val normalizedTarget = relayUrl.normalizeRelayUrl()
 
-        // Re-check after waiting — connect() may have already sent a full REQ.
+        // Wait up to 30 s for a CONNECTED client whose relayUrl matches the target.
+        // We must NOT fall back to the current primary: the sidebar triggers this
+        // right after selectedRelayUrl changes, BEFORE switchRelay() has made the
+        // new relay primary. Falling back would send requestGroups() on the old
+        // primary's WebSocket, polluting that relay's _groupsByRelay cache with
+        // unrelated kind:39000 events — surfacing as OTHER GROUPS auto-populating
+        // on a collapsed relay the next time the user switches back to it.
+        val client = withTimeoutOrNull(30_000L) {
+            while (true) {
+                val c = connectionManager.getClientForRelay(normalizedTarget)
+                if (c != null &&
+                    c.isConnected() &&
+                    c.getRelayUrl().normalizeRelayUrl() == normalizedTarget
+                ) {
+                    return@withTimeoutOrNull c
+                }
+                delay(100)
+            }
+            @Suppress("UNREACHABLE_CODE") null
+        } ?: return
+
+        // Re-check after waiting — connect()/switchRelay may have already sent
+        // the full REQ for this relay.
         if (groupManager.hasPendingFullFetch(relayUrl)) return
 
-        val client = connectionManager.getClientForRelay(relayUrl)
-            ?: connectionManager.getPrimaryClient()
-            ?: return
         groupManager.markPendingFullFetch(relayUrl)
         groupManager.markRelayLoading(relayUrl)
         client.requestGroups()
