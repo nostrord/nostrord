@@ -105,6 +105,8 @@ fun GroupScreenDesktop(
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     isPendingApproval: Boolean = false,
+    pendingRequestedAtSeconds: Long? = null,
+    onCancelJoinRequest: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
     isClosed: Boolean = false,
     isGroupRestricted: Boolean = false,
@@ -178,6 +180,8 @@ fun GroupScreenDesktop(
                     currentUserPubkey = currentUserPubkey,
                     isJoined = isJoined,
                     isInitialLoading = isInitialLoading,
+                    isPendingApproval = isPendingApproval,
+                    isGroupRestricted = isGroupRestricted,
                     isLoadingMore = isLoadingMore,
                     hasMoreMessages = hasMoreMessages,
                     onLoadMore = onLoadMore,
@@ -194,6 +198,8 @@ fun GroupScreenDesktop(
 
             MessageInput(
                 isPendingApproval = isPendingApproval,
+                pendingRequestedAtSeconds = pendingRequestedAtSeconds,
+                onCancelJoinRequest = onCancelJoinRequest,
                 isJoined = isJoined,
                 selectedChannel = selectedChannel,
                 groupName = groupName,
@@ -218,6 +224,8 @@ fun GroupScreenDesktop(
                 members = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 isLoading = isMembersLoading,
+                isPendingApproval = isPendingApproval,
+                isGroupRestricted = isGroupRestricted,
                 onMemberClick = { member -> onUserClick(member.pubkey) },
                 isCurrentUserAdmin = isCurrentUserAdmin,
                 currentUserPubkey = currentUserPubkey,
@@ -239,6 +247,8 @@ fun GroupScreenDesktop(
                 members = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 isLoading = isMembersLoading,
+                isPendingApproval = isPendingApproval,
+                isGroupRestricted = isGroupRestricted,
                 onMemberClick = { member ->
                     onShowMemberSheet(false)
                     onUserClick(member.pubkey)

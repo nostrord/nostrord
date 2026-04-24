@@ -1562,6 +1562,10 @@ class GroupManager(
             loadingRegistry.remove(groupId)
             // Reset opened tracking so setActiveGroupId() re-fetches on rejoin.
             _openedGroupIds.update { it - groupId }
+            // Drop any restricted-group marker — leaving is an explicit reset of intent,
+            // and a future rejoin should get a fresh access attempt instead of being
+            // silently excluded from batched REQs.
+            clearGroupRestricted(groupId)
 
             Result.Success(Unit)
         } catch (e: Throwable) {

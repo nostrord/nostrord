@@ -134,6 +134,8 @@ fun GroupScreenMobile(
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     isPendingApproval: Boolean = false,
+    pendingRequestedAtSeconds: Long? = null,
+    onCancelJoinRequest: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
     isClosed: Boolean = false,
     isGroupRestricted: Boolean = false,
@@ -229,6 +231,8 @@ fun GroupScreenMobile(
                         currentUserPubkey = currentUserPubkey,
                         isJoined = isJoined,
                         isInitialLoading = isInitialLoading,
+                        isPendingApproval = isPendingApproval,
+                        isGroupRestricted = isGroupRestricted,
                         isLoadingMore = isLoadingMore,
                         hasMoreMessages = hasMoreMessages,
                         onLoadMore = onLoadMore,
@@ -245,6 +249,8 @@ fun GroupScreenMobile(
 
                 MessageInput(
                     isPendingApproval = isPendingApproval,
+                    pendingRequestedAtSeconds = pendingRequestedAtSeconds,
+                    onCancelJoinRequest = onCancelJoinRequest,
                     isJoined = isJoined,
                     selectedChannel = selectedChannel,
                     groupName = groupName,
@@ -279,6 +285,8 @@ fun GroupScreenMobile(
                 members = groupMembers,
                 recentlyActiveMembers = recentlyActiveMembers,
                 isLoading = isMembersLoading,
+                isPendingApproval = isPendingApproval,
+                isGroupRestricted = isGroupRestricted,
                 onMemberClick = { member ->
                     showMemberSheet = false
                     onUserClick(member.pubkey)

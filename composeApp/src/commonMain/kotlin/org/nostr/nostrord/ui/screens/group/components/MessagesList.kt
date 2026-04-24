@@ -11,7 +11,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import org.nostr.nostrord.utils.rememberClipboardWriter
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.JsonPrimitive
@@ -73,6 +77,8 @@ fun MessagesList(
     currentUserPubkey: String? = null,
     isJoined: Boolean,
     isInitialLoading: Boolean = false,
+    isPendingApproval: Boolean = false,
+    isGroupRestricted: Boolean = false,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -201,17 +207,43 @@ fun MessagesList(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    "No messages yet",
-                    color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    if (isJoined) "Be the first to send a message!" else "Join the group to participate!",
-                    color = NostrordColors.TextMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
+                if (isPendingApproval || isGroupRestricted) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = NostrordColors.TextMuted,
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        if (isPendingApproval) "Awaiting admin approval" else "Private group",
+                        color = NostrordColors.TextSecondary,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        if (isPendingApproval)
+                            "Messages will appear once an admin approves your request."
+                        else
+                            "You need an invite code or admin approval to see messages.",
+                        color = NostrordColors.TextMuted,
+                        style = MaterialTheme.typography.bodySmall,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
+                    Text(
+                        "No messages yet",
+                        color = NostrordColors.TextSecondary,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        if (isJoined) "Be the first to send a message!" else "Join the group to participate!",
+                        color = NostrordColors.TextMuted,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
         else -> {
