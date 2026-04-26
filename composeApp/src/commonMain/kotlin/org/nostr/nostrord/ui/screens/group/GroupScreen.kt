@@ -275,8 +275,13 @@ fun GroupScreen(
         is ConnectionManager.ConnectionState.Error -> "Connection lost"
     }
 
-    val chatItems = remember(messages) {
-        buildChatItems(messages)
+    // Snapshot of the last-read timestamp at screen entry. The "new messages" divider
+    // anchors on this value and stays in place even after markAsRead updates storage,
+    // so the user keeps visual context for the session.
+    val lastReadSnapshot = remember(groupId) { vm.getLastReadTimestamp() }
+
+    val chatItems = remember(messages, lastReadSnapshot) {
+        buildChatItems(messages, lastReadSnapshot)
     }
 
     val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
@@ -287,6 +292,10 @@ fun GroupScreen(
 
     LaunchedEffect(groupId) {
         vm.requestGroupMessages(selectedChannel)
+        // Entering the group persists the current time as the last read point and
+        // clears the in-memory counter. Runs after `remember(groupId)` captured
+        // the old value for the divider snapshot above.
+        vm.markAsRead()
     }
 
     LaunchedEffect(selectedChannel) {
@@ -725,7 +734,8 @@ fun GroupScreen(
                 onInviteCodesClick = { showInviteCodesModal = true },
                 isClosed = currentGroupMetadata?.isOpen == false,
                 isGroupRestricted = isGroupRestricted,
-                initialInviteCode = effectiveInviteCode
+                initialInviteCode = effectiveInviteCode,
+                onReachedBottom = { vm.markAsRead() }
             )
         } else {
             GroupScreenDesktop(
@@ -818,7 +828,8 @@ fun GroupScreen(
                 onInviteCodesClick = { showInviteCodesModal = true },
                 isClosed = currentGroupMetadata?.isOpen == false,
                 isGroupRestricted = isGroupRestricted,
-                initialInviteCode = effectiveInviteCode
+                initialInviteCode = effectiveInviteCode,
+                onReachedBottom = { vm.markAsRead() }
             )
         }
     }

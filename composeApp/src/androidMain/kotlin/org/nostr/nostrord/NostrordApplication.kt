@@ -11,6 +11,7 @@ import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
 import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.network.managers.AndroidNetworkMonitorInit
+import org.nostr.nostrord.notifications.AndroidNotificationSoundInit
 import org.nostr.nostrord.storage.SecureStorage
 
 /**
@@ -35,6 +36,7 @@ class NostrordApplication : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         SecureStorage.initialize(applicationContext)
         AndroidNetworkMonitorInit.initialize(applicationContext)
+        AndroidNotificationSoundInit.initialize(applicationContext)
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {

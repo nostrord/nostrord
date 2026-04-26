@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,6 +71,7 @@ enum class SettingsSection(val label: String) {
     Profile("Profile"),
     BackupKeys("Backup Keys"),
     RelaysNip65("Relays (NIP-65)"),
+    Notifications("Notifications"),
     Experimental("Experimental")
 }
 
@@ -214,6 +216,10 @@ fun SettingsScreen(
         )
     }
 
+    val notificationsContent: @Composable () -> Unit = {
+        NotificationsPanelContent()
+    }
+
     val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
     val experimentalContent: @Composable () -> Unit = {
         ExperimentalPanelContent(
@@ -260,6 +266,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                notificationsContent = notificationsContent,
                 experimentalContent = experimentalContent
             )
         } else {
@@ -271,6 +278,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                notificationsContent = notificationsContent,
                 experimentalContent = experimentalContent,
                 showToolbar = showToolbar,
                 canGoBack = canGoBack,
@@ -293,6 +301,7 @@ private fun DesktopSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    notificationsContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit,
     showToolbar: Boolean = false,
     canGoBack: Boolean = false,
@@ -354,7 +363,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp)
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, experimentalContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, experimentalContent)
                     }
                 }
 
@@ -379,6 +388,7 @@ private fun MobileSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    notificationsContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit
 ) {
     if (!showPanel) {
@@ -420,7 +430,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp)
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, experimentalContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, experimentalContent)
             }
         }
     }
@@ -469,6 +479,9 @@ private fun SettingsSidebar(
     }
     SettingsNavItem("Relays (NIP-65)", activeSection == SettingsSection.RelaysNip65, compact = compact) {
         onSelectSection(SettingsSection.RelaysNip65)
+    }
+    SettingsNavItem("Notifications", activeSection == SettingsSection.Notifications, compact = compact) {
+        onSelectSection(SettingsSection.Notifications)
     }
     SettingsNavItem("Experimental", activeSection == SettingsSection.Experimental, compact = compact) {
         onSelectSection(SettingsSection.Experimental)
@@ -572,6 +585,7 @@ private fun SettingsPanel(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    notificationsContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -589,6 +603,7 @@ private fun SettingsPanel(
             SettingsSection.Profile    -> profileContent()
             SettingsSection.BackupKeys -> backupContent()
             SettingsSection.RelaysNip65 -> relaysContent()
+            SettingsSection.Notifications -> notificationsContent()
             SettingsSection.Experimental -> experimentalContent()
         }
     }
@@ -838,6 +853,177 @@ private fun BackupPanelContent(
                     "5. Consider using a hardware wallet for long-term storage",
             isCompact = false
         )
+    }
+}
+
+// ── Notifications panel content ───────────────────────────────────────────────
+
+@Composable
+private fun NotificationsPanelContent() {
+    val settings = AppModule.notificationSettings
+    val notificationService = AppModule.notificationService
+
+    val soundEnabled by settings.soundEnabled.collectAsState()
+    val systemEnabled by settings.systemNotificationsEnabled.collectAsState()
+    val permission by notificationService.permission.collectAsState()
+    val systemSupported = remember { notificationService.isSupported() }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        // ── Sound card ──
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+        ) {
+            Column(modifier = Modifier.padding(Spacing.xl)) {
+                ToggleRow(
+                    icon = Icons.Default.Notifications,
+                    label = "Notification sound",
+                    description = "Play a chime when a new message arrives in a joined " +
+                            "group you're not currently viewing.",
+                    checked = soundEnabled,
+                    onCheckedChange = { settings.setSoundEnabled(it) }
+                )
+                if (soundEnabled) {
+                    Spacer(Modifier.height(Spacing.sm))
+                    TextButton(
+                        onClick = {
+                            org.nostr.nostrord.notifications.playNotificationSound()
+                        },
+                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                    ) {
+                        Text("Test sound", color = NostrordColors.Primary, fontSize = 13.sp)
+                    }
+                }
+            }
+        }
+
+        // ── System notification card ── (web-only; hidden on platforms where the
+        // browser Notification API isn't available, to avoid showing UI the user
+        // can't act on)
+        if (systemSupported) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+        ) {
+            Column(modifier = Modifier.padding(Spacing.xl)) {
+                ToggleRow(
+                    icon = Icons.Default.Notifications,
+                    label = "Desktop notifications",
+                    description = "Show a system popup outside the app when a new " +
+                            "message arrives and you're on another tab.",
+                    checked = systemEnabled,
+                    onCheckedChange = { settings.setSystemNotificationsEnabled(it) }
+                )
+
+                Spacer(Modifier.height(Spacing.lg))
+
+                // Permission status row
+                when (permission) {
+                    org.nostr.nostrord.notifications.NotificationPermission.Granted -> {
+                        PermissionStatusRow(
+                            icon = Icons.Default.Check,
+                            tint = NostrordColors.Success,
+                            text = "Permission granted"
+                        )
+                    }
+                    org.nostr.nostrord.notifications.NotificationPermission.Default -> {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                "Permission not granted yet.",
+                                color = NostrordColors.TextSecondary,
+                                fontSize = 13.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = { notificationService.requestPermission() },
+                                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                            ) {
+                                Text("Request permission", color = NostrordColors.Primary, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                    org.nostr.nostrord.notifications.NotificationPermission.Denied -> {
+                        PermissionStatusRow(
+                            icon = Icons.Default.Error,
+                            tint = NostrordColors.Error,
+                            text = "Blocked. Re-enable in your browser's site settings."
+                        )
+                    }
+                }
+            }
+        }
+        }
+    }
+}
+
+@Composable
+private fun ToggleRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (checked) NostrordColors.Primary else NostrordColors.TextMuted,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(Modifier.width(Spacing.md))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = NostrordColors.TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            Text(
+                text = description,
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextMuted
+            )
+        }
+        Spacer(Modifier.width(Spacing.md))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = NostrordColors.Primary,
+                uncheckedThumbColor = NostrordColors.TextMuted,
+                uncheckedTrackColor = NostrordColors.InputBackground
+            ),
+            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+        )
+    }
+}
+
+@Composable
+private fun PermissionStatusRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tint: Color,
+    text: String
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.width(Spacing.sm))
+        Text(text = text, color = NostrordColors.TextSecondary, fontSize = 13.sp)
     }
 }
 

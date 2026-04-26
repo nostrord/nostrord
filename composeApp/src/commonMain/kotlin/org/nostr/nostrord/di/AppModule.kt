@@ -21,7 +21,13 @@ import org.nostr.nostrord.network.managers.MuxSubscriptionTracker
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.notifications.FocusTracker
+import org.nostr.nostrord.notifications.NotificationPermission
+import org.nostr.nostrord.notifications.NotificationRequest
+import org.nostr.nostrord.notifications.NotificationService
+import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.FeatureFlags
+import org.nostr.nostrord.settings.NotificationSettings
 import org.nostr.nostrord.storage.SecureStorage
 
 /**
@@ -99,7 +105,10 @@ object AppModule {
             liveCursorStore = liveCursorStore,
             connStats = connStats,
             muxTracker = muxTracker,
-            adaptiveConfig = adaptiveConfig
+            adaptiveConfig = adaptiveConfig,
+            onNewMessagesFlushed = { groupId, newMessages ->
+                unreadManager.onMessagesFlushed(groupId, newMessages)
+            },
         )
     }
 
@@ -111,8 +120,51 @@ object AppModule {
         )
     }
 
+    val focusTracker: FocusTracker by lazy { FocusTracker() }
+
+    val notificationService: NotificationService by lazy { NotificationService() }
+
     val unreadManager: UnreadManager by lazy {
-        UnreadManager()
+        UnreadManager(
+            // groupManager.isGroupJoined() is scoped to the active primary relay —
+            // wrong for our purpose: we need cross-relay membership so notifications
+            // fire for joined groups on background relays too. Scan all relay buckets.
+            isJoined = { groupId ->
+                groupManager.joinedGroupsByRelay.value.values.any { groupId in it }
+            },
+            isRestricted = { groupId -> groupManager.restrictedGroups.value.containsKey(groupId) },
+            isAppFocused = { focusTracker.isAppFocused.value },
+            onUnreadIncrement = { groupId, message, _ ->
+                // Sound — gated by the user-facing toggle in Settings → Notifications.
+                // Platform actuals no-op on unsupported targets (iOS for now).
+                if (notificationSettings.soundEnabled.value) {
+                    playNotificationSound()
+                }
+
+                // Desktop popup — web-only; gated on platform support, granted permission,
+                // and the user's toggle. The browser itself decides whether to surface
+                // the popup based on tab focus.
+                if (notificationSettings.systemNotificationsEnabled.value &&
+                    notificationService.isSupported() &&
+                    notificationService.permission.value == NotificationPermission.Granted) {
+                    val groupName = groupManager.groups.value.firstOrNull { it.id == groupId }?.name
+                        ?: groupId.take(8)
+                    val authorMeta = metadataManager.userMetadata.value[message.pubkey]
+                    val authorName = authorMeta?.displayName?.takeIf { it.isNotBlank() }
+                        ?: authorMeta?.name?.takeIf { it.isNotBlank() }
+                        ?: (message.pubkey.take(8) + "…")
+                    val preview = message.content.take(120)
+
+                    notificationService.notify(
+                        NotificationRequest(
+                            groupId = groupId,
+                            title = groupName,
+                            body = "$authorName: $preview",
+                        )
+                    )
+                }
+            },
+        )
     }
 
     val relayMetadataManager: RelayMetadataManager by lazy {
@@ -120,6 +172,8 @@ object AppModule {
     }
 
     val featureFlags: FeatureFlags by lazy { FeatureFlags() }
+
+    val notificationSettings: NotificationSettings by lazy { NotificationSettings() }
 
     val nostrRepository: NostrRepository by lazy {
         NostrRepository(

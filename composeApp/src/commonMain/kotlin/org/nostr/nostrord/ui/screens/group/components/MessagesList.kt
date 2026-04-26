@@ -36,6 +36,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import org.nostr.nostrord.di.AppModule
@@ -87,11 +88,13 @@ fun MessagesList(
     onDeleteMessage: (NostrMessage) -> Unit = {},
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onScrollToMessage: (String) -> Unit = {},
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onReachedBottom: () -> Unit = {}
 ) {
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
+    val currentOnReachedBottom by rememberUpdatedState(onReachedBottom)
 
     var reactingToMessageId by remember { mutableStateOf<String?>(null) }
     val imageViewerUrl = remember { mutableStateOf<String?>(null) }
@@ -171,6 +174,22 @@ fun MessagesList(
             .collect {
                 currentOnLoadMore()
             }
+    }
+
+    // Mark as read when the user has scrolled to (or is pinned at) the bottom.
+    // Debounced so rapid scrolls don't hammer storage.
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val total = layoutInfo.totalItemsCount
+            lastVisible >= 0 && total > 0 && lastVisible >= total - 2
+        }
+            .distinctUntilChanged()
+            .debounce(500)
+            .filter { it }
+            .collect { currentOnReachedBottom() }
     }
 
     CompositionLocalProvider(

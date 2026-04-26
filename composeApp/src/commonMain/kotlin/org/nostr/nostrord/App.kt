@@ -220,6 +220,9 @@ private fun AuthenticatedApp(
         if (initialScreen is Screen.Group) {
             AppModule.nostrRepository.setActiveGroup(initialScreen.groupId)
         }
+        // Web: hook document.visibilitychange + window.focus/blur → FocusTracker.
+        // Other platforms are no-ops (Lifecycle observer drives them).
+        org.nostr.nostrord.notifications.installPlatformFocusListeners(AppModule.focusTracker)
     }
 
     // Pending invite code from deep link or browser navigation.
@@ -240,8 +243,14 @@ private fun AuthenticatedApp(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME  -> AppModule.nostrRepository.onForeground()
-                Lifecycle.Event.ON_PAUSE   -> AppModule.nostrRepository.onBackground()
+                Lifecycle.Event.ON_RESUME  -> {
+                    AppModule.nostrRepository.onForeground()
+                    AppModule.focusTracker.setFocused(true)
+                }
+                Lifecycle.Event.ON_PAUSE   -> {
+                    AppModule.nostrRepository.onBackground()
+                    AppModule.focusTracker.setFocused(false)
+                }
                 Lifecycle.Event.ON_DESTROY -> AppModule.nostrRepository.onDestroy()
                 else -> {}
             }
@@ -347,6 +356,25 @@ private fun AuthenticatedApp(
         } else {
             onDirectHistoryForward()
         }
+    }
+
+    // Route notification clicks to navigation. Only the web NotificationService actual
+    // emits here (other platforms' SharedFlow never fires), so this is a no-op elsewhere.
+    LaunchedEffect(Unit) {
+        AppModule.notificationService.notificationClicks.collect { clickedGroupId ->
+            val name = AppModule.nostrRepository.groups.value.firstOrNull { it.id == clickedGroupId }?.name
+            onNavigate(Screen.Group(clickedGroupId, name))
+        }
+    }
+
+    // Surface total unread count in the browser tab title: "(3) Nostrord".
+    // No-op on non-web platforms.
+    val totalUnread by AppModule.nostrRepository.totalUnread.collectAsState()
+    LaunchedEffect(totalUnread) {
+        val base = "Nostrord"
+        org.nostr.nostrord.notifications.setDocumentTitle(
+            if (totalUnread > 0) "($totalUnread) $base" else base
+        )
     }
 
     // Android system back button — disabled when settings overlay is open (SettingsScreen handles it)
@@ -762,6 +790,8 @@ private fun MobileDrawerContent(
     val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
+    val lastMessageAt by AppModule.nostrRepository.latestMessageTimestamps.collectAsState()
+    val unreadByRelay by AppModule.nostrRepository.unreadByRelay.collectAsState()
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val childrenByParentRaw by AppModule.nostrRepository.childrenByParent.collectAsState()
@@ -800,6 +830,7 @@ private fun MobileDrawerContent(
             onRelayClick = onRelayClick,
             onAddRelayClick = onAddRelayClick,
             relayMetadata = relayMetadata,
+            unreadByRelay = unreadByRelay,
             userAvatarUrl = currentUserMetadata?.picture,
             userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
             userPubkey = pubKey,
@@ -813,6 +844,7 @@ private fun MobileDrawerContent(
             joinedGroupIds = joinedGroupIds,
             activeGroupId = activeGroupId,
             unreadCounts = unreadCounts,
+            lastMessageAt = lastMessageAt,
             relayName = relayMetadata[activeRelayUrl]?.name,
             isLoading = isGroupsLoading,
             childrenByParent = childrenByParent,

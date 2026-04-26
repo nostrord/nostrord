@@ -53,6 +53,14 @@ interface NostrRepositoryApi {
     val userMetadata: StateFlow<Map<String, UserMetadata>>
     val cachedEvents: StateFlow<Map<String, CachedEvent>>
     val unreadCounts: StateFlow<Map<String, Int>>
+    /**
+     * High-water mark per group: `created_at` (seconds) of the newest message
+     * the client has processed. Persisted across sessions via `UnreadManager`.
+     * Used by the sidebar to surface groups with recent activity.
+     */
+    val latestMessageTimestamps: StateFlow<Map<String, Long>>
+    val totalUnread: StateFlow<Int>
+    val unreadByRelay: StateFlow<Map<String, Int>>
     val userRelayList: StateFlow<List<Nip65Relay>>
     val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>>
     /** Relay URLs present as explicit "r" tags in the user's kind:10009 event. */
@@ -205,7 +213,6 @@ interface NostrRepositoryApi {
     fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage>
     fun markGroupAsRead(groupId: String)
     fun getUnreadCount(groupId: String): Int
-    fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>)
     fun getLastReadTimestamp(groupId: String): Long?
 
     // --- Metadata operations ---

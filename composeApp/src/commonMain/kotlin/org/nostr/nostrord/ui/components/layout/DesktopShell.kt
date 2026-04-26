@@ -58,6 +58,8 @@ fun DesktopShell(
     val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
+    val lastMessageAt by AppModule.nostrRepository.latestMessageTimestamps.collectAsState()
+    val unreadByRelay by AppModule.nostrRepository.unreadByRelay.collectAsState()
     val childrenByParentRaw by AppModule.nostrRepository.childrenByParent.collectAsState()
     val unverifiedChildrenRaw by AppModule.nostrRepository.unverifiedChildren.collectAsState()
     val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
@@ -106,6 +108,7 @@ fun DesktopShell(
                 onRelayClick = onRelayClick,
                 onAddRelayClick = onAddRelayClick,
                 relayMetadata = relayMetadata,
+                unreadByRelay = unreadByRelay,
                 userAvatarUrl = currentUserMetadata?.picture,
                 userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
                 userPubkey = pubKey,
@@ -121,6 +124,7 @@ fun DesktopShell(
                     joinedGroupIds = joinedGroupIds,
                     activeGroupId = activeGroupId,
                     unreadCounts = unreadCounts,
+                    lastMessageAt = lastMessageAt,
                     relayName = relayMetadata[activeRelayUrl]?.name,
                     isLoading = isGroupsLoading,
                     childrenByParent = childrenByParent,

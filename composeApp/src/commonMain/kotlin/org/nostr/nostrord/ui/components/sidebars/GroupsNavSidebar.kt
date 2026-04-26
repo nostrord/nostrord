@@ -82,6 +82,12 @@ fun GroupsNavSidebar(
     joinedGroupIds: Set<String>,
     activeGroupId: String?,
     unreadCounts: Map<String, Int> = emptyMap(),
+    /**
+     * Newest known `created_at` (seconds) per group. Used to order MY GROUPS roots
+     * by recent activity — most recent on top. Subgroups stay in DFS under their
+     * parent, so their relative position doesn't move.
+     */
+    lastMessageAt: Map<String, Long> = emptyMap(),
     relayName: String? = null,
     isLoading: Boolean = false,
     /** childrenByParent from NostrRepository — used to render the "has subgroups" hint. */
@@ -133,12 +139,18 @@ fun GroupsNavSidebar(
         }
         result
     }
-    val myGroups = remember(groups, myGroupsIds, childrenByParent, unverifiedChildren, expandedUnverified.toMap()) {
+    val myGroups = remember(groups, myGroupsIds, childrenByParent, unverifiedChildren, expandedUnverified.toMap(), lastMessageAt) {
         flattenHierarchy(
             groups.filter { it.id in myGroupsIds },
             childrenByParent,
             unverifiedChildren,
-            expandedUnverified
+            expandedUnverified,
+            rootOrder = { roots ->
+                // Most recent activity on top. Groups with no known timestamp
+                // sort last in stable input order. Subgroups keep DFS order
+                // under their parent (handled inside flattenHierarchy).
+                roots.sortedByDescending { lastMessageAt[it.id] ?: Long.MIN_VALUE }
+            }
         )
     }
     val otherGroups = remember(groups, myGroupsIds, searchQuery, childrenByParent, unverifiedChildren, expandedUnverified.toMap()) {
@@ -932,7 +944,13 @@ private fun flattenHierarchy(
     list: List<GroupMetadata>,
     childrenByParent: Map<String, Set<String>> = emptyMap(),
     unverifiedChildren: Set<String> = emptySet(),
-    expandedUnverified: Map<String, Boolean> = emptyMap()
+    expandedUnverified: Map<String, Boolean> = emptyMap(),
+    /**
+     * Optional reordering hook applied only to root rows. Subgroups intentionally
+     * keep their DFS position under the parent, so reordering at the root level
+     * (e.g. by recent activity) doesn't shuffle the inner hierarchy.
+     */
+    rootOrder: ((List<GroupMetadata>) -> List<GroupMetadata>)? = null
 ): List<SidebarItem> {
     if (list.isEmpty()) return emptyList()
     val byId = list.associateBy { it.id }
@@ -941,7 +959,8 @@ private fun flattenHierarchy(
     val nestedChildIds = childrenByParent
         .filter { (parentId, _) -> parentId in byId }
         .values.flatten().toSet()
-    val roots = list.filter { it.id !in nestedChildIds }
+    val rootsRaw = list.filter { it.id !in nestedChildIds }
+    val roots = rootOrder?.invoke(rootsRaw) ?: rootsRaw
     val out = mutableListOf<SidebarItem>()
     fun visit(g: GroupMetadata, depth: Int) {
         out += SidebarItem.Group(g, depth, g.id in unverifiedChildren)

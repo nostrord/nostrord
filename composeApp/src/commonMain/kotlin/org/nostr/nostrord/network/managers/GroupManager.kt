@@ -55,7 +55,8 @@ class GroupManager(
     private val liveCursorStore: LiveCursorStore = LiveCursorStore(),
     private val connStats: ConnectionStats? = null,
     private val muxTracker: MuxSubscriptionTracker = MuxSubscriptionTracker(),
-    private val adaptiveConfig: AdaptiveConfig? = null
+    private val adaptiveConfig: AdaptiveConfig? = null,
+    private val onNewMessagesFlushed: ((groupId: String, newMessages: List<NostrGroupClient.NostrMessage>) -> Unit)? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val eventDeduplicator = EventDeduplicator()
@@ -580,12 +581,23 @@ class GroupManager(
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
 
-        val chatGroupIds = _openedGroupIds.value
-            .filter { it in allGroupIds }
-            .ifEmpty {
-                val active = _activeGroupId
-                if (active != null && active in allGroupIds) listOf(active) else emptyList()
-            }
+        // Two cost models: on the primary relay we keep the on-demand pattern (only
+        // groups the user has opened in this session subscribe to live chat) so the
+        // hot path stays cheap. On background joined relays we subscribe to live
+        // chat for *every* joined group so notifications/sound/unread fire cross-relay
+        // — the user isn't browsing them, so the on-demand fallback to _activeGroupId
+        // (which lives on a different relay) would silence them entirely.
+        val isPrimary = relayUrl.normalizeRelayUrl() == currentRelayUrl?.normalizeRelayUrl()
+        val chatGroupIds = if (isPrimary) {
+            _openedGroupIds.value
+                .filter { it in allGroupIds }
+                .ifEmpty {
+                    val active = _activeGroupId
+                    if (active != null && active in allGroupIds) listOf(active) else emptyList()
+                }
+        } else {
+            allGroupIds
+        }
 
         val chatSince = if (chatGroupIds.isNotEmpty()) {
             liveCursorStore.getMinSince(relayUrl, chatGroupIds)
@@ -2481,6 +2493,7 @@ class GroupManager(
         // Record burst for adaptive tuning
         adaptiveConfig?.recordEventBurst(messages.size)
 
+        var capturedNew: List<NostrGroupClient.NostrMessage>? = null
         _messages.update { currentMap ->
             val current = currentMap[groupId] ?: emptyList()
             // Persistent index: O(1) per lookup, no rebuild.
@@ -2490,6 +2503,7 @@ class GroupManager(
             // index.add() returns true if new → filters and indexes in one pass.
             val newMessages = messages.filter { index.add(it.id) }
             if (newMessages.isEmpty()) return@update currentMap
+            capturedNew = newMessages
 
             // Sort optimization: if all new messages are newer than the last existing
             // message, just append the sorted batch (the common live-message case).
@@ -2503,6 +2517,8 @@ class GroupManager(
             }
             currentMap + (groupId to merged)
         }
+
+        capturedNew?.let { onNewMessagesFlushed?.invoke(groupId, it) }
     }
 
     /**
