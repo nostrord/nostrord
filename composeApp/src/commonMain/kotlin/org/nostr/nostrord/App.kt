@@ -40,6 +40,7 @@ import org.nostr.nostrord.ui.components.layout.DesktopShell
 import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.navigation.ServerRail
+import org.nostr.nostrord.ui.components.notifications.NotificationPermissionBanner
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import org.nostr.nostrord.ui.navigation.BrowserNavigationHandler
@@ -635,6 +636,10 @@ private fun AuthenticatedApp(
             }
         )
     }
+
+    // Floating prompt to enable desktop notifications. Mounted at the root so it
+    // persists across navigation; renders only when supported + permission Default.
+    NotificationPermissionBanner(modifier = Modifier.align(Alignment.TopCenter))
     } // Box
 }
 
