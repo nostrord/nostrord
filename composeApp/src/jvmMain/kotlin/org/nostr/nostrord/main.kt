@@ -101,8 +101,8 @@ fun main(args: Array<String> = emptyArray()) {
 
     application {
     val windowState = rememberWindowState(
-        width = 1280.dp,
-        height = 800.dp,
+        width = 1392.dp,
+        height = 900.dp,
         position = WindowPosition.Aligned(Alignment.Center)
     )
 
