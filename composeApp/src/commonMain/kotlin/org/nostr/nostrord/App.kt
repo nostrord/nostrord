@@ -864,7 +864,6 @@ private fun MobileDrawerContent(
                     AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
                 }
             },
-            showRelayTitle = false,
             isGroupFetchLazy = AppModule.nostrRepository.isGroupFetchLazy(activeRelayUrl),
             hasFullGroupListBeenFetched = activeRelayUrl in fullGroupListFetchedRelays,
             onRequestFullGroupList = {
