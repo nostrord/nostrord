@@ -4,9 +4,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
@@ -175,6 +180,30 @@ class NostrRepository(
 
     // Expose unread state
     override val unreadCounts: StateFlow<Map<String, Int>> = unreadManager.unreadCounts
+    override val latestMessageTimestamps: StateFlow<Map<String, Long>> = unreadManager.latestMessageTimestamps
+    // Filtered to relays the UI can actually show (rail's source list:
+    // kind:10009 ∪ group-tag relays ∪ current). Without this, joined groups
+    // on relays the user can't navigate to would silently inflate the title
+    // counter ("(2) Nostrord" with no visible badge anywhere).
+    override val unreadByRelay: StateFlow<Map<String, Int>> = combine(
+        groupManager.joinedGroupsByRelay,
+        unreadManager.unreadCounts,
+        outboxManager.kind10009Relays,
+        outboxManager.groupTagRelays,
+        connectionManager.currentRelayUrl,
+    ) { joined, counts, kind10009, groupTags, current ->
+        val visible = (kind10009 + groupTags + setOf(current))
+            .filter { it.isNotBlank() }
+            .map { it.normalizeRelayUrl() }
+            .toSet()
+        joined
+            .filterKeys { it in visible }
+            .mapValues { (_, ids) -> ids.sumOf { counts[it] ?: 0 } }
+            .filterValues { it > 0 }
+    }.stateIn(scope, SharingStarted.Eagerly, emptyMap())
+    override val totalUnread: StateFlow<Int> = unreadByRelay
+        .map { it.values.sum() }
+        .stateIn(scope, SharingStarted.Eagerly, 0)
 
     // Expose NIP-11 relay metadata
     private val _relayMetadataManager = relayMetadataManager ?: RelayMetadataManager(scope)
@@ -260,6 +289,7 @@ class NostrRepository(
                             groupManager.loadAllJoinedGroupsFromStorage(pubkey, restoredRelays)
                             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, restoredRelays)
                             connect(primaryRelay)
+                            scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
                         }
                     }
                     requestUserMetadata(setOf(pubkey))
@@ -298,6 +328,7 @@ class NostrRepository(
             _isInitialized.value = true
 
             connect(primaryRelay)
+            scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
             if (pubkey != null) {
                 requestUserMetadata(setOf(pubkey))
             }
@@ -336,6 +367,46 @@ class NostrRepository(
             } ?: return
             connectedPoolRelays.add(relayUrl)
         } catch (_: Exception) {}
+    }
+
+    /**
+     * Open a WebSocket + send a mux chat REQ for every relay where the user has
+     * joined groups, except [skipPrimary] (already connected). Idempotent; safe
+     * to call from startup, on relay switch, or after a join.
+     *
+     * Without this, only the primary relay delivers live kind:9 — joined groups
+     * on other relays go silent. See plan: cosmic-beaming-eclipse.md.
+     */
+    private suspend fun ensureJoinedRelaysConnected(skipPrimary: String?) {
+        val joinedRelays = groupManager.joinedGroupsByRelay.value.keys.toList()
+        val skipNormalized = skipPrimary?.normalizeRelayUrl()
+        val restrictedNormalized = _restrictedRelays.value.keys
+            .map { it.normalizeRelayUrl() }
+            .toSet()
+        val targets = joinedRelays
+            .map { it.normalizeRelayUrl() }
+            .distinct()
+            .filter { it.isNotBlank() && it != skipNormalized && it !in restrictedNormalized }
+
+        for (relayUrl in targets) {
+            // Skip if already connected — connectToRelayBackground is idempotent
+            // but we'd still pay the awaitAuthOrTimeout round-trip needlessly.
+            val existing = connectionManager.getClientForRelay(relayUrl)
+            if (existing != null && existing.isConnected() && relayUrl in connectedPoolRelays) {
+                groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+                delay(100)
+                continue
+            }
+            connectToRelayBackground(relayUrl)
+            val client = connectionManager.getClientForRelay(relayUrl) ?: run {
+                delay(100); continue
+            }
+            try {
+                if (client.isConnected()) client.awaitAuthOrTimeout()
+            } catch (_: Throwable) {}
+            groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+            delay(100)
+        }
     }
 
     override fun clearAuthUrl() {
@@ -435,6 +506,7 @@ class NostrRepository(
         connectionManager.clearCurrentRelay()
 
         try { connectionManager.clearAll() } catch (_: Exception) {}
+        connectedPoolRelays.clear()
         sessionManager.logout()
     }
 
@@ -542,6 +614,8 @@ class NostrRepository(
         activeRelayUrl = if (groupId != null) groupManager.getRelayForGroup(groupId) else null
         // Update mux subscriptions to scope chat/reactions to the active group only.
         groupManager.setActiveGroupId(groupId)
+        // Suppress unread-counter bumps for the group currently on screen.
+        unreadManager.setActiveGroup(groupId)
     }
 
     /**
@@ -791,6 +865,8 @@ class NostrRepository(
             }
         }
 
+        // Ensure every other joined relay also has a live mux chat sub.
+        scope.launch { ensureJoinedRelaysConnected(newRelayUrl) }
     }
 
     override suspend fun removeRelay(url: String) {
@@ -923,7 +999,7 @@ class NostrRepository(
     override suspend fun joinGroup(groupId: String, inviteCode: String?): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
-        return groupManager.joinGroup(
+        val result = groupManager.joinGroup(
             groupId = groupId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
@@ -931,6 +1007,13 @@ class NostrRepository(
             publishJoinedGroups = { publishJoinedGroupsList() },
             inviteCode = inviteCode
         )
+        if (result is Result.Success) {
+            // Joining a group may have introduced a new joined relay — ensure it's
+            // connected with a chat sub so notifications fire even when the user is
+            // browsing a different primary.
+            scope.launch { ensureJoinedRelaysConnected(connectionManager.currentRelayUrl.value) }
+        }
+        return result
     }
 
     override suspend fun createGroup(
@@ -947,7 +1030,7 @@ class NostrRepository(
         if (relayUrl != connectionManager.currentRelayUrl.value) {
             switchRelay(relayUrl)
         }
-        return groupManager.createGroup(
+        val result = groupManager.createGroup(
             name = name,
             about = about,
             picture = picture,
@@ -959,6 +1042,10 @@ class NostrRepository(
             signEvent = { sessionManager.signEvent(it) },
             publishJoinedGroups = { publishJoinedGroupsList() }
         )
+        if (result is Result.Success) {
+            scope.launch { ensureJoinedRelaysConnected(connectionManager.currentRelayUrl.value) }
+        }
+        return result
     }
 
     override suspend fun createSubgroup(
@@ -1264,17 +1351,10 @@ class NostrRepository(
         unreadManager.markAsRead(groupId)
     }
 
-    override fun getUnreadCount(groupId: String): Int {
-        return unreadManager.getUnreadCount(groupId)
-    }
+    override fun getUnreadCount(groupId: String): Int = unreadManager.getUnreadCount(groupId)
 
-    override fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
-        unreadManager.updateUnreadCount(groupId, messages)
-    }
-
-    override fun getLastReadTimestamp(groupId: String): Long? {
-        return unreadManager.getLastReadTimestamp(groupId)
-    }
+    override fun getLastReadTimestamp(groupId: String): Long? =
+        unreadManager.getLastReadTimestamp(groupId)
 
     // Metadata operations
     private val metadataMessageHandler: (String, NostrGroupClient) -> Unit = { msg, client ->
@@ -1545,9 +1625,10 @@ class NostrRepository(
         )
     }
 
-    // Message handling
-    // Groups whose subscriptions were closed by the relay (e.g. auth-required)
-    private val closedGroupSubscriptions = mutableSetOf<String>()
+    // Groups whose subscriptions the relay CLOSED (typically auth-required).
+    // StateFlow + atomic `.update` is required: parallel AUTH handlers across
+    // joined relays mutate this concurrently from Dispatchers.Default.
+    private val _closedGroupSubscriptions = MutableStateFlow<Set<String>>(emptySet())
 
     // Message IDs collected per msg_ subscription, used to fetch reactions after EOSE.
     private val pendingReactionFetch = mutableMapOf<String, MutableList<String>>()
@@ -1736,7 +1817,9 @@ class NostrRepository(
                     // doesn't send cross-relay metadata requests to the authed client.
                     val relayUrl = client.getRelayUrl()
                     val activeGroupIds = groupManager.getGroupIdsForMux(relayUrl)
-                    closedGroupSubscriptions.addAll(activeGroupIds)
+                    if (activeGroupIds.isNotEmpty()) {
+                        _closedGroupSubscriptions.update { it + activeGroupIds }
+                    }
                 }
 
                 // Track per-group "restricted" status so the UI can show a private
@@ -2099,10 +2182,13 @@ class NostrRepository(
         // so the tracker correctly reflects the current state.
         val openedOnRelay = groupManager.getOpenedGroupIds()
             .filter { groupManager.getRelayForGroup(it) == relayUrl }
-        val closedOnRelay = closedGroupSubscriptions.filter {
+        val closedOnRelay = _closedGroupSubscriptions.value.filter {
             groupManager.getRelayForGroup(it) == relayUrl
         }
-        closedGroupSubscriptions.removeAll(closedOnRelay.toSet())
+        if (closedOnRelay.isNotEmpty()) {
+            val drop = closedOnRelay.toSet()
+            _closedGroupSubscriptions.update { it - drop }
+        }
 
         // Include joined groups from kind 10009 — essential for private groups
         // that don't appear in the general kind 39000 listing.

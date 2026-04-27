@@ -221,6 +221,34 @@ fun SecureStorage.removeRestrictedGroupForRelay(
     }
 }
 
+// ── Unread state persistence ────────────────────────────────────────────────
+// Persists per-account unread counters + high-water timestamps so badges,
+// rail bubbles, and the title counter survive app restarts. The high-water
+// guards against double-counting when relays re-deliver history on reconnect:
+// any incoming message with createdAt <= highWater is treated as already-seen.
+
+@Serializable
+internal data class UnreadEntry(val count: Int, val highWater: Long)
+
+private fun unreadEntriesKey(pubkey: String): String =
+    "unread_entries_${pubkey.hashCode()}"
+
+internal fun SecureStorage.getUnreadEntries(pubkey: String): Map<String, UnreadEntry> {
+    val raw = getStringPref(unreadEntriesKey(pubkey), "")
+    if (raw.isBlank()) return emptyMap()
+    return try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        emptyMap()
+    }
+}
+
+internal fun SecureStorage.saveUnreadEntries(pubkey: String, entries: Map<String, UnreadEntry>) {
+    try {
+        saveStringPref(unreadEntriesKey(pubkey), Json.encodeToString<Map<String, UnreadEntry>>(entries))
+    } catch (_: Exception) {}
+}
+
 // Legacy support functions (deprecated - use account-scoped versions)
 @Deprecated("Use account-scoped saveJoinedGroupsForRelay with pubkey")
 suspend fun SecureStorage.saveJoinedGroups(groups: Set<String>) {

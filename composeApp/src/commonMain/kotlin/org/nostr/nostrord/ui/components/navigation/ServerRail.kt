@@ -72,6 +72,7 @@ fun ServerRail(
     onAddRelayClick: () -> Unit,
     modifier: Modifier = Modifier,
     relayMetadata: Map<String, Nip11RelayInfo> = emptyMap(),
+    unreadByRelay: Map<String, Int> = emptyMap(),
     userAvatarUrl: String? = null,
     userDisplayName: String? = null,
     userPubkey: String? = null,
@@ -100,10 +101,12 @@ fun ServerRail(
                 val isActive = relayUrl == activeRelayUrl
                 val meta = relayMetadata[relayUrl]
                 val tooltipText = meta?.name?.takeIf { it.isNotBlank() } ?: relayUrl
+                val unread = unreadByRelay[relayUrl] ?: 0
                 ServerRailItem(
                     isActive = isActive,
                     onClick = { onRelayClick(relayUrl) },
-                    tooltip = if (showTooltips) tooltipText else null
+                    tooltip = if (showTooltips) tooltipText else null,
+                    badgeCount = unread
                 ) {
                     RelayIcon(relayUrl = relayUrl, isActive = isActive, iconUrl = meta?.icon)
                 }
@@ -278,6 +281,7 @@ private fun ServerRailItem(
     onClick: () -> Unit,
     showIndicator: Boolean = true,
     tooltip: String? = null,
+    badgeCount: Int = 0,
     content: @Composable () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -327,6 +331,14 @@ private fun ServerRailItem(
                 contentAlignment = Alignment.Center
             ) {
                 content()
+                if (badgeCount > 0) {
+                    UnreadBadge(
+                        count = badgeCount,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 4.dp, y = (-4).dp)
+                    )
+                }
             }
         }
 
@@ -350,6 +362,33 @@ private fun ServerRailItem(
         }
 
         Spacer(modifier = Modifier.weight(1f))
+    }
+}
+
+/**
+ * Small numeric bubble drawn over the relay icon to surface aggregated unread
+ * counts for joined groups on that relay. Capped at "99+" to keep within 16 dp.
+ */
+@Composable
+private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
+    val label = if (count > 99) "99+" else count.toString()
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(NostrordColors.BadgeBackground)
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+            textAlign = TextAlign.Center
+        )
     }
 }
 

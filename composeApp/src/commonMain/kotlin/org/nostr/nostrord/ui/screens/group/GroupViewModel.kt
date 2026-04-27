@@ -244,4 +244,10 @@ class GroupViewModel(
     fun reconnect() {
         viewModelScope.launch { repo.reconnect() }
     }
+
+    fun markAsRead() {
+        repo.markGroupAsRead(groupId)
+    }
+
+    fun getLastReadTimestamp(): Long? = repo.getLastReadTimestamp(groupId)
 }

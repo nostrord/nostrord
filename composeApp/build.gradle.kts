@@ -127,6 +127,9 @@ kotlin {
             implementation("org.openjfx:javafx-web:$fxVersion:$fxClassifier")
             implementation("org.openjfx:javafx-swing:$fxVersion:$fxClassifier")
             implementation("org.openjfx:javafx-media:$fxVersion:$fxClassifier")
+            // Pure-Java MP3 decoder for notification chime — avoids the GStreamer
+            // native-library matrix that JavaFX Media relies on.
+            implementation("javazoom:jlayer:1.0.1")
         }
         
         jsMain.dependencies {

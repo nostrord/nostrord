@@ -84,6 +84,9 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata
     override val cachedEvents: StateFlow<Map<String, CachedEvent>> = _cachedEvents
     override val unreadCounts: StateFlow<Map<String, Int>> = _unreadCounts
+    override val latestMessageTimestamps: StateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
+    override val totalUnread: StateFlow<Int> = MutableStateFlow(0)
+    override val unreadByRelay: StateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
     override val userRelayList: StateFlow<List<Nip65Relay>> = _userRelayList
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadata
     override val loadingMembers: StateFlow<Set<String>> = _loadingMembers
@@ -171,7 +174,6 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override fun markGroupAsRead(groupId: String) {}
     override fun getUnreadCount(groupId: String): Int = unreadCounts.value[groupId] ?: 0
-    override fun updateUnreadCount(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {}
     override fun getLastReadTimestamp(groupId: String): Long? = null
 
     override suspend fun requestUserMetadata(pubkeys: Set<String>) {}

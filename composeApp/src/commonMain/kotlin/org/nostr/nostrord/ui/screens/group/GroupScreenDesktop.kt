@@ -83,6 +83,7 @@ fun GroupScreenDesktop(
     onDeleteMessage: (NostrMessage) -> Unit = {},
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onCancelReply: () -> Unit = {},
+    onReachedBottom: () -> Unit = {},
     isMembersLoading: Boolean = false,
     isInitialLoading: Boolean = false,
     isLoadingMore: Boolean = false,
@@ -192,7 +193,8 @@ fun GroupScreenDesktop(
                     onNavigateToGroup = { targetGroupId, targetGroupName, targetRelayUrl ->
                         if (targetRelayUrl != null) onSwitchRelay(targetRelayUrl)
                         onNavigateToGroup(targetGroupId, targetGroupName)
-                    }
+                    },
+                    onReachedBottom = onReachedBottom
                 )
             }
 
