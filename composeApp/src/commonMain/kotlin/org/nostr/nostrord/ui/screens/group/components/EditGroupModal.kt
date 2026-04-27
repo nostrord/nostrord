@@ -83,7 +83,8 @@ fun EditGroupModal(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
-                ) { if (!isSaving) onDismiss() },
+                ) { if (!isSaving) onDismiss() }
+                .safeDrawingPadding(),
             contentAlignment = Alignment.Center
         ) {
             Card(

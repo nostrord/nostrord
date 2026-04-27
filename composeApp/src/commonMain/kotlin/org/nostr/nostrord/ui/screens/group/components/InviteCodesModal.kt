@@ -66,7 +66,8 @@ fun InviteCodesModal(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
                     onClick = onDismiss
-                ),
+                )
+                .safeDrawingPadding(),
             contentAlignment = Alignment.Center
         ) {
             Card(

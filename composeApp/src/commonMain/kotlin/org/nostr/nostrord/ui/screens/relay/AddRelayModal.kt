@@ -69,8 +69,8 @@ fun AddRelayModal(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            // Backdrop — dismiss on click
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Backdrop — dismiss on click. Stays full-screen (covers system bars).
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -82,20 +82,25 @@ fun AddRelayModal(
                     )
             )
 
-            // Modal container
-            Column(
-                modifier = Modifier
-                    .widthIn(max = 480.dp)
-                    .fillMaxWidth(fraction = 0.92f)
-                    .heightIn(max = 560.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(NostrordColors.Surface)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {}
-                    )
+            // Modal container — constrained to safe area so the keyboard / status bar
+            // never overlap it. Wrapped in a Box that handles centering after insets.
+            Box(
+                modifier = Modifier.fillMaxSize().safeDrawingPadding(),
+                contentAlignment = Alignment.Center
             ) {
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = 480.dp)
+                        .fillMaxWidth(fraction = 0.92f)
+                        .heightIn(max = 560.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(NostrordColors.Surface)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = {}
+                        )
+                ) {
                 var activeTab by remember { mutableIntStateOf(initialTab) }
 
                 // Header
@@ -191,6 +196,7 @@ fun AddRelayModal(
                             onCancel = onDismiss
                         )
                     }
+                }
                 }
             }
         }

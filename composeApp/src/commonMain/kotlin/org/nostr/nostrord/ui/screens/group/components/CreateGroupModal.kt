@@ -101,7 +101,8 @@ fun CreateGroupModal(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
-                ) { if (!isCreating) onDismiss() },
+                ) { if (!isCreating) onDismiss() }
+                .safeDrawingPadding(),
             contentAlignment = Alignment.Center
         ) {
             Card(

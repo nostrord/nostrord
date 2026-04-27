@@ -98,7 +98,8 @@ fun MemberManagementModal(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
-                ) { onDismiss() },
+                ) { onDismiss() }
+                .safeDrawingPadding(),
             contentAlignment = Alignment.Center
         ) {
             Card(
