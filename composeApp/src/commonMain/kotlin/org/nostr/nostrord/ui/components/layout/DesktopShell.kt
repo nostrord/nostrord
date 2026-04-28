@@ -43,6 +43,7 @@ fun DesktopShell(
     activeGroupId: String?,
     isGroupsLoading: Boolean = false,
     onRelayClick: (String) -> Unit,
+    onRelayTitleClick: () -> Unit = {},
     onAddRelayClick: () -> Unit,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
@@ -133,6 +134,7 @@ fun DesktopShell(
                     onCreateGroupClick = onCreateGroupClick,
                     onJoinGroupClick = onJoinGroupClick,
                     onAddRelay = onAddRelayFromSidebar,
+                    onRelayTitleClick = onRelayTitleClick,
                     orphanedJoinedIds = orphanedJoinedIds,
                     onForgetOrphan = { groupId ->
                         sidebarScope.launch {
