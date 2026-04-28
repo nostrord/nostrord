@@ -34,6 +34,9 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.AppStartState
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.clearLastGroupForRelay
+import org.nostr.nostrord.storage.getLastGroupForRelay
+import org.nostr.nostrord.storage.saveLastGroupForRelay
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.components.layout.DesktopShell
@@ -206,12 +209,53 @@ private fun AuthenticatedApp(
 
     var selectedRelayUrl by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
 
+    // [previousRelayUrl] must be captured before [selectedRelayUrl] is mutated by
+    // the caller — reading it inside this fn would always see the new value and
+    // break the same-relay toggle.
+    fun resolveScreenForRelay(clickedUrl: String, previousRelayUrl: String): Screen {
+        if (clickedUrl.isBlank() || clickedUrl == previousRelayUrl) return Screen.Home
+        val pk = pubKey ?: return Screen.Home
+        val (groupId, groupName) = SecureStorage.getLastGroupForRelay(pk, clickedUrl) ?: return Screen.Home
+        return Screen.Group(groupId, groupName)
+    }
+
+    fun persistScreenState(screen: Screen) {
+        pubKey?.let { pk ->
+            when (screen) {
+                is Screen.Group -> {
+                    SecureStorage.saveLastViewedGroup(pk, screen.groupId, screen.groupName)
+                    if (selectedRelayUrl.isNotBlank()) {
+                        SecureStorage.saveLastGroupForRelay(
+                            pk, selectedRelayUrl, screen.groupId, screen.groupName
+                        )
+                    }
+                }
+                is Screen.Home -> {
+                    SecureStorage.clearLastViewedGroup(pk)
+                    // A null per-relay entry means "user last on Home" — see resolveScreenForRelay.
+                    if (selectedRelayUrl.isNotBlank()) {
+                        SecureStorage.clearLastGroupForRelay(pk, selectedRelayUrl)
+                    }
+                }
+                else -> {
+                    // Other screens don't affect persisted group state
+                }
+            }
+        }
+    }
+
     // Connect to deep link relay if provided (e.g. login via /?relay=X&group=Y).
     // initialize() may have skipped the deep link because the user wasn't logged in yet.
     LaunchedEffect(deepLinkRelayUrl) {
         if (deepLinkRelayUrl != null && deepLinkRelayUrl != currentRelayUrl) {
             selectedRelayUrl = deepLinkRelayUrl
             AppModule.nostrRepository.switchRelay(deepLinkRelayUrl)
+        }
+        // navHistory skips onNavigate for the initial entry, so deep links never
+        // hit persistScreenState. Mirror it so the URL is authoritative — a
+        // group URL saves it, a relay-only URL clears the per-relay entry.
+        if (deepLinkRelayUrl != null) {
+            persistScreenState(initialScreen)
         }
     }
 
@@ -274,23 +318,6 @@ private fun AuthenticatedApp(
 
     val loadingRelays by AppModule.nostrRepository.loadingRelays.collectAsState()
     val isGroupsLoading = selectedRelayUrl in loadingRelays || selectedRelayUrl.isBlank()
-
-    // Persist screen state for next app launch
-    fun persistScreenState(screen: Screen) {
-        pubKey?.let { pk ->
-            when (screen) {
-                is Screen.Group -> {
-                    SecureStorage.saveLastViewedGroup(pk, screen.groupId, screen.groupName)
-                }
-                is Screen.Home -> {
-                    SecureStorage.clearLastViewedGroup(pk)
-                }
-                else -> {
-                    // Other screens don't affect persisted group state
-                }
-            }
-        }
-    }
 
     // Navigation handler that records history and persists state.
     // Screen.RelaySettings is intercepted here and shown as a modal instead of navigating.
@@ -408,11 +435,14 @@ private fun AuthenticatedApp(
                 }
                 if (targetScreen != currentScreen) {
                     navHistory.navigate(targetScreen, relayUrl)
-                    persistScreenState(targetScreen)
                     AppModule.nostrRepository.setActiveGroup(
                         if (targetScreen is Screen.Group) targetScreen.groupId else null
                     )
                 }
+                // Outside the guard: a URL change can swap the relay without
+                // changing the screen kind (Home → Home on another relay), and
+                // we still need per-relay state to track the new URL.
+                persistScreenState(targetScreen)
             }
         }
     )
@@ -516,10 +546,12 @@ private fun AuthenticatedApp(
                     activeGroupId = activeGroupId,
                     isGroupsLoading = isGroupsLoading,
                     onRelayClick = { url ->
+                        val previousRelayUrl = selectedRelayUrl
                         selectedRelayUrl = url
                         scope.launch { AppModule.nostrRepository.switchRelay(url) }
-                        onNavigate(Screen.Home)
+                        onNavigate(resolveScreenForRelay(url, previousRelayUrl))
                     },
+                    onRelayTitleClick = { onNavigate(Screen.Home) },
                     onAddRelayClick = { onNavigate(Screen.RelaySettings) },
                     onGroupClick = { groupId, groupName ->
                         onNavigate(Screen.Group(groupId, groupName))
@@ -564,11 +596,16 @@ private fun AuthenticatedApp(
                             hasNoRelays = hasNoRelays,
                             isProfileActive = showSettings,
                             onRelayClick = { url ->
+                                val previousRelayUrl = selectedRelayUrl
                                 selectedRelayUrl = url
                                 scope.launch {
                                     drawerState.close()
                                     AppModule.nostrRepository.switchRelay(url)
                                 }
+                                onNavigate(resolveScreenForRelay(url, previousRelayUrl))
+                            },
+                            onRelayTitleClick = {
+                                scope.launch { drawerState.close() }
                                 onNavigate(Screen.Home)
                             },
                             onAddRelayClick = {
@@ -785,6 +822,7 @@ private fun MobileDrawerContent(
     hasNoRelays: Boolean,
     isProfileActive: Boolean,
     onRelayClick: (String) -> Unit,
+    onRelayTitleClick: () -> Unit,
     onAddRelayClick: () -> Unit,
     onGroupClick: (groupId: String, groupName: String?) -> Unit,
     onCreateGroupClick: () -> Unit,
@@ -855,6 +893,7 @@ private fun MobileDrawerContent(
             childrenByParent = childrenByParent,
             unverifiedChildren = unverifiedChildren,
             orphanedJoinedIds = orphanedJoinedIds,
+            onRelayTitleClick = onRelayTitleClick,
             onGroupClick = onGroupClick,
             onCreateGroupClick = onCreateGroupClick,
             onJoinGroupClick = onJoinGroupClick,

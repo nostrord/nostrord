@@ -107,6 +107,47 @@ expect object SecureStorage {
     suspend fun preloadMetadata()
 }
 
+// Per-relay last-viewed group. Stored as "groupId|groupName" with `|` and `%`
+// percent-escaped so the pipe stays unambiguous as the field separator.
+private fun lastGroupForRelayKey(pubkey: String, relayUrl: String): String =
+    "last_group_${pubkey.hashCode()}_${relayUrl.hashCode()}"
+
+private fun encodeLastGroupValue(groupId: String, groupName: String?): String {
+    fun esc(s: String) = s.replace("%", "%25").replace("|", "%7C")
+    return if (groupName == null) esc(groupId) else "${esc(groupId)}|${esc(groupName)}"
+}
+
+private fun decodeLastGroupValue(raw: String): Pair<String, String?>? {
+    if (raw.isBlank()) return null
+    fun unesc(s: String) = s.replace("%7C", "|").replace("%25", "%")
+    val parts = raw.split("|", limit = 2)
+    val id = unesc(parts[0])
+    if (id.isBlank()) return null
+    val name = parts.getOrNull(1)?.let(::unesc)?.takeIf { it.isNotBlank() }
+    return id to name
+}
+
+fun SecureStorage.saveLastGroupForRelay(
+    pubkey: String,
+    relayUrl: String,
+    groupId: String,
+    groupName: String?
+) {
+    if (pubkey.isBlank() || relayUrl.isBlank() || groupId.isBlank()) return
+    saveStringPref(lastGroupForRelayKey(pubkey, relayUrl), encodeLastGroupValue(groupId, groupName))
+}
+
+fun SecureStorage.getLastGroupForRelay(pubkey: String, relayUrl: String): Pair<String, String?>? {
+    if (pubkey.isBlank() || relayUrl.isBlank()) return null
+    val raw = getStringPref(lastGroupForRelayKey(pubkey, relayUrl), "")
+    return decodeLastGroupValue(raw)
+}
+
+fun SecureStorage.clearLastGroupForRelay(pubkey: String, relayUrl: String) {
+    if (pubkey.isBlank() || relayUrl.isBlank()) return
+    saveStringPref(lastGroupForRelayKey(pubkey, relayUrl), "")
+}
+
 // Per-relay group-list EOSE timestamp — lets the app skip requestGroups() when the
 // cached group list is fresh enough (< GROUP_CACHE_TTL_S seconds old).
 private const val GROUP_CACHE_TTL_S = 3600L // 1 hour

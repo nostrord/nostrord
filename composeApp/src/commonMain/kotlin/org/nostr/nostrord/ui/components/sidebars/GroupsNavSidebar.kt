@@ -105,6 +105,7 @@ fun GroupsNavSidebar(
     onJoinGroupClick: () -> Unit = {},
     onAddRelay: (() -> Unit)? = null,
     onForgetOrphan: (groupId: String) -> Unit = {},
+    onRelayTitleClick: (() -> Unit)? = null,
     showRelayTitle: Boolean = true,
     /** True when this relay uses lazy fetch mode — full group list is fetched on-demand. */
     isGroupFetchLazy: Boolean = false,
@@ -186,17 +187,30 @@ fun GroupsNavSidebar(
             .background(NostrordColors.Surface)
     ) {
         if (showRelayTitle) {
+            val titleClickEnabled = onRelayTitleClick != null && relayUrl.isNotBlank()
+            val titleInteractionSource = remember { MutableInteractionSource() }
+            val titleHovered by titleInteractionSource.collectIsHoveredAsState()
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(Spacing.headerHeight)
-                    .background(NostrordColors.Surface)
+                    .background(
+                        if (titleClickEnabled && titleHovered) NostrordColors.HoverBackground
+                        else NostrordColors.Surface
+                    )
+                    .then(
+                        if (titleClickEnabled) Modifier
+                            .hoverable(titleInteractionSource)
+                            .clickable(onClick = onRelayTitleClick!!)
+                            .pointerHoverIcon(PointerIcon.Hand)
+                        else Modifier
+                    )
                     .padding(horizontal = Spacing.lg),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Text(
                     text = if (relayUrl.isBlank()) "No Relay" else (relayName?.takeIf { it.isNotBlank() } ?: relayUrl).uppercase(),
-                    color = NostrordColors.TextSecondary,
+                    color = if (titleClickEnabled && titleHovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.02.sp,
