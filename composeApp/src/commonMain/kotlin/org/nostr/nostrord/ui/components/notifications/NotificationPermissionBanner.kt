@@ -27,19 +27,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.notifications.NotificationPermission
+import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.theme.NostrordColors
 
-/**
- * Web-only floating prompt to enable desktop notifications. Renders as a
- * card overlay (no layout space consumed) when the platform supports
- * notifications and the user hasn't decided yet. Dismissal is per-session.
- */
+private const val DISMISSED_PREF_KEY = "notif_banner_dismissed"
+
 @Composable
 fun NotificationPermissionBanner(modifier: Modifier = Modifier) {
     val service = AppModule.notificationService
     if (!service.isSupported()) return
 
-    var dismissed by remember { mutableStateOf(false) }
+    var dismissed by remember {
+        mutableStateOf(SecureStorage.getBooleanPref(DISMISSED_PREF_KEY, false))
+    }
     val permission by service.permission.collectAsState()
 
     if (dismissed || permission != NotificationPermission.Default) return
@@ -73,7 +73,10 @@ fun NotificationPermissionBanner(modifier: Modifier = Modifier) {
                 Text("Enable", color = NostrordColors.Primary)
             }
             TextButton(
-                onClick = { dismissed = true },
+                onClick = {
+                    SecureStorage.saveBooleanPref(DISMISSED_PREF_KEY, true)
+                    dismissed = true
+                },
                 contentPadding = PaddingValues(horizontal = 8.dp),
             ) {
                 Icon(

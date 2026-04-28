@@ -23,6 +23,20 @@ private external fun jsGetPermission(): String
 private external fun jsRequestPermission(cb: (String) -> Unit)
 
 @JsFun(
+    """(cb) => {
+        try {
+            if (navigator && navigator.permissions && navigator.permissions.query) {
+                navigator.permissions.query({ name: 'notifications' }).then(function(status) {
+                    cb(status.state);
+                    status.onchange = function() { cb(status.state); };
+                }).catch(function() {});
+            }
+        } catch (e) {}
+    }"""
+)
+private external fun jsObservePermissionChanges(cb: (String) -> Unit)
+
+@JsFun(
     """(title, body, tag, iconUrl, onClick) => {
         var opts = { body: body, tag: tag };
         if (iconUrl) opts.icon = iconUrl;
@@ -48,6 +62,14 @@ actual class NotificationService actual constructor() {
 
     private val _clicks = MutableSharedFlow<String>(extraBufferCapacity = 8)
     actual val notificationClicks: SharedFlow<String> = _clicks.asSharedFlow()
+
+    init {
+        if (jsSupported()) {
+            jsObservePermissionChanges { result ->
+                _permission.value = parsePermission(result)
+            }
+        }
+    }
 
     actual fun isSupported(): Boolean = jsSupported()
 

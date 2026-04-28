@@ -21,6 +21,21 @@ private fun jsRequestPermission(cb: (String) -> Unit) {
     })
 }
 
+private fun jsObservePermissionChanges(cb: (String) -> Unit) {
+    js(
+        """
+        try {
+            if (navigator && navigator.permissions && navigator.permissions.query) {
+                navigator.permissions.query({ name: 'notifications' }).then(function(status) {
+                    cb(status.state);
+                    status.onchange = function() { cb(status.state); };
+                }).catch(function() {});
+            }
+        } catch (e) {}
+        """
+    )
+}
+
 private fun jsShowNotification(
     title: String,
     body: String,
@@ -46,6 +61,14 @@ actual class NotificationService actual constructor() {
 
     private val _clicks = MutableSharedFlow<String>(extraBufferCapacity = 8)
     actual val notificationClicks: SharedFlow<String> = _clicks.asSharedFlow()
+
+    init {
+        if (jsSupported()) {
+            jsObservePermissionChanges { result ->
+                _permission.value = parsePermission(result)
+            }
+        }
+    }
 
     actual fun isSupported(): Boolean = jsSupported()
 
