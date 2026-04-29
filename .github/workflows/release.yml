@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   android-release:
-    name: Build signed APK + AAB
+    name: Build signed APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
