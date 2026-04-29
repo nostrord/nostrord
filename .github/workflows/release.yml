@@ -48,8 +48,8 @@ jobs:
           keyPassword=${{ secrets.KEY_PASSWORD }}
           EOF
 
-      - name: Build signed APK + AAB
-        run: ./gradlew :composeApp:assembleRelease :composeApp:bundleRelease --no-daemon
+      - name: Build signed APK
+        run: ./gradlew :composeApp:assembleRelease --no-daemon
 
       # Sanity check — fingerprint must match the local keystore. If this
       # fails (or signature is missing), abort before publishing.
@@ -70,11 +70,9 @@ jobs:
           mkdir -p dist
           cp composeApp/build/outputs/apk/release/composeApp-release.apk \
              "dist/nostrord-${VERSION}.apk"
-          cp composeApp/build/outputs/bundle/release/composeApp-release.aab \
-             "dist/nostrord-${VERSION}.aab"
           ls -la dist
 
-      # Upload APK + AAB to the GitHub Release. Skipped on workflow_dispatch
+      # Upload APK to the GitHub Release. Skipped on workflow_dispatch
       # (manual runs are for build verification, not publishing).
       - name: Publish GitHub Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
