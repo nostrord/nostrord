@@ -72,6 +72,15 @@ jobs:
              "dist/nostrord-${VERSION}.apk"
           ls -la dist
 
+      # Uploaded on every run so workflow_dispatch builds can be downloaded
+      # and tested without creating a tag/release.
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: dist/*
+          retention-days: 7
+
       # Upload APK to the GitHub Release. Skipped on workflow_dispatch
       # (manual runs are for build verification, not publishing).
       - name: Publish GitHub Release
