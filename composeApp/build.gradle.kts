@@ -1,6 +1,7 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -150,6 +151,13 @@ kotlin {
     }
 }
 
+// Release signing — reads from keystore.properties at the repo root (gitignored).
+// Devs without the file can still build debug; release builds require it.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
+
 android {
     namespace = "org.nostr.nostrord"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -168,6 +176,16 @@ android {
             excludes += "META-INF/DEPENDENCIES"
         }
     }
+    signingConfigs {
+        create("release") {
+            if (keystorePropsFile.exists()) {
+                storeFile = file(keystoreProps.getProperty("storeFile").trim())
+                storePassword = keystoreProps.getProperty("storePassword").trim()
+                keyAlias = keystoreProps.getProperty("keyAlias").trim()
+                keyPassword = keystoreProps.getProperty("keyPassword").trim()
+            }
+        }
+    }
     buildTypes {
         getByName("release") {
             isMinifyEnabled = true
@@ -175,6 +193,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (keystorePropsFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

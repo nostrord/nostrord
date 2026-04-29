@@ -17,3 +17,16 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+
+# Signing artifacts
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.cer
+*.p8
+*.mobileprovision
+keystore.properties
+key.properties
+signing.properties
+release.properties

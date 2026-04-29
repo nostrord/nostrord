@@ -1,0 +1,91 @@
+name: Release
+
+# Triggers:
+#   - Tag push matching v*  → real release.
+#   - workflow_dispatch     → manual fallback for re-runs / debugging.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # Needed to create / update the GitHub Release.
+
+jobs:
+  android-release:
+    name: Build signed APK + AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Decode the base64-encoded keystore secret into a temp file on the
+      # runner. The runner is ephemeral; the file is destroyed at job end.
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+          test -s "$RUNNER_TEMP/release.jks"
+
+      # Write keystore.properties so the existing gradle signingConfig finds
+      # the keystore + creds without needing CI-only branches in build.gradle.kts.
+      - name: Generate keystore.properties
+        run: |
+          cat > keystore.properties <<'EOF'
+          storeFile=${{ runner.temp }}/release.jks
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
+      - name: Build signed APK + AAB
+        run: ./gradlew :composeApp:assembleRelease :composeApp:bundleRelease --no-daemon
+
+      # Sanity check — fingerprint must match the local keystore. If this
+      # fails (or signature is missing), abort before publishing.
+      - name: Verify APK signature
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+          "$APKSIGNER" verify --print-certs \
+            composeApp/build/outputs/apk/release/composeApp-release.apk
+
+      - name: Rename artifacts with version tag
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${GITHUB_SHA::7}"
+          fi
+          mkdir -p dist
+          cp composeApp/build/outputs/apk/release/composeApp-release.apk \
+             "dist/nostrord-${VERSION}.apk"
+          cp composeApp/build/outputs/bundle/release/composeApp-release.aab \
+             "dist/nostrord-${VERSION}.aab"
+          ls -la dist
+
+      # Upload APK + AAB to the GitHub Release. Skipped on workflow_dispatch
+      # (manual runs are for build verification, not publishing).
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      # Always remove the keystore credentials file even if the build failed.
+      - name: Clean up keystore artifacts
+        if: always()
+        run: |
+          rm -f keystore.properties "$RUNNER_TEMP/release.jks" || true
