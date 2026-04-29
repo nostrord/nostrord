@@ -87,3 +87,79 @@ jobs:
         if: always()
         run: |
           rm -f keystore.properties "$RUNNER_TEMP/release.jks" || true
+
+  # Builds unsigned desktop installers for Linux, macOS, and Windows.
+  # On workflow_dispatch the artifacts are uploaded for download/testing only;
+  # publishing to a GitHub Release happens exclusively on a v* tag push.
+  desktop-release:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux .deb
+            task: ':composeApp:fixDebPackage'
+            artifact_glob: 'composeApp/build/compose/binaries/main/deb/*.deb'
+            ext: deb
+            platform: linux-amd64
+          - os: macos-latest
+            label: macOS .dmg
+            task: ':composeApp:packageDmg'
+            artifact_glob: 'composeApp/build/compose/binaries/main/dmg/*.dmg'
+            ext: dmg
+            platform: macos-arm64
+          - os: windows-latest
+            label: Windows .msi
+            task: ':composeApp:packageMsi'
+            artifact_glob: 'composeApp/build/compose/binaries/main/msi/*.msi'
+            ext: msi
+            platform: windows-amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build installer
+        run: ./gradlew ${{ matrix.task }} --no-daemon
+
+      - name: Rename artifact with version tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${GITHUB_SHA::7}"
+          fi
+          mkdir -p dist
+          cp ${{ matrix.artifact_glob }} \
+             "dist/nostrord-${VERSION}-${{ matrix.platform }}.${{ matrix.ext }}"
+          ls -la dist
+
+      # Uploaded on every run so workflow_dispatch builds can be downloaded
+      # and tested without creating a tag/release.
+      - name: Upload installer as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: dist/*
+          retention-days: 7
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
