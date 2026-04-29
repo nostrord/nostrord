@@ -310,7 +310,9 @@ tasks.register("fixDebPackage") {
         }
 
         // Patch .desktop file: use icon theme name, add StartupWMClass and proper Categories
-        val desktopFile = extractDir.walkTopDown().first { it.extension == "desktop" }
+        // walkTopDown enumerates dirs too — the bundled JDK runtime contains a
+        // legal/java.desktop directory that would match without the isFile filter.
+        val desktopFile = extractDir.walkTopDown().first { it.isFile && it.extension == "desktop" }
         // On Wayland, Java AWT derives app_id from the main class name:
         // org.nostr.nostrord.MainKt → org-nostr-nostrord-MainKt
         // StartupWMClass MUST match this for GNOME to associate the window.
