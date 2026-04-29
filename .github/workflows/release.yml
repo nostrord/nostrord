@@ -114,6 +114,12 @@ jobs:
             artifact_glob: 'composeApp/build/compose/binaries/main/deb/*.deb'
             ext: deb
             platform: linux-amd64
+          - os: ubuntu-latest
+            label: Linux .rpm
+            task: ':composeApp:packageRpm'
+            artifact_glob: 'composeApp/build/compose/binaries/main/rpm/*.rpm'
+            ext: rpm
+            platform: linux-amd64
           - os: macos-latest
             label: macOS .dmg
             task: ':composeApp:packageDmg'
@@ -140,6 +146,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
 
+      # rpmbuild is not installed on ubuntu-latest by default; jpackage
+      # invokes it under the hood when building the .rpm.
+      - name: Install rpmbuild
+        if: matrix.ext == 'rpm'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
       - name: Build installer
         run: ./gradlew ${{ matrix.task }} --no-daemon
 
@@ -162,7 +174,7 @@ jobs:
       - name: Upload installer as workflow artifact
         uses: actions/upload-artifact@v6
         with:
-          name: desktop-${{ matrix.platform }}
+          name: desktop-${{ matrix.platform }}-${{ matrix.ext }}
           path: dist/*
           retention-days: 7
 

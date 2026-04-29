@@ -222,13 +222,14 @@ compose.desktop {
         )
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "Nostrord"
             packageVersion = "1.0.0"
 
             linux {
                 iconFile.set(project.file("src/jvmMain/resources/icon-512.png"))
                 debPackageVersion = packageVersion
+                rpmPackageVersion = packageVersion
                 appCategory = "Network"
             }
 
