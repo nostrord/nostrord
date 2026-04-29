@@ -12,7 +12,9 @@ import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -95,56 +97,74 @@ fun App() {
         else StartupResolver.resolve(isInitialized, isLoggedIn)
     }
 
-    MaterialTheme {
-        val hasWindowControls = LocalDesktopWindowControls.current != null
+    MaterialTheme(colorScheme = NostrordDarkColorScheme) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            val hasWindowControls = LocalDesktopWindowControls.current != null
 
-        // Phase 3: Render based on resolved startup state
-        when (startupState) {
-            is AppStartState.Initializing -> {
-                val loadingMessage = when {
-                    isBunkerVerifying && !isLoggedIn -> "Logging out..."
-                    isBunkerVerifying -> "Reconnecting to signer..."
-                    else -> null
-                }
-                if (hasWindowControls) {
-                    Column(Modifier.fillMaxSize()) {
-                        MinimalTitleBar()
-                        LoadingScreen(Modifier.weight(1f), message = loadingMessage)
+            // Phase 3: Render based on resolved startup state
+            when (startupState) {
+                is AppStartState.Initializing -> {
+                    val loadingMessage = when {
+                        isBunkerVerifying && !isLoggedIn -> "Logging out..."
+                        isBunkerVerifying -> "Reconnecting to signer..."
+                        else -> null
                     }
-                } else {
-                    LoadingScreen(message = loadingMessage)
+                    if (hasWindowControls) {
+                        Column(Modifier.fillMaxSize()) {
+                            MinimalTitleBar()
+                            LoadingScreen(Modifier.weight(1f), message = loadingMessage)
+                        }
+                    } else {
+                        LoadingScreen(message = loadingMessage)
+                    }
                 }
-            }
 
-            is AppStartState.Unauthenticated -> {
-                // Not logged in - show login
-                if (hasWindowControls) {
-                    Column(Modifier.fillMaxSize()) {
-                        MinimalTitleBar()
-                        NostrLoginScreen(modifier = Modifier.weight(1f)) {
+                is AppStartState.Unauthenticated -> {
+                    // Not logged in - show login
+                    if (hasWindowControls) {
+                        Column(Modifier.fillMaxSize()) {
+                            MinimalTitleBar()
+                            NostrLoginScreen(modifier = Modifier.weight(1f)) {
+                                // After login, the startupState will recompute due to isLoggedIn change
+                            }
+                        }
+                    } else {
+                        NostrLoginScreen {
                             // After login, the startupState will recompute due to isLoggedIn change
                         }
                     }
-                } else {
-                    NostrLoginScreen {
-                        // After login, the startupState will recompute due to isLoggedIn change
-                    }
                 }
-            }
 
-            is AppStartState.Authenticated -> {
-                // Authenticated with resolved initial screen
-                // Now we can create the navigation state with the correct initial value
-                AuthenticatedApp(
-                    initialScreen = startupState.initialScreen,
-                    restoredFromPersistence = startupState.restoredFromPersistence,
-                    deepLinkRelayUrl = startupState.deepLinkRelayUrl,
-                    deepLinkInviteCode = startupState.deepLinkInviteCode
-                )
+                is AppStartState.Authenticated -> {
+                    // Authenticated with resolved initial screen
+                    // Now we can create the navigation state with the correct initial value
+                    AuthenticatedApp(
+                        initialScreen = startupState.initialScreen,
+                        restoredFromPersistence = startupState.restoredFromPersistence,
+                        deepLinkRelayUrl = startupState.deepLinkRelayUrl,
+                        deepLinkInviteCode = startupState.deepLinkInviteCode
+                    )
+                }
             }
         }
     }
 }
+
+private val NostrordDarkColorScheme = darkColorScheme(
+    primary = NostrordColors.Primary,
+    onPrimary = NostrordColors.TextPrimary,
+    primaryContainer = NostrordColors.PrimaryVariant,
+    onPrimaryContainer = NostrordColors.TextPrimary,
+    background = NostrordColors.Background,
+    onBackground = NostrordColors.TextContent,
+    surface = NostrordColors.Surface,
+    onSurface = NostrordColors.TextContent,
+    surfaceVariant = NostrordColors.SurfaceVariant,
+    onSurfaceVariant = NostrordColors.TextSecondary,
+    error = NostrordColors.Error,
+    onError = NostrordColors.TextPrimary,
+    outline = NostrordColors.Divider,
+)
 
 /** Plain background during bootstrap — HTML shell handles the spinner on web. */
 @Composable
