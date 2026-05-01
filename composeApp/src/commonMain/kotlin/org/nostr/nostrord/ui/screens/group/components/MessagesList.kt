@@ -197,6 +197,40 @@ fun MessagesList(
         LocalImageViewerUrl provides imageViewerUrl
     ) {
     when {
+        isPendingApproval || isGroupRestricted -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = NostrordColors.TextMuted,
+                    modifier = Modifier.size(40.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    if (isPendingApproval) "Awaiting admin approval" else "Private group",
+                    color = NostrordColors.TextSecondary,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    if (isPendingApproval)
+                        "Messages will appear once an admin approves your request."
+                    else
+                        "You need an invite code or admin approval to see messages.",
+                    color = NostrordColors.TextMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
         isInitialLoading && chatItems.isEmpty() -> {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -226,43 +260,17 @@ fun MessagesList(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                if (isPendingApproval || isGroupRestricted) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = NostrordColors.TextMuted,
-                        modifier = Modifier.size(40.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Text(
-                        if (isPendingApproval) "Awaiting admin approval" else "Private group",
-                        color = NostrordColors.TextSecondary,
-                        style = MaterialTheme.typography.bodyLarge,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        if (isPendingApproval)
-                            "Messages will appear once an admin approves your request."
-                        else
-                            "You need an invite code or admin approval to see messages.",
-                        color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.bodySmall,
-                        textAlign = TextAlign.Center
-                    )
-                } else {
-                    Text(
-                        "No messages yet",
-                        color = NostrordColors.TextSecondary,
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        if (isJoined) "Be the first to send a message!" else "Join the group to participate!",
-                        color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
+                Text(
+                    "No messages yet",
+                    color = NostrordColors.TextSecondary,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    if (isJoined) "Be the first to send a message!" else "Join the group to participate!",
+                    color = NostrordColors.TextMuted,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
         else -> {
