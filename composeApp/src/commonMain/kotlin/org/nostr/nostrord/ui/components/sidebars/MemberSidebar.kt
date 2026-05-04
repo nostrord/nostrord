@@ -79,13 +79,16 @@ fun MemberSidebar(
     var searchQuery by remember { mutableStateOf("") }
     var showAddMemberModal by remember { mutableStateOf(false) }
 
-    // Filter members based on search query (name, pubkey hex, or npub)
-    val filteredMembers = remember(members, searchQuery) {
+    // Hide the member list while the user is pending approval or the group is
+    // restricted — the lock placeholder rendered below should be authoritative,
+    // not whatever pubkeys leaked in via the message-sender fallback.
+    val visibleMembers = if (isPendingApproval || isGroupRestricted) emptyList() else members
+    val filteredMembers = remember(visibleMembers, searchQuery) {
         if (searchQuery.isBlank()) {
-            members
+            visibleMembers
         } else {
             val query = searchQuery.lowercase()
-            members.filter { member ->
+            visibleMembers.filter { member ->
                 member.displayName.lowercase().contains(query) ||
                 member.pubkey.lowercase().contains(query) ||
                 Nip19.encodeNpub(member.pubkey).lowercase().contains(query)
@@ -130,7 +133,7 @@ fun MemberSidebar(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Members — ${members.size}",
+                text = "Members — ${visibleMembers.size}",
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
@@ -274,7 +277,7 @@ fun MemberSidebar(
                 }
 
                 // Locked empty state — pending approval or restricted group.
-                if (!isLoading && members.isEmpty() && searchQuery.isBlank() &&
+                if (!isLoading && filteredMembers.isEmpty() && searchQuery.isBlank() &&
                     (isPendingApproval || isGroupRestricted)) {
                     item {
                         Column(

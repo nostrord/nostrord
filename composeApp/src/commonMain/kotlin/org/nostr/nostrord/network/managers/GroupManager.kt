@@ -3,6 +3,7 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -325,6 +326,23 @@ class GroupManager(
     // The UI uses this to show a "Private Group" placeholder with invite code input.
     private val _restrictedGroups = MutableStateFlow<Map<String, String>>(emptyMap())
     val restrictedGroups: StateFlow<Map<String, String>> = _restrictedGroups.asStateFlow()
+
+    // Gate for the approval-recovery path: only fires when the user actually
+    // sent kind:9021, never for historical events on already-joined groups.
+    private val pendingApprovalSince = mutableMapOf<String, Long>()
+
+    // Drops the relay's kind:9022 echo and updated kind:39002 that arrive in
+    // the milliseconds after a leave, otherwise they re-populate the lists we
+    // just cleared and the UI shows zombie members + a "you left" message.
+    private val recentlyLeftAt = mutableMapOf<String, Long>()
+    private val LEFT_GROUP_GRACE_MS = 5_000L
+
+    private fun isRecentlyLeft(groupId: String): Boolean {
+        val at = recentlyLeftAt[groupId] ?: return false
+        if (epochMillis() - at < LEFT_GROUP_GRACE_MS) return true
+        recentlyLeftAt.remove(groupId)
+        return false
+    }
 
     /**
      * Mark a group as restricted (relay denied access).
@@ -763,6 +781,7 @@ class GroupManager(
 
         return try {
             deletedGroupIds.remove(groupId)
+            recentlyLeftAt.remove(groupId)
             val tags = mutableListOf(listOf("h", groupId))
             val effectiveCode = inviteCode?.takeIf { it.isNotBlank() }
             if (effectiveCode != null) {
@@ -792,10 +811,10 @@ class GroupManager(
 
             publishJoinedGroups()
 
-            // Clear restricted status — the user is now (pending) member.
             clearGroupRestricted(groupId)
+            pendingApprovalSince[groupId] = epochMillis()
+            refreshMuxSubscriptionsForRelay(groupRelayUrl)
 
-            // Give the relay a moment to process the join event before requesting data
             kotlinx.coroutines.delay(500)
 
             // Re-request all group data now that we're a member
@@ -1566,18 +1585,31 @@ class GroupManager(
 
             publishJoinedGroups()
 
+            recentlyLeftAt[groupId] = epochMillis()
+
             _messages.update { it - groupId }
             _isLoadingMore.update { it - groupId }
             _hasMoreMessages.update { it - groupId }
             _groupStates.update { it - groupId }
+            _groupMembers.update { it - groupId }
+            _groupAdmins.update { it - groupId }
+            _groupRoles.update { it - groupId }
+            _loadingMembers.update { it - groupId }
+            memberEventTimestamps.remove(groupId)
+            adminEventTimestamps.remove(groupId)
+            roleEventTimestamps.remove(groupId)
+            pendingApprovalSince.remove(groupId)
+            messageIdIndex.remove(groupId)
             observedGroupsMutex.withLock { observedGroups.remove(groupId) }
             loadingRegistry.remove(groupId)
-            // Reset opened tracking so setActiveGroupId() re-fetches on rejoin.
             _openedGroupIds.update { it - groupId }
-            // Drop any restricted-group marker — leaving is an explicit reset of intent,
-            // and a future rejoin should get a fresh access attempt instead of being
-            // silently excluded from batched REQs.
+            // Leaving is an explicit reset of intent — a future rejoin should
+            // get a fresh access attempt instead of being silently excluded.
             clearGroupRestricted(groupId)
+
+            // Drop the group from the live mux so the relay stops pushing
+            // events for it the moment we send the leave.
+            refreshMuxSubscriptionsForRelay(groupRelayUrl)
 
             Result.Success(Unit)
         } catch (e: Throwable) {
@@ -1740,6 +1772,7 @@ class GroupManager(
             }
             return true
         }
+        awaitTrackingForSubscription(subscriptionId)
         return loadingRegistry.handleEose(subscriptionId)
     }
 
@@ -1765,22 +1798,40 @@ class GroupManager(
         return true
     }
 
-    /**
-     * Track message received for a subscription (for pagination counting).
-     * CRITICAL: This is a suspend function to ensure proper ordering
-     * with EOSE handling - messages must be tracked before EOSE is processed.
-     */
-    suspend fun trackMessageForSubscriptionSuspend(subscriptionId: String, timestamp: Long, eventId: String) {
-        loadingRegistry.trackMessage(subscriptionId, timestamp, eventId)
+    // [trackMessageForSubscription] runs each track on a separate scope.launch
+    // (handleMessage is non-suspend). Without this bookkeeping, EOSE can read
+    // messageCount while N tracks are still queued and a full page lands as
+    // Exhausted.
+    private val pendingTrackJobs = mutableMapOf<String, MutableList<Job>>()
+    private val pendingTracksLock = Mutex()
+
+    fun trackMessageForSubscription(subscriptionId: String, timestamp: Long, eventId: String) {
+        val job = scope.launch {
+            loadingRegistry.trackMessage(subscriptionId, timestamp, eventId)
+        }
+        scope.launch {
+            pendingTracksLock.withLock {
+                pendingTrackJobs.getOrPut(subscriptionId) { mutableListOf() }.add(job)
+            }
+            try {
+                job.join()
+            } finally {
+                pendingTracksLock.withLock {
+                    val list = pendingTrackJobs[subscriptionId]
+                    list?.remove(job)
+                    if (list?.isEmpty() == true) pendingTrackJobs.remove(subscriptionId)
+                }
+            }
+        }
     }
 
-    /**
-     * Non-suspend version for contexts where suspend is not available.
-     * Note: This may cause race conditions if EOSE arrives quickly.
-     */
-    fun trackMessageForSubscription(subscriptionId: String, timestamp: Long, eventId: String) {
-        scope.launch {
-            loadingRegistry.trackMessage(subscriptionId, timestamp, eventId)
+    private suspend fun awaitTrackingForSubscription(subscriptionId: String) {
+        repeat(3) {
+            val snapshot = pendingTracksLock.withLock {
+                pendingTrackJobs[subscriptionId]?.toList().orEmpty()
+            }
+            if (snapshot.isEmpty()) return
+            snapshot.joinAll()
         }
     }
 
@@ -2255,6 +2306,10 @@ class GroupManager(
      * Returns list of member pubkeys that need metadata fetching
      */
     fun handleGroupMembers(members: GroupMembers, createdAt: Long = 0L): List<String> {
+        if (isRecentlyLeft(members.groupId)) {
+            _loadingMembers.value = _loadingMembers.value - members.groupId
+            return emptyList()
+        }
         val existing = memberEventTimestamps[members.groupId] ?: 0L
         if (createdAt > 0L && createdAt < existing) {
             // Stale event from a slower relay — skip state update.
@@ -2269,7 +2324,32 @@ class GroupManager(
             _groupMembers.value = _groupMembers.value + (members.groupId to members.members)
         }
         _loadingMembers.value = _loadingMembers.value - members.groupId
+
+        val self = currentPubkey
+        if (self != null
+            && pendingApprovalSince.containsKey(members.groupId)
+            && self in members.members
+            && currentMembers?.contains(self) != true
+        ) {
+            onApprovalDetected(members.groupId)
+        }
+
         return members.members
+    }
+
+    // Pre-approval CLOSED("restricted") drove the loader to Exhausted; reset
+    // so the next poll's startInitialLoad is no longer a no-op. No _messages
+    // clear, no dedup eviction, no manual fetch — those break pagination.
+    private fun onApprovalDetected(groupId: String) {
+        pendingApprovalSince.remove(groupId)
+        clearGroupRestricted(groupId)
+        scope.launch {
+            try { loadingRegistry.getController(groupId).reset() } catch (_: Exception) {}
+            val relayUrl = getRelayForGroup(groupId)
+            if (relayUrl != null) {
+                try { refreshMuxSubscriptionsForRelay(relayUrl) } catch (_: Exception) {}
+            }
+        }
     }
 
     /**
@@ -2294,6 +2374,7 @@ class GroupManager(
      * Handle incoming group admins (kind 39001)
      */
     fun handleGroupAdmins(admins: GroupAdmins, createdAt: Long = 0L) {
+        if (isRecentlyLeft(admins.groupId)) return
         val existing = adminEventTimestamps[admins.groupId] ?: 0L
         if (createdAt > 0L && createdAt < existing) {
             connStats?.onStateConflict(admins.groupId)
@@ -2324,6 +2405,7 @@ class GroupManager(
      * Handle incoming group roles (kind 39003)
      */
     fun handleGroupRoles(roles: GroupRoles, createdAt: Long = 0L) {
+        if (isRecentlyLeft(roles.groupId)) return
         val existing = roleEventTimestamps[roles.groupId] ?: 0L
         if (createdAt > 0L && createdAt < existing) {
             connStats?.onStateConflict(roles.groupId)
@@ -2438,16 +2520,20 @@ class GroupManager(
         }
 
         val messageId = message.id
-        if (messageId.isBlank() || !eventDeduplicator.tryAddSync(messageId)) {
-            if (message.kind == 9) {
-            }
-            return null // Duplicate message
+        if (messageId.isBlank()) return null
+
+        // Track before dedup: events overlapping with mux_chat's `since` window
+        // arrive on both subs and would otherwise be deducted from the msg_ sub's
+        // page count, flipping a full page to Exhausted.
+        if (subscriptionId != null) {
+            trackMessageForSubscription(subscriptionId, message.createdAt, message.id)
         }
+
+        if (!eventDeduplicator.tryAddSync(messageId)) return null
 
         val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
 
-        if (message.kind == 9) {
-        }
+        if (isRecentlyLeft(groupId)) return null
 
         // Populate global emoji cache from message emoji tags and backfill
         // any existing reactions that are missing their image URL.
@@ -2464,11 +2550,6 @@ class GroupManager(
         // Fire-and-forget: cursor updates are non-critical and should not block message processing.
         if (relayUrl != null && message.createdAt > 0L) {
             scope.launch { liveCursorStore.update(relayUrl, groupId, message.createdAt) }
-        }
-
-        // Track message in state machine for cursor calculation
-        if (subscriptionId != null) {
-            trackMessageForSubscription(subscriptionId, message.createdAt, message.id)
         }
 
         // Inline member list updates from admin events — provides immediate UI feedback
