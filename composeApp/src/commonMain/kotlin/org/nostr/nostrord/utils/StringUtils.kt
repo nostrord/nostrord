@@ -1,5 +1,68 @@
 package org.nostr.nostrord.utils
 
+// Maps the low surrogate of U+1D400-U+1D7FF (Mathematical Alphanumeric Symbols, all sharing
+// high surrogate \uD835) to plain ASCII. Ranges: (startOffset, endOffset, baseAsciiCode)
+// where offset is relative to \uDC00. Gaps in Script/Fraktur/Double-Struck blocks exist
+// because those letters pre-date the math block and live at separate code points.
+private val mathLowSurrogateToAscii: Map<Char, Char> by lazy {
+    val map = HashMap<Char, Char>(512)
+    val ranges = arrayOf(
+        intArrayOf(0x000, 0x019, 'A'.code), intArrayOf(0x01A, 0x033, 'a'.code), // Bold
+        intArrayOf(0x034, 0x04D, 'A'.code), intArrayOf(0x04E, 0x054, 'a'.code), // Italic
+        intArrayOf(0x056, 0x067, 'i'.code),                                       // Italic small i-z (h gap)
+        intArrayOf(0x068, 0x081, 'A'.code), intArrayOf(0x082, 0x09B, 'a'.code), // Bold Italic
+        intArrayOf(0x09C, 0x09C, 'A'.code), intArrayOf(0x09E, 0x09F, 'C'.code), // Script Capital
+        intArrayOf(0x0A2, 0x0A2, 'G'.code), intArrayOf(0x0A5, 0x0A6, 'J'.code),
+        intArrayOf(0x0A9, 0x0AC, 'N'.code), intArrayOf(0x0AE, 0x0B5, 'S'.code),
+        intArrayOf(0x0B6, 0x0B9, 'a'.code), intArrayOf(0x0BB, 0x0BB, 'f'.code), // Script Small
+        intArrayOf(0x0BD, 0x0C3, 'h'.code), intArrayOf(0x0C5, 0x0CF, 'p'.code),
+        intArrayOf(0x0D0, 0x0E9, 'A'.code), intArrayOf(0x0EA, 0x103, 'a'.code), // Bold Script
+        intArrayOf(0x104, 0x105, 'A'.code), intArrayOf(0x107, 0x10A, 'D'.code), // Fraktur Capital
+        intArrayOf(0x10D, 0x114, 'J'.code), intArrayOf(0x116, 0x11C, 'S'.code),
+        intArrayOf(0x11E, 0x137, 'a'.code),                                       // Fraktur Small
+        intArrayOf(0x138, 0x139, 'A'.code), intArrayOf(0x13B, 0x13E, 'D'.code), // Double-Struck Capital
+        intArrayOf(0x140, 0x144, 'I'.code), intArrayOf(0x146, 0x146, 'O'.code),
+        intArrayOf(0x14A, 0x150, 'S'.code),
+        intArrayOf(0x152, 0x16B, 'a'.code),                                       // Double-Struck Small
+        intArrayOf(0x16C, 0x185, 'A'.code), intArrayOf(0x186, 0x19F, 'a'.code), // Bold Fraktur
+        intArrayOf(0x1A0, 0x1B9, 'A'.code), intArrayOf(0x1BA, 0x1D3, 'a'.code), // Sans-Serif
+        intArrayOf(0x1D4, 0x1ED, 'A'.code), intArrayOf(0x1EE, 0x207, 'a'.code), // Sans-Serif Bold
+        intArrayOf(0x208, 0x221, 'A'.code), intArrayOf(0x222, 0x23B, 'a'.code), // Sans-Serif Italic
+        intArrayOf(0x23C, 0x255, 'A'.code), intArrayOf(0x256, 0x26F, 'a'.code), // Sans-Serif Bold Italic
+        intArrayOf(0x270, 0x289, 'A'.code), intArrayOf(0x28A, 0x2A3, 'a'.code), // Monospace
+    )
+    for (r in ranges) {
+        val startLow = 0xDC00 + r[0]
+        val baseCode = r[2]
+        for (low in startLow..0xDC00 + r[1]) {
+            map[low.toChar()] = (baseCode + (low - startLow)).toChar()
+        }
+    }
+    map
+}
+
+// Maps decorative Unicode letter variants (mathematical styles, full-width) to plain ASCII
+// lowercase. Callers do not need ignoreCase = true after this.
+fun String.normalizeForSearch(): String {
+    val sb = StringBuilder(length)
+    var i = 0
+    while (i < length) {
+        val c = this[i]
+        when {
+            c == '\uD835' && i + 1 < length -> {
+                val low = this[i + 1]
+                val ascii = mathLowSurrogateToAscii[low]
+                if (ascii != null) sb.append(ascii) else { sb.append(c); sb.append(low) }
+                i += 2
+            }
+            c.code in 0xFF21..0xFF3A -> { sb.append(('A'.code + c.code - 0xFF21).toChar()); i++ }
+            c.code in 0xFF41..0xFF5A -> { sb.append(('a'.code + c.code - 0xFF41).toChar()); i++ }
+            else -> { sb.append(c); i++ }
+        }
+    }
+    return sb.toString().lowercase()
+}
+
 /**
  * URL decode a percent-encoded string.
  *

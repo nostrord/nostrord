@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.normalizeForSearch
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -33,8 +34,9 @@ fun getFilteredMembers(members: List<MemberInfo>, query: String): List<MemberInf
     return if (query.isEmpty()) {
         members.take(8)
     } else {
+        val normalizedQuery = query.normalizeForSearch()
         members.filter { member ->
-            member.displayName.contains(query, ignoreCase = true) ||
+            member.displayName.normalizeForSearch().contains(normalizedQuery) ||
             member.pubkey.contains(query, ignoreCase = true)
         }.take(8)
     }
