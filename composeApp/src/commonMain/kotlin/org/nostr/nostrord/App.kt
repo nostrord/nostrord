@@ -358,6 +358,20 @@ private fun AuthenticatedApp(
         }
     }
 
+    // Cross-relay group navigation (e.g. clicking a NIP-29 group naddr that points
+    // to a different relay). selectedRelayUrl must be updated synchronously before
+    // persistScreenState runs, otherwise the new group is saved under the previous
+    // relay's lastGroupForRelay entry and the sidebar serves the wrong group when
+    // the user later switches back to that relay.
+    val onNavigateToGroupWithRelay: (String, String?, String?) -> Unit =
+        { groupId, groupName, relayUrl ->
+            if (relayUrl != null && relayUrl != selectedRelayUrl) {
+                selectedRelayUrl = relayUrl
+                scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
+            }
+            onNavigate(Screen.Group(groupId, groupName))
+        }
+
     // Direct history navigation — called by native platforms and by BrowserNavigationHandler.
     // Restores the relay that was active when the entry was pushed.
     val onDirectHistoryBack: () -> Unit = {
@@ -590,6 +604,7 @@ private fun AuthenticatedApp(
                             selectedRelayUrl = selectedRelayUrl,
                             homeGridState = homeGridState,
                             onNavigate = onNavigate,
+                            onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
                             hasNoRelays = hasNoRelays,
                             onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
                             onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
@@ -663,6 +678,7 @@ private fun AuthenticatedApp(
                         selectedRelayUrl = selectedRelayUrl,
                         homeGridState = homeGridState,
                         onNavigate = onNavigate,
+                        onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
                         onCreateGroupClick = { showCreateGroupModal = true },
                         hasNoRelays = hasNoRelays,
                         onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
@@ -709,6 +725,7 @@ private fun DesktopContent(
     selectedRelayUrl: String,
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onNavigate: (Screen) -> Unit,
+    onNavigateToGroupWithRelay: (String, String?, String?) -> Unit = { _, _, _ -> },
     hasNoRelays: Boolean = false,
     onAddRelay: () -> Unit = {},
     onAddRelayCustomUrl: () -> Unit = {},
@@ -736,9 +753,7 @@ private fun DesktopContent(
                 groupId = screen.groupId,
                 groupName = screen.groupName,
                 onNavigateHome = { onNavigate(Screen.Home) },
-                onNavigateToGroup = { newGroupId, newGroupName ->
-                    onNavigate(Screen.Group(newGroupId, newGroupName))
-                },
+                onNavigateToGroup = onNavigateToGroupWithRelay,
                 showServerRail = false,
                 forceDesktop = true,
                 pendingInviteCode = pendingInviteCode,
@@ -770,6 +785,7 @@ private fun MobileContent(
     selectedRelayUrl: String,
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onNavigate: (Screen) -> Unit,
+    onNavigateToGroupWithRelay: (String, String?, String?) -> Unit = { _, _, _ -> },
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     hasNoRelays: Boolean = false,
@@ -800,9 +816,7 @@ private fun MobileContent(
                 groupId = screen.groupId,
                 groupName = screen.groupName,
                 onNavigateHome = { onNavigate(Screen.Home) },
-                onNavigateToGroup = { newGroupId, newGroupName ->
-                    onNavigate(Screen.Group(newGroupId, newGroupName))
-                },
+                onNavigateToGroup = onNavigateToGroupWithRelay,
                 onOpenDrawer = onOpenDrawer,
                 pendingInviteCode = pendingInviteCode,
                 onInviteCodeConsumed = onInviteCodeConsumed
