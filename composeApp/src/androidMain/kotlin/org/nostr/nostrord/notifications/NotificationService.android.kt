@@ -11,8 +11,8 @@ actual class NotificationService actual constructor() {
     private val _permission = MutableStateFlow(NotificationPermission.Denied)
     actual val permission: StateFlow<NotificationPermission> = _permission.asStateFlow()
 
-    private val _clicks = MutableSharedFlow<String>(extraBufferCapacity = 8)
-    actual val notificationClicks: SharedFlow<String> = _clicks.asSharedFlow()
+    private val _clicks = MutableSharedFlow<NotificationClick>(extraBufferCapacity = 8)
+    actual val notificationClicks: SharedFlow<NotificationClick> = _clicks.asSharedFlow()
 
     actual fun isSupported(): Boolean = false
     actual fun requestPermission() {}

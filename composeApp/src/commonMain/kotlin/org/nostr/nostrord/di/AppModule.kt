@@ -155,8 +155,12 @@ object AppModule {
                         ?: (message.pubkey.take(8) + "…")
                     val preview = resolveMentionsForNotification(message.content).take(120)
 
+                    val relayUrl = groupManager.getLatestMessageRelayForGroup(groupId)
+                        ?: groupManager.getRelayForGroup(groupId)
+                        ?: ""
                     notificationService.notify(
                         NotificationRequest(
+                            relayUrl = relayUrl,
                             groupId = groupId,
                             title = groupName,
                             body = "$authorName: $preview",

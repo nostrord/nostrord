@@ -420,12 +420,14 @@ private fun AuthenticatedApp(
         }
     }
 
-    // Route notification clicks to navigation. Only the web NotificationService actual
-    // emits here (other platforms' SharedFlow never fires), so this is a no-op elsewhere.
+    // rememberUpdatedState so the LaunchedEffect(Unit) closure always calls the
+    // latest lambda — selectedRelayUrl is re-keyed whenever currentRelayUrl changes,
+    // so the backing MutableState instance can change between recompositions.
+    val latestNavigateToGroupWithRelay by rememberUpdatedState(onNavigateToGroupWithRelay)
     LaunchedEffect(Unit) {
-        AppModule.notificationService.notificationClicks.collect { clickedGroupId ->
-            val name = AppModule.nostrRepository.groups.value.firstOrNull { it.id == clickedGroupId }?.name
-            onNavigate(Screen.Group(clickedGroupId, name))
+        AppModule.notificationService.notificationClicks.collect { click ->
+            val name = AppModule.nostrRepository.groups.value.firstOrNull { it.id == click.groupId }?.name
+            latestNavigateToGroupWithRelay(click.groupId, name, click.relayUrl.takeIf { it.isNotBlank() })
         }
     }
 

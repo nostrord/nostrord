@@ -13,12 +13,18 @@ enum class NotificationPermission {
 }
 
 data class NotificationRequest(
+    val relayUrl: String,
     val groupId: String,
     val title: String,
     val body: String,
     /** Tag used by the browser to coalesce notifications from the same conversation. */
     val tag: String = groupId,
     val iconUrl: String? = null,
+)
+
+data class NotificationClick(
+    val relayUrl: String,
+    val groupId: String,
 )
 
 /**
@@ -30,8 +36,8 @@ data class NotificationRequest(
 expect class NotificationService() {
     val permission: StateFlow<NotificationPermission>
 
-    /** Emits the groupId of the notification the user clicked. */
-    val notificationClicks: SharedFlow<String>
+    /** Emits the relay+group of the notification the user clicked. */
+    val notificationClicks: SharedFlow<NotificationClick>
 
     fun isSupported(): Boolean
     fun requestPermission()
