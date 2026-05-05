@@ -59,8 +59,8 @@ actual class NotificationService actual constructor() {
     private val _permission = MutableStateFlow(readPermission())
     actual val permission: StateFlow<NotificationPermission> = _permission.asStateFlow()
 
-    private val _clicks = MutableSharedFlow<String>(extraBufferCapacity = 8)
-    actual val notificationClicks: SharedFlow<String> = _clicks.asSharedFlow()
+    private val _clicks = MutableSharedFlow<NotificationClick>(extraBufferCapacity = 8)
+    actual val notificationClicks: SharedFlow<NotificationClick> = _clicks.asSharedFlow()
 
     init {
         if (jsSupported()) {
@@ -88,7 +88,7 @@ actual class NotificationService actual constructor() {
             request.body,
             request.tag,
             request.iconUrl ?: "",
-        ) { _clicks.tryEmit(request.groupId) }
+        ) { _clicks.tryEmit(NotificationClick(request.relayUrl, request.groupId)) }
     }
 
     private fun readPermission(): NotificationPermission {

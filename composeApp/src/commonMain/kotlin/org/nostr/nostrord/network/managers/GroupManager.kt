@@ -337,6 +337,13 @@ class GroupManager(
     private val recentlyLeftAt = mutableMapOf<String, Long>()
     private val LEFT_GROUP_GRACE_MS = 5_000L
 
+    // Relay-of-origin per groupId, recorded from the WebSocket that delivered
+    // each event. Used by notifications to route clicks to the correct relay
+    // when getRelayForGroup would be ambiguous.
+    private val _latestMessageRelayByGroup = MutableStateFlow<Map<String, String>>(emptyMap())
+    fun getLatestMessageRelayForGroup(groupId: String): String? =
+        _latestMessageRelayByGroup.value[groupId]
+
     private fun isRecentlyLeft(groupId: String): Boolean {
         val at = recentlyLeftAt[groupId] ?: return false
         if (epochMillis() - at < LEFT_GROUP_GRACE_MS) return true
@@ -1600,6 +1607,7 @@ class GroupManager(
             roleEventTimestamps.remove(groupId)
             pendingApprovalSince.remove(groupId)
             messageIdIndex.remove(groupId)
+            _latestMessageRelayByGroup.update { it - groupId }
             observedGroupsMutex.withLock { observedGroups.remove(groupId) }
             loadingRegistry.remove(groupId)
             _openedGroupIds.update { it - groupId }
@@ -2534,6 +2542,10 @@ class GroupManager(
         val groupId = extractGroupIdFromMessage(rawMsg) ?: return null
 
         if (isRecentlyLeft(groupId)) return null
+
+        if (relayUrl != null) {
+            _latestMessageRelayByGroup.update { it + (groupId to relayUrl) }
+        }
 
         // Populate global emoji cache from message emoji tags and backfill
         // any existing reactions that are missing their image URL.

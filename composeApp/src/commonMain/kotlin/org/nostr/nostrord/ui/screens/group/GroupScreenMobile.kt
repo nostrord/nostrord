@@ -123,8 +123,7 @@ fun GroupScreenMobile(
     onLoadMore: () -> Unit = {},
     joinedGroups: Set<String> = emptySet(),
     groups: List<GroupMetadata> = emptyList(),
-    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
-    onSwitchRelay: (String) -> Unit = {},
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     onUserClick: (String) -> Unit = {},
     onReconnect: () -> Unit = {},
     isSending: Boolean = false,
@@ -241,10 +240,7 @@ fun GroupScreenMobile(
                         onReplyClick = onReplyClick,
                         onDeleteMessage = onDeleteMessage,
                         onReactionBadgeClick = onReactionBadgeClick,
-                        onNavigateToGroup = { targetGroupId, targetGroupName, targetRelayUrl ->
-                            if (targetRelayUrl != null) onSwitchRelay(targetRelayUrl)
-                            onNavigateToGroup(targetGroupId, targetGroupName)
-                        },
+                        onNavigateToGroup = onNavigateToGroup,
                         onReachedBottom = onReachedBottom
                     )
                 }

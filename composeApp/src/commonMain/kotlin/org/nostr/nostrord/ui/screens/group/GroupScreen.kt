@@ -40,7 +40,7 @@ fun GroupScreen(
     groupId: String,
     groupName: String?,
     onNavigateHome: () -> Unit = {},
-    onNavigateToGroup: (groupId: String, groupName: String?) -> Unit = { _, _ -> },
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     showServerRail: Boolean = true, // When false, server rail is handled by parent shell
     onOpenDrawer: () -> Unit = {},
     forceDesktop: Boolean = false,
@@ -332,7 +332,7 @@ fun GroupScreen(
             onDismiss = { showCreateSubgroupModal = false },
             onGroupCreated = { newId, newName ->
                 showCreateSubgroupModal = false
-                onNavigateToGroup(newId, newName)
+                onNavigateToGroup(newId, newName, null)
             }
         )
     }
@@ -686,7 +686,7 @@ fun GroupScreen(
                 onParentClick = {
                     val parentId = currentGroupMetadata?.parent
                     if (!parentId.isNullOrBlank()) {
-                        onNavigateToGroup(parentId, parentGroupName)
+                        onNavigateToGroup(parentId, parentGroupName, null)
                     }
                 },
                 subgroupCount = childrenByParent[groupId]?.size ?: 0,
@@ -712,7 +712,6 @@ fun GroupScreen(
                 joinedGroups = joinedGroups,
                 groups = groups,
                 onNavigateToGroup = onNavigateToGroup,
-                onSwitchRelay = { vm.switchRelay(it) },
                 onUserClick = { pubkey -> selectedUserPubkey = pubkey },
                 onReconnect = { vm.reconnect() },
                 isSending = isSending,
@@ -777,7 +776,7 @@ fun GroupScreen(
                 onParentClick = {
                     val parentId = currentGroupMetadata?.parent
                     if (!parentId.isNullOrBlank()) {
-                        onNavigateToGroup(parentId, parentGroupName)
+                        onNavigateToGroup(parentId, parentGroupName, null)
                     }
                 },
                 subgroupCount = childrenByParent[groupId]?.size ?: 0,
@@ -803,7 +802,6 @@ fun GroupScreen(
                 joinedGroups = joinedGroups,
                 groups = groups,
                 onNavigateToGroup = onNavigateToGroup,
-                onSwitchRelay = { vm.switchRelay(it) },
                 onUserClick = { pubkey -> selectedUserPubkey = pubkey },
                 onReconnect = { vm.reconnect() },
                 isSending = isSending,
