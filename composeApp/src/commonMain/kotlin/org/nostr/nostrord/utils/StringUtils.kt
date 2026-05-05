@@ -41,8 +41,19 @@ private val mathLowSurrogateToAscii: Map<Char, Char> by lazy {
     map
 }
 
-// Maps decorative Unicode letter variants (mathematical styles, full-width) to plain ASCII
-// lowercase. Callers do not need ignoreCase = true after this.
+// Small-capital letters from IPA / Latin Extended blocks used as decorative text.
+// These are BMP code points (no surrogate pairs), so a plain map suffices.
+private val smallCapsToAscii: Map<Char, Char> = mapOf(
+    'ᴀ' to 'a', 'ʙ' to 'b', 'ᴄ' to 'c', 'ᴅ' to 'd',
+    'ᴇ' to 'e', 'ꜰ' to 'f', 'ɢ' to 'g', 'ʜ' to 'h',
+    'ɪ' to 'i', 'ᴊ' to 'j', 'ᴋ' to 'k', 'ʟ' to 'l',
+    'ᴍ' to 'm', 'ɴ' to 'n', 'ᴏ' to 'o', 'ᴘ' to 'p',
+    'ʀ' to 'r', 'ꜱ' to 's', 'ᴛ' to 't', 'ᴜ' to 'u',
+    'ᴠ' to 'v', 'ᴡ' to 'w', 'ʏ' to 'y', 'ᴢ' to 'z',
+)
+
+// Maps decorative Unicode letter variants (mathematical styles, full-width, small caps) to
+// plain ASCII lowercase. Callers do not need ignoreCase = true after this.
 fun String.normalizeForSearch(): String {
     val sb = StringBuilder(length)
     var i = 0
@@ -57,7 +68,7 @@ fun String.normalizeForSearch(): String {
             }
             c.code in 0xFF21..0xFF3A -> { sb.append(('A'.code + c.code - 0xFF21).toChar()); i++ }
             c.code in 0xFF41..0xFF5A -> { sb.append(('a'.code + c.code - 0xFF41).toChar()); i++ }
-            else -> { sb.append(c); i++ }
+            else -> { sb.append(smallCapsToAscii[c] ?: c); i++ }
         }
     }
     return sb.toString().lowercase()

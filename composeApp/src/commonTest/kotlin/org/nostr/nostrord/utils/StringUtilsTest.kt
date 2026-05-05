@@ -38,6 +38,13 @@ class StringUtilsTest {
     }
 
     @Test
+    fun `small caps normalizes to ascii`() {
+        assertEquals("holder", "ʜᴏʟᴅᴇʀ".normalizeForSearch())
+        assertEquals("perfil", "ᴘᴇʀꜰɪʟ".normalizeForSearch())
+        assertEquals("secundario", "ꜱᴇᴄᴜɴᴅᴀʀɪᴏ".normalizeForSearch())
+    }
+
+    @Test
     fun `plain ascii is returned unchanged and lowercased`() {
         assertEquals("nostr", "Nostr".normalizeForSearch())
     }
