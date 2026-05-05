@@ -37,6 +37,7 @@ import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import androidx.compose.ui.text.font.FontFamily
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -49,17 +50,10 @@ import org.nostr.nostrord.utils.formatTimestamp
 /**
  * Message input field with Discord-style keyboard behavior.
  *
- * Keyboard behavior:
- * - Enter: Send message (or select mention if popup open)
- * - Shift+Enter: Insert newline at cursor (manually handled for reliability)
- * - Escape: Close mention popup
- * - Tab: Select highlighted mention
- *
- * Features:
- * - Send button (disabled when empty, shows spinner when sending)
- * - @mention autocomplete popup
- * - Multi-line text input (up to 4 lines visible)
- * - Join prompt when not a group member
+ * - Enter: send (or confirm mention/group popup)
+ * - Shift+Enter: insert newline
+ * - Escape: close active popup
+ * - Tab: confirm highlighted suggestion
  */
 @Composable
 fun MessageInput(
@@ -76,6 +70,9 @@ fun MessageInput(
     groupMembers: List<MemberInfo> = emptyList(),
     mentions: Map<String, String> = emptyMap(), // displayName -> pubkey
     onMentionsChange: (Map<String, String>) -> Unit = {},
+    availableGroups: List<GroupInfo> = emptyList(),
+    groupMentions: Map<String, GroupInfo> = emptyMap(), // name -> GroupInfo
+    onGroupMentionsChange: (Map<String, GroupInfo>) -> Unit = {},
     replyingToMessage: NostrGroupClient.NostrMessage? = null,
     replyingToMetadata: UserMetadata? = null,
     userMetadata: Map<String, UserMetadata> = emptyMap(),
@@ -87,6 +84,10 @@ fun MessageInput(
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var mentionQuery by remember { mutableStateOf("") }
     var mentionSelectedIndex by remember { mutableStateOf(0) }
+    var showGroupMentionPopup by remember { mutableStateOf(false) }
+    var groupMentionStartIndex by remember { mutableStateOf(-1) }
+    var groupMentionQuery by remember { mutableStateOf("") }
+    var groupMentionSelectedIndex by remember { mutableStateOf(0) }
     var showEmojiPicker by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val showEmojiButton = remember {
@@ -108,7 +109,6 @@ fun MessageInput(
         }
     }
 
-    // Local TextFieldValue state for cursor position control
     var textFieldValue by remember { mutableStateOf(TextFieldValue(messageInput)) }
 
     // Sync with external messageInput when it changes (e.g., cleared after send)
@@ -122,59 +122,25 @@ fun MessageInput(
         }
     }
 
-    /**
-     * Finds the mention context at the given cursor position.
-     * Returns the start index of '@' if cursor is in a valid mention context, -1 otherwise.
-     * A valid mention context is: cursor is after '@' with no space between '@' and cursor,
-     * and '@' is at start of text or preceded by whitespace.
-     */
-    fun findMentionContext(text: String, cursorPosition: Int): Pair<Int, String> {
-        if (cursorPosition <= 0 || cursorPosition > text.length) {
-            return Pair(-1, "")
-        }
-
-        // Search backwards from cursor to find '@'
-        val textBeforeCursor = text.substring(0, cursorPosition)
-        val lastAtIndex = textBeforeCursor.lastIndexOf('@')
-
-        if (lastAtIndex == -1) {
-            return Pair(-1, "")
-        }
-
-        // Check if '@' is at start or after whitespace
-        val charBeforeAt = text.getOrNull(lastAtIndex - 1)
-        if (charBeforeAt != null && !charBeforeAt.isWhitespace()) {
-            return Pair(-1, "")
-        }
-
-        // Get the text between '@' and cursor
-        val queryPart = text.substring(lastAtIndex + 1, cursorPosition)
-
-        // If there's a space in the query, it's not a valid mention context
-        if (queryPart.contains(' ') || queryPart.contains('\n')) {
-            return Pair(-1, "")
-        }
-
-        return Pair(lastAtIndex, queryPart)
+    fun findMentionContext(text: String, cursorPosition: Int, trigger: Char): Pair<Int, String> {
+        if (cursorPosition <= 0 || cursorPosition > text.length) return Pair(-1, "")
+        val triggerIndex = text.substring(0, cursorPosition).lastIndexOf(trigger)
+        if (triggerIndex == -1) return Pair(-1, "")
+        val charBefore = text.getOrNull(triggerIndex - 1)
+        if (charBefore != null && !charBefore.isWhitespace()) return Pair(-1, "")
+        val queryPart = text.substring(triggerIndex + 1, cursorPosition)
+        if (queryPart.contains(' ') || queryPart.contains('\n')) return Pair(-1, "")
+        return Pair(triggerIndex, queryPart)
     }
 
-    /**
-     * Updates mention popup state based on current cursor position.
-     * Called on every text/cursor change to handle typing, backspace, clicks, arrow keys, etc.
-     */
     fun updateMentionState(value: TextFieldValue) {
-        val cursorPosition = value.selection.start
-        val (atIndex, query) = findMentionContext(value.text, cursorPosition)
-
-        if (atIndex >= 0) {
-            val queryChanged = mentionQuery != query
+        val (index, query) = findMentionContext(value.text, value.selection.start, '@')
+        if (index >= 0) {
+            if (mentionQuery != query) mentionSelectedIndex = 0
             showMentionPopup = true
             showEmojiPicker = false
-            mentionStartIndex = atIndex
+            mentionStartIndex = index
             mentionQuery = query
-            if (queryChanged) {
-                mentionSelectedIndex = 0 // Reset selection when query changes
-            }
         } else {
             showMentionPopup = false
             mentionStartIndex = -1
@@ -182,15 +148,29 @@ fun MessageInput(
         }
     }
 
-    // Handle text field value changes (text or cursor position)
+    fun updateGroupMentionState(value: TextFieldValue) {
+        val (index, query) = findMentionContext(value.text, value.selection.start, '%')
+        if (index >= 0) {
+            if (groupMentionQuery != query) groupMentionSelectedIndex = 0
+            showGroupMentionPopup = true
+            showEmojiPicker = false
+            groupMentionStartIndex = index
+            groupMentionQuery = query
+        } else {
+            showGroupMentionPopup = false
+            groupMentionStartIndex = -1
+            groupMentionQuery = ""
+        }
+    }
+
     fun handleTextFieldValueChange(newValue: TextFieldValue) {
         textFieldValue = newValue
         onMessageInputChange(newValue.text)
         updateMentionState(newValue)
+        updateGroupMentionState(newValue)
     }
 
     fun handleMemberSelect(member: MemberInfo) {
-        // Replace "@query" with "@displayName " (exactly one space after)
         val currentText = textFieldValue.text
         val beforeMention = currentText.substring(0, mentionStartIndex)
         val afterMention = if (mentionStartIndex + 1 + mentionQuery.length < currentText.length) {
@@ -199,29 +179,40 @@ fun MessageInput(
             ""
         }
         val mentionPart = "@${member.displayName} "
-        val newText = if (afterMention.isEmpty()) {
-            "$beforeMention$mentionPart"
-        } else {
-            "$beforeMention$mentionPart$afterMention"
-        }
-
-        // Calculate cursor position: right after the mention and space
+        val newText = if (afterMention.isEmpty()) "$beforeMention$mentionPart"
+                      else "$beforeMention$mentionPart$afterMention"
         val cursorPosition = beforeMention.length + mentionPart.length
-
-        // Update with new text and cursor position
         textFieldValue = TextFieldValue(newText, TextRange(cursorPosition))
         onMessageInputChange(newText)
-
-        // Add displayName -> pubkey mapping
         if (!mentions.containsKey(member.displayName)) {
             onMentionsChange(mentions + (member.displayName to member.pubkey))
         }
-
         showMentionPopup = false
         mentionStartIndex = -1
         mentionQuery = ""
+        focusRequester.requestFocus()
+    }
 
-        // Focus the input field after selection
+    fun handleGroupSelect(group: GroupInfo) {
+        val currentText = textFieldValue.text
+        val beforeMention = currentText.substring(0, groupMentionStartIndex)
+        val afterMention = if (groupMentionStartIndex + 1 + groupMentionQuery.length < currentText.length) {
+            currentText.substring(groupMentionStartIndex + 1 + groupMentionQuery.length).trimStart()
+        } else {
+            ""
+        }
+        val mentionPart = "%${group.name} "
+        val newText = if (afterMention.isEmpty()) "$beforeMention$mentionPart"
+                      else "$beforeMention$mentionPart$afterMention"
+        val cursorPosition = beforeMention.length + mentionPart.length
+        textFieldValue = TextFieldValue(newText, TextRange(cursorPosition))
+        onMessageInputChange(newText)
+        if (!groupMentions.containsKey(group.name)) {
+            onGroupMentionsChange(groupMentions + (group.name to group))
+        }
+        showGroupMentionPopup = false
+        groupMentionStartIndex = -1
+        groupMentionQuery = ""
         focusRequester.requestFocus()
     }
 
@@ -299,7 +290,6 @@ fun MessageInput(
         Column(
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Reply preview bar (shown when replying to a message)
             if (replyingToMessage != null) {
                 ReplyingToBar(
                     message = replyingToMessage,
@@ -312,7 +302,6 @@ fun MessageInput(
             Box(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Input row
                 Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -350,19 +339,19 @@ fun MessageInput(
                         .onFocusChanged { focusState ->
                             if (!focusState.isFocused) {
                                 showMentionPopup = false
+                                showGroupMentionPopup = false
                             }
                         }
                         .onPreviewKeyEvent { event ->
                             val filteredMembers = getFilteredMembers(groupMembers, mentionQuery)
+                            val filteredGroups = getFilteredGroups(availableGroups, groupMentionQuery)
                             when {
-                                // Escape closes the emoji picker first, then mention popup
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.Escape &&
                                 showEmojiPicker -> {
                                     showEmojiPicker = false
                                     true
                                 }
-                                // Escape closes the mention popup
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.Escape &&
                                 showMentionPopup -> {
@@ -371,7 +360,14 @@ fun MessageInput(
                                     mentionQuery = ""
                                     true
                                 }
-                                // Arrow Up - navigate up in mention popup
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.Escape &&
+                                showGroupMentionPopup -> {
+                                    showGroupMentionPopup = false
+                                    groupMentionStartIndex = -1
+                                    groupMentionQuery = ""
+                                    true
+                                }
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.DirectionUp &&
                                 showMentionPopup &&
@@ -379,12 +375,25 @@ fun MessageInput(
                                     mentionSelectedIndex = (mentionSelectedIndex - 1).coerceAtLeast(0)
                                     true
                                 }
-                                // Arrow Down - navigate down in mention popup
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.DirectionDown &&
                                 showMentionPopup &&
                                 filteredMembers.isNotEmpty() -> {
                                     mentionSelectedIndex = (mentionSelectedIndex + 1).coerceAtMost(filteredMembers.size - 1)
+                                    true
+                                }
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.DirectionUp &&
+                                showGroupMentionPopup &&
+                                filteredGroups.isNotEmpty() -> {
+                                    groupMentionSelectedIndex = (groupMentionSelectedIndex - 1).coerceAtLeast(0)
+                                    true
+                                }
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.DirectionDown &&
+                                showGroupMentionPopup &&
+                                filteredGroups.isNotEmpty() -> {
+                                    groupMentionSelectedIndex = (groupMentionSelectedIndex + 1).coerceAtMost(filteredGroups.size - 1)
                                     true
                                 }
                                 // Shift+Enter: manually insert newline at cursor (Discord-style)
@@ -399,35 +408,42 @@ fun MessageInput(
                                     textFieldValue = newValue
                                     onMessageInputChange(newText)
                                     updateMentionState(newValue)
+                                    updateGroupMentionState(newValue)
                                     true
                                 }
-                                // Enter selects mention if popup is open, otherwise sends message
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.Enter &&
                                 !event.isShiftPressed -> {
                                     if (showMentionPopup && filteredMembers.isNotEmpty()) {
                                         val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
-                                        if (selectedMember != null) {
-                                            handleMemberSelect(selectedMember)
-                                        }
+                                        if (selectedMember != null) handleMemberSelect(selectedMember)
+                                        true
+                                    } else if (showGroupMentionPopup && filteredGroups.isNotEmpty()) {
+                                        val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
+                                        if (selectedGroup != null) handleGroupSelect(selectedGroup)
                                         true
                                     } else if (textFieldValue.text.isNotBlank()) {
                                         showEmojiPicker = false
                                         onSendMessage()
                                         true
                                     } else {
-                                        true // Consume to prevent accidental newline on empty field
+                                        true
                                     }
                                 }
-                                // Tab also selects mention if popup is open
                                 event.type == KeyEventType.KeyDown &&
                                 event.key == Key.Tab &&
                                 showMentionPopup &&
                                 filteredMembers.isNotEmpty() -> {
                                     val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
-                                    if (selectedMember != null) {
-                                        handleMemberSelect(selectedMember)
-                                    }
+                                    if (selectedMember != null) handleMemberSelect(selectedMember)
+                                    true
+                                }
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.Tab &&
+                                showGroupMentionPopup &&
+                                filteredGroups.isNotEmpty() -> {
+                                    val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
+                                    if (selectedGroup != null) handleGroupSelect(selectedGroup)
                                     true
                                 }
                                 else -> false
@@ -455,11 +471,11 @@ fun MessageInput(
                     visualTransformation = MentionVisualTransformation(
                         mentionedNames = mentions.keys,
                         mentionColor = NostrordColors.MentionText,
-                        emojiFontFamily = rememberEmojiFontFamily()
+                        emojiFontFamily = rememberEmojiFontFamily(),
+                        groupMentionedNames = groupMentions.keys
                     )
                 )
 
-                // Emoji picker button — desktop/web only
                 if (showEmojiButton) {
                     IconButton(
                         onClick = {
@@ -478,7 +494,6 @@ fun MessageInput(
                     }
                 }
 
-                // Send button — disabled when empty, shows spinner while sending
                 IconButton(
                     onClick = {
                         if (textFieldValue.text.isNotBlank() && !isSending) {
@@ -507,20 +522,14 @@ fun MessageInput(
                 }
             }
 
-            // Mention popup floating above the input
             if (showMentionPopup && groupMembers.isNotEmpty()) {
                 val density = LocalDensity.current
                 val filteredCount = getFilteredMembers(groupMembers, mentionQuery).size
-                // Calculate popup height in dp: header (~28dp) + divider + items (each ~36dp), max 8 items
                 val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
                 val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
                 val offsetXPx = with(density) { Spacing.lg.roundToPx() }
 
-                // Fullscreen scrim to capture clicks outside popup and TextField
-                Popup(
-                    alignment = Alignment.Center,
-                    onDismissRequest = { showMentionPopup = false }
-                ) {
+                Popup(alignment = Alignment.Center, onDismissRequest = { showMentionPopup = false }) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -533,19 +542,11 @@ fun MessageInput(
                     )
                 }
 
-                // The actual mention popup
                 Popup(
                     alignment = Alignment.TopStart,
-                    offset = IntOffset(
-                        x = offsetXPx,
-                        y = -popupHeightPx
-                    ),
+                    offset = IntOffset(x = offsetXPx, y = -popupHeightPx),
                     onDismissRequest = { showMentionPopup = false },
-                    properties = PopupProperties(
-                        focusable = false,
-                        dismissOnClickOutside = false,
-                        dismissOnBackPress = true
-                    )
+                    properties = PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = true)
                 ) {
                     MentionPopup(
                         members = groupMembers,
@@ -556,7 +557,41 @@ fun MessageInput(
                 }
             }
 
-            // Emoji picker popup — single fullscreen popup with scrim + positioned picker
+            if (showGroupMentionPopup && availableGroups.isNotEmpty()) {
+                val density = LocalDensity.current
+                val filteredCount = getFilteredGroups(availableGroups, groupMentionQuery).size
+                val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
+                val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
+                val offsetXPx = with(density) { Spacing.lg.roundToPx() }
+
+                Popup(alignment = Alignment.Center, onDismissRequest = { showGroupMentionPopup = false }) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Transparent)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = { showGroupMentionPopup = false }
+                            )
+                    )
+                }
+
+                Popup(
+                    alignment = Alignment.TopStart,
+                    offset = IntOffset(x = offsetXPx, y = -popupHeightPx),
+                    onDismissRequest = { showGroupMentionPopup = false },
+                    properties = PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = true)
+                ) {
+                    GroupMentionPopup(
+                        groups = availableGroups,
+                        query = groupMentionQuery,
+                        selectedIndex = groupMentionSelectedIndex,
+                        onGroupSelect = { handleGroupSelect(it) }
+                    )
+                }
+            }
+
             if (showEmojiPicker) {
                 Popup(
                     alignment = Alignment.Center,
@@ -570,7 +605,6 @@ fun MessageInput(
                         dismissOnBackPress = true
                     )
                 ) {
-                    // Fullscreen container: transparent scrim catches clicks outside picker
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -583,7 +617,6 @@ fun MessageInput(
                                 }
                             )
                     ) {
-                        // Picker anchored to bottom-end, above the input bar
                         EmojiPicker(
                             onEmojiSelect = { emoji ->
                                 val text = textFieldValue.text
@@ -604,14 +637,11 @@ fun MessageInput(
                     }
                 }
             }
-            } // End Box
-        } // End Column
+            }
+        }
     }
 }
 
-/**
- * Compact bar shown above input when replying to a message.
- */
 @Composable
 private fun ReplyingToBar(
     message: NostrGroupClient.NostrMessage,
@@ -623,7 +653,6 @@ private fun ReplyingToBar(
         ?: metadata?.name
         ?: message.pubkey.take(8) + "..."
 
-    // Request metadata for any pubkeys mentioned in the content
     LaunchedEffect(message.content) {
         val pubkeysToFetch = org.nostr.nostrord.ui.components.chat.extractPubkeysFromContent(message.content)
             .filter { !userMetadata.containsKey(it) }
@@ -633,7 +662,6 @@ private fun ReplyingToBar(
         }
     }
 
-    // Process mentions in content to show @name instead of nostr:npub...
     val processedContent = remember(message.content, userMetadata) {
         org.nostr.nostrord.ui.components.chat.processMentionsInContent(message.content, userMetadata)
             .replace('\n', ' ')
@@ -646,7 +674,6 @@ private fun ReplyingToBar(
             .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left accent bar
         Box(
             modifier = Modifier
                 .width(3.dp)
@@ -659,7 +686,6 @@ private fun ReplyingToBar(
 
         Spacer(modifier = Modifier.width(Spacing.sm))
 
-        // Reply info
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "Replying to $authorName",
@@ -674,7 +700,6 @@ private fun ReplyingToBar(
             )
         }
 
-        // Cancel button
         IconButton(
             onClick = onCancelReply,
             modifier = Modifier.size(32.dp)
@@ -689,9 +714,6 @@ private fun ReplyingToBar(
     }
 }
 
-/**
- * Regex matching emoji codepoints — same pattern used in MessageContent for display.
- */
 private val emojiRegex = Regex(
     "[" +
         "\u00A9\u00AE" +
@@ -717,35 +739,29 @@ private val emojiRegex = Regex(
         "]+"
 )
 
-/**
- * Visual transformation that highlights @mentions and applies
- * NotoColorEmoji font selectively to emoji segments.
- */
 private class MentionVisualTransformation(
     private val mentionedNames: Set<String>,
     private val mentionColor: Color,
-    private val emojiFontFamily: FontFamily? = null
+    private val emojiFontFamily: FontFamily? = null,
+    private val groupMentionedNames: Set<String> = emptySet()
 ) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val builder = AnnotatedString.Builder(text)
 
-        // Find and highlight @mentions
-        mentionedNames.forEach { displayName ->
-            val mentionText = "@$displayName"
+        fun highlight(prefix: String, name: String) {
+            val mentionText = "$prefix$name"
             var startIndex = 0
             while (true) {
                 val index = text.text.indexOf(mentionText, startIndex)
                 if (index == -1) break
-                builder.addStyle(
-                    SpanStyle(color = mentionColor),
-                    index,
-                    index + mentionText.length
-                )
+                builder.addStyle(SpanStyle(color = mentionColor), index, index + mentionText.length)
                 startIndex = index + mentionText.length
             }
         }
 
-        // Apply emoji font only to emoji segments
+        mentionedNames.forEach { highlight("@", it) }
+        groupMentionedNames.forEach { highlight("%", it) }
+
         if (emojiFontFamily != null) {
             emojiRegex.findAll(text.text).forEach { match ->
                 builder.addStyle(

@@ -797,7 +797,7 @@ fun processMentionsInContent(
                 }
                 is Nip19.Entity.Note -> "[note]"
                 is Nip19.Entity.Nevent -> "[event]"
-                is Nip19.Entity.Naddr -> "[article]"
+                is Nip19.Entity.Naddr -> if (entity.kind == 39000) "%${entity.identifier}" else "[article]"
                 else -> uri
             }
         } catch (_: Exception) {

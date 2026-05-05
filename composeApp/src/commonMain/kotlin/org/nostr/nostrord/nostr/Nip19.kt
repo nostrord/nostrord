@@ -44,6 +44,26 @@ object Nip19 {
         return Bech32.encode("npub", pubkeyHex.hexToByteArray())
     }
 
+    // Zero pubkey per convention — NIP-29 groups have no author.
+    fun encodeNaddr(identifier: String, relay: String, kind: Int = 39000): String {
+        val tlv = mutableListOf<Byte>()
+        fun addTLV(type: Int, value: ByteArray) {
+            tlv.add(type.toByte())
+            tlv.add(value.size.toByte())
+            tlv.addAll(value.toList())
+        }
+        addTLV(TLV_SPECIAL, identifier.encodeToByteArray())
+        addTLV(TLV_RELAY, relay.encodeToByteArray())
+        addTLV(TLV_AUTHOR, ByteArray(32))
+        addTLV(TLV_KIND, byteArrayOf(
+            (kind shr 24).toByte(),
+            (kind shr 16).toByte(),
+            (kind shr 8).toByte(),
+            kind.toByte()
+        ))
+        return Bech32.encode("naddr", tlv.toByteArray())
+    }
+
     /**
      * Encode a private key to nsec
      */
