@@ -56,15 +56,8 @@ import org.nostr.nostrord.utils.formatTime
  * Enhanced message item with grouping support and hover actions.
  *
  * Interaction behavior:
- * - Hover: Shows subtle background highlight after 50ms
- * - Actions toolbar appears at top-right with 100ms fade in
- * - Actions disappear immediately (50ms fade out) on mouse leave
- * - Right-click (desktop) or tap "More" button: Shows context menu
- *
- * TEXT SELECTION: This component is designed to NOT interfere with text selection.
- * - NO long-press handler (conflicts with selection start gesture)
- * - Context menu triggered via right-click (desktop) or "More" button (mobile)
- * - All text content is selectable via parent SelectionContainer
+ * - Desktop: hover shows action toolbar; right-click opens context menu
+ * - Android: long-press opens context menu directly
  *
  * Spacing:
  * - 72dp total left column (16dp padding + 40dp avatar + 16dp gap)
@@ -91,6 +84,7 @@ fun MessageItem(
     onMoreClick: () -> Unit = {},
     onCopyText: () -> Unit = {},
     onCopyLink: () -> Unit = {},
+    onShareLink: () -> Unit = {},
     onCopyJson: () -> Unit = {},
     onPinMessage: () -> Unit = {},
     onDeleteMessage: () -> Unit = {},
@@ -105,6 +99,7 @@ fun MessageItem(
     val currentOnReactionClick by rememberUpdatedState(onReactionClick)
     val currentOnCopyText by rememberUpdatedState(onCopyText)
     val currentOnCopyLink by rememberUpdatedState(onCopyLink)
+    val currentOnShareLink by rememberUpdatedState(onShareLink)
     val currentOnCopyJson by rememberUpdatedState(onCopyJson)
     val currentOnPinMessage by rememberUpdatedState(onPinMessage)
     val currentOnDeleteMessage by rememberUpdatedState(onDeleteMessage)
@@ -214,7 +209,11 @@ fun MessageItem(
                 showContextMenu = true
             })
             .background(
-                if (isHovered || isPressed) NostrordColors.MessageHover else highlightColor
+                when {
+                    showContextMenu -> NostrordColors.SurfaceVariant
+                    isHovered || isPressed -> NostrordColors.MessageHover
+                    else -> highlightColor
+                }
             )
     ) {
         // Main message content - this defines the Box size
@@ -356,6 +355,7 @@ fun MessageItem(
                     MessageContextAction.Reply -> currentOnReplyClick()
                     MessageContextAction.CopyText -> currentOnCopyText()
                     MessageContextAction.CopyMessageLink -> currentOnCopyLink()
+                    MessageContextAction.ShareMessageLink -> currentOnShareLink()
                     MessageContextAction.CopyEventJson -> currentOnCopyJson()
                     MessageContextAction.PinMessage -> currentOnPinMessage()
                     MessageContextAction.DeleteMessage -> currentOnDeleteMessage()

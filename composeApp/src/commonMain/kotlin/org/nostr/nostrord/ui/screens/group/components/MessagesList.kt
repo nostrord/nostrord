@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import org.nostr.nostrord.utils.rememberClipboardWriter
+import org.nostr.nostrord.utils.rememberTextSharer
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -106,6 +107,7 @@ fun MessagesList(
     val imageViewerUrl = remember { mutableStateOf<String?>(null) }
     val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
     val copyToClipboard = rememberClipboardWriter()
+    val shareText = rememberTextSharer()
 
     // Hide ALL animated HTML overlays when the image viewer modal is open
     val parentHidden = LocalAnimatedImageHidden.current
@@ -393,6 +395,10 @@ fun MessagesList(
                                     onCopyLink = {
                                         val relay = currentRelayUrl ?: return@MessageItem
                                         copyToClipboard(buildShareMessageLink(relay, groupId, item.message.id))
+                                    },
+                                    onShareLink = {
+                                        val relay = currentRelayUrl ?: return@MessageItem
+                                        shareText(buildShareMessageLink(relay, groupId, item.message.id))
                                     },
                                     onCopyJson = {
                                         val msg = item.message
