@@ -1281,6 +1281,20 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         sendJson(req)
     }
 
+    // #h filter included because some NIP-29 relays require it even for ID lookups.
+    suspend fun requestGroupMessageById(groupId: String, messageId: String) {
+        val subId = "e_${epochMillis()}"
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(buildJsonObject {
+                putJsonArray("ids") { add(messageId) }
+                putJsonArray("#h") { add(groupId) }
+            })
+        }
+        sendJson(req)
+    }
+
     /**
      * Request an addressable event by its coordinates (kind, pubkey, d-tag).
      * Addressable events are parameterized replaceable events (kinds 30000-39999).

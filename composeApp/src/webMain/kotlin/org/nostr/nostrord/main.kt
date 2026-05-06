@@ -47,9 +47,10 @@ private fun parseDeepLinkFromUrl() {
     val relayUrl = relay.toRelayUrl().takeIf { it.isNotBlank() } ?: return
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
+    val messageId = params["message"]?.takeIf { it.isNotBlank() }
 
     val context = if (groupId != null) {
-        ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl, inviteCode = inviteCode)
+        ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl, inviteCode = inviteCode, messageId = messageId)
     } else {
         ExternalLaunchContext.OpenRelay(relayUrl)
     }

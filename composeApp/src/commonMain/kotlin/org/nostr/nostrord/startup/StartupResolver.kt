@@ -69,7 +69,8 @@ object StartupResolver {
                 is ExternalLaunchContext.OpenGroup -> ResolvedScreen(
                     screen = Screen.Group(external.groupId, external.groupName),
                     relayUrl = external.relayUrl,
-                    inviteCode = external.inviteCode
+                    inviteCode = external.inviteCode,
+                    messageId = external.messageId
                 )
                 is ExternalLaunchContext.OpenRelay -> ResolvedScreen(
                     screen = Screen.Home,
@@ -135,7 +136,8 @@ object StartupResolver {
             initialScreen = resolved.screen,
             restoredFromPersistence = resolved.restoredFromPersistence,
             deepLinkRelayUrl = resolved.relayUrl,
-            deepLinkInviteCode = resolved.inviteCode
+            deepLinkInviteCode = resolved.inviteCode,
+            deepLinkMessageId = resolved.messageId
         )
     }
 }
@@ -147,7 +149,8 @@ data class ResolvedScreen(
     val screen: Screen,
     val restoredFromPersistence: Boolean = false,
     val relayUrl: String? = null,
-    val inviteCode: String? = null
+    val inviteCode: String? = null,
+    val messageId: String? = null
 )
 
 sealed class ExternalLaunchContext {
@@ -155,7 +158,8 @@ sealed class ExternalLaunchContext {
         val groupId: String,
         val groupName: String?,
         val relayUrl: String? = null,
-        val inviteCode: String? = null
+        val inviteCode: String? = null,
+        val messageId: String? = null
     ) : ExternalLaunchContext()
     data class OpenRelay(val relayUrl: String) : ExternalLaunchContext()
     data object OpenHome : ExternalLaunchContext()

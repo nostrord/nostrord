@@ -45,7 +45,9 @@ fun GroupScreen(
     onOpenDrawer: () -> Unit = {},
     forceDesktop: Boolean = false,
     pendingInviteCode: String? = null,
-    onInviteCodeConsumed: () -> Unit = {}
+    onInviteCodeConsumed: () -> Unit = {},
+    targetMessageId: String? = null,
+    onTargetMessageConsumed: () -> Unit = {}
 ) {
     val vm = viewModel(key = groupId) { GroupViewModel(AppModule.nostrRepository, groupId) }
 
@@ -734,7 +736,10 @@ fun GroupScreen(
                 isClosed = currentGroupMetadata?.isOpen == false,
                 isGroupRestricted = isGroupRestricted,
                 initialInviteCode = effectiveInviteCode,
-                onReachedBottom = { vm.markAsRead() }
+                onReachedBottom = { vm.markAsRead() },
+                targetMessageId = targetMessageId,
+                onTargetConsumed = onTargetMessageConsumed,
+                onFetchTargetById = { id -> vm.fetchMessageById(id) }
             )
         } else {
             GroupScreenDesktop(
@@ -827,7 +832,10 @@ fun GroupScreen(
                 isClosed = currentGroupMetadata?.isOpen == false,
                 isGroupRestricted = isGroupRestricted,
                 initialInviteCode = effectiveInviteCode,
-                onReachedBottom = { vm.markAsRead() }
+                onReachedBottom = { vm.markAsRead() },
+                targetMessageId = targetMessageId,
+                onTargetConsumed = onTargetMessageConsumed,
+                onFetchTargetById = { id -> vm.fetchMessageById(id) }
             )
         }
     }

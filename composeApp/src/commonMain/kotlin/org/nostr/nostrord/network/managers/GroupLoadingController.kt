@@ -254,9 +254,13 @@ class GroupLoadingController(
                 return@withLock true // Wait for more relays
             }
 
-            // Determine next state based on message count
+            // Determine next state based on message count.
+            // For the initial load, never mark Exhausted here: messages may arrive via other
+            // subscriptions (mux/live) before EOSE and not be counted by this tracker, causing
+            // a false Exhausted when there is still more history. The next (empty) pagination
+            // page will correctly transition to Exhausted.
             val messagesReceived = tracker.messageCount
-            val isExhausted = messagesReceived < pageSize
+            val isExhausted = !tracker.isInitialLoad && messagesReceived < pageSize
 
             val newCursor = if (tracker.oldestEventId != null) {
                 (getCurrentCursor() ?: PaginationCursor.initial()).advance(

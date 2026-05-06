@@ -3,7 +3,7 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -1720,11 +1720,24 @@ class GroupManager(
         // Update legacy flags
         updateLegacyFlags(groupId, controller.state.value)
 
+        // When cursor.untilTimestamp == Long.MAX_VALUE the tracker counted 0 messages
+        // (all were deduplicated because mux delivered them before the pagination sub).
+        // Fall back to the actual oldest message in the store so page 2 doesn't repeat
+        // the same window as the initial load and return nothing.
+        val effectiveUntil = if (cursor.untilTimestamp == Long.MAX_VALUE) {
+            val minCreatedAt = _messages.value[groupId]
+                ?.filter { it.createdAt > 1_000_000_000L } // guard against epoch-0 outliers
+                ?.minOfOrNull { it.createdAt }
+            if (minCreatedAt != null) minCreatedAt - 1L else cursor.untilTimestamp
+        } else {
+            cursor.untilTimestamp
+        }
+
         return try {
             currentClient.requestGroupMessages(
                 groupId = groupId,
                 channel = channel,
-                until = cursor.untilTimestamp,
+                until = effectiveUntil,
                 limit = PAGE_SIZE,
                 subscriptionId = subscriptionId
             )
@@ -1735,6 +1748,10 @@ class GroupManager(
             updateLegacyFlags(groupId, controller.state.value)
             false
         }
+    }
+
+    suspend fun fetchGroupMessageById(groupId: String, messageId: String) {
+        clientForGroup(groupId)?.requestGroupMessageById(groupId, messageId)
     }
 
     /**
@@ -1798,41 +1815,27 @@ class GroupManager(
         return true
     }
 
-    // [trackMessageForSubscription] runs each track on a separate scope.launch
-    // (handleMessage is non-suspend). Without this bookkeeping, EOSE can read
-    // messageCount while N tracks are still queued and a full page lands as
-    // Exhausted.
-    private val pendingTrackJobs = mutableMapOf<String, MutableList<Job>>()
-    private val pendingTracksLock = Mutex()
+    // Incremented synchronously (before scope.launch) so EOSE always sees the full count.
+    private val pendingTrackCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
 
     fun trackMessageForSubscription(subscriptionId: String, timestamp: Long, eventId: String) {
-        val job = scope.launch {
-            loadingRegistry.trackMessage(subscriptionId, timestamp, eventId)
+        pendingTrackCounts.update { map ->
+            map + (subscriptionId to ((map[subscriptionId] ?: 0) + 1))
         }
         scope.launch {
-            pendingTracksLock.withLock {
-                pendingTrackJobs.getOrPut(subscriptionId) { mutableListOf() }.add(job)
-            }
             try {
-                job.join()
+                loadingRegistry.trackMessage(subscriptionId, timestamp, eventId)
             } finally {
-                pendingTracksLock.withLock {
-                    val list = pendingTrackJobs[subscriptionId]
-                    list?.remove(job)
-                    if (list?.isEmpty() == true) pendingTrackJobs.remove(subscriptionId)
+                pendingTrackCounts.update { map ->
+                    val n = map[subscriptionId] ?: return@update map
+                    if (n <= 1) map - subscriptionId else map + (subscriptionId to (n - 1))
                 }
             }
         }
     }
 
     private suspend fun awaitTrackingForSubscription(subscriptionId: String) {
-        repeat(3) {
-            val snapshot = pendingTracksLock.withLock {
-                pendingTrackJobs[subscriptionId]?.toList().orEmpty()
-            }
-            if (snapshot.isEmpty()) return
-            snapshot.joinAll()
-        }
+        pendingTrackCounts.first { (it[subscriptionId] ?: 0) == 0 }
     }
 
     /**

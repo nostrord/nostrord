@@ -237,6 +237,10 @@ class GroupViewModel(
         viewModelScope.launch { repo.loadMoreMessages(groupId, channel) }
     }
 
+    fun fetchMessageById(messageId: String) {
+        viewModelScope.launch { repo.fetchGroupMessageById(groupId, messageId) }
+    }
+
     fun switchRelay(relayUrl: String) {
         viewModelScope.launch { repo.switchRelay(relayUrl) }
     }

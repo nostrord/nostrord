@@ -1,6 +1,8 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -94,7 +96,8 @@ fun MessageItem(
     onDeleteMessage: () -> Unit = {},
     onUsernameClick: (String) -> Unit = {},
     onScrollToMessage: (String) -> Unit = {},
-    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> }
+    onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    isHighlighted: Boolean = false
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -188,6 +191,19 @@ fun MessageItem(
     // Context menu state
     var showContextMenu by remember { mutableStateOf(false) }
 
+    var highlightActive by remember(isHighlighted) { mutableStateOf(isHighlighted) }
+    LaunchedEffect(isHighlighted) {
+        if (isHighlighted) {
+            highlightActive = true
+            delay(2500)
+            highlightActive = false
+        }
+    }
+    val highlightColor by animateColorAsState(
+        targetValue = if (highlightActive) NostrordColors.Primary.copy(alpha = 0.18f) else Color.Transparent,
+        animationSpec = if (highlightActive) snap() else tween(durationMillis = 1200)
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -198,7 +214,7 @@ fun MessageItem(
                 showContextMenu = true
             })
             .background(
-                if (isHovered || isPressed) NostrordColors.MessageHover else Color.Transparent
+                if (isHovered || isPressed) NostrordColors.MessageHover else highlightColor
             )
     ) {
         // Main message content - this defines the Box size

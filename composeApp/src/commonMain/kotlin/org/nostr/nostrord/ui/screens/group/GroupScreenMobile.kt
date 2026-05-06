@@ -139,7 +139,10 @@ fun GroupScreenMobile(
     onInviteCodesClick: () -> Unit = {},
     isClosed: Boolean = false,
     isGroupRestricted: Boolean = false,
-    initialInviteCode: String? = null
+    initialInviteCode: String? = null,
+    targetMessageId: String? = null,
+    onTargetConsumed: () -> Unit = {},
+    onFetchTargetById: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -241,7 +244,10 @@ fun GroupScreenMobile(
                         onDeleteMessage = onDeleteMessage,
                         onReactionBadgeClick = onReactionBadgeClick,
                         onNavigateToGroup = onNavigateToGroup,
-                        onReachedBottom = onReachedBottom
+                        onReachedBottom = onReachedBottom,
+                        targetMessageId = targetMessageId,
+                        onTargetConsumed = onTargetConsumed,
+                        onFetchTargetById = onFetchTargetById
                     )
                 }
 

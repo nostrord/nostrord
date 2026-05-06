@@ -202,6 +202,7 @@ interface NostrRepositoryApi {
     /** Connect to a relay in the background and fetch kind 39000 metadata for a group preview. */
     suspend fun fetchGroupPreview(groupId: String, relayUrl: String)
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean
+    suspend fun fetchGroupMessageById(groupId: String, messageId: String)
     suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null, extraTags: List<List<String>> = emptyList()): Result<Unit>
     suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String> = emptyList()): Result<Unit>
     suspend fun removeUser(groupId: String, targetPubkey: String): Result<Unit>

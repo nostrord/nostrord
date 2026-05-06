@@ -38,6 +38,7 @@ sealed class AppStartState {
         val initialScreen: Screen,
         val restoredFromPersistence: Boolean = false,
         val deepLinkRelayUrl: String? = null,
-        val deepLinkInviteCode: String? = null
+        val deepLinkInviteCode: String? = null,
+        val deepLinkMessageId: String? = null
     ) : AppStartState()
 }
