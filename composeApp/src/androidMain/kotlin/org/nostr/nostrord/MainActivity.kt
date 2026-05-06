@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
         val relayUrl = relay.toRelayUrl().takeIf { it.isNotBlank() } ?: return
         val groupId = uri.getQueryParameter("group")?.takeIf { it.isNotBlank() }
         val inviteCode = uri.getQueryParameter("code")?.takeIf { it.isNotBlank() }
-        val messageId = uri.getQueryParameter("message")?.takeIf { it.isNotBlank() }
+        val messageId = uri.getQueryParameter("e")?.takeIf { it.isNotBlank() }
 
         val context = if (groupId != null) {
             ExternalLaunchContext.OpenGroup(
