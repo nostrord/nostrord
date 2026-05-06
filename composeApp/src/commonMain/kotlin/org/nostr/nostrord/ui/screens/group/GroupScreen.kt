@@ -81,6 +81,7 @@ fun GroupScreen(
     val joinedGroups by vm.joinedGroups.collectAsState()
     val groups by vm.groups.collectAsState()
     val groupsByRelay by vm.groupsByRelay.collectAsState()
+    val relayMetadata by vm.relayMetadata.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
     val allReactions by vm.reactions.collectAsState()
     val allGroupMembers by vm.groupMembers.collectAsState()
@@ -681,7 +682,8 @@ fun GroupScreen(
                     val imetaTags = pendingUploads.map { it.toImetaTag() }
                     var content = messageInput
                     groupMentions.forEach { (name, group) ->
-                        val naddr = Nip19.encodeNaddr(group.id, group.relay)
+                        val relayPubkey = relayMetadata[group.relay]?.pubkey
+                        val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                         content = content.replace("%$name", "nostr:$naddr")
                     }
                     vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
@@ -780,7 +782,8 @@ fun GroupScreen(
                     val imetaTags = pendingUploads.map { it.toImetaTag() }
                     var content = messageInput
                     groupMentions.forEach { (name, group) ->
-                        val naddr = Nip19.encodeNaddr(group.id, group.relay)
+                        val relayPubkey = relayMetadata[group.relay]?.pubkey
+                        val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                         content = content.replace("%$name", "nostr:$naddr")
                     }
                     vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)

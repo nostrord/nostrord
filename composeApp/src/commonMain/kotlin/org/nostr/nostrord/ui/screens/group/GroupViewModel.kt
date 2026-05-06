@@ -28,6 +28,7 @@ class GroupViewModel(
     val isLoadingMore = repo.isLoadingMore
     val hasMoreMessages = repo.hasMoreMessages
     val currentRelayUrl = repo.currentRelayUrl
+    val relayMetadata = repo.relayMetadata
     val childrenByParent = repo.childrenByParent
 
     private val _isSending = MutableStateFlow(false)
