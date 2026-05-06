@@ -44,6 +44,27 @@ object Nip19 {
         return Bech32.encode("npub", pubkeyHex.hexToByteArray())
     }
 
+    // pubkeyHex: relay's own pubkey from NIP-11; falls back to 32 zero bytes if unknown.
+    fun encodeNaddr(identifier: String, relay: String, kind: Int = 39000, pubkeyHex: String? = null): String {
+        val tlv = mutableListOf<Byte>()
+        fun addTLV(type: Int, value: ByteArray) {
+            tlv.add(type.toByte())
+            tlv.add(value.size.toByte())
+            tlv.addAll(value.toList())
+        }
+        val authorBytes = pubkeyHex?.runCatching { hexToByteArray() }?.getOrNull()?.takeIf { it.size == 32 } ?: ByteArray(32)
+        addTLV(TLV_SPECIAL, identifier.encodeToByteArray())
+        addTLV(TLV_RELAY, relay.encodeToByteArray())
+        addTLV(TLV_AUTHOR, authorBytes)
+        addTLV(TLV_KIND, byteArrayOf(
+            (kind shr 24).toByte(),
+            (kind shr 16).toByte(),
+            (kind shr 8).toByte(),
+            kind.toByte()
+        ))
+        return Bech32.encode("naddr", tlv.toByteArray())
+    }
+
     /**
      * Encode a private key to nsec
      */

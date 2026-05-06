@@ -32,7 +32,9 @@ import org.nostr.nostrord.ui.screens.group.components.JoinRequestsModal
 import org.nostr.nostrord.ui.screens.group.components.MemberManagementModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.group.model.buildChatItems
+import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 @Composable
@@ -78,6 +80,8 @@ fun GroupScreen(
     val connectionState by vm.connectionState.collectAsState()
     val joinedGroups by vm.joinedGroups.collectAsState()
     val groups by vm.groups.collectAsState()
+    val groupsByRelay by vm.groupsByRelay.collectAsState()
+    val relayMetadata by vm.relayMetadata.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
     val allReactions by vm.reactions.collectAsState()
     val allGroupMembers by vm.groupMembers.collectAsState()
@@ -91,6 +95,14 @@ fun GroupScreen(
 
     val currentGroupMetadata = remember(groups, groupId) {
         groups.find { it.id == groupId }
+    }
+
+    val availableGroups = remember(groupsByRelay) {
+        groupsByRelay.flatMap { (relay, relayGroups) ->
+            relayGroups.map { g ->
+                GroupInfo(id = g.id, name = g.name ?: g.id, picture = g.picture, relay = relay)
+            }
+        }.distinctBy { it.id }
     }
 
     val isGroupRestricted = allRestrictedGroups.containsKey(groupId)
@@ -113,7 +125,8 @@ fun GroupScreen(
     val hasMoreMessages = hasMoreMessagesMap[groupId] ?: true
 
     var messageInput by remember { mutableStateOf("") }
-    var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) } // displayName -> pubkey
+    var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var groupMentions by remember { mutableStateOf<Map<String, GroupInfo>>(emptyMap()) }
     var replyingToMessage by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var pendingUploads by remember { mutableStateOf<List<UploadResult>>(emptyList()) }
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -667,9 +680,16 @@ fun GroupScreen(
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
                     val imetaTags = pendingUploads.map { it.toImetaTag() }
-                    vm.sendMessage(messageInput, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
+                    var content = messageInput
+                    groupMentions.forEach { (name, group) ->
+                        val relayPubkey = relayMetadata[group.relay]?.pubkey
+                        val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
+                        content = content.replace("%$name", "nostr:$naddr")
+                    }
+                    vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
                     messageInput = ""
                     mentions = emptyMap()
+                    groupMentions = emptyMap()
                     replyingToMessage = null
                     pendingUploads = emptyList()
                 },
@@ -694,6 +714,9 @@ fun GroupScreen(
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
                 onMentionsChange = { mentions = it },
+                availableGroups = availableGroups,
+                groupMentions = groupMentions,
+                onGroupMentionsChange = { groupMentions = it },
                 replyingToMessage = replyingToMessage,
                 onReplyClick = { message -> replyingToMessage = message },
                 onDeleteMessage = { message -> messageToDelete = message },
@@ -757,9 +780,16 @@ fun GroupScreen(
                 onMessageInputChange = { messageInput = it },
                 onSendMessage = {
                     val imetaTags = pendingUploads.map { it.toImetaTag() }
-                    vm.sendMessage(messageInput, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
+                    var content = messageInput
+                    groupMentions.forEach { (name, group) ->
+                        val relayPubkey = relayMetadata[group.relay]?.pubkey
+                        val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
+                        content = content.replace("%$name", "nostr:$naddr")
+                    }
+                    vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
                     messageInput = ""
                     mentions = emptyMap()
+                    groupMentions = emptyMap()
                     replyingToMessage = null
                     pendingUploads = emptyList()
                 },
@@ -784,6 +814,9 @@ fun GroupScreen(
                 recentlyActiveMembers = recentlyActiveMembers,
                 mentions = mentions,
                 onMentionsChange = { mentions = it },
+                availableGroups = availableGroups,
+                groupMentions = groupMentions,
+                onGroupMentionsChange = { groupMentions = it },
                 replyingToMessage = replyingToMessage,
                 onReplyClick = { message -> replyingToMessage = message },
                 onDeleteMessage = { message -> messageToDelete = message },

@@ -51,6 +51,7 @@ import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
+import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -110,6 +111,9 @@ fun GroupScreenMobile(
     recentlyActiveMembers: Set<String> = emptySet(),
     mentions: Map<String, String> = emptyMap(),
     onMentionsChange: (Map<String, String>) -> Unit = {},
+    availableGroups: List<GroupInfo> = emptyList(),
+    groupMentions: Map<String, GroupInfo> = emptyMap(),
+    onGroupMentionsChange: (Map<String, GroupInfo>) -> Unit = {},
     replyingToMessage: NostrMessage? = null,
     onReplyClick: (NostrMessage) -> Unit = {},
     onDeleteMessage: (NostrMessage) -> Unit = {},
@@ -259,6 +263,9 @@ fun GroupScreenMobile(
                     groupMembers = groupMembers,
                     mentions = mentions,
                     onMentionsChange = onMentionsChange,
+                    availableGroups = availableGroups,
+                    groupMentions = groupMentions,
+                    onGroupMentionsChange = onGroupMentionsChange,
                     replyingToMessage = replyingToMessage,
                     replyingToMetadata = replyingToMessage?.let { userMetadata[it.pubkey] },
                     userMetadata = userMetadata,

@@ -72,6 +72,8 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
+import androidx.compose.ui.graphics.Color
+import org.nostr.nostrord.ui.util.generateColorFromString
 
 // Type alias to bridge new parser to existing rendering code
 private typealias ContentPart = MessageContentParser.ParsedPart
@@ -797,7 +799,7 @@ fun processMentionsInContent(
                 }
                 is Nip19.Entity.Note -> "[note]"
                 is Nip19.Entity.Nevent -> "[event]"
-                is Nip19.Entity.Naddr -> "[article]"
+                is Nip19.Entity.Naddr -> if (entity.kind == 39000) "%${entity.identifier}" else "[article]"
                 else -> uri
             }
         } catch (_: Exception) {
@@ -2236,6 +2238,11 @@ private fun GroupLinkCard(
 
     val displayName = groupMeta?.name ?: groupId
     val relayDisplay = relayUrl?.removePrefix("wss://")?.removePrefix("ws://")
+    var imageState by remember(groupMeta?.picture) {
+        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
+    }
+    val pictureUrl = groupMeta?.picture
+    val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
 
     DisableSelection {
         Row(
@@ -2253,22 +2260,31 @@ private fun GroupLinkCard(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(RoundedCornerShape(8.dp))
+                    .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
+                contentAlignment = Alignment.Center
             ) {
-                if (groupMeta?.picture != null) {
+                if (!showImage) {
+                    Text(
+                        text = displayName.take(1).uppercase(),
+                        color = Color.White,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                if (!pictureUrl.isNullOrBlank()) {
                     val context = LocalPlatformContext.current
                     AsyncImage(
                         model = ImageRequest.Builder(context)
-                            .data(getImageUrl(groupMeta.picture))
+                            .data(getImageUrl(pictureUrl))
                             .crossfade(true)
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .build(),
                         contentDescription = displayName,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        onState = { imageState = it }
                     )
-                } else {
-                    Jdenticon(value = groupId, size = 36.dp)
                 }
             }
 
