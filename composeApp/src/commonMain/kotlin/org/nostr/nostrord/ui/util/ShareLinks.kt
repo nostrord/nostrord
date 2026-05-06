@@ -31,3 +31,14 @@ fun buildShareGroupLink(relayUrl: String, groupId: String): String {
     return if (origin != null) "$origin/?relay=$host&group=$groupId"
     else "https://nostrord.com/open/?relay=$host&group=$groupId"
 }
+
+/**
+ * Builds a shareable link pointing to a specific message within a group.
+ * On web uses the current origin, on native uses https://nostrord.com/open/.
+ */
+fun buildShareMessageLink(relayUrl: String, groupId: String, messageId: String): String {
+    val host = relayHost(relayUrl)
+    val origin = platformAppOrigin()
+    return if (origin != null) "$origin/?relay=$host&group=$groupId&message=$messageId"
+    else "https://nostrord.com/open/?relay=$host&group=$groupId&message=$messageId"
+}

@@ -56,6 +56,7 @@ import org.nostr.nostrord.ui.components.chat.MessageItem
 import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
 import org.nostr.nostrord.ui.components.chat.ZapEventItem
+import org.nostr.nostrord.ui.util.buildShareMessageLink
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
@@ -89,12 +90,17 @@ fun MessagesList(
     onReactionBadgeClick: (messageId: String, emoji: String) -> Unit = { _, _ -> },
     onScrollToMessage: (String) -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
-    onReachedBottom: () -> Unit = {}
+    onReachedBottom: () -> Unit = {},
+    targetMessageId: String? = null,
+    onTargetConsumed: () -> Unit = {},
+    onFetchTargetById: (String) -> Unit = {}
 ) {
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
     val currentOnReachedBottom by rememberUpdatedState(onReachedBottom)
+    val currentOnFetchTargetById by rememberUpdatedState(onFetchTargetById)
+    val currentChatItems by rememberUpdatedState(chatItems)
 
     var reactingToMessageId by remember { mutableStateOf<String?>(null) }
     val imageViewerUrl = remember { mutableStateOf<String?>(null) }
@@ -124,25 +130,76 @@ fun MessagesList(
         is ChatItem.ZapEvent -> "zap_${item.id}"
     }
 
+    val isSeekingTarget = targetMessageId != null
+    val currentOnTargetConsumed by rememberUpdatedState(onTargetConsumed)
+
+    // Correct scroll position after pagination prepends items.
+    val currentHasMore by rememberUpdatedState(hasMoreMessages)
+    val currentIsLoadingMore by rememberUpdatedState(isLoadingMore)
+
     ScrollPositionEffect(
         groupId = groupId,
         listState = listState,
         items = chatItems,
         stateHolder = scrollStateHolder,
         getItemKey = ::getItemKey,
-        initialScrollToEnd = true
+        initialScrollToEnd = !isSeekingTarget
     )
 
     AutoScrollEffect(
         listState = listState,
         items = chatItems,
         getItemKey = ::getItemKey,
-        enabled = scrollStateHolder.isRestored || !scrollStateHolder.isRestorationPending
+        enabled = (scrollStateHolder.isRestored || !scrollStateHolder.isRestorationPending) && !isSeekingTarget
     )
 
+    // Fetch by ID immediately — covers cursor-drift misses independently of pagination.
+    LaunchedEffect(groupId, targetMessageId) {
+        val id = targetMessageId ?: return@LaunchedEffect
+        currentOnFetchTargetById(id)
+    }
+
+    var seekScrollApplied by remember(groupId) { mutableStateOf(false) }
+    var highlightedMessageId by remember(groupId) { mutableStateOf<String?>(null) }
+
+    // hasMoreMessages and isLoadingMore are keys so the effect re-fires on the
+    // InitialLoading→HasMore transition (state change without chatItems.size changing).
+    LaunchedEffect(chatItems.size, targetMessageId, hasMoreMessages, isLoadingMore) {
+        val id = targetMessageId ?: run { seekScrollApplied = false; return@LaunchedEffect }
+        val idx = chatItems.indexOfFirst { it is ChatItem.Message && it.message.id == id }
+        when {
+            idx >= 0 -> {
+                seekScrollApplied = true
+                highlightedMessageId = id
+                listState.scrollToItem(idx)
+                currentOnTargetConsumed()
+            }
+            chatItems.isNotEmpty() && hasMoreMessages && !isLoadingMore -> currentOnLoadMore()
+        }
+    }
+
+    // Fallback after exhaustion: delay 500ms to let the eventOrderingBuffer (300ms debounce)
+    // flush the last page, then check once more before giving up.
+    // Empty snapshot means the relay served nothing (relay switch in progress) — preserve target.
+    LaunchedEffect(targetMessageId, hasMoreMessages, isLoadingMore) {
+        val id = targetMessageId ?: return@LaunchedEffect
+        if (hasMoreMessages || isLoadingMore) return@LaunchedEffect
+        kotlinx.coroutines.delay(500)
+        val snapshot = currentChatItems
+        val idx = snapshot.indexOfFirst { it is ChatItem.Message && it.message.id == id }
+        if (idx >= 0) {
+            seekScrollApplied = true
+            highlightedMessageId = id
+            listState.scrollToItem(idx)
+            currentOnTargetConsumed()
+            return@LaunchedEffect
+        }
+        if (snapshot.isEmpty()) return@LaunchedEffect
+        listState.scrollToItem(snapshot.lastIndex)
+        currentOnTargetConsumed()
+    }
+
     // Correct scroll position after pagination prepends items.
-    val currentHasMore by rememberUpdatedState(hasMoreMessages)
-    val currentIsLoadingMore by rememberUpdatedState(isLoadingMore)
     var previousFirstKey by remember(groupId) { mutableStateOf<String?>(null) }
     LaunchedEffect(groupId, chatItems.size) {
         if (chatItems.isEmpty()) return@LaunchedEffect
@@ -150,11 +207,16 @@ fun MessagesList(
         val prevKey = previousFirstKey
         previousFirstKey = currentFirstKey
 
+        if (seekScrollApplied) {
+            seekScrollApplied = false
+            return@LaunchedEffect
+        }
+
         if (prevKey != null && currentFirstKey != prevKey) {
-            val saved = scrollStateHolder.savedPosition ?: return@LaunchedEffect
-            val newIndex = chatItems.indexOfFirst { getItemKey(it) == saved.anchorKey }
+            val saved = scrollStateHolder.savedPosition
+            val newIndex = saved?.let { chatItems.indexOfFirst { getItemKey(it) == saved.anchorKey } } ?: -1
             if (newIndex >= 0) {
-                listState.scrollToItem(newIndex, saved.offset)
+                listState.scrollToItem(newIndex, saved!!.offset)
             }
         }
     }
@@ -327,6 +389,11 @@ fun MessagesList(
                                     },
                                     onScrollToMessage = onScrollToMessage,
                                     onNavigateToGroup = onNavigateToGroup,
+                                    isHighlighted = item.message.id == highlightedMessageId,
+                                    onCopyLink = {
+                                        val relay = currentRelayUrl ?: return@MessageItem
+                                        copyToClipboard(buildShareMessageLink(relay, groupId, item.message.id))
+                                    },
                                     onCopyJson = {
                                         val msg = item.message
                                         val json = buildJsonObject {

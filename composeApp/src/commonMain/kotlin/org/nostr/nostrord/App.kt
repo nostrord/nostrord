@@ -142,7 +142,8 @@ fun App() {
                         initialScreen = startupState.initialScreen,
                         restoredFromPersistence = startupState.restoredFromPersistence,
                         deepLinkRelayUrl = startupState.deepLinkRelayUrl,
-                        deepLinkInviteCode = startupState.deepLinkInviteCode
+                        deepLinkInviteCode = startupState.deepLinkInviteCode,
+                        deepLinkMessageId = startupState.deepLinkMessageId
                     )
                 }
             }
@@ -199,7 +200,8 @@ private fun AuthenticatedApp(
     initialScreen: Screen,
     restoredFromPersistence: Boolean,
     deepLinkRelayUrl: String? = null,
-    deepLinkInviteCode: String? = null
+    deepLinkInviteCode: String? = null,
+    deepLinkMessageId: String? = null
 ) {
     // Initialize navigation history with the resolved initial screen
     val navHistory = remember {
@@ -293,6 +295,7 @@ private fun AuthenticatedApp(
     // Pending invite code from deep link or browser navigation.
     // Passed to GroupScreen which handles auto-join and consumption.
     var pendingInviteCode by remember { mutableStateOf(deepLinkInviteCode) }
+    var pendingMessageId by remember { mutableStateOf(deepLinkMessageId) }
 
     var showCreateGroupModal by remember { mutableStateOf(false) }
     var showJoinGroupModal by remember { mutableStateOf(false) }
@@ -611,7 +614,9 @@ private fun AuthenticatedApp(
                             onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
                             onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
                             pendingInviteCode = pendingInviteCode,
-                            onInviteCodeConsumed = { pendingInviteCode = null }
+                            onInviteCodeConsumed = { pendingInviteCode = null },
+                            pendingMessageId = pendingMessageId,
+                            onMessageIdConsumed = { pendingMessageId = null }
                         )
                     }
                 }
@@ -687,7 +692,9 @@ private fun AuthenticatedApp(
                         onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
                         onOpenDrawer = onOpenDrawer,
                         pendingInviteCode = pendingInviteCode,
-                        onInviteCodeConsumed = { pendingInviteCode = null }
+                        onInviteCodeConsumed = { pendingInviteCode = null },
+                        pendingMessageId = pendingMessageId,
+                        onMessageIdConsumed = { pendingMessageId = null }
                     )
                 }
             }
@@ -732,7 +739,9 @@ private fun DesktopContent(
     onAddRelay: () -> Unit = {},
     onAddRelayCustomUrl: () -> Unit = {},
     pendingInviteCode: String? = null,
-    onInviteCodeConsumed: () -> Unit = {}
+    onInviteCodeConsumed: () -> Unit = {},
+    pendingMessageId: String? = null,
+    onMessageIdConsumed: () -> Unit = {}
 ) {
     when (val screen = currentScreen) {
         is Screen.Home -> {
@@ -759,7 +768,9 @@ private fun DesktopContent(
                 showServerRail = false,
                 forceDesktop = true,
                 pendingInviteCode = pendingInviteCode,
-                onInviteCodeConsumed = onInviteCodeConsumed
+                onInviteCodeConsumed = onInviteCodeConsumed,
+                targetMessageId = pendingMessageId,
+                onTargetMessageConsumed = onMessageIdConsumed
             )
         }
         is Screen.EditProfile -> {
@@ -794,7 +805,9 @@ private fun MobileContent(
     onAddRelay: () -> Unit = {},
     onAddRelayCustomUrl: () -> Unit = {},
     pendingInviteCode: String? = null,
-    onInviteCodeConsumed: () -> Unit = {}
+    onInviteCodeConsumed: () -> Unit = {},
+    pendingMessageId: String? = null,
+    onMessageIdConsumed: () -> Unit = {}
 ) {
     when (val screen = currentScreen) {
         is Screen.Home -> {
@@ -821,7 +834,9 @@ private fun MobileContent(
                 onNavigateToGroup = onNavigateToGroupWithRelay,
                 onOpenDrawer = onOpenDrawer,
                 pendingInviteCode = pendingInviteCode,
-                onInviteCodeConsumed = onInviteCodeConsumed
+                onInviteCodeConsumed = onInviteCodeConsumed,
+                targetMessageId = pendingMessageId,
+                onTargetMessageConsumed = onMessageIdConsumed
             )
         }
         is Screen.EditProfile -> {
