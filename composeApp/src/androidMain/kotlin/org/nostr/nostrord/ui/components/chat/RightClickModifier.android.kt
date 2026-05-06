@@ -1,12 +1,10 @@
 package org.nostr.nostrord.ui.components.chat
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 
-/**
- * Android implementation: No-op, context menu is accessed via "More" button.
- * Touch devices don't have a secondary button.
- */
-actual fun rightClickContextMenuModifier(onRightClick: () -> Unit): Modifier {
-    // No-op on Android - users access context menu via the "More" button
-    return Modifier
-}
+actual fun rightClickContextMenuModifier(onRightClick: () -> Unit): Modifier =
+    Modifier.pointerInput(onRightClick) {
+        detectTapGestures(onLongPress = { onRightClick() })
+    }

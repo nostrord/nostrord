@@ -2254,7 +2254,8 @@ private fun GroupLinkCard(
                     .size(36.dp)
                     .clip(RoundedCornerShape(8.dp))
             ) {
-                if (groupMeta?.picture != null) {
+                var imageError by remember(groupMeta?.picture) { mutableStateOf(false) }
+                if (groupMeta?.picture != null && !imageError) {
                     val context = LocalPlatformContext.current
                     AsyncImage(
                         model = ImageRequest.Builder(context)
@@ -2265,7 +2266,8 @@ private fun GroupLinkCard(
                             .build(),
                         contentDescription = displayName,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        onError = { imageError = true }
                     )
                 } else {
                     Jdenticon(value = groupId, size = 36.dp)

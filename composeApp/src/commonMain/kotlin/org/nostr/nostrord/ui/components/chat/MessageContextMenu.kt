@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -47,6 +48,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.supportsNativeShare
 
 /**
  * Context menu actions for messages.
@@ -64,6 +66,7 @@ sealed class MessageContextAction {
     data object Reply : MessageContextAction()
     data object CopyText : MessageContextAction()
     data object CopyMessageLink : MessageContextAction()
+    data object ShareMessageLink : MessageContextAction()
     data object CopyEventJson : MessageContextAction()
     data object PinMessage : MessageContextAction()
     data object DeleteMessage : MessageContextAction()
@@ -195,15 +198,27 @@ private fun ContextMenuContent(
             }
         )
 
-        // Copy Message Link
-        ContextMenuItem(
-            icon = Icons.Outlined.Link,
-            label = "Copy Message Link",
-            onClick = {
-                onAction(MessageContextAction.CopyMessageLink)
-                onDismiss()
-            }
-        )
+        if (!supportsNativeShare) {
+            ContextMenuItem(
+                icon = Icons.Outlined.Link,
+                label = "Copy Message Link",
+                onClick = {
+                    onAction(MessageContextAction.CopyMessageLink)
+                    onDismiss()
+                }
+            )
+        }
+
+        if (supportsNativeShare) {
+            ContextMenuItem(
+                icon = Icons.Outlined.Share,
+                label = "Share Message Link",
+                onClick = {
+                    onAction(MessageContextAction.ShareMessageLink)
+                    onDismiss()
+                }
+            )
+        }
 
         // Copy Event JSON
         ContextMenuItem(
