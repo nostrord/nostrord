@@ -64,6 +64,9 @@ class ScrollStateHolder(
     var isRestorationPending by mutableStateOf(initialPosition != null)
         private set
 
+    var isScrolledAway by mutableStateOf(false)
+        internal set
+
     fun savePosition(anchorKey: String, offset: Int) {
         val position = ScrollPosition(anchorKey, offset)
         savedPosition = position
@@ -129,7 +132,6 @@ fun <T> ScrollPositionEffect(
     initialScrollToEnd: Boolean = true
 ) {
     val currentItems by rememberUpdatedState(items)
-    var userScrolledAway by remember(groupId) { mutableStateOf(false) }
 
     // Scroll to bottom once items appear, keep scrolling while load delivers more.
     LaunchedEffect(groupId) {
@@ -144,7 +146,7 @@ fun <T> ScrollPositionEffect(
         }
         stateHolder.markRestored()
 
-        snapshotFlow { currentItems.size to userScrolledAway }
+        snapshotFlow { currentItems.size to stateHolder.isScrolledAway }
             .distinctUntilChanged()
             .collect { (_, scrolledAway) ->
                 if (!scrolledAway) {
@@ -159,12 +161,27 @@ fun <T> ScrollPositionEffect(
     // Track when user scrolls away from bottom.
     LaunchedEffect(groupId, listState) {
         if (!initialScrollToEnd) return@LaunchedEffect
-        snapshotFlow { listState.firstVisibleItemIndex to currentItems.size }
+        var prevFirstVisible = listState.firstVisibleItemIndex
+        snapshotFlow {
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisible to listState.firstVisibleItemIndex
+        }
             .distinctUntilChanged()
-            .collect { (firstVisible, size) ->
-                if (size > 0) {
-                    val nearBottom = firstVisible >= size - 5
-                    userScrolledAway = !nearBottom
+            .collect { (lastVisible, firstVisible) ->
+                val size = currentItems.size
+                if (size > 0 && lastVisible >= 0) {
+                    val atBottom = lastVisible >= size - 1
+                    if (atBottom) {
+                        stateHolder.isScrolledAway = false
+                    } else {
+                        when {
+                            firstVisible > prevFirstVisible -> stateHolder.isScrolledAway = true
+                            firstVisible < prevFirstVisible -> stateHolder.isScrolledAway = false
+                        }
+                    }
+                    prevFirstVisible = firstVisible
+                } else {
+                    stateHolder.isScrolledAway = false
                 }
             }
     }
@@ -177,7 +194,7 @@ fun <T> ScrollPositionEffect(
             .collect { (canScrollFwd, firstVisible) ->
                 val curItems = currentItems
                 val nearBottom = curItems.isNotEmpty() && firstVisible >= curItems.size - 5
-                if (canScrollFwd && nearBottom && !userScrolledAway) {
+                if (canScrollFwd && nearBottom && !stateHolder.isScrolledAway) {
                     listState.scrollToItem(curItems.lastIndex, Int.MAX_VALUE)
                 }
             }
