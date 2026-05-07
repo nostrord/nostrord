@@ -184,3 +184,98 @@ jobs:
         with:
           files: dist/*
           fail_on_unmatched_files: true
+
+  arch-pkg:
+    name: Build Arch .pkg.tar.zst
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build .deb
+        run: ./gradlew :composeApp:fixDebPackage --no-daemon
+
+      - name: Build .pkg.tar.zst
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${GITHUB_SHA::7}"
+          fi
+
+          DEB=$(ls composeApp/build/compose/binaries/main/deb/*.deb)
+          mkdir -p pkgbuild
+          cp "$DEB" "pkgbuild/nostrord-${VERSION}.deb"
+
+          cat > pkgbuild/PKGBUILD <<PKGEOF
+          pkgname=nostrord-bin
+          pkgver=${VERSION}
+          pkgrel=1
+          pkgdesc="Nostr NIP-29 group messaging client"
+          arch=('x86_64')
+          url="https://github.com/Nostrord/nostrord"
+          license=('MIT')
+          provides=('nostrord')
+          conflicts=('nostrord')
+          depends=('libxtst' 'libxrender' 'fontconfig' 'freetype2')
+          source=("nostrord-\${pkgver}.deb")
+          sha256sums=('SKIP')
+
+          package() {
+              cd "\${srcdir}"
+              bsdtar -xf "nostrord-\${pkgver}.deb" data.tar.xz 2>/dev/null \
+                  || bsdtar -xf "nostrord-\${pkgver}.deb" data.tar.gz 2>/dev/null \
+                  || bsdtar -xf "nostrord-\${pkgver}.deb" data.tar.zst
+              bsdtar -xf data.tar.* -C "\${pkgdir}"
+
+              local desktop_src="\${pkgdir}/opt/nostrord/lib/nostrord-Nostrord.desktop"
+              if [[ -f "\${desktop_src}" ]]; then
+                  install -Dm644 "\${desktop_src}" \
+                      "\${pkgdir}/usr/share/applications/nostrord.desktop"
+              fi
+
+              install -Dm755 /dev/stdin "\${pkgdir}/usr/bin/nostrord" <<'LAUNCHER'
+          #!/bin/sh
+          exec /opt/nostrord/bin/Nostrord "\$@"
+          LAUNCHER
+          }
+          PKGEOF
+
+          docker run --rm \
+            -v "$(pwd)/pkgbuild":/pkg \
+            archlinux:latest bash -c '
+              pacman -Sy --noconfirm base-devel libxtst libxrender fontconfig freetype2
+              useradd -m builder
+              chown -R builder:builder /pkg
+              su builder -c "cd /pkg && makepkg --nodeps --noconfirm --noprogressbar"
+            '
+
+          mkdir -p dist
+          cp "pkgbuild/nostrord-bin-${VERSION}-1-x86_64.pkg.tar.zst" \
+             "dist/nostrord-${VERSION}-linux-amd64.pkg.tar.zst"
+
+      - name: Upload as workflow artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: arch-pkg
+          path: dist/*
+          retention-days: 7
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
