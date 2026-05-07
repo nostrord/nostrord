@@ -23,9 +23,9 @@ actual class MediaPickerLauncher(private val doLaunch: () -> Unit) {
     actual fun launch() = doLaunch()
 }
 
-private val IMAGE_EXTENSIONS     = arrayOf("jpg", "jpeg", "png", "gif", "webp")
-private val AUDIO_EXTENSIONS     = arrayOf("mp3", "ogg", "wav", "flac", "m4a", "aac")
-private val ALL_EXTENSIONS       = IMAGE_EXTENSIONS + arrayOf("mp4", "mov") + AUDIO_EXTENSIONS
+private val IMAGE_EXTENSIONS     = arrayOf("jpg", "jpeg", "png", "gif", "webp", "avif")
+private val AUDIO_EXTENSIONS     = arrayOf("mp3", "ogg", "wav", "flac", "m4a", "aac", "opus")
+private val ALL_EXTENSIONS       = IMAGE_EXTENSIONS + arrayOf("mp4", "mov", "webm") + AUDIO_EXTENSIONS
 private val ALL_EXTENSIONS_SET   = ALL_EXTENSIONS.toSet()
 private val IMAGE_EXTENSIONS_SET = IMAGE_EXTENSIONS.toSet()
 
@@ -39,6 +39,8 @@ private var systemLafApplied = false
 @Composable
 actual fun rememberMediaPickerLauncher(
     accept: MediaAccept,
+    onPickStart: () -> Unit,
+    onError: (String) -> Unit,
     onFilePicked: (ByteArray, String) -> Unit
 ): MediaPickerLauncher {
     val scope = rememberCoroutineScope()
@@ -77,9 +79,9 @@ actual fun rememberMediaPickerLauncher(
 
                 val (filterDesc, extensions, allowedSet) = when (accept) {
                     MediaAccept.Images ->
-                        Triple("Images (jpg, png, gif, webp)", IMAGE_EXTENSIONS, IMAGE_EXTENSIONS_SET)
+                        Triple("Images (jpg, png, gif, webp, avif)", IMAGE_EXTENSIONS, IMAGE_EXTENSIONS_SET)
                     MediaAccept.ImagesVideosAudio ->
-                        Triple("Images, Videos & Audio", ALL_EXTENSIONS, ALL_EXTENSIONS_SET)
+                        Triple("Images, Videos & Audio (jpg, png, gif, webp, avif, mp4, mov, webm, mp3, ogg, wav, flac, m4a, aac, opus)", ALL_EXTENSIONS, ALL_EXTENSIONS_SET)
                 }
 
                 val chooser = JFileChooser().apply {
@@ -125,11 +127,21 @@ actual fun rememberMediaPickerLauncher(
 
                     val selected = chooser.selectedFile
                     if (selected != null && selected.extension.lowercase() in allowedSet) {
-                        scope.launch(Dispatchers.IO) {
-                            deferred.complete(selected.readBytes() to selected.name)
+                        scope.launch { onPickStart() }
+                        if (selected.length() > MAX_UPLOAD_BYTES) {
+                            deferred.complete(null)
+                            scope.launch { onError("File is too large. The maximum upload size is 20 MB.") }
+                        } else {
+                            scope.launch(Dispatchers.IO) {
+                                deferred.complete(selected.readBytes() to selected.name)
+                            }
                         }
                     } else {
                         deferred.complete(null)
+                        if (selected != null) {
+                            val ext = selected.extension.ifEmpty { "unknown" }
+                            scope.launch { onError("\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE") }
+                        }
                     }
                 } finally {
                     anchor.dispose()

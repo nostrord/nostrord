@@ -11,6 +11,8 @@ actual class MediaPickerLauncher(private val doLaunch: () -> Unit) {
 @Composable
 actual fun rememberMediaPickerLauncher(
     accept: MediaAccept,
+    onPickStart: () -> Unit,
+    onError: (String) -> Unit,
     onFilePicked: (ByteArray, String) -> Unit
 ): MediaPickerLauncher {
     return remember { MediaPickerLauncher { } }

@@ -35,7 +35,18 @@ import androidx.compose.material.icons.outlined.EmojiEmotions
 import org.nostr.nostrord.getPlatform
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.network.NostrGroupClient
+import kotlinx.coroutines.launch
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.upload.FileTooLargeException
+import org.nostr.nostrord.network.upload.UnsupportedFileTypeException
+import org.nostr.nostrord.network.upload.MAX_UPLOAD_BYTES
+import org.nostr.nostrord.network.upload.NostrBuildUploader
+import org.nostr.nostrord.network.upload.UploadResult
+import org.nostr.nostrord.network.upload.PasteMediaEffect
+import org.nostr.nostrord.network.upload.ShareMediaEffect
+import org.nostr.nostrord.network.upload.rememberClipboardImageReader
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -78,8 +89,13 @@ fun MessageInput(
     userMetadata: Map<String, UserMetadata> = emptyMap(),
     onCancelReply: () -> Unit = {},
     isSending: Boolean = false,
-    onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {}
+    onMediaUploaded: (UploadResult) -> Unit = {}
 ) {
+    val scope = rememberCoroutineScope()
+    val clipboardReader = rememberClipboardImageReader()
+    var isUploadingPaste by remember { mutableStateOf(false) }
+    var pasteError by remember { mutableStateOf<String?>(null) }
+
     var showMentionPopup by remember { mutableStateOf(false) }
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var mentionQuery by remember { mutableStateOf("") }
@@ -110,6 +126,35 @@ fun MessageInput(
     }
 
     var textFieldValue by remember { mutableStateOf(TextFieldValue(messageInput)) }
+
+    suspend fun handlePastedMedia(bytes: ByteArray, filename: String) {
+        if (bytes.size.toLong() > MAX_UPLOAD_BYTES) {
+            isUploadingPaste = false
+            pasteError = "This file is too large. The maximum upload size is 20 MB."
+            return
+        }
+        try {
+            val mime = NostrBuildUploader.mimeTypeForFilename(filename)
+            val result = NostrBuildUploader.upload(
+                bytes, filename, mime,
+                AppModule.nostrRepository::buildNip98AuthHeader
+            )
+            when (result) {
+                is Result.Success -> {
+                    val url = result.data.url
+                    val current = textFieldValue.text
+                    val sep = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
+                    val newText = current + sep + url
+                    textFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                    onMessageInputChange(newText)
+                    onMediaUploaded(result.data)
+                }
+                is Result.Error -> pasteError = result.error.message
+            }
+        } finally {
+            isUploadingPaste = false
+        }
+    }
 
     // Sync with external messageInput when it changes (e.g., cleared after send)
     LaunchedEffect(messageInput) {
@@ -396,6 +441,33 @@ fun MessageInput(
                                     groupMentionSelectedIndex = (groupMentionSelectedIndex + 1).coerceAtMost(filteredGroups.size - 1)
                                     true
                                 }
+                                event.type == KeyEventType.KeyDown &&
+                                event.key == Key.V &&
+                                event.isCtrlPressed &&
+                                !isUploadingPaste -> {
+                                    val hasMedia = runCatching { clipboardReader.hasImage() }.getOrDefault(false)
+                                    if (hasMedia) {
+                                        isUploadingPaste = true
+                                        scope.launch {
+                                            val image = try {
+                                                clipboardReader.read()
+                                            } catch (e: FileTooLargeException) {
+                                                isUploadingPaste = false
+                                                pasteError = e.message
+                                                return@launch
+                                            } catch (e: UnsupportedFileTypeException) {
+                                                isUploadingPaste = false
+                                                pasteError = e.message
+                                                return@launch
+                                            }
+                                            if (image == null) { isUploadingPaste = false; return@launch }
+                                            handlePastedMedia(image.first, image.second)
+                                        }
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
                                 // Shift+Enter: manually insert newline at cursor (Discord-style)
                                 // Returning false here is unreliable in Compose Desktop — insert explicitly.
                                 event.type == KeyEventType.KeyDown &&
@@ -496,15 +568,15 @@ fun MessageInput(
 
                 IconButton(
                     onClick = {
-                        if (textFieldValue.text.isNotBlank() && !isSending) {
+                        if (textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste) {
                             showEmojiPicker = false
                             onSendMessage()
                         }
                     },
-                    enabled = textFieldValue.text.isNotBlank() && !isSending,
+                    enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
                     modifier = Modifier.size(40.dp)
                 ) {
-                    if (isSending) {
+                    if (isSending || isUploadingPaste) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(Spacing.iconMd),
                             color = NostrordColors.Primary,
@@ -638,6 +710,37 @@ fun MessageInput(
                 }
             }
             }
+        }
+
+        PasteMediaEffect(
+            onMediaPasted = { bytes, filename ->
+                if (!isUploadingPaste) {
+                    isUploadingPaste = true
+                    scope.launch { handlePastedMedia(bytes, filename) }
+                }
+            },
+            onError = { pasteError = it }
+        )
+
+        ShareMediaEffect(
+            onMediaPasted = { bytes, filename ->
+                if (!isUploadingPaste) {
+                    isUploadingPaste = true
+                    scope.launch { handlePastedMedia(bytes, filename) }
+                }
+            },
+            onError = { pasteError = it }
+        )
+
+        pasteError?.let { error ->
+            AlertDialog(
+                onDismissRequest = { pasteError = null },
+                title = { Text("Upload Failed") },
+                text = { Text(error) },
+                confirmButton = {
+                    TextButton(onClick = { pasteError = null }) { Text("OK") }
+                }
+            )
         }
     }
 }
