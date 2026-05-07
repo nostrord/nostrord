@@ -17,12 +17,16 @@ actual class MediaPickerLauncher(private val doLaunch: () -> Unit) {
 @Composable
 actual fun rememberMediaPickerLauncher(
     accept: MediaAccept,
+    onPickStart: () -> Unit,
+    onError: (String) -> Unit,
     onFilePicked: (ByteArray, String) -> Unit
 ): MediaPickerLauncher {
     val currentCallback = rememberUpdatedState(onFilePicked)
+    val currentErrorCallback = rememberUpdatedState(onError)
+    val currentPickStart = rememberUpdatedState(onPickStart)
     val acceptAttr = when (accept) {
         MediaAccept.Images            -> "image/*"
-        MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,audio/*"
+        MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,video/webm,audio/*"
     }
     return remember(acceptAttr) {
         MediaPickerLauncher {
@@ -40,21 +44,27 @@ actual fun rememberMediaPickerLauncher(
             input.onchange = {
                 val file = input.files?.get(0)
                 if (file != null) {
-                    val reader = FileReader()
-                    reader.onload = {
-                        val buffer = reader.result as ArrayBuffer
-                        val int8 = Int8Array(buffer)
-                        // Copy via asDynamic() — Int8Array.get(index) operator resolution
-                        // is unreliable across Kotlin/JS versions; unsafeCast<ByteArray>()
-                        // may produce a raw JS object that Ktor's multipart writer rejects.
-                        val bytes = ByteArray(int8.length).also { arr ->
-                            for (i in arr.indices) arr[i] = int8.asDynamic()[i]
-                        }
-                        currentCallback.value(bytes, file.name)
+                    currentPickStart.value()
+                    if ((file.asDynamic().size as Double) > MAX_UPLOAD_BYTES.toDouble()) {
+                        currentErrorCallback.value("File is too large. The maximum upload size is 20 MB.")
                         cleanup()
+                    } else {
+                        val reader = FileReader()
+                        reader.onload = {
+                            val buffer = reader.result as ArrayBuffer
+                            val int8 = Int8Array(buffer)
+                            // Copy via asDynamic() — Int8Array.get(index) operator resolution
+                            // is unreliable across Kotlin/JS versions; unsafeCast<ByteArray>()
+                            // may produce a raw JS object that Ktor's multipart writer rejects.
+                            val bytes = ByteArray(int8.length).also { arr ->
+                                for (i in arr.indices) arr[i] = int8.asDynamic()[i]
+                            }
+                            currentCallback.value(bytes, file.name)
+                            cleanup()
+                        }
+                        reader.onerror = { cleanup() }
+                        reader.readAsArrayBuffer(file)
                     }
-                    reader.onerror = { cleanup() }
-                    reader.readAsArrayBuffer(file)
                 } else {
                     cleanup()
                 }

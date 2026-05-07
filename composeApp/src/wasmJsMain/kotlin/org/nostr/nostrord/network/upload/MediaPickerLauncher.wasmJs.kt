@@ -6,8 +6,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
@@ -16,15 +14,11 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
-/**
- * Opens a native browser file picker, reads the selected file as base64 JSON, and
- * returns it to Kotlin via a Promise.  The base64 round-trip is the only way to pass
- * arbitrary binary data from Wasm-JS interop without resorting to unsafe memory tricks.
- *
- * Large files are encoded in 8 kB chunks to avoid call-stack overflow in String.fromCharCode.
- * The [accept] parameter maps directly to the HTML input accept attribute.
- */
+// Stores the File object in a JS-side cache (__nc) and returns just a key.
+// This avoids reading the file into Kotlin/Wasm memory entirely, preventing
+// the 6-8x memory amplification that occurs with the base64 round-trip.
 @JsFun("""(accept) => new Promise((resolve) => {
+    if (!globalThis.__nc) { globalThis.__nc = new Map(); globalThis.__ncSeq = 0; }
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = accept;
@@ -37,19 +31,11 @@ import kotlinx.serialization.json.jsonPrimitive
     input.onchange = () => {
         const file = input.files && input.files[0];
         if (!file) { cleanup(); resolve(null); return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-            const bytes = new Uint8Array(reader.result);
-            let bin = '';
-            const chunk = 8192;
-            for (let i = 0; i < bytes.length; i += chunk) {
-                bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-            }
-            cleanup();
-            resolve(JSON.stringify({ name: file.name, data: btoa(bin) }));
-        };
-        reader.onerror = () => { cleanup(); resolve(null); };
-        reader.readAsArrayBuffer(file);
+        if (file.size > 20971520) { cleanup(); resolve(null); return; }
+        const key = '__nc_' + (++globalThis.__ncSeq);
+        globalThis.__nc.set(key, file);
+        cleanup();
+        resolve(JSON.stringify({ name: file.name, mime: file.type || 'application/octet-stream', key: key }));
     };
 
     document.body.appendChild(input);
@@ -61,17 +47,19 @@ actual class MediaPickerLauncher(private val doLaunch: () -> Unit) {
     actual fun launch() = doLaunch()
 }
 
-@OptIn(ExperimentalEncodingApi::class)
 @Composable
 actual fun rememberMediaPickerLauncher(
     accept: MediaAccept,
+    onPickStart: () -> Unit,
+    onError: (String) -> Unit,
     onFilePicked: (ByteArray, String) -> Unit
 ): MediaPickerLauncher {
     val scope = rememberCoroutineScope()
     val currentCallback = rememberUpdatedState(onFilePicked)
+    val currentPickStart = rememberUpdatedState(onPickStart)
     val acceptAttr = when (accept) {
         MediaAccept.Images            -> "image/*"
-        MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,audio/*"
+        MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,video/webm,audio/*"
     }.toJsString()
     return remember(acceptAttr) {
         MediaPickerLauncher {
@@ -79,13 +67,16 @@ actual fun rememberMediaPickerLauncher(
                 try {
                     val result: JsString? = jsPickFile(acceptAttr).await()
                     val jsonStr = result?.toString() ?: return@launch
+                    currentPickStart.value()
                     val json = Json.parseToJsonElement(jsonStr).jsonObject
                     val name = json["name"]?.jsonPrimitive?.contentOrNull ?: return@launch
-                    val data = json["data"]?.jsonPrimitive?.contentOrNull ?: return@launch
-                    val bytes = Base64.decode(data)
-                    currentCallback.value(bytes, name)
+                    val mime = json["mime"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream"
+                    val key  = json["key"]?.jsonPrimitive?.contentOrNull ?: return@launch
+                    currentCallback.value(ByteArray(0), blobRef(mime, name, key))
                 } catch (_: Throwable) {}
             }
         }
     }
 }
+
+internal fun blobRef(mime: String, name: String, key: String) = "nostrord-blob|$mime|$name|$key"

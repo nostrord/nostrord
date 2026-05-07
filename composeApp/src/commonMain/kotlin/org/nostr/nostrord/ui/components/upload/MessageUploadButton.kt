@@ -3,9 +3,13 @@ package org.nostr.nostrord.ui.components.upload
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -32,9 +36,13 @@ fun MessageUploadButton(
 ) {
     val scope = rememberCoroutineScope()
     var isUploading by remember { mutableStateOf(false) }
+    var uploadError by remember { mutableStateOf<String?>(null) }
 
-    val picker = rememberMediaPickerLauncher(accept = MediaAccept.ImagesVideosAudio) { bytes, filename ->
-        isUploading = true
+    val picker = rememberMediaPickerLauncher(
+        accept = MediaAccept.ImagesVideosAudio,
+        onPickStart = { isUploading = true },
+        onError = { isUploading = false; uploadError = it }
+    ) { bytes, filename ->
         scope.launch {
             try {
                 val mime = NostrBuildUploader.mimeTypeForFilename(filename)
@@ -42,11 +50,28 @@ fun MessageUploadButton(
                     bytes, filename, mime,
                     AppModule.nostrRepository::buildNip98AuthHeader
                 )
-                if (result is Result.Success) onUploadComplete(result.data)
+                when (result) {
+                    is Result.Success -> onUploadComplete(result.data)
+                    is Result.Error -> uploadError = result.error.message
+                }
             } finally {
                 isUploading = false
             }
         }
+    }
+
+    uploadError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { uploadError = null },
+            title = { Text("Upload Failed") },
+            text = { Text(error) },
+            confirmButton = {
+                TextButton(
+                    onClick = { uploadError = null },
+                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary)
+                ) { Text("OK") }
+            }
+        )
     }
 
     IconButton(
