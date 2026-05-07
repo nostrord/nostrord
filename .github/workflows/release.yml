@@ -263,7 +263,7 @@ jobs:
             '
 
           mkdir -p dist
-          cp pkgbuild/nostrord-bin-*.pkg.tar.zst \
+          cp "pkgbuild/nostrord-bin-${VERSION}-1-x86_64.pkg.tar.zst" \
              "dist/nostrord-${VERSION}-linux-amd64.pkg.tar.zst"
 
       - name: Upload as workflow artifact
