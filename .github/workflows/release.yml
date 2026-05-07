@@ -266,6 +266,21 @@ jobs:
           cp "pkgbuild/nostrord-bin-${VERSION}-1-x86_64.pkg.tar.zst" \
              "dist/nostrord-${VERSION}-linux-amd64.pkg.tar.zst"
 
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | base64 -d | gpg --batch --import
+          gpg --list-secret-keys
+
+      - name: Sign package
+        run: |
+          set -euo pipefail
+          PKG=$(ls dist/*.pkg.tar.zst)
+          gpg --batch --yes \
+              --local-user "${{ secrets.GPG_KEY_ID }}" \
+              --detach-sign --no-armor \
+              "$PKG"
+          ls -la dist/
+
       - name: Upload as workflow artifact
         uses: actions/upload-artifact@v6
         with:
@@ -277,5 +292,7 @@ jobs:
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/*.pkg.tar.zst
+            dist/*.pkg.tar.zst.sig
           fail_on_unmatched_files: true
