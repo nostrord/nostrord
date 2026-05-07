@@ -256,10 +256,10 @@ jobs:
           docker run --rm \
             -v "$(pwd)/pkgbuild":/pkg \
             archlinux:latest bash -c '
-              pacman -Sy --noconfirm base-devel
+              pacman -Sy --noconfirm base-devel libxtst libxrender fontconfig freetype2
               useradd -m builder
               chown -R builder:builder /pkg
-              su builder -c "cd /pkg && makepkg -s --noconfirm --noprogressbar"
+              su builder -c "cd /pkg && makepkg --nodeps --noconfirm --noprogressbar"
             '
 
           mkdir -p dist
