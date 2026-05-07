@@ -151,6 +151,9 @@ kotlin {
     }
 }
 
+val appVersion = project.property("app.version") as String
+val appVersionCode = (project.property("app.versionCode") as String).toInt()
+
 // Release signing — reads from keystore.properties at the repo root (gitignored).
 // Devs without the file can still build debug; release builds require it.
 val keystorePropsFile = rootProject.file("keystore.properties")
@@ -166,8 +169,8 @@ android {
         applicationId = "org.nostr.nostrord"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersion
     }
     packaging {
         resources {
@@ -224,7 +227,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb, TargetFormat.Rpm)
             packageName = "Nostrord"
-            packageVersion = "1.0.0"
+            packageVersion = appVersion
 
             linux {
                 iconFile.set(project.file("src/jvmMain/resources/icon-512.png"))
