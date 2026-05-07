@@ -32,6 +32,11 @@ actual fun rememberMediaPickerLauncher(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri != null) {
+            val mimeType = context.contentResolver.getType(uri)
+            if (mimeType == null || !isSupportedUploadMime(mimeType)) {
+                currentErrorCallback.value("This file type is not supported.\n\n$SUPPORTED_FORMATS_MESSAGE")
+                return@rememberLauncherForActivityResult
+            }
             currentPickStart.value()
             val size = context.contentResolver
                 .query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)

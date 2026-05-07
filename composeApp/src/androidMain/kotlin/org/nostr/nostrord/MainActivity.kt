@@ -2,6 +2,8 @@ package org.nostr.nostrord
 
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import org.nostr.nostrord.network.upload.ShareMediaQueue
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -26,6 +29,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(statusBarStyle = barStyle, navigationBarStyle = barStyle)
         super.onCreate(savedInstanceState)
         handleDeepLink(intent)
+        handleShareIntent(intent)
         setContent {
             Box(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
                 Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
@@ -38,6 +42,28 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDeepLink(intent)
+        handleShareIntent(intent)
+    }
+
+    private fun handleShareIntent(intent: Intent?) {
+        if (intent == null) return
+        @Suppress("DEPRECATION")
+        val uris: List<Uri> = when (intent.action) {
+            Intent.ACTION_SEND -> listOfNotNull(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            )
+            Intent.ACTION_SEND_MULTIPLE -> (
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                else
+                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+            )?.toList() ?: emptyList()
+            else -> emptyList()
+        }
+        if (uris.isNotEmpty()) ShareMediaQueue.offer(uris)
     }
 
     private fun handleDeepLink(intent: Intent?) {

@@ -43,6 +43,7 @@ import org.nostr.nostrord.network.upload.MAX_UPLOAD_BYTES
 import org.nostr.nostrord.network.upload.NostrBuildUploader
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.upload.PasteMediaEffect
+import org.nostr.nostrord.network.upload.ShareMediaEffect
 import org.nostr.nostrord.network.upload.rememberClipboardImageReader
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
 import org.nostr.nostrord.utils.Result
@@ -712,6 +713,16 @@ fun MessageInput(
         }
 
         PasteMediaEffect(
+            onMediaPasted = { bytes, filename ->
+                if (!isUploadingPaste) {
+                    isUploadingPaste = true
+                    scope.launch { handlePastedMedia(bytes, filename) }
+                }
+            },
+            onError = { pasteError = it }
+        )
+
+        ShareMediaEffect(
             onMediaPasted = { bytes, filename ->
                 if (!isUploadingPaste) {
                     isUploadingPaste = true

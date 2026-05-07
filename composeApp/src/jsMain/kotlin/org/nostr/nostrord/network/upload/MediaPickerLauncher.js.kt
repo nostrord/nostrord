@@ -44,11 +44,14 @@ actual fun rememberMediaPickerLauncher(
             input.onchange = {
                 val file = input.files?.get(0)
                 if (file != null) {
-                    currentPickStart.value()
-                    if ((file.asDynamic().size as Double) > MAX_UPLOAD_BYTES.toDouble()) {
+                    if (!isSupportedUploadMime(file.type)) {
+                        currentErrorCallback.value("This file type is not supported.\n\n$SUPPORTED_FORMATS_MESSAGE")
+                        cleanup()
+                    } else if ((file.asDynamic().size as Double) > MAX_UPLOAD_BYTES.toDouble()) {
                         currentErrorCallback.value("File is too large. The maximum upload size is 20 MB.")
                         cleanup()
                     } else {
+                        currentPickStart.value()
                         val reader = FileReader()
                         reader.onload = {
                             val buffer = reader.result as ArrayBuffer

@@ -19,6 +19,11 @@ import kotlinx.serialization.json.jsonPrimitive
 // the 6-8x memory amplification that occurs with the base64 round-trip.
 @JsFun("""(accept) => new Promise((resolve) => {
     if (!globalThis.__nc) { globalThis.__nc = new Map(); globalThis.__ncSeq = 0; }
+    const SUPPORTED = new Set([
+        'image/jpeg','image/png','image/gif','image/webp','image/avif',
+        'video/mp4','video/quicktime','video/webm',
+        'audio/mpeg','audio/ogg','audio/wav','audio/flac','audio/mp4','audio/aac','audio/opus'
+    ]);
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = accept;
@@ -31,11 +36,13 @@ import kotlinx.serialization.json.jsonPrimitive
     input.onchange = () => {
         const file = input.files && input.files[0];
         if (!file) { cleanup(); resolve(null); return; }
-        if (file.size > 20971520) { cleanup(); resolve(null); return; }
+        const type = file.type || '';
+        if (!SUPPORTED.has(type)) { cleanup(); resolve(JSON.stringify({ error: 'unsupported_type' })); return; }
+        if (file.size > 20971520) { cleanup(); resolve(JSON.stringify({ error: 'too_large' })); return; }
         const key = '__nc_' + (++globalThis.__ncSeq);
         globalThis.__nc.set(key, file);
         cleanup();
-        resolve(JSON.stringify({ name: file.name, mime: file.type || 'application/octet-stream', key: key }));
+        resolve(JSON.stringify({ name: file.name, mime: type, key: key }));
     };
 
     document.body.appendChild(input);
@@ -57,6 +64,7 @@ actual fun rememberMediaPickerLauncher(
     val scope = rememberCoroutineScope()
     val currentCallback = rememberUpdatedState(onFilePicked)
     val currentPickStart = rememberUpdatedState(onPickStart)
+    val currentOnError = rememberUpdatedState(onError)
     val acceptAttr = when (accept) {
         MediaAccept.Images            -> "image/*"
         MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,video/webm,audio/*"
@@ -67,8 +75,16 @@ actual fun rememberMediaPickerLauncher(
                 try {
                     val result: JsString? = jsPickFile(acceptAttr).await()
                     val jsonStr = result?.toString() ?: return@launch
-                    currentPickStart.value()
                     val json = Json.parseToJsonElement(jsonStr).jsonObject
+                    val error = json["error"]?.jsonPrimitive?.contentOrNull
+                    if (error != null) {
+                        when (error) {
+                            "unsupported_type" -> currentOnError.value("This file type is not supported.\n\n$SUPPORTED_FORMATS_MESSAGE")
+                            "too_large"        -> currentOnError.value("This file is too large. The maximum upload size is 20 MB.")
+                        }
+                        return@launch
+                    }
+                    currentPickStart.value()
                     val name = json["name"]?.jsonPrimitive?.contentOrNull ?: return@launch
                     val mime = json["mime"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream"
                     val key  = json["key"]?.jsonPrimitive?.contentOrNull ?: return@launch
