@@ -225,7 +225,7 @@ private fun ReplyPreviewContainer(
             .clip(RoundedCornerShape(4.dp))
             .background(NostrordColors.Surface.copy(alpha = 0.5f))
             .clickable(onClick = onClick)
-            .pointerHoverIcon(PointerIcon.Hand)
+            .pointerHoverIcon(PointerIcon.Hand, overrideDescendants = true)
             .padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically
     ) {

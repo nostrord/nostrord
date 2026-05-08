@@ -280,16 +280,14 @@ fun MessageItem(
                     Spacer(modifier = Modifier.height(Spacing.xs))
                 }
 
-                // Reply preview - only shown if parent message is found
-                // Note: nostr:nevent quotes in content are handled by MessageContent
-                if (resolvedParentMessage != null) {
+                // Reply preview — shown whenever this message is a reply,
+                // even if the parent hasn't loaded yet (ReplyPreview handles null with a placeholder)
+                if (replyParentId != null) {
                     ReplyPreview(
                         parentMessage = resolvedParentMessage,
                         parentMetadata = parentMetadata,
                         resolveMetadata = resolveMetadata,
-                        onReplyClick = {
-                            replyParentId?.let { onScrollToMessage(it) }
-                        }
+                        onReplyClick = { onScrollToMessage(replyParentId) }
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
                 }

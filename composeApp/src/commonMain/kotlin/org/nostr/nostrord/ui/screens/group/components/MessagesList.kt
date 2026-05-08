@@ -168,6 +168,36 @@ fun MessagesList(
 
     var seekScrollApplied by remember(groupId) { mutableStateOf(false) }
     var highlightedMessageId by remember(groupId) { mutableStateOf<String?>(null) }
+    var internalScrollTarget by remember(groupId) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(internalScrollTarget, chatItems.size, hasMoreMessages, isLoadingMore) {
+        val id = internalScrollTarget ?: return@LaunchedEffect
+        val idx = chatItems.indexOfFirst { it is ChatItem.Message && it.message.id == id }
+        when {
+            idx >= 0 -> {
+                highlightedMessageId = id
+                listState.animateScrollToItem(idx)
+                internalScrollTarget = null
+            }
+            chatItems.isNotEmpty() && hasMoreMessages && !isLoadingMore -> {
+                currentOnFetchTargetById(id)
+                currentOnLoadMore()
+            }
+        }
+    }
+
+    LaunchedEffect(internalScrollTarget, hasMoreMessages, isLoadingMore) {
+        val id = internalScrollTarget ?: return@LaunchedEffect
+        if (hasMoreMessages || isLoadingMore) return@LaunchedEffect
+        kotlinx.coroutines.delay(500)
+        val snapshot = currentChatItems
+        val idx = snapshot.indexOfFirst { it is ChatItem.Message && it.message.id == id }
+        if (idx >= 0) {
+            highlightedMessageId = id
+            listState.animateScrollToItem(idx)
+        }
+        internalScrollTarget = null
+    }
 
     // hasMoreMessages and isLoadingMore are keys so the effect re-fires on the
     // InitialLoading→HasMore transition (state change without chatItems.size changing).
@@ -394,7 +424,7 @@ fun MessagesList(
                                     onReactionBadgeClick = { emoji ->
                                         onReactionBadgeClick(item.message.id, emoji)
                                     },
-                                    onScrollToMessage = onScrollToMessage,
+                                    onScrollToMessage = { id -> internalScrollTarget = id },
                                     onNavigateToGroup = onNavigateToGroup,
                                     isHighlighted = item.message.id == highlightedMessageId,
                                     onCopyLink = {
