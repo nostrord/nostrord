@@ -55,7 +55,7 @@ import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.util.buildShareGroupLink
+import org.nostr.nostrord.ui.screens.group.components.ShareGroupModal
 import org.nostr.nostrord.utils.rememberClipboardWriter
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -475,6 +475,7 @@ private fun MobileGroupTopBar(
             } else {
                 // Dropdown menu for members
                 var menuExpanded by remember { mutableStateOf(false) }
+                var showShareModal by remember { mutableStateOf(false) }
                 val copyToClipboard = rememberClipboardWriter()
 
                 Box {
@@ -595,7 +596,7 @@ private fun MobileGroupTopBar(
                                 text = { Text("Share", color = NostrordColors.TextPrimary) },
                                 onClick = {
                                     menuExpanded = false
-                                    copyToClipboard(buildShareGroupLink(relayUrl, groupId))
+                                    showShareModal = true
                                 },
                                 leadingIcon = {
                                     Icon(
@@ -628,6 +629,14 @@ private fun MobileGroupTopBar(
                             }
                         )
                     }
+                }
+
+                if (showShareModal && relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                    ShareGroupModal(
+                        relayUrl = relayUrl,
+                        groupId = groupId,
+                        onDismiss = { showShareModal = false }
+                    )
                 }
             }
         },
