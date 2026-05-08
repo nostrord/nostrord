@@ -196,8 +196,9 @@ jobs:
 
       - name: Install zsp
         run: |
-          curl -fsSL https://github.com/zapstore/zsp/releases/latest/download/zsp-linux-amd64 \
-            -o /usr/local/bin/zsp
+          ZSP_URL=$(curl -fsSL https://api.github.com/repos/zapstore/zsp/releases/latest \
+            | grep browser_download_url | grep linux-amd64 | cut -d'"' -f4)
+          curl -fsSL "$ZSP_URL" -o /usr/local/bin/zsp
           chmod +x /usr/local/bin/zsp
 
       - name: Publish to Zapstore
