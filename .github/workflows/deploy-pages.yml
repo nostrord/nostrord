@@ -42,6 +42,17 @@ jobs:
       - name: Copy compressed files
         run: ./gradlew :composeApp:copyWasmJsCompressedFiles
 
+      - name: Deploy to nsite
+        uses: sandwichfarm/nsite-action@v0.4.0
+        with:
+          nbunksec: ${{ secrets.NBUNK_SECRET }}
+          directory: './composeApp/build/dist/wasmJs/productionExecutable'
+          version: 'v0.27.0'
+          relays: |
+            wss://relay.nsite.lol
+          servers: |
+            https://cdn.hzrd149.com
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
