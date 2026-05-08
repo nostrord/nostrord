@@ -185,6 +185,27 @@ jobs:
           files: dist/*
           fail_on_unmatched_files: true
 
+  zapstore-publish:
+    name: Publish to Zapstore
+    runs-on: ubuntu-latest
+    needs: android-release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install zsp
+        run: |
+          curl -fsSL https://github.com/zapstore/zsp/releases/latest/download/zsp-linux-amd64 \
+            -o /usr/local/bin/zsp
+          chmod +x /usr/local/bin/zsp
+
+      - name: Publish to Zapstore
+        env:
+          SIGN_WITH: ${{ secrets.ZAPSTORE_SIGN_WITH }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: zsp publish zapstore.yaml
+
   arch-pkg:
     name: Build Arch .pkg.tar.zst
     runs-on: ubuntu-latest

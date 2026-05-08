@@ -1,0 +1,14 @@
+repository: https://github.com/nostrord/nostrord
+name: Nostrord
+summary: Nostr NIP-29 group messaging client
+description: |
+  Nostrord is a group messaging client built on NIP-29, the Nostr protocol
+  for relay-managed groups. Create public or private communities with
+  invite codes, join requests, member roles, and relay-enforced moderation.
+license: Unlicense
+website: https://nostrord.com
+icon: composeApp/src/jvmMain/resources/icon-512.png
+tags:
+  - social
+  - messaging
+  - nostr
