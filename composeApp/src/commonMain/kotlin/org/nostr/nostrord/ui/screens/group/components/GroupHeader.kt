@@ -42,7 +42,6 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.util.buildShareGroupLink
 import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.utils.rememberClipboardWriter
 
@@ -246,6 +245,7 @@ fun GroupHeader(
                     }
                 } else {
                     var menuExpanded by remember { mutableStateOf(false) }
+                    var showShareModal by remember { mutableStateOf(false) }
                     val copyToClipboard = rememberClipboardWriter()
 
                     Box {
@@ -367,7 +367,7 @@ fun GroupHeader(
                                     text = { Text("Share", color = NostrordColors.TextPrimary) },
                                     onClick = {
                                         menuExpanded = false
-                                        copyToClipboard(buildShareGroupLink(relayUrl, groupId))
+                                        showShareModal = true
                                     },
                                     leadingIcon = {
                                         Icon(
@@ -400,6 +400,14 @@ fun GroupHeader(
                                 }
                             )
                         }
+                    }
+
+                    if (showShareModal && relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                        ShareGroupModal(
+                            relayUrl = relayUrl,
+                            groupId = groupId,
+                            onDismiss = { showShareModal = false }
+                        )
                     }
                 }
             }
