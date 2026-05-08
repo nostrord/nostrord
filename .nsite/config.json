@@ -1,0 +1,8 @@
+{
+  "relays": ["wss://relay.nsite.lol"],
+  "servers": ["https://cdn.hzrd149.com"],
+  "profile": {
+    "name": "Nostrord",
+    "about": "Nostr NIP-29 group messaging client"
+  }
+}
