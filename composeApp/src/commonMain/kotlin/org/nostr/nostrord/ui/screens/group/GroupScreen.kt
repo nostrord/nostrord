@@ -129,7 +129,7 @@ fun GroupScreen(
     var messageInput by remember { mutableStateOf("") }
     var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var groupMentions by remember { mutableStateOf<Map<String, GroupInfo>>(emptyMap()) }
-    var replyingToMessage by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
+    var replyingToMessage by remember(groupId) { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var pendingUploads by remember { mutableStateOf<List<UploadResult>>(emptyList()) }
     var showLeaveDialog by remember { mutableStateOf(false) }
     var showGroupInfoModal by remember { mutableStateOf(false) }
