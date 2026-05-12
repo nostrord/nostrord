@@ -30,6 +30,9 @@ import io.ktor.client.plugins.HttpTimeout
 import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.UnlockState
+import org.nostr.nostrord.ui.PassphraseGate
 import org.nostr.nostrord.ui.window.DesktopWindowControls
 import org.nostr.nostrord.ui.window.LocalAwtWindow
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
@@ -107,8 +110,26 @@ fun main(args: Array<String> = emptyArray()) {
         position = WindowPosition.Aligned(Alignment.Center)
     )
 
+    // Background threads (java-keyring's DBus connection, Ktor/Coil pools) keep the
+    // JVM alive after exitApplication(). A daemon "watchdog" gives clean shutdown a
+    // brief window, then halts — Runtime.halt skips shutdown hooks (which is what we
+    // want: java-keyring's DBus close hook deadlocks on shutdown). Safe here because
+    // every save*() in SecureStorage already flushes prefs inline.
+    val quit: () -> Unit = quit@{
+        if (SecureStorage.unlockState.value == UnlockState.NeedsPassphraseSetup) return@quit
+        exitApplication()
+        Thread {
+            try { Thread.sleep(500) } catch (_: InterruptedException) {}
+            Runtime.getRuntime().halt(0)
+        }.apply {
+            isDaemon = true
+            name = "nostrord-exit-watchdog"
+            start()
+        }
+    }
+
     Window(
-        onCloseRequest = ::exitApplication,
+        onCloseRequest = quit,
         title = "Nostrord",
         icon = ImageIO.read(
             Thread.currentThread().contextClassLoader
@@ -120,7 +141,7 @@ fun main(args: Array<String> = emptyArray()) {
             if (event.type == KeyEventType.KeyDown) {
                 // Ctrl+Q (Windows/Linux) or Cmd+Q (macOS) - quit application
                 if (event.key == Key.Q && (event.isCtrlPressed || event.isMetaPressed)) {
-                    exitApplication()
+                    quit()
                     true
                 } else {
                     false
@@ -137,7 +158,7 @@ fun main(args: Array<String> = emptyArray()) {
                     windowState.placement = if (windowState.placement == WindowPlacement.Maximized)
                         WindowPlacement.Floating else WindowPlacement.Maximized
                 }
-                override fun close() { exitApplication() }
+                override fun close() { quit() }
                 override val isMaximized: Boolean
                     get() = windowState.placement == WindowPlacement.Maximized
             }
@@ -147,7 +168,9 @@ fun main(args: Array<String> = emptyArray()) {
             LocalDesktopWindowControls provides controls,
             LocalAwtWindow provides window
         ) {
-            App()
+            PassphraseGate {
+                App()
+            }
         }
     }
     }
