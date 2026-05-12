@@ -22,6 +22,7 @@ sealed class UnlockState {
     object Unlocked : UnlockState()
     object NeedsPassphrase : UnlockState()
     object NeedsPassphraseSetup : UnlockState()
+    object NeedsLegacyMigration : UnlockState()
 }
 
 internal enum class KeySource { Keychain, Passphrase, Ephemeral }
@@ -92,15 +93,23 @@ actual object SecureStorage {
             }
         }
 
-        if (prefs.get(PASSPHRASE_VERIFIER_PREF, null) != null) {
-            _unlockState.value = UnlockState.NeedsPassphrase
-        } else {
-            // No keychain and no prior passphrase: run unlocked with an in-memory key.
-            // A sensitive save (nsec / bunker) will later transition to NeedsPassphraseSetup.
-            masterKey = SecretKeySpec(randomKeyBytes(), "AES")
-            keySource = KeySource.Ephemeral
-            _unlockState.value = UnlockState.Unlocked
-            migrateLegacyIfNeeded()
+        when {
+            prefs.get(PASSPHRASE_VERIFIER_PREF, null) != null -> {
+                _unlockState.value = UnlockState.NeedsPassphrase
+            }
+            legacyKey != null -> {
+                // Pre-existing v1 data on a machine without keychain: force a passphrase
+                // setup before any read or write. Migrating to an ephemeral key here would
+                // orphan the data on next launch.
+                _unlockState.value = UnlockState.NeedsLegacyMigration
+            }
+            else -> {
+                // Fresh install without keychain: run unlocked with an in-memory key.
+                // A sensitive save (nsec / bunker) will later transition to NeedsPassphraseSetup.
+                masterKey = SecretKeySpec(randomKeyBytes(), "AES")
+                keySource = KeySource.Ephemeral
+                _unlockState.value = UnlockState.Unlocked
+            }
         }
     }
 
@@ -124,16 +133,24 @@ actual object SecureStorage {
 
     fun setupPassphrase(passphrase: String): Boolean {
         if (passphrase.isEmpty()) return false
-        if (_unlockState.value !is UnlockState.NeedsPassphraseSetup) return false
-        val ephemeral = masterKey ?: return false
+        val state = _unlockState.value
+        if (state !is UnlockState.NeedsPassphraseSetup && state !is UnlockState.NeedsLegacyMigration) {
+            return false
+        }
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val newKey = deriveKeyFromPassphrase(passphrase, salt)
-        reencryptAllV2Blobs(ephemeral, newKey)
+
+        // Re-encrypt anything this session already wrote with the ephemeral key.
+        masterKey?.let { reencryptAllV2Blobs(it, newKey) }
+
+        masterKey = newKey
+        keySource = KeySource.Passphrase
+        // Convert any v1 blobs from a previous install to v2 with the new key.
+        migrateLegacyIfNeeded()
+
         prefs.put(PASSPHRASE_SALT_PREF, Base64.getEncoder().encodeToString(salt))
         prefs.put(PASSPHRASE_VERIFIER_PREF, encryptV2(PASSPHRASE_VERIFIER_PLAINTEXT, newKey))
         prefs.flush()
-        masterKey = newKey
-        keySource = KeySource.Passphrase
         _unlockState.value = UnlockState.Unlocked
         return true
     }

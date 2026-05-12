@@ -42,17 +42,20 @@ import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 
+private enum class PromptMode { Unlock, Setup, LegacyMigration }
+
 @Composable
 fun PassphraseGate(content: @Composable () -> Unit) {
     val state by SecureStorage.unlockState.collectAsState()
     when (state) {
         UnlockState.Initializing -> Box(Modifier.fillMaxSize().background(NostrordColors.Background))
-        UnlockState.NeedsPassphrase -> PassphrasePrompt(isNew = false)
+        UnlockState.NeedsPassphrase -> PassphrasePrompt(PromptMode.Unlock)
+        UnlockState.NeedsLegacyMigration -> PassphrasePrompt(PromptMode.LegacyMigration)
         UnlockState.Unlocked, UnlockState.NeedsPassphraseSetup -> {
             Box(Modifier.fillMaxSize()) {
                 content()
                 if (state == UnlockState.NeedsPassphraseSetup) {
-                    PassphrasePrompt(isNew = true)
+                    PassphrasePrompt(PromptMode.Setup)
                 }
             }
         }
@@ -60,12 +63,13 @@ fun PassphraseGate(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun PassphrasePrompt(isNew: Boolean) {
+private fun PassphrasePrompt(mode: PromptMode) {
     var passphrase by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
+    val isNew = mode != PromptMode.Unlock
     val canSubmit = if (isNew) {
         passphrase.length >= 8 && passphrase == confirm
     } else {
@@ -102,15 +106,23 @@ private fun PassphrasePrompt(isNew: Boolean) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = if (isNew) "Protect your saved credentials" else "Enter your passphrase",
+                text = when (mode) {
+                    PromptMode.Unlock -> "Enter your passphrase"
+                    PromptMode.Setup -> "Protect your saved credentials"
+                    PromptMode.LegacyMigration -> "Set a passphrase to keep your data"
+                },
                 style = NostrordTypography.ServerHeader,
                 color = NostrordColors.TextPrimary
             )
             Text(
-                text = if (isNew)
-                    "Your operating system keychain is not available. Set a passphrase to encrypt the credentials you just saved on this device. The passphrase cannot be recovered."
-                else
-                    "Your operating system keychain is not available. Enter the passphrase you set previously to unlock your stored data.",
+                text = when (mode) {
+                    PromptMode.Unlock ->
+                        "Your operating system keychain is not available. Enter the passphrase you set previously to unlock your stored data."
+                    PromptMode.Setup ->
+                        "Your operating system keychain is not available. Set a passphrase to encrypt the credentials you just saved on this device. The passphrase cannot be recovered."
+                    PromptMode.LegacyMigration ->
+                        "Your operating system keychain is not available and we found data from a previous version. Set a passphrase to migrate and protect it. The passphrase cannot be recovered."
+                },
                 style = NostrordTypography.MessageBody,
                 color = NostrordColors.TextSecondary
             )
