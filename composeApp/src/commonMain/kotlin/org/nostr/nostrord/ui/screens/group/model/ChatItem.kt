@@ -76,7 +76,8 @@ sealed class ChatItem {
  */
 fun buildChatItems(
     messages: List<NostrGroupClient.NostrMessage>,
-    lastReadTimestamp: Long? = null
+    lastReadTimestamp: Long? = null,
+    currentUserPubkey: String? = null
 ): List<ChatItem> {
     val items = mutableListOf<ChatItem>()
     var lastDate: String? = null
@@ -123,10 +124,11 @@ fun buildChatItems(
             lastMessageTime = null
         }
 
-        // Insert new messages divider before first unread message
+        // Insert new messages divider before first unread message from another user
         if (!newMessagesDividerInserted &&
             lastReadTimestamp != null &&
-            message.createdAt > lastReadTimestamp
+            message.createdAt > lastReadTimestamp &&
+            message.pubkey != currentUserPubkey
         ) {
             flushPendingSystemEvent()
             items.add(ChatItem.NewMessagesDivider)

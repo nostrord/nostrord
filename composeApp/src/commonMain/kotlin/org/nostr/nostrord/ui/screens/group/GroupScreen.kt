@@ -296,7 +296,7 @@ fun GroupScreen(
     val lastReadSnapshot = remember(groupId) { vm.getLastReadTimestamp() }
 
     val chatItems = remember(messages, lastReadSnapshot) {
-        buildChatItems(messages, lastReadSnapshot)
+        buildChatItems(messages, lastReadSnapshot, currentUserPubkey)
     }
 
     val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
