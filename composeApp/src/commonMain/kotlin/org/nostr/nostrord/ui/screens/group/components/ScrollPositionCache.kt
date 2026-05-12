@@ -229,6 +229,7 @@ fun <T> ScrollPositionEffect(
 
 /**
  * Auto-scroll to new messages when user is near the bottom.
+ * Always scrolls when the appended item is from the current user (their own send).
  */
 @Composable
 fun <T> AutoScrollEffect(
@@ -236,7 +237,8 @@ fun <T> AutoScrollEffect(
     items: List<T>,
     getItemKey: ((T) -> String)? = null,
     enabled: Boolean = true,
-    nearBottomThreshold: Int = 3
+    nearBottomThreshold: Int = 3,
+    isFromCurrentUser: ((T) -> Boolean)? = null
 ) {
     var previousLastKey by remember { mutableStateOf<String?>(null) }
     var previousSize by remember { mutableStateOf(items.size) }
@@ -248,7 +250,8 @@ fun <T> AutoScrollEffect(
             return@LaunchedEffect
         }
 
-        val currentLastKey = items.lastOrNull()?.let { getItemKey?.invoke(it) }
+        val lastItem = items.last()
+        val currentLastKey = getItemKey?.invoke(lastItem)
 
         // Only for appended messages, not pagination prepends.
         val newMessageAppended = getItemKey != null &&
@@ -257,9 +260,10 @@ fun <T> AutoScrollEffect(
             previousSize > 0
 
         if (newMessageAppended) {
+            val ownAppend = isFromCurrentUser?.invoke(lastItem) == true
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             val wasNearBottom = lastVisibleIndex >= previousSize - nearBottomThreshold
-            if (wasNearBottom) {
+            if (ownAppend || wasNearBottom) {
                 listState.scrollToItem(items.lastIndex)
             }
         }

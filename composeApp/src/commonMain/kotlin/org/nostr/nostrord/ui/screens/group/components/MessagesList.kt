@@ -157,7 +157,12 @@ fun MessagesList(
         listState = listState,
         items = chatItems,
         getItemKey = ::getItemKey,
-        enabled = (scrollStateHolder.isRestored || !scrollStateHolder.isRestorationPending) && !isSeekingTarget
+        enabled = (scrollStateHolder.isRestored || !scrollStateHolder.isRestorationPending) && !isSeekingTarget,
+        isFromCurrentUser = { item ->
+            item is ChatItem.Message &&
+                currentUserPubkey != null &&
+                item.message.pubkey == currentUserPubkey
+        }
     )
 
     // Fetch by ID immediately — covers cursor-drift misses independently of pagination.
