@@ -30,6 +30,8 @@ import io.ktor.client.plugins.HttpTimeout
 import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.UnlockState
 import org.nostr.nostrord.ui.PassphraseGate
 import org.nostr.nostrord.ui.window.DesktopWindowControls
 import org.nostr.nostrord.ui.window.LocalAwtWindow
@@ -113,7 +115,8 @@ fun main(args: Array<String> = emptyArray()) {
     // brief window, then halts — Runtime.halt skips shutdown hooks (which is what we
     // want: java-keyring's DBus close hook deadlocks on shutdown). Safe here because
     // every save*() in SecureStorage already flushes prefs inline.
-    val quit: () -> Unit = {
+    val quit: () -> Unit = quit@{
+        if (SecureStorage.unlockState.value == UnlockState.NeedsPassphraseSetup) return@quit
         exitApplication()
         Thread {
             try { Thread.sleep(500) } catch (_: InterruptedException) {}
