@@ -54,7 +54,8 @@ private val suggestedRelays = listOf(
     SuggestedRelay("wss://groups.0xchat.com", "0xchat Groups relay", "NIP-29 relay powering 0xchat group messaging"),
     SuggestedRelay("wss://relay.groups.nip29.com", "relay.groups.nip29.com", "Public NIP-29 groups relay"),
     SuggestedRelay("wss://groups.hzrd149.com", "groups.hzrd149.com", "NIP-29 group relay"),
-    SuggestedRelay("wss://pyramid.fiatjaf.com", "pyramid.fiatjaf.com", "NIP-29 relay")
+    SuggestedRelay("wss://pyramid.fiatjaf.com", "pyramid.fiatjaf.com", "NIP-29 relay"),
+    SuggestedRelay("wss://chat.wisp.talk", "chat.wisp.talk", "NIP-29 relay")
 )
 
 @Composable
