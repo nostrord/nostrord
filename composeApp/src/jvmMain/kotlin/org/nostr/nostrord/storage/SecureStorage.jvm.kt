@@ -1,20 +1,35 @@
 package org.nostr.nostrord.storage
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.prefs.Preferences
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
-import java.security.SecureRandom
-import java.util.Base64
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.json.Json
+
+sealed class UnlockState {
+    object Initializing : UnlockState()
+    object Unlocked : UnlockState()
+    object NeedsPassphrase : UnlockState()
+    object NeedsPassphraseSetup : UnlockState()
+}
+
+internal enum class KeySource { Keychain, Passphrase, Ephemeral }
 
 actual object SecureStorage {
     private val prefs = Preferences.userNodeForPackage(SecureStorage::class.java)
+
     private const val PRIVATE_KEY_PREF = "nostr_private_key"
-    private const val ENCRYPTION_KEY_PREF = "encryption_key"
     private const val JOINED_GROUPS_PREFIX = "joined_groups_"
     private const val CURRENT_RELAY_URL = "current_relay_url"
     private const val RELAY_LIST = "relay_list"
@@ -28,74 +43,286 @@ actual object SecureStorage {
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
     private const val JOINED_GROUP_META_PREFIX = "joined_group_meta_"
     private const val LIVE_CURSORS_PREFIX = "live_cursors_"
-    private const val RELAY_METADATA_KEY = "relay_metadata"
+
+    private const val LEGACY_ENCRYPTION_KEY_PREF = "encryption_key"
+    private const val PASSPHRASE_SALT_PREF = "passphrase_salt"
+    private const val PASSPHRASE_VERIFIER_PREF = "passphrase_verifier"
+
+    private const val V2_PREFIX = "v2:"
+    private const val GCM_IV_LEN = 12
+    private const val GCM_TAG_BITS = 128
+    private const val KEY_LEN_BITS = 256
+    private const val PBKDF2_ITERATIONS = 600_000
+    private const val PASSPHRASE_VERIFIER_PLAINTEXT = "nostrord-passphrase-ok"
+
+    private val _unlockState = MutableStateFlow<UnlockState>(UnlockState.Initializing)
+    val unlockState: StateFlow<UnlockState> = _unlockState.asStateFlow()
+
+    private var masterKey: SecretKey? = null
+    private var legacyKey: SecretKey? = null
+    private var keySource: KeySource = KeySource.Ephemeral
+
+    fun usesKeychain(): Boolean = keySource == KeySource.Keychain
+    fun usesPassphrase(): Boolean = keySource == KeySource.Passphrase
 
     init {
-        if (prefs.get(ENCRYPTION_KEY_PREF, null) == null) {
-            val key = generateEncryptionKey()
-            prefs.put(ENCRYPTION_KEY_PREF, Base64.getEncoder().encodeToString(key.encoded))
+        initialize()
+    }
+
+    private fun initialize() {
+        legacyKey = loadLegacyKey()
+
+        val existingKeychainKey = KeychainStore.getMasterKey()
+        if (existingKeychainKey != null) {
+            masterKey = SecretKeySpec(existingKeychainKey, "AES")
+            keySource = KeySource.Keychain
+            _unlockState.value = UnlockState.Unlocked
+            migrateLegacyIfNeeded()
+            return
+        }
+
+        if (KeychainStore.isAvailable()) {
+            val freshKey = randomKeyBytes()
+            if (KeychainStore.setMasterKey(freshKey)) {
+                masterKey = SecretKeySpec(freshKey, "AES")
+                keySource = KeySource.Keychain
+                _unlockState.value = UnlockState.Unlocked
+                migrateLegacyIfNeeded()
+                return
+            }
+        }
+
+        if (prefs.get(PASSPHRASE_VERIFIER_PREF, null) != null) {
+            _unlockState.value = UnlockState.NeedsPassphrase
+        } else {
+            // No keychain and no prior passphrase: run unlocked with an in-memory key.
+            // A sensitive save (nsec / bunker) will later transition to NeedsPassphraseSetup.
+            masterKey = SecretKeySpec(randomKeyBytes(), "AES")
+            keySource = KeySource.Ephemeral
+            _unlockState.value = UnlockState.Unlocked
+            migrateLegacyIfNeeded()
         }
     }
-    
-    private fun generateEncryptionKey(): SecretKey {
-        val keyGen = KeyGenerator.getInstance("AES")
-        keyGen.init(256, SecureRandom())
-        return keyGen.generateKey()
+
+    fun unlockWithPassphrase(passphrase: String): Boolean {
+        if (passphrase.isEmpty()) return false
+        val saltB64 = prefs.get(PASSPHRASE_SALT_PREF, null) ?: return false
+        val verifier = prefs.get(PASSPHRASE_VERIFIER_PREF, null) ?: return false
+        val key = deriveKeyFromPassphrase(passphrase, Base64.getDecoder().decode(saltB64))
+        val plain = try {
+            decryptV2(verifier, key)
+        } catch (_: Exception) {
+            return false
+        }
+        if (plain != PASSPHRASE_VERIFIER_PLAINTEXT) return false
+        masterKey = key
+        keySource = KeySource.Passphrase
+        _unlockState.value = UnlockState.Unlocked
+        migrateLegacyIfNeeded()
+        return true
     }
-    
-    private fun getEncryptionKey(): SecretKey {
-        val keyString = prefs.get(ENCRYPTION_KEY_PREF, null)
-            ?: throw IllegalStateException("Encryption key not found")
-        val keyBytes = Base64.getDecoder().decode(keyString)
-        return SecretKeySpec(keyBytes, "AES")
-    }
-    
-    private fun encrypt(data: String): String {
-        val cipher = Cipher.getInstance("AES")
-        cipher.init(Cipher.ENCRYPT_MODE, getEncryptionKey())
-        val encrypted = cipher.doFinal(data.toByteArray())
-        return Base64.getEncoder().encodeToString(encrypted)
-    }
-    
-    private fun decrypt(encryptedData: String): String {
-        val cipher = Cipher.getInstance("AES")
-        cipher.init(Cipher.DECRYPT_MODE, getEncryptionKey())
-        val decrypted = cipher.doFinal(Base64.getDecoder().decode(encryptedData))
-        return String(decrypted)
-    }
-    
-    actual fun savePrivateKey(privateKeyHex: String) {
-        val encrypted = encrypt(privateKeyHex)
-        prefs.put(PRIVATE_KEY_PREF, encrypted)
+
+    fun setupPassphrase(passphrase: String): Boolean {
+        if (passphrase.isEmpty()) return false
+        if (_unlockState.value !is UnlockState.NeedsPassphraseSetup) return false
+        val ephemeral = masterKey ?: return false
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val newKey = deriveKeyFromPassphrase(passphrase, salt)
+        reencryptAllV2Blobs(ephemeral, newKey)
+        prefs.put(PASSPHRASE_SALT_PREF, Base64.getEncoder().encodeToString(salt))
+        prefs.put(PASSPHRASE_VERIFIER_PREF, encryptV2(PASSPHRASE_VERIFIER_PLAINTEXT, newKey))
         prefs.flush()
+        masterKey = newKey
+        keySource = KeySource.Passphrase
+        _unlockState.value = UnlockState.Unlocked
+        return true
     }
-    
-    actual fun getPrivateKey(): String? {
-        val encrypted = prefs.get(PRIVATE_KEY_PREF, null) ?: return null
+
+    fun changePassphrase(current: String, new: String): Boolean {
+        if (new.isEmpty()) return false
+        if (keySource != KeySource.Passphrase) return false
+        val saltB64 = prefs.get(PASSPHRASE_SALT_PREF, null) ?: return false
+        val verifier = prefs.get(PASSPHRASE_VERIFIER_PREF, null) ?: return false
+        val currentKey = deriveKeyFromPassphrase(current, Base64.getDecoder().decode(saltB64))
+        val plain = try {
+            decryptV2(verifier, currentKey)
+        } catch (_: Exception) {
+            return false
+        }
+        if (plain != PASSPHRASE_VERIFIER_PLAINTEXT) return false
+        val oldKey = masterKey ?: return false
+        val newSalt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val newKey = deriveKeyFromPassphrase(new, newSalt)
+        reencryptAllV2Blobs(oldKey, newKey)
+        prefs.put(PASSPHRASE_SALT_PREF, Base64.getEncoder().encodeToString(newSalt))
+        prefs.put(PASSPHRASE_VERIFIER_PREF, encryptV2(PASSPHRASE_VERIFIER_PLAINTEXT, newKey))
+        prefs.flush()
+        masterKey = newKey
+        return true
+    }
+
+    private fun reencryptAllV2Blobs(oldKey: SecretKey, newKey: SecretKey) {
+        val protectedKeys = setOf(
+            LEGACY_ENCRYPTION_KEY_PREF,
+            PASSPHRASE_SALT_PREF,
+            PASSPHRASE_VERIFIER_PREF,
+        )
+        val keys = try { prefs.keys().toList() } catch (_: Exception) { emptyList() }
+        keys.forEach { k ->
+            if (k in protectedKeys) return@forEach
+            val v = prefs.get(k, null) ?: return@forEach
+            if (!v.startsWith(V2_PREFIX)) return@forEach
+            val plain = try { decryptV2(v, oldKey) } catch (_: Exception) { return@forEach }
+            try { prefs.put(k, encryptV2(plain, newKey)) } catch (_: Exception) {}
+        }
+        try { prefs.flush() } catch (_: Exception) {}
+    }
+
+    private fun maybePromptPassphraseSetup() {
+        if (keySource == KeySource.Ephemeral && _unlockState.value == UnlockState.Unlocked) {
+            _unlockState.value = UnlockState.NeedsPassphraseSetup
+        }
+    }
+
+    private fun loadLegacyKey(): SecretKey? {
+        val s = prefs.get(LEGACY_ENCRYPTION_KEY_PREF, null) ?: return null
         return try {
-            decrypt(encrypted)
-        } catch (e: Exception) {
+            SecretKeySpec(Base64.getDecoder().decode(s), "AES")
+        } catch (_: Exception) {
             null
         }
     }
-    
+
+    private fun randomKeyBytes(): ByteArray {
+        val kg = KeyGenerator.getInstance("AES")
+        kg.init(KEY_LEN_BITS, SecureRandom())
+        return kg.generateKey().encoded
+    }
+
+    private fun deriveKeyFromPassphrase(passphrase: String, salt: ByteArray): SecretKey {
+        val spec = PBEKeySpec(passphrase.toCharArray(), salt, PBKDF2_ITERATIONS, KEY_LEN_BITS)
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val keyBytes = factory.generateSecret(spec).encoded
+        return SecretKeySpec(keyBytes, "AES")
+    }
+
+    private fun encryptV2(plain: String, key: SecretKey): String {
+        val iv = ByteArray(GCM_IV_LEN).also { SecureRandom().nextBytes(it) }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        val ct = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+        val out = ByteArray(iv.size + ct.size)
+        System.arraycopy(iv, 0, out, 0, iv.size)
+        System.arraycopy(ct, 0, out, iv.size, ct.size)
+        return V2_PREFIX + Base64.getEncoder().encodeToString(out)
+    }
+
+    private fun decryptV2(blob: String, key: SecretKey): String {
+        require(blob.startsWith(V2_PREFIX)) { "not a v2 blob" }
+        val raw = Base64.getDecoder().decode(blob.removePrefix(V2_PREFIX))
+        val iv = raw.copyOfRange(0, GCM_IV_LEN)
+        val ct = raw.copyOfRange(GCM_IV_LEN, raw.size)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        return String(cipher.doFinal(ct), Charsets.UTF_8)
+    }
+
+    private fun decryptLegacy(blob: String, key: SecretKey): String {
+        // "AES" alone resolves to AES/ECB/PKCS5Padding — kept only to read v1 blobs during migration.
+        val cipher = Cipher.getInstance("AES")
+        cipher.init(Cipher.DECRYPT_MODE, key)
+        return String(cipher.doFinal(Base64.getDecoder().decode(blob)), Charsets.UTF_8)
+    }
+
+    private fun encrypt(plain: String): String {
+        val k = masterKey ?: throw IllegalStateException("SecureStorage is locked")
+        return encryptV2(plain, k)
+    }
+
+    private fun decrypt(blob: String): String? {
+        return try {
+            if (blob.startsWith(V2_PREFIX)) {
+                val k = masterKey ?: return null
+                decryptV2(blob, k)
+            } else {
+                val k = legacyKey ?: return null
+                decryptLegacy(blob, k)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun migrateLegacyIfNeeded() {
+        val legacy = legacyKey ?: return
+        val newKey = masterKey ?: return
+
+        val protectedKeys = setOf(
+            LEGACY_ENCRYPTION_KEY_PREF,
+            PASSPHRASE_SALT_PREF,
+            PASSPHRASE_VERIFIER_PREF,
+        )
+
+        val keys = try { prefs.keys().toList() } catch (_: Exception) { emptyList() }
+        var saveFailed = false
+        keys.forEach { k ->
+            if (k in protectedKeys) return@forEach
+            val v = prefs.get(k, null) ?: return@forEach
+            if (v.startsWith(V2_PREFIX)) return@forEach
+            val plain = try {
+                decryptLegacy(v, legacy)
+            } catch (_: Exception) {
+                return@forEach
+            }
+            try {
+                prefs.put(k, encryptV2(plain, newKey))
+            } catch (_: Exception) {
+                // Keep the legacy key so the next launch can retry — losing it now would orphan the v1 blob.
+                saveFailed = true
+            }
+        }
+        try {
+            prefs.flush()
+        } catch (_: Exception) {
+        }
+        if (!saveFailed) {
+            try {
+                prefs.remove(LEGACY_ENCRYPTION_KEY_PREF)
+                prefs.flush()
+            } catch (_: Exception) {
+            }
+            legacyKey = null
+        }
+    }
+
+    actual fun savePrivateKey(privateKeyHex: String) {
+        prefs.put(PRIVATE_KEY_PREF, encrypt(privateKeyHex))
+        prefs.flush()
+        maybePromptPassphraseSetup()
+    }
+
+    actual fun getPrivateKey(): String? {
+        val encrypted = prefs.get(PRIVATE_KEY_PREF, null) ?: return null
+        return decrypt(encrypted)
+    }
+
     actual fun hasPrivateKey(): Boolean {
         return prefs.get(PRIVATE_KEY_PREF, null) != null
     }
-    
+
     actual fun clearPrivateKey() {
         prefs.remove(PRIVATE_KEY_PREF)
         prefs.flush()
     }
-    
+
     actual fun saveCurrentRelayUrl(relayUrl: String) {
         saveString(CURRENT_RELAY_URL, relayUrl)
     }
-    
+
     actual fun getCurrentRelayUrl(): String? {
         return getString(CURRENT_RELAY_URL)
     }
-    
+
     actual fun clearCurrentRelayUrl() {
         remove(CURRENT_RELAY_URL)
     }
@@ -110,7 +337,6 @@ actual object SecureStorage {
     }
 
     actual fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>) {
-        // Account-scoped key: prefix + pubkey hash + relay hash
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = Json.encodeToString(groupIds.toList())
         saveString(key, json)
@@ -143,67 +369,52 @@ actual object SecureStorage {
         } catch (e: Exception) {
         }
     }
-    
-    // NIP-46 Bunker URL support
+
     actual fun saveBunkerUrl(bunkerUrl: String) {
-        val encrypted = encrypt(bunkerUrl)
-        prefs.put(BUNKER_URL_PREF, encrypted)
+        prefs.put(BUNKER_URL_PREF, encrypt(bunkerUrl))
         prefs.flush()
+        maybePromptPassphraseSetup()
     }
-    
+
     actual fun getBunkerUrl(): String? {
         val encrypted = prefs.get(BUNKER_URL_PREF, null) ?: return null
-        return try {
-            decrypt(encrypted)
-        } catch (e: Exception) {
-            null
-        }
+        return decrypt(encrypted)
     }
-    
+
     actual fun hasBunkerUrl(): Boolean {
         return prefs.get(BUNKER_URL_PREF, null) != null
     }
-    
+
     actual fun clearBunkerUrl() {
         prefs.remove(BUNKER_URL_PREF)
         prefs.flush()
     }
-    
-    // NIP-46 Bunker User Pubkey support
+
     actual fun saveBunkerUserPubkey(pubkey: String) {
-        val encrypted = encrypt(pubkey)
-        prefs.put(BUNKER_USER_PUBKEY_PREF, encrypted)
+        prefs.put(BUNKER_USER_PUBKEY_PREF, encrypt(pubkey))
         prefs.flush()
+        maybePromptPassphraseSetup()
     }
-    
+
     actual fun getBunkerUserPubkey(): String? {
         val encrypted = prefs.get(BUNKER_USER_PUBKEY_PREF, null) ?: return null
-        return try {
-            decrypt(encrypted)
-        } catch (e: Exception) {
-            null
-        }
+        return decrypt(encrypted)
     }
-    
+
     actual fun clearBunkerUserPubkey() {
         prefs.remove(BUNKER_USER_PUBKEY_PREF)
         prefs.flush()
     }
-    
-    // NIP-46 Bunker Client Private Key (for session persistence)
+
     actual fun saveBunkerClientPrivateKey(privateKey: String) {
-        val encrypted = encrypt(privateKey)
-        prefs.put(BUNKER_CLIENT_PRIVATE_KEY_PREF, encrypted)
+        prefs.put(BUNKER_CLIENT_PRIVATE_KEY_PREF, encrypt(privateKey))
         prefs.flush()
+        maybePromptPassphraseSetup()
     }
 
     actual fun getBunkerClientPrivateKey(): String? {
         val encrypted = prefs.get(BUNKER_CLIENT_PRIVATE_KEY_PREF, null) ?: return null
-        return try {
-            decrypt(encrypted)
-        } catch (e: Exception) {
-            null
-        }
+        return decrypt(encrypted)
     }
 
     actual fun clearBunkerClientPrivateKey() {
@@ -211,7 +422,6 @@ actual object SecureStorage {
         prefs.flush()
     }
 
-    // NIP-07 Browser Extension (not used on JVM, but required by expect)
     actual fun saveNip07UserPubkey(pubkey: String) {}
     actual fun getNip07UserPubkey(): String? = null
     actual fun clearNip07UserPubkey() {}
@@ -219,9 +429,9 @@ actual object SecureStorage {
     actual fun clearAll() {
         prefs.clear()
         prefs.flush()
+        KeychainStore.deleteMasterKey()
     }
 
-    // Last read timestamp tracking
     actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         prefs.putLong(key, timestamp)
@@ -254,35 +464,27 @@ actual object SecureStorage {
                 }
             }
         } catch (e: Exception) {
-            // Ignore errors
         }
         return result
     }
 
     private fun saveString(key: String, value: String) {
-        val encrypted = encrypt(value)
-        prefs.put(key, encrypted)
+        prefs.put(key, encrypt(value))
         prefs.flush()
     }
-    
+
     private fun getString(key: String): String? {
         val encrypted = prefs.get(key, null) ?: return null
-        return try {
-            decrypt(encrypted)
-        } catch (e: Exception) {
-            null
-        }
+        return decrypt(encrypted)
     }
-    
+
     private fun remove(key: String) {
         prefs.remove(key)
         prefs.flush()
     }
 
-    // Last viewed group persistence
     actual fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?) {
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
-        // Store as "groupId|groupName" (groupName can be empty)
         val value = "$groupId|${groupName ?: ""}"
         saveString(key, value)
     }
@@ -302,7 +504,6 @@ actual object SecureStorage {
         remove(key)
     }
 
-    // Message persistence
     actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         saveString(key, messagesJson)
@@ -328,11 +529,9 @@ actual object SecureStorage {
             }
             prefs.flush()
         } catch (e: Exception) {
-            // Ignore errors
         }
     }
 
-    // Pending events persistence
     actual fun savePendingEvents(pubkey: String, eventsJson: String) {
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         saveString(key, eventsJson)
@@ -348,7 +547,6 @@ actual object SecureStorage {
         remove(key)
     }
 
-    // Group metadata cache
     actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         saveString(key, groupsJson)
@@ -399,7 +597,6 @@ actual object SecureStorage {
         try {
             relayMetadataFile.writeText(json)
         } catch (_: Exception) {
-            // Non-critical
         }
     }
 

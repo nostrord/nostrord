@@ -52,6 +52,7 @@ import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.storage.PassphraseSettings
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
@@ -72,6 +73,7 @@ enum class SettingsSection(val label: String) {
     BackupKeys("Backup Keys"),
     RelaysNip65("Relays (NIP-65)"),
     Notifications("Notifications"),
+    Security("Security"),
     Experimental("Experimental")
 }
 
@@ -228,6 +230,10 @@ fun SettingsScreen(
         )
     }
 
+    val securityContent: @Composable () -> Unit = {
+        SecurityPanelContent()
+    }
+
     var activeSection by remember { mutableStateOf(SettingsSection.Profile) }
     var showMobilePanel by remember { mutableStateOf(false) }
 
@@ -267,6 +273,7 @@ fun SettingsScreen(
                 backupContent = backupContent,
                 relaysContent = relaysContent,
                 notificationsContent = notificationsContent,
+                securityContent = securityContent,
                 experimentalContent = experimentalContent
             )
         } else {
@@ -279,6 +286,7 @@ fun SettingsScreen(
                 backupContent = backupContent,
                 relaysContent = relaysContent,
                 notificationsContent = notificationsContent,
+                securityContent = securityContent,
                 experimentalContent = experimentalContent,
                 showToolbar = showToolbar,
                 canGoBack = canGoBack,
@@ -302,6 +310,7 @@ private fun DesktopSettings(
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
+    securityContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit,
     showToolbar: Boolean = false,
     canGoBack: Boolean = false,
@@ -363,7 +372,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp)
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, experimentalContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, securityContent, experimentalContent)
                     }
                 }
 
@@ -389,6 +398,7 @@ private fun MobileSettings(
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
+    securityContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit
 ) {
     if (!showPanel) {
@@ -430,7 +440,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp)
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, experimentalContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, securityContent, experimentalContent)
             }
         }
     }
@@ -482,6 +492,11 @@ private fun SettingsSidebar(
     }
     SettingsNavItem("Notifications", activeSection == SettingsSection.Notifications, compact = compact) {
         onSelectSection(SettingsSection.Notifications)
+    }
+    if (PassphraseSettings.isApplicable) {
+        SettingsNavItem("Security", activeSection == SettingsSection.Security, compact = compact) {
+            onSelectSection(SettingsSection.Security)
+        }
     }
     SettingsNavItem("Experimental", activeSection == SettingsSection.Experimental, compact = compact) {
         onSelectSection(SettingsSection.Experimental)
@@ -586,6 +601,7 @@ private fun SettingsPanel(
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
+    securityContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -604,6 +620,7 @@ private fun SettingsPanel(
             SettingsSection.BackupKeys -> backupContent()
             SettingsSection.RelaysNip65 -> relaysContent()
             SettingsSection.Notifications -> notificationsContent()
+            SettingsSection.Security -> securityContent()
             SettingsSection.Experimental -> experimentalContent()
         }
     }
@@ -1103,6 +1120,166 @@ private fun ExperimentalToggleRow(
                 uncheckedTrackColor = NostrordColors.InputBackground
             ),
             modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+        )
+    }
+}
+
+// ── Security panel content ───────────────────────────────────────────────────
+
+@Composable
+private fun SecurityPanelContent() {
+    when {
+        !PassphraseSettings.isApplicable -> {
+            InfoCard(
+                title = "Not applicable",
+                titleColor = NostrordColors.TextSecondary,
+                icon = Icons.Default.Lightbulb,
+                content = "This setting is only relevant on the desktop app.",
+                isCompact = false
+            )
+        }
+        PassphraseSettings.usesKeychain() -> {
+            InfoCard(
+                title = "Protected by your OS keychain",
+                titleColor = NostrordColors.Success,
+                icon = Icons.Default.Check,
+                content = "Your private key, bunker credentials and cached messages " +
+                        "are encrypted with a key held in your operating system " +
+                        "credential store (macOS Keychain, Windows Credential Manager " +
+                        "or Linux Secret Service). No passphrase is needed.",
+                isCompact = false
+            )
+        }
+        PassphraseSettings.usesPassphrase() -> {
+            ChangePassphraseForm()
+        }
+        else -> {
+            InfoCard(
+                title = "No passphrase set",
+                titleColor = NostrordColors.Warning,
+                icon = Icons.Default.Warning,
+                content = "Your OS keychain is not available. Nostrord is using an " +
+                        "in-memory key for this session. Save a credential (private " +
+                        "key or bunker URL) and you will be prompted to set a " +
+                        "passphrase to persist your data securely.",
+                isCompact = false
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChangePassphraseForm() {
+    var current by remember { mutableStateOf("") }
+    var new by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    var success by remember { mutableStateOf(false) }
+
+    LaunchedEffect(success) {
+        if (success) { delay(2000); success = false }
+    }
+
+    val canSubmit = current.isNotEmpty() && new.length >= 8 && new == confirm
+
+    fun submit() {
+        if (!canSubmit) return
+        val ok = PassphraseSettings.changePassphrase(current, new)
+        if (ok) {
+            current = ""; new = ""; confirm = ""
+            success = true; error = null
+        } else {
+            error = "Current passphrase is incorrect."
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+    ) {
+        InfoCard(
+            title = "Passphrase-protected",
+            titleColor = NostrordColors.TextSecondary,
+            icon = Icons.Default.Key,
+            content = "Your data is encrypted with a key derived from your passphrase. " +
+                    "Choose a new passphrase below to rotate it. The passphrase cannot " +
+                    "be recovered if you forget it.",
+            isCompact = false
+        )
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+            ) {
+                PassphraseField("Current passphrase", current) { current = it; error = null }
+                PassphraseField("New passphrase", new) { new = it; error = null }
+                PassphraseField("Confirm new passphrase", confirm) { confirm = it; error = null }
+
+                Text(
+                    text = "At least 8 characters. Must match.",
+                    style = NostrordTypography.Caption,
+                    color = NostrordColors.TextSecondary
+                )
+
+                error?.let {
+                    Text(text = it, style = NostrordTypography.MessageBody, color = NostrordColors.Error)
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = ::submit, enabled = canSubmit) {
+                        Text("Change passphrase", color = NostrordColors.Primary, style = NostrordTypography.Button)
+                    }
+                }
+            }
+        }
+
+        if (success) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Check, contentDescription = null,
+                        tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Passphrase updated", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PassphraseField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    Column {
+        Text(text = label, style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
+        Spacer(Modifier.height(Spacing.sm))
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = NostrordColors.Primary,
+                unfocusedBorderColor = NostrordColors.Divider,
+                focusedContainerColor = NostrordColors.InputBackground,
+                unfocusedContainerColor = NostrordColors.InputBackground,
+                cursorColor = NostrordColors.Primary,
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            shape = NostrordShapes.shapeSmall
         )
     }
 }

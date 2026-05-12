@@ -131,6 +131,7 @@ kotlin {
             // Pure-Java MP3 decoder for notification chime — avoids the GStreamer
             // native-library matrix that JavaFX Media relies on.
             implementation("javazoom:jlayer:1.0.1")
+            implementation("com.github.javakeyring:java-keyring:1.0.3")
         }
         
         jsMain.dependencies {
