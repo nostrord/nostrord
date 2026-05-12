@@ -355,18 +355,27 @@ fun MessageContent(
                     }
                     is RelayPart -> {
                         Spacer(modifier = Modifier.height(8.dp))
-                        RelayContent(
-                            url = firstPart.url,
-                            onClick = {
-                                // Open relay URL in browser (http version for viewing)
-                                try {
-                                    val httpUrl = firstPart.url
-                                        .replace("wss://", "https://")
-                                        .replace("ws://", "http://")
-                                    uriHandler.openUri(httpUrl)
-                                } catch (_: Exception) {}
-                            }
-                        )
+                        val apostrophe = firstPart.url.indexOf('\'')
+                        if (apostrophe > 0) {
+                            // NIP-29 group address: relay'groupId
+                            GroupLinkCard(
+                                groupId = firstPart.url.substring(apostrophe + 1),
+                                relayUrl = firstPart.url.substring(0, apostrophe),
+                                onNavigateToGroup = onNavigateToGroup
+                            )
+                        } else {
+                            RelayContent(
+                                url = firstPart.url,
+                                onClick = {
+                                    try {
+                                        val httpUrl = firstPart.url
+                                            .replace("wss://", "https://")
+                                            .replace("ws://", "http://")
+                                        uriHandler.openUri(httpUrl)
+                                    } catch (_: Exception) {}
+                                }
+                            )
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                     }
                     is CashuPart -> {
