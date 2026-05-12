@@ -26,6 +26,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.isAndroid
 import org.nostr.nostrord.ui.components.QrCode
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -186,6 +187,7 @@ private fun QrCodeLoginContent(vm: LoginViewModel, onLoginSuccess: () -> Unit) {
     }
 
     val clipboardManager = LocalClipboardManager.current
+    val uriHandler = LocalUriHandler.current
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally
@@ -212,7 +214,18 @@ private fun QrCodeLoginContent(vm: LoginViewModel, onLoginSuccess: () -> Unit) {
                 QrCode(
                     data = uri,
                     size = 220.dp,
-                    quietZone = 12.dp
+                    quietZone = 12.dp,
+                    modifier = Modifier.clickable {
+                        try { uriHandler.openUri(uri) } catch (_: Exception) {}
+                    }
+                )
+            }
+            if (isAndroid) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "Tap to open in signer app",
+                    color = NostrordColors.TextMuted,
+                    style = MaterialTheme.typography.labelSmall
                 )
             }
         } ?: run {
