@@ -33,8 +33,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,7 +44,6 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.Screen
-import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
 import org.nostr.nostrord.ui.components.loading.RestrictedRelayState
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
@@ -72,14 +69,23 @@ fun HomeScreenMobile(
     currentRelayUrl: String,
     relayMeta: Nip11RelayInfo? = null,
     isLoading: Boolean = false,
+    isReachabilityError: Boolean = false,
+    connectionState: org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState =
+        org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState.Disconnected,
     hasError: Boolean = false,
     errorMessage: String? = null,
     onRetry: () -> Unit = {},
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     onRemoveRelay: () -> Unit = {},
+    onRemoveRelayConfirmed: () -> Unit = {},
+    onDismissManagement: () -> Unit = {},
     onAddRelay: () -> Unit = {},
-    isRelaySaved: Boolean = true
+    isRelaySaved: Boolean = true,
+    isOffline: Boolean = false,
+    isActuallyOffline: Boolean = false,
+    offlineGroups: List<org.nostr.nostrord.network.GroupMetadata> = emptyList(),
+    onForgetGroup: (String) -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -176,19 +182,30 @@ fun HomeScreenMobile(
         containerColor = NostrordColors.Background
     ) { paddingValues ->
         when {
+            isOffline -> {
+                ManageRelayContent(
+                    relayUrl = currentRelayUrl,
+                    groups = offlineGroups,
+                    isCompact = true,
+                    onForgetGroup = onForgetGroup,
+                    onRemoveRelay = onRemoveRelayConfirmed,
+                    relayMeta = relayMeta,
+                    isOffline = isActuallyOffline,
+                    isRelaySaved = isRelaySaved,
+                    onDismiss = onDismissManagement,
+                    dismissAtBottom = true,
+                    modifier = Modifier.padding(paddingValues)
+                )
+            }
             hasError -> {
                 Box(
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (errorMessage != null && errorMessage.contains("restricted")) {
-                        RestrictedRelayState(message = errorMessage)
-                    } else {
-                        ConnectionErrorState(onRetry = onRetry)
-                    }
+                    RestrictedRelayState(message = errorMessage ?: "Access restricted")
                 }
             }
-            isLoading && filteredGroups.isEmpty() -> {
+            isLoading && filteredGroups.isEmpty() && !isReachabilityError -> {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(1),
                     modifier = Modifier.fillMaxSize().padding(paddingValues),
@@ -199,12 +216,23 @@ fun HomeScreenMobile(
                 }
             }
             else -> {
-                LazyVerticalGrid(
-                    state = gridState,
-                    columns = GridCells.Fixed(1),
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
+                        .background(NostrordColors.Background)
+                ) {
+                    org.nostr.nostrord.ui.components.ConnectionStatusBanner(
+                        connectionState = connectionState,
+                        onRetry = onRetry,
+                        onManageRelay = onRemoveRelay,
+                        modifier = Modifier.padding(top = Spacing.lg, start = Spacing.lg, end = Spacing.lg)
+                    )
+                    LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(1),
+                    modifier = Modifier
+                        .weight(1f)
                         .background(NostrordColors.Background),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -247,7 +275,8 @@ fun HomeScreenMobile(
                             )
                         }
                     }
-                }
+                } // LazyVerticalGrid
+                } // Column
             }
         }
     }

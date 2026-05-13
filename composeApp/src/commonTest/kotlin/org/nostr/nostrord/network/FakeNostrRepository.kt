@@ -2,6 +2,7 @@ package org.nostr.nostrord.network
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.update
 import org.nostr.nostrord.network.RoleDefinition
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
@@ -74,8 +75,10 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val groups: StateFlow<List<GroupMetadata>> = _groups
     override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = MutableStateFlow(emptyMap())
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages
+    val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+
     override val joinedGroups: StateFlow<Set<String>> = _joinedGroups
-    override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = MutableStateFlow(emptyMap())
+    override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = _joinedGroupsByRelay
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = _isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = _hasMoreMessages
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = _reactions
@@ -125,11 +128,15 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun logout() { calls += "logout"; _isLoggedIn.value = false }
 
+    var removeRelayAction: suspend (String) -> Unit = { url ->
+        _joinedGroupsByRelay.update { it - url }
+    }
+
     override suspend fun connect() {}
     override suspend fun reconnect(): Boolean = true
     override fun triggerReconnect() {}
     override suspend fun switchRelay(newRelayUrl: String) { _currentRelayUrl.value = newRelayUrl }
-    override suspend fun removeRelay(url: String) {}
+    override suspend fun removeRelay(url: String) { calls += "removeRelay:$url"; removeRelayAction(url) }
     override suspend fun disconnect() {}
 
     override suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String?, customGroupId: String?): Result<String> =
@@ -140,7 +147,12 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun joinGroup(groupId: String, inviteCode: String?): Result<Unit> = Result.Success(Unit)
     override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> = leaveGroupAction(groupId, reason)
     override suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit> {
+        calls += "forgetGroup:$groupId:$relayUrl"
         _joinedGroups.value = _joinedGroups.value - groupId
+        _joinedGroupsByRelay.update { current ->
+            val updated: Set<String> = (current[relayUrl] ?: emptySet()) - groupId
+            current + (relayUrl to updated)
+        }
         return Result.Success(Unit)
     }
     override val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>> =
@@ -213,4 +225,5 @@ class FakeNostrRepository : NostrRepositoryApi {
     override fun setGroupFetchLazy(relayUrl: String, lazy: Boolean) {}
     override fun isGroupFetchLazy(relayUrl: String): Boolean = false
     override suspend fun requestFullGroupListForRelay(relayUrl: String) {}
+    override suspend fun fetchGroupMessageById(groupId: String, messageId: String) {}
 }

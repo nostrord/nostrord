@@ -16,6 +16,8 @@ import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.loadKind10009Timestamp
+import org.nostr.nostrord.storage.saveKind10009Timestamp
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
@@ -74,6 +76,12 @@ class OutboxManager(
             .toSet()
         if (saved.isNotEmpty()) {
             _kind10009Relays.value = saved
+        }
+        // Restore the timestamp so handleKind10009Event rejects stale network events
+        // that would resurrect relays/groups the user removed in a previous session.
+        val persisted = SecureStorage.loadKind10009Timestamp()
+        if (persisted > latestKind10009CreatedAt) {
+            latestKind10009CreatedAt = persisted
         }
     }
 
@@ -221,6 +229,7 @@ class OutboxManager(
             groupsMutex.withLock {
                 latestKind10009CreatedAt = event.createdAt
             }
+            SecureStorage.saveKind10009Timestamp(event.createdAt)
 
             _kind10009Relays.value = nip29Relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.toSet()
             refreshGroupTagRelays()

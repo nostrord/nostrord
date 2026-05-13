@@ -1,0 +1,111 @@
+package org.nostr.nostrord.network.managers
+
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+// normalizeRelayUrl trims trailing slashes and lowercases the host, so
+// "wss://example.com/" → "wss://example.com". Tests must use the same canonical form
+// that the production code will store and look up.
+private const val RELAY_A = "wss://example.com"
+private const val RELAY_B = "wss://other.relay"
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class GroupManagerRemoveRelayTest {
+
+    private fun makeManager(scope: TestScope): GroupManager {
+        val connManager = ConnectionManager(scope)
+        return GroupManager(connectionManager = connManager, scope = scope)
+    }
+
+    @Test
+    fun `removeRelayEntry removes relay from groupsByRelay`() = runTest {
+        val scope = TestScope(testScheduler)
+        val manager = makeManager(scope)
+
+        manager.prePopulateRelayList(listOf(RELAY_A))
+        assertTrue(
+            manager.groupsByRelay.value.containsKey(RELAY_A),
+            "groupsByRelay should contain the relay after pre-population; keys=${manager.groupsByRelay.value.keys}"
+        )
+
+        manager.removeRelayEntry(RELAY_A)
+        assertFalse(
+            manager.groupsByRelay.value.containsKey(RELAY_A),
+            "groupsByRelay should not contain the relay after removal"
+        )
+
+        scope.cancel()
+    }
+
+    @Test
+    fun `removeRelayEntry removes relay from joinedGroupsByRelay`() = runTest {
+        val scope = TestScope(testScheduler)
+        val manager = makeManager(scope)
+
+        manager.updateAllRelayJoinedGroups(
+            mapOf(
+                RELAY_A to setOf("group-1", "group-2"),
+                RELAY_B to setOf("group-3")
+            )
+        )
+
+        assertTrue(
+            manager.joinedGroupsByRelay.value.containsKey(RELAY_A),
+            "Relay should be present before removal; keys=${manager.joinedGroupsByRelay.value.keys}"
+        )
+
+        manager.removeRelayEntry(RELAY_A)
+
+        assertFalse(
+            manager.joinedGroupsByRelay.value.containsKey(RELAY_A),
+            "joinedGroupsByRelay should not contain the removed relay"
+        )
+        assertTrue(
+            manager.joinedGroupsByRelay.value.containsKey(RELAY_B),
+            "Other relay should remain untouched"
+        )
+
+        scope.cancel()
+    }
+
+    @Test
+    fun `removeRelayEntry with trailing slash normalizes correctly`() = runTest {
+        val scope = TestScope(testScheduler)
+        val manager = makeManager(scope)
+
+        manager.updateAllRelayJoinedGroups(mapOf(RELAY_A to setOf("group-1")))
+
+        // Pass URL with trailing slash — normalizeRelayUrl() strips it, so lookup must still work
+        manager.removeRelayEntry("$RELAY_A/")
+
+        assertNull(
+            manager.joinedGroupsByRelay.value[RELAY_A],
+            "Relay entry should be gone regardless of trailing slash"
+        )
+
+        scope.cancel()
+    }
+
+    @Test
+    fun `removeRelayEntry on unknown relay is a no-op`() = runTest {
+        val scope = TestScope(testScheduler)
+        val manager = makeManager(scope)
+
+        manager.updateAllRelayJoinedGroups(mapOf(RELAY_B to setOf("group-1")))
+
+        manager.removeRelayEntry("wss://unknown.relay")
+
+        assertTrue(
+            manager.joinedGroupsByRelay.value.containsKey(RELAY_B),
+            "Other relays should not be affected by removal of an unknown relay"
+        )
+
+        scope.cancel()
+    }
+}

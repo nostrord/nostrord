@@ -130,6 +130,7 @@ fun GroupScreenMobile(
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     onUserClick: (String) -> Unit = {},
     onReconnect: () -> Unit = {},
+    onManageRelay: () -> Unit = {},
     isSending: Boolean = false,
     onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
@@ -220,7 +221,8 @@ fun GroupScreenMobile(
             Column(modifier = Modifier.fillMaxSize()) {
                 ConnectionStatusBanner(
                     connectionState = connectionState,
-                    onRetry = onReconnect
+                    onRetry = onReconnect,
+                    onManageRelay = onManageRelay
                 )
 
                 Box(

@@ -152,7 +152,7 @@ class NostrGroupClient(
     private var session: DefaultClientWebSocketSession? = null
     private val json = Json { ignoreUnknownKeys = true }
     private var connectionJob: Job? = null
-    private val connectionReady = Channel<Unit>(Channel.CONFLATED)
+    private val connectionResult = CompletableDeferred<Boolean>()
 
     // Signalled after the relay's NIP-42 AUTH challenge has been answered.
     // connect()/switchRelay() await this so REQs are not sent before auth.
@@ -229,7 +229,7 @@ class NostrGroupClient(
                     session = this
 
                     // Signal that connection is ready
-                    connectionReady.trySend(Unit)
+                    connectionResult.complete(true)
 
                     // Heartbeat: detect relays that stop sending without closing the WebSocket.
                     // Ktor handles WebSocket-level ping/pong, but some relays freeze at the
@@ -279,9 +279,13 @@ class NostrGroupClient(
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                // Signal failure immediately so waitForConnection() returns without
+                // burning the full 7-second timeout on unreachable relays.
+                connectionResult.complete(false)
             } finally {
                 val wasConnected = session != null
                 session = null
+                connectionResult.complete(false) // no-op if already completed
                 if (wasConnected && !isDisconnecting) {
                     onConnectionLost?.invoke()
                 }
@@ -291,11 +295,8 @@ class NostrGroupClient(
 
     suspend fun waitForConnection(timeoutMs: Long = 7_000): Boolean {
         return withTimeoutOrNull(timeoutMs) {
-            connectionReady.receive()
-            true
-        } ?: run {
-            false
-        }
+            connectionResult.await()
+        } ?: false
     }
 
     /**
