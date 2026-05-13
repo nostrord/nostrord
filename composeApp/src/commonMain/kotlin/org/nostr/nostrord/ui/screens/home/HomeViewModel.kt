@@ -32,6 +32,15 @@ class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
     }
 
     fun addRelay(url: String) {
-        viewModelScope.launch { repo.addRelay(url) }
+        viewModelScope.launch {
+            repo.addRelay(url)
+            // Connect to the relay immediately — addRelay only saves the list;
+            // autoConnectFirstRelay is skipped when any primary client already exists.
+            repo.switchRelay(url)
+        }
+    }
+
+    fun forgetGroup(groupId: String, relayUrl: String) {
+        viewModelScope.launch { repo.forgetGroup(groupId, relayUrl) }
     }
 }

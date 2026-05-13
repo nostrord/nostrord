@@ -764,6 +764,7 @@ private fun DesktopContent(
                 groupId = screen.groupId,
                 groupName = screen.groupName,
                 onNavigateHome = { onNavigate(Screen.Home) },
+                onNavigateHomeManageRelay = { onNavigate(Screen.HomeManageRelay) },
                 onNavigateToGroup = onNavigateToGroupWithRelay,
                 showServerRail = false,
                 forceDesktop = true,
@@ -771,6 +772,15 @@ private fun DesktopContent(
                 onInviteCodeConsumed = onInviteCodeConsumed,
                 targetMessageId = pendingMessageId,
                 onTargetMessageConsumed = onMessageIdConsumed
+            )
+        }
+        is Screen.HomeManageRelay -> {
+            HomeScreen(
+                relayUrl = selectedRelayUrl,
+                gridState = homeGridState,
+                onNavigate = onNavigate,
+                forceDesktop = true,
+                initiallyManaging = true
             )
         }
         is Screen.EditProfile -> {
@@ -831,12 +841,23 @@ private fun MobileContent(
                 groupId = screen.groupId,
                 groupName = screen.groupName,
                 onNavigateHome = { onNavigate(Screen.Home) },
+                onNavigateHomeManageRelay = { onNavigate(Screen.HomeManageRelay) },
                 onNavigateToGroup = onNavigateToGroupWithRelay,
                 onOpenDrawer = onOpenDrawer,
                 pendingInviteCode = pendingInviteCode,
                 onInviteCodeConsumed = onInviteCodeConsumed,
                 targetMessageId = pendingMessageId,
                 onTargetMessageConsumed = onMessageIdConsumed
+            )
+        }
+        is Screen.HomeManageRelay -> {
+            HomeScreen(
+                relayUrl = selectedRelayUrl,
+                gridState = homeGridState,
+                onNavigate = onNavigate,
+                onCreateGroupClick = onCreateGroupClick,
+                onOpenDrawer = onOpenDrawer,
+                initiallyManaging = true
             )
         }
         is Screen.EditProfile -> {

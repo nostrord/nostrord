@@ -188,9 +188,13 @@ class GroupManager(
     // EOSE hasn't arrived yet. Lets handleEoseSuspend() distinguish a full fetch from a
     // lazy (joined-only) fetch when the same sub ID is reused.
     private val pendingFullFetchRelays = mutableSetOf<String>()
+    // Group IDs seen during an in-flight full fetch; cleared on EOSE to prune stale groups.
+    private val pendingFetchSeenGroups = mutableMapOf<String, MutableSet<String>>()
 
     fun markPendingFullFetch(relayUrl: String) {
-        pendingFullFetchRelays.add(relayUrl.normalizeRelayUrl())
+        val normalized = relayUrl.normalizeRelayUrl()
+        pendingFullFetchRelays.add(normalized)
+        pendingFetchSeenGroups[normalized] = mutableSetOf()
     }
 
     /**
@@ -1790,6 +1794,15 @@ class GroupManager(
                     // hasFullGroupListBeenFetched() returns true after an app restart.
                     _fullGroupListFetchedRelays.update { it + normalizedRelay }
                     try { SecureStorage.saveFullGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
+                    // Prune stale groups: keep only those seen in this fetch, plus joined
+                    // groups (which become orphans the user can manually forget).
+                    val seenIds = pendingFetchSeenGroups.remove(normalizedRelay) ?: emptySet()
+                    val joinedIds = _joinedGroupsByRelay.value[normalizedRelay] ?: emptySet()
+                    _groupsByRelay.update { current ->
+                        val pruned = (current[normalizedRelay] ?: emptyList())
+                            .filter { it.id in seenIds || it.id in joinedIds }
+                        current + (normalizedRelay to pruned)
+                    }
                 }
                 // Always update the general cache timestamp (used by hasCachedGroupsForRelay).
                 try { SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
@@ -2171,6 +2184,7 @@ class GroupManager(
     fun handleGroupMetadata(metadata: GroupMetadata, relayUrl: String) {
         if (metadata.id in deletedGroupIds) return
         val normalized = relayUrl.normalizeRelayUrl()
+        pendingFetchSeenGroups[normalized]?.add(metadata.id)
         // ALL relays contribute to the unified group list regardless of which relay
         // is currently active. _groupsByRelay handles per-relay filtering for the UI.
         val wasNew = _groups.value.none { it.id == metadata.id }
@@ -2850,6 +2864,7 @@ class GroupManager(
         _completeGroupLoadRelays.update { it - normalized }
         _fullGroupListFetchedRelays.update { it - normalized }
         _groupsByRelay.update { current -> current - normalized }
+        _joinedGroupsByRelay.update { current -> current - normalized }
     }
 
     /**

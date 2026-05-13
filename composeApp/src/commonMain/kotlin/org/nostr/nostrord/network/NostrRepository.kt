@@ -234,6 +234,21 @@ class NostrRepository(
             scope.launch { refreshVisibleUserMetadata() }
         }
 
+        // Clear the sidebar skeleton for a relay that becomes unreachable. EOSE never
+        // arrives for a failed connection, so without this the loading flag would
+        // pulse indefinitely while the offline management screen is already showing.
+        scope.launch {
+            connectionManager.connectionState.collect { state ->
+                if (state is ConnectionManager.ConnectionState.Error ||
+                    state is ConnectionManager.ConnectionState.Reconnecting) {
+                    val relay = connectionManager.currentRelayUrl.value
+                    if (relay.isNotBlank()) {
+                        groupManager.markRelayLoaded(relay)
+                    }
+                }
+            }
+        }
+
         metadataManager.messageHandler = { msg, client -> enqueueToRelayPipeline(msg, client) }
 
         connectionManager.startNetworkMonitor()
@@ -701,6 +716,11 @@ class NostrRepository(
         if (relayUrl.isBlank()) return
         _relayMetadataManager.fetch(relayUrl)
 
+        // Mark loading before the connection attempt so the skeleton shows during
+        // the initial Connecting state on cold start. The state-flow observer in
+        // initialize() clears this if the connection fails (Error/Reconnecting).
+        groupManager.markRelayLoading(relayUrl)
+
         val connected = connectionManager.connectPrimary(relayUrl) { msg, client ->
             enqueueToRelayPipeline(msg, client)
         }
@@ -731,6 +751,9 @@ class NostrRepository(
                     groupManager.markPendingFullFetch(relayUrl)
                     groupManager.markRelayLoading(relayUrl)
                     client.requestGroups()
+                } else {
+                    // Cache hit — no EOSE will arrive, so clear the early loading mark.
+                    groupManager.markRelayLoaded(relayUrl)
                 }
                 // After AUTH (or if no AUTH needed), request metadata for private
                 // groups that are in the joined list (kind 10009) but not in the
@@ -875,25 +898,16 @@ class NostrRepository(
         val remaining = existing.filter { it != normalized }
         val pubKey = sessionManager.getPublicKey()
 
-        // Publish kind:10009 first — only persist removal on success
-        if (pubKey != null) {
-            val result = publishJoinedGroupsListWith(pubKey, nip29Relays = remaining)
-            if (result !is Result.Success) {
-                return // signer denied or publish failed — don't remove
-            }
-        }
-
+        // Apply removal locally first so the relay vanishes even when the relay is offline.
+        // The kind:10009 publish is attempted afterwards; failure is non-fatal — the local
+        // removal and the persisted timestamp guard in OutboxManager prevent resurrection.
         SecureStorage.saveRelayList(remaining)
-
-        // Clean up persisted joined groups for this relay
         if (pubKey != null) {
             SecureStorage.clearJoinedGroupsForRelay(pubKey, normalized)
         }
-
-        // Remove from in-memory maps so the rail and kind:10009 cache update immediately
         groupManager.removeRelayEntry(normalized)
         outboxManager.removeRelayFromCache(normalized)
-        // Switch to first remaining relay, or clear persisted relay if none left
+
         val fallback = remaining.firstOrNull()
         if (fallback != null && fallback != connectionManager.currentRelayUrl.value.normalizeRelayUrl()) {
             switchRelay(fallback)
@@ -901,9 +915,15 @@ class NostrRepository(
             SecureStorage.clearCurrentRelayUrl()
             connectionManager.clearCurrentRelay()
         }
-        // Disconnect the removed relay (pool or primary)
         connectionManager.disconnectRelay(normalized)
         connectedPoolRelays.remove(normalized)
+
+        // Publish updated kind:10009 to remaining relays. Signer denial is the only error
+        // that would matter here (user explicitly cancelled), but at this point the relay is
+        // already gone locally, so we just fire-and-forget.
+        if (pubKey != null) {
+            publishJoinedGroupsListWith(pubKey, nip29Relays = remaining)
+        }
     }
 
     override suspend fun disconnect() {
@@ -2114,22 +2134,14 @@ class NostrRepository(
      */
     private suspend fun resubscribeAllGroups(client: NostrGroupClient) {
         val relayUrl = connectionManager.currentRelayUrl.value
+        // Restore cache so the UI shows groups immediately while the re-fetch is in flight.
         groupManager.restoreGroupsForRelay(relayUrl)
-        if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
-            lastRequestGroupsAt[relayUrl] = epochSeconds()
-            groupManager.markRelayLoading(relayUrl)
-            requestGroupsForRelay(client, relayUrl)
-        } else if (
-            SecureStorage.isGroupFetchLazy(relayUrl) &&
-            !groupManager.hasFullGroupListBeenFetched(relayUrl) &&
-            SecureStorage.getBooleanPref("sidebar_other_expanded_$relayUrl", default = true)
-        ) {
-            // Cache is fresh (partial, joined-only) but OTHER GROUPS is open and the full
-            // list was never fetched. Re-fetch on reconnect so OTHER GROUPS stays populated.
-            groupManager.markPendingFullFetch(relayUrl)
-            groupManager.markRelayLoading(relayUrl)
-            client.requestGroups()
-        }
+        // Always re-fetch on reconnect. restoreGroupsForRelay already populated the UI;
+        // the fresh EOSE will prune any stale groups the relay no longer serves
+        // (e.g. an ephemeral relay that was restarted and lost its group list).
+        lastRequestGroupsAt[relayUrl] = epochSeconds()
+        groupManager.markRelayLoading(relayUrl)
+        requestGroupsForRelay(client, relayUrl)
 
         // Reset loading states for opened groups so pagination works if user scrolls up.
         val openedGroupIds = groupManager.getOpenedGroupIds()

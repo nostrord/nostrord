@@ -177,6 +177,17 @@ fun SecureStorage.isFullGroupListCacheFresh(relayUrl: String, nowSeconds: Long):
     return ts > 0L && (nowSeconds - ts) < GROUP_CACHE_TTL_S
 }
 
+// Persisted timestamp of the most recently published (or locally applied) kind:10009 event.
+// Survives app restarts so that handleKind10009Event can reject stale network events that
+// would otherwise restore relays/groups the user explicitly removed while offline.
+fun SecureStorage.saveKind10009Timestamp(timestamp: Long) {
+    saveStringPref("kind10009_latest_ts", timestamp.toString())
+}
+
+fun SecureStorage.loadKind10009Timestamp(): Long {
+    return getStringPref("kind10009_latest_ts", "0").toLongOrNull() ?: 0L
+}
+
 // Per-relay lazy fetch mode — when true (the default), only joined-group metadata is fetched on
 // connect; the full group list is deferred until the user expands "OTHER GROUPS".
 // Set to false on relays where you always want the full list loaded at startup (EAGER mode).

@@ -27,8 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -65,7 +65,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.Screen
-import org.nostr.nostrord.ui.components.loading.ConnectionErrorState
 import org.nostr.nostrord.ui.components.loading.RestrictedRelayState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
@@ -96,9 +95,34 @@ fun HomeScreenDesktop(
     errorMessage: String? = null,
     onRetry: () -> Unit = {},
     onRemoveRelay: () -> Unit = {},
+    onRemoveRelayConfirmed: () -> Unit = {},
+    onDismissManagement: () -> Unit = {},
     onAddRelay: () -> Unit = {},
-    isRelaySaved: Boolean = true
+    isRelaySaved: Boolean = true,
+    isOffline: Boolean = false,
+    isActuallyOffline: Boolean = false,
+    offlineGroups: List<org.nostr.nostrord.network.GroupMetadata> = emptyList(),
+    onForgetGroup: (String) -> Unit = {},
+    isReachabilityError: Boolean = false,
+    connectionState: org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState =
+        org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState.Disconnected
 ) {
+    if (isOffline) {
+        ManageRelayContent(
+            relayUrl = currentRelayUrl,
+            groups = offlineGroups,
+            isCompact = false,
+            onForgetGroup = onForgetGroup,
+            onRemoveRelay = onRemoveRelayConfirmed,
+            relayMeta = relayMeta,
+            isOffline = isActuallyOffline,
+            isRelaySaved = isRelaySaved,
+            onDismiss = onDismissManagement,
+            dismissAtBottom = true
+        )
+        return
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -155,19 +179,22 @@ fun HomeScreenDesktop(
             )
         }
 
+        org.nostr.nostrord.ui.components.ConnectionStatusBanner(
+            connectionState = connectionState,
+            onRetry = onRetry,
+            onManageRelay = onRemoveRelay,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
+
         // Scrollable content area
         Box(modifier = Modifier.weight(1f)) {
             when {
                 hasError -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        if (errorMessage != null && errorMessage.contains("restricted")) {
-                            RestrictedRelayState(message = errorMessage)
-                        } else {
-                            ConnectionErrorState(onRetry = onRetry)
-                        }
+                        RestrictedRelayState(message = errorMessage ?: "Access restricted")
                     }
                 }
-                isLoading && groups.isEmpty() -> {
+                isLoading && groups.isEmpty() && !isReachabilityError -> {
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 280.dp),
                         modifier = Modifier.fillMaxSize(),
@@ -391,27 +418,31 @@ internal fun RelayOptionsMenu(
 ) {
     val copyToClipboard = rememberClipboardWriter()
     var expanded by remember { mutableStateOf(false) }
-    var showConfirm by remember { mutableStateOf(false) }
+    var confirmAdd by remember { mutableStateOf(false) }
 
-    if (showConfirm) {
+    if (confirmAdd) {
         androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showConfirm = false },
+            onDismissRequest = { confirmAdd = false },
             containerColor = NostrordColors.Surface,
             titleContentColor = NostrordColors.TextPrimary,
             textContentColor = NostrordColors.TextSecondary,
-            title = { Text("Remove relay?") },
-            text = { Text("This will disconnect and remove ${relayUrl.removePrefix("wss://")} from your relay list.") },
+            title = { androidx.compose.material3.Text("Add relay?") },
+            text = { androidx.compose.material3.Text("$relayUrl will be added to your relay list.") },
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
-                    showConfirm = false
-                    onRemoveRelay()
+                    confirmAdd = false
+                    onAddRelay()
                 }) {
-                    Text("Remove", color = NostrordColors.Error)
+                    androidx.compose.material3.Text(
+                        "Add",
+                        color = NostrordColors.Primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showConfirm = false }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
+                androidx.compose.material3.TextButton(onClick = { confirmAdd = false }) {
+                    androidx.compose.material3.Text("Cancel", color = NostrordColors.TextSecondary)
                 }
             }
         )
@@ -419,15 +450,15 @@ internal fun RelayOptionsMenu(
 
     Row(modifier = modifier.wrapContentSize(Alignment.TopEnd)) {
         if (isRelaySaved) {
-            IconButton(onClick = { showConfirm = true }) {
+            IconButton(onClick = onRemoveRelay) {
                 Icon(
-                    Icons.Default.Remove,
+                    Icons.Default.Settings,
                     contentDescription = "Remove relay from your list",
-                    tint = NostrordColors.Error
+                    tint = NostrordColors.TextMuted
                 )
             }
         } else {
-            IconButton(onClick = onAddRelay) {
+            IconButton(onClick = { confirmAdd = true }) {
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Add relay to your list",
@@ -481,7 +512,7 @@ internal fun RelayOptionsMenu(
 }
 
 @Composable
-private fun RelayHeaderIcon(
+internal fun RelayHeaderIcon(
     relayUrl: String,
     iconUrl: String?,
     label: String,
