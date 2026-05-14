@@ -136,12 +136,29 @@ class UnreadManager(
         if (reaction.pubkey == pubkey) return
         if (!isJoined(groupId) || isRestricted(groupId)) return
         val lastRead = SecureStorage.getLastReadTimestamp(pubkey, groupId)
-        val highWater = _latestMessageTimestamps.value[groupId] ?: 0L
+        val previousHighWater = _latestMessageTimestamps.value[groupId] ?: 0L
         val anchor = maxOf(
             lastRead ?: firstSeenAtByGroup.getOrPut(groupId) { epochSeconds() },
-            highWater
+            previousHighWater
         )
         if (reaction.createdAt <= anchor) return
+
+        // Reactions on the user's own message are direct interactions worth
+        // surfacing on the group/relay badges, not just the notification feed.
+        // Caller already verified the target message author == self.
+        val highWaterAdvanced = reaction.createdAt > previousHighWater
+        if (highWaterAdvanced) {
+            _latestMessageTimestamps.update { it + (groupId to reaction.createdAt) }
+        }
+
+        val isActive = groupId == activeGroupId
+        if (!(isActive && isAppFocused())) {
+            _unreadCounts.update { current ->
+                current + (groupId to ((current[groupId] ?: 0) + 1))
+            }
+        }
+        persistEntries()
+
         onReactionNotify?.invoke(groupId, reaction)
     }
 
