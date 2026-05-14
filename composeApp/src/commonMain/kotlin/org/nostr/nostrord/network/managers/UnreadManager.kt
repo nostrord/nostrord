@@ -116,8 +116,15 @@ class UnreadManager(
         }
         persistEntries()
 
+        // NIP-29 marks replies with a "q" (quote) tag; NIP-10 chats use "e".
+        // Accept both so replies are classified correctly regardless of which
+        // client posted them.
         val latestReply = qualifying.filter { msg ->
-            msg.tags.any { tag -> tag.size >= 2 && tag[0] == "e" && findMessageAuthor(tag[1]) == pubkey }
+            msg.tags.any { tag ->
+                tag.size >= 2 &&
+                (tag[0] == "q" || tag[0] == "e") &&
+                findMessageAuthor(tag[1]) == pubkey
+            }
         }.maxByOrNull { it.createdAt }
 
         val latestMention = qualifying.filter { msg ->
