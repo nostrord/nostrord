@@ -185,6 +185,7 @@ object AppModule {
                                 groupId = groupId,
                                 title = groupName,
                                 body = "$authorName: $preview",
+                                messageId = message.id,
                             )
                         )
                     }
@@ -224,6 +225,7 @@ object AppModule {
                             groupId = groupId,
                             title = groupName,
                             body = "$authorName replied to your message: $preview",
+                            messageId = message.id,
                         )
                     )
                 }
@@ -262,6 +264,7 @@ object AppModule {
                             groupId = groupId,
                             title = groupName,
                             body = "$authorName mentioned you: $preview",
+                            messageId = message.id,
                         )
                     )
                 }
@@ -303,6 +306,7 @@ object AppModule {
                                 groupId = groupId,
                                 title = groupName,
                                 body = "$authorName reacted $emoji to your message",
+                                messageId = reaction.targetEventId,
                             )
                         )
                     }

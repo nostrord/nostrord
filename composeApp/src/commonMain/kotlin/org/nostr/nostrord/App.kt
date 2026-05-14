@@ -440,10 +440,19 @@ private fun AuthenticatedApp(
     // latest lambda — selectedRelayUrl is re-keyed whenever currentRelayUrl changes,
     // so the backing MutableState instance can change between recompositions.
     val latestNavigateToGroupWithRelay by rememberUpdatedState(onNavigateToGroupWithRelay)
+    val latestOpenGroupAtRelay by rememberUpdatedState(onOpenGroupAtRelay)
     LaunchedEffect(Unit) {
         AppModule.notificationService.notificationClicks.collect { click ->
-            val name = AppModule.nostrRepository.groups.value.firstOrNull { it.id == click.groupId }?.name
-            latestNavigateToGroupWithRelay(click.groupId, name, click.relayUrl.takeIf { it.isNotBlank() })
+            // Resolve group name cross-relay so notifications targeting groups on
+            // background relays still get a friendly title in the URL/history entry.
+            val name = AppModule.nostrRepository.groupsByRelay.value.values
+                .firstNotNullOfOrNull { list -> list.firstOrNull { it.id == click.groupId } }
+                ?.name
+            if (click.messageId != null) {
+                latestOpenGroupAtRelay(click.groupId, name, click.relayUrl, click.messageId)
+            } else {
+                latestNavigateToGroupWithRelay(click.groupId, name, click.relayUrl.takeIf { it.isNotBlank() })
+            }
         }
     }
 
