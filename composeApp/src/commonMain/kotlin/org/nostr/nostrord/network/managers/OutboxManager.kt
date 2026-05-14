@@ -77,12 +77,10 @@ class OutboxManager(
         if (saved.isNotEmpty()) {
             _kind10009Relays.value = saved
         }
-        // Restore the timestamp so handleKind10009Event rejects stale network events
-        // that would resurrect relays/groups the user removed in a previous session.
-        val persisted = SecureStorage.loadKind10009Timestamp()
-        if (persisted > latestKind10009CreatedAt) {
-            latestKind10009CreatedAt = persisted
-        }
+        // Timestamp is now pubkey-scoped (see initialize()). seedFromCache runs
+        // before login so we don't know the pubkey yet — just start at 0 and
+        // let initialize() rehydrate the right scope when login completes.
+        latestKind10009CreatedAt = 0
     }
 
     fun initialize(
@@ -90,6 +88,11 @@ class OutboxManager(
         messageHandler: (String, NostrGroupClient) -> Unit,
         onDiscoveryComplete: (() -> Unit)? = null
     ) {
+        // Rehydrate the freshness floor for THIS account. Without pubkey scoping,
+        // a previous account's high timestamp would bleed in and reject the new
+        // account's (legitimately older) kind:10009 as "stale", leaving the
+        // sidebar empty until restart.
+        latestKind10009CreatedAt = SecureStorage.loadKind10009Timestamp(pubKey)
         scope.launch {
             coroutineScope {
                 bootstrapRelays.forEach { url ->
@@ -229,7 +232,7 @@ class OutboxManager(
             groupsMutex.withLock {
                 latestKind10009CreatedAt = event.createdAt
             }
-            SecureStorage.saveKind10009Timestamp(event.createdAt)
+            SecureStorage.saveKind10009Timestamp(pubKey, event.createdAt)
 
             _kind10009Relays.value = nip29Relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.toSet()
             refreshGroupTagRelays()
@@ -301,16 +304,26 @@ class OutboxManager(
             allRelayGroups = immutableRelayGroups
         }
 
-        val explicitSet = explicitNip29Relays.distinct().toSet()
-        _kind10009Relays.value = explicitSet
+        // Persisted relay list must include EVERY relay the kind:10009 event
+        // references — both explicit "r" tags AND relays implied by "group" tags
+        // (where the user has joined groups). Saving only "r" tags clobbers
+        // group-bearing relays from persistence; on next launch the rail loses
+        // them until kind:10009 is refetched.
+        val groupBearingRelays = newRelayGroups.keys.toList()
+        val rOnlyRelays = explicitNip29Relays.distinct().filter { it !in groupBearingRelays }
+        // Group-bearing relays go first so autoConnectFirstRelay picks something
+        // useful — a "r"-only relay that's offline shouldn't strand the user
+        // when another relay has their actual groups.
+        val allNip29Relays = (groupBearingRelays + rOnlyRelays).distinct()
+        val allNip29RelaysSet = allNip29Relays.toSet()
+        _kind10009Relays.value = allNip29RelaysSet
         refreshGroupTagRelays()
 
         val previouslySaved = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }.toSet()
-        if (explicitSet != previouslySaved) {
-            SecureStorage.saveRelayList(explicitSet.toList())
+        if (allNip29RelaysSet != previouslySaved) {
+            SecureStorage.saveRelayList(allNip29Relays)
         }
 
-        val allNip29Relays = (explicitNip29Relays + newRelayGroups.keys).distinct()
         val newlyRestoredRelays = allNip29Relays.filter { it !in previouslySaved }
 
         immutableRelayGroups.forEach { (relayUrl, groups) ->

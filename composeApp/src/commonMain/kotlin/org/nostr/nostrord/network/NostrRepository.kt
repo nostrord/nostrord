@@ -56,6 +56,7 @@ class NostrRepository(
     private val relayMetadataManager: RelayMetadataManager? = null,
     private val liveCursorStore: LiveCursorStore? = null,
     private val connStats: ConnectionStats = ConnectionStats(),
+    private val notificationHistoryStore: org.nostr.nostrord.notifications.NotificationHistoryStore? = null,
     private val scope: CoroutineScope
 ) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
@@ -283,6 +284,7 @@ class NostrRepository(
             if (activeRelay.isBlank() && savedRelays.isEmpty() && deepLinkRelay == null) {
                 if (pubkey != null) {
                     unreadManager.initialize(pubkey)
+                    notificationHistoryStore?.initialize(pubkey)
                     initializeOutboxModel()
                     scope.launch {
                         outboxManager.loadJoinedGroupsFromNostr(pubkey) { msg, c ->
@@ -336,6 +338,7 @@ class NostrRepository(
                 groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
                 groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
                 unreadManager.initialize(pubkey)
+                notificationHistoryStore?.initialize(pubkey)
             }
             initializeOutboxModel()
 
@@ -435,6 +438,7 @@ class NostrRepository(
             }
             val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
             unreadManager.initialize(userPubkey)
+            notificationHistoryStore?.initialize(userPubkey)
             initializeOutboxModel()
             connect()
             sessionManager.setLoggedIn(true)
@@ -458,6 +462,7 @@ class NostrRepository(
         }
         val userPubkey = sessionManager.completeNostrConnectLogin(client, relays)
         unreadManager.initialize(userPubkey)
+        notificationHistoryStore?.initialize(userPubkey)
         initializeOutboxModel()
         connect()
         sessionManager.setLoggedIn(true)
@@ -472,6 +477,7 @@ class NostrRepository(
             }
             sessionManager.loginWithPrivateKey(privKey, pubKey)
             unreadManager.initialize(pubKey)
+            notificationHistoryStore?.initialize(pubKey)
             initializeOutboxModel()
             sessionManager.setLoggedIn(true)
             scope.launch { connect() }
@@ -489,6 +495,7 @@ class NostrRepository(
             }
             sessionManager.loginWithNip07(pubkey)
             unreadManager.initialize(pubkey)
+            notificationHistoryStore?.initialize(pubkey)
             initializeOutboxModel()
             sessionManager.setLoggedIn(true)
             scope.launch { connect() }
@@ -513,6 +520,7 @@ class NostrRepository(
         outboxManager.clear()
         groupManager.clear()
         unreadManager.clear()
+        notificationHistoryStore?.clear()
         liveCursorStore?.clear()
         relayPipelines.values.forEach { (_, pipeline) -> pipeline.close() }
         relayPipelines.clear()
@@ -1963,6 +1971,25 @@ class NostrRepository(
                         if (reactorPubkey != null && !metadataManager.hasMetadata(reactorPubkey)) {
                             scope.launch {
                                 requestUserMetadata(setOf(reactorPubkey))
+                            }
+                        }
+                        val currentPubkey = sessionManager.getPublicKey()
+                        if (currentPubkey != null && reaction.pubkey != currentPubkey) {
+                            // Prefer the NIP-25 `p` tag — it tells us the target author
+                            // directly, so we don't have to wait for the target message
+                            // to clear the EventOrderingBuffer. Fall back to the cross-
+                            // group cache lookup when the reactor omitted the `p` tag.
+                            val groupId = reaction.groupId
+                                ?: groupManager.findMessageByIdAcrossGroups(reaction.targetEventId)?.first
+                            val isForSelf = when {
+                                reaction.targetAuthorPubkey != null ->
+                                    reaction.targetAuthorPubkey == currentPubkey
+                                else -> groupManager
+                                    .findMessageByIdAcrossGroups(reaction.targetEventId)
+                                    ?.second?.pubkey == currentPubkey
+                            }
+                            if (isForSelf && groupId != null) {
+                                unreadManager.onReactionReceived(groupId, reaction)
                             }
                         }
                     }

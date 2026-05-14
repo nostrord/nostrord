@@ -20,11 +20,14 @@ data class NotificationRequest(
     /** Tag used by the browser to coalesce notifications from the same conversation. */
     val tag: String = groupId,
     val iconUrl: String? = null,
+    /** Event id the user should land on when the notification is clicked. */
+    val messageId: String? = null,
 )
 
 data class NotificationClick(
     val relayUrl: String,
     val groupId: String,
+    val messageId: String? = null,
 )
 
 /**

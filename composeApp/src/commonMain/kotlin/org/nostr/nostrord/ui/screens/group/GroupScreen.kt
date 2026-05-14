@@ -81,7 +81,15 @@ fun GroupScreen(
     val reactionError by vm.reactionError.collectAsState()
     val moderationError by vm.moderationError.collectAsState()
     val connectionState by vm.connectionState.collectAsState()
-    val joinedGroups by vm.joinedGroups.collectAsState()
+    // Cross-relay membership view. `vm.joinedGroups` is filtered by
+    // _currentRelayUrl, which is null/stale during fresh-login bootstrap (kind:10009
+    // arrives before the primary relay is set, especially in NIP-46 flows where
+    // the remote signer dance delays everything). Flattening joinedGroupsByRelay
+    // gives a stable "any relay has me as a member" view that doesn't race.
+    val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
+    val joinedGroups = remember(joinedGroupsByRelay) {
+        joinedGroupsByRelay.values.flatten().toSet()
+    }
     val groups by vm.groups.collectAsState()
     val groupsByRelay by vm.groupsByRelay.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()

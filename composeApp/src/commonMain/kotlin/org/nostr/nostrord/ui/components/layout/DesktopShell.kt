@@ -52,6 +52,9 @@ fun DesktopShell(
     modifier: Modifier = Modifier,
     onUserClick: () -> Unit = {},
     isProfileActive: Boolean = false,
+    onNotificationsClick: () -> Unit = {},
+    isNotificationsActive: Boolean = false,
+    hideGroupsSidebar: Boolean = false,
     content: @Composable () -> Unit
 ) {
     // Sidebar-scoped state — changes here only recompose the sidebar columns,
@@ -94,6 +97,9 @@ fun DesktopShell(
         pubKey?.let { userMetadata[it] }
     }
 
+    val notificationEntries by AppModule.notificationHistoryStore.entries.collectAsState()
+    val notificationCount = remember(notificationEntries) { notificationEntries.count { !it.read } }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -105,7 +111,10 @@ fun DesktopShell(
             // Column 1: Relay Rail (72dp)
             ServerRail(
                 relays = relays,
-                activeRelayUrl = activeRelayUrl,
+                // Suppress relay active indicator when a global screen (notifications,
+                // profile) owns the rail's active state — otherwise both indicators
+                // would show simultaneously.
+                activeRelayUrl = if (isNotificationsActive || isProfileActive) "" else activeRelayUrl,
                 onRelayClick = onRelayClick,
                 onAddRelayClick = onAddRelayClick,
                 relayMetadata = relayMetadata,
@@ -114,11 +123,16 @@ fun DesktopShell(
                 userDisplayName = currentUserMetadata?.displayName ?: currentUserMetadata?.name,
                 userPubkey = pubKey,
                 onUserClick = onUserClick,
-                isProfileActive = isProfileActive
+                isProfileActive = isProfileActive,
+                notificationCount = notificationCount,
+                onNotificationsClick = onNotificationsClick,
+                isNotificationsActive = isNotificationsActive,
             )
 
-            // Column 2: Groups Nav Sidebar (200dp on tablet, 240dp on desktop)
-            Box(modifier = Modifier.width(sidebarWidth)) {
+            // Column 2: Groups Nav Sidebar (200dp on tablet, 240dp on desktop).
+            // Hidden when the active screen is global (e.g. Notifications) so the
+            // content area can span the full remaining width.
+            if (!hideGroupsSidebar) Box(modifier = Modifier.width(sidebarWidth)) {
                 GroupsNavSidebar(
                     relayUrl = activeRelayUrl,
                     groups = groupsForRelay,

@@ -2677,6 +2677,14 @@ class GroupManager(
         return _messages.value[groupId] ?: emptyList()
     }
 
+    fun findMessageByIdAcrossGroups(messageId: String): Pair<String, NostrGroupClient.NostrMessage>? {
+        for ((groupId, msgs) in _messages.value) {
+            val msg = msgs.firstOrNull { it.id == messageId } ?: continue
+            return groupId to msg
+        }
+        return null
+    }
+
     /**
      * Returns the [NostrGroupClient.NostrMessage.createdAt] of the newest message in the
      * in-memory list for [groupId], or null if the group has no messages loaded yet.

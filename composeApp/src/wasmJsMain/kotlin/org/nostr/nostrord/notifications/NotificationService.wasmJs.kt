@@ -89,7 +89,7 @@ actual class NotificationService actual constructor() {
             request.body,
             request.tag,
             request.iconUrl ?: "",
-        ) { _clicks.tryEmit(NotificationClick(request.relayUrl, request.groupId)) }
+        ) { _clicks.tryEmit(NotificationClick(request.relayUrl, request.groupId, request.messageId)) }
     }
 
     private fun readPermission(): NotificationPermission {

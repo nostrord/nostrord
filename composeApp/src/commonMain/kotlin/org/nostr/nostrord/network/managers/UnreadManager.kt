@@ -15,7 +15,11 @@ class UnreadManager(
     private val isJoined: (String) -> Boolean = { true },
     private val isRestricted: (String) -> Boolean = { false },
     private val isAppFocused: () -> Boolean = { true },
+    private val findMessageAuthor: (messageId: String) -> String? = { null },
     private val onUnreadIncrement: ((groupId: String, latestMessage: NostrGroupClient.NostrMessage, delta: Int) -> Unit)? = null,
+    private val onReplyNotify: ((groupId: String, message: NostrGroupClient.NostrMessage) -> Unit)? = null,
+    private val onMentionNotify: ((groupId: String, message: NostrGroupClient.NostrMessage) -> Unit)? = null,
+    private val onReactionNotify: ((groupId: String, reaction: NostrGroupClient.NostrReaction) -> Unit)? = null,
 ) {
 
     private val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -111,7 +115,58 @@ class UnreadManager(
             }
         }
         persistEntries()
-        onUnreadIncrement?.invoke(groupId, qualifying.maxBy { it.createdAt }, qualifying.size)
+
+        // NIP-29 marks replies with a "q" (quote) tag; NIP-10 chats use "e".
+        // Accept both so replies are classified correctly regardless of which
+        // client posted them.
+        val latestReply = qualifying.filter { msg ->
+            msg.tags.any { tag ->
+                tag.size >= 2 &&
+                (tag[0] == "q" || tag[0] == "e") &&
+                findMessageAuthor(tag[1]) == pubkey
+            }
+        }.maxByOrNull { it.createdAt }
+
+        val latestMention = qualifying.filter { msg ->
+            msg.tags.any { tag -> tag.size >= 2 && tag[0] == "p" && tag[1] == pubkey }
+        }.maxByOrNull { it.createdAt }
+
+        when {
+            latestReply != null -> onReplyNotify?.invoke(groupId, latestReply)
+            latestMention != null -> onMentionNotify?.invoke(groupId, latestMention)
+            else -> onUnreadIncrement?.invoke(groupId, qualifying.maxBy { it.createdAt }, qualifying.size)
+        }
+    }
+
+    fun onReactionReceived(groupId: String, reaction: NostrGroupClient.NostrReaction) {
+        val pubkey = currentPubkey ?: return
+        if (reaction.pubkey == pubkey) return
+        if (!isJoined(groupId) || isRestricted(groupId)) return
+        val lastRead = SecureStorage.getLastReadTimestamp(pubkey, groupId)
+        val previousHighWater = _latestMessageTimestamps.value[groupId] ?: 0L
+        val anchor = maxOf(
+            lastRead ?: firstSeenAtByGroup.getOrPut(groupId) { epochSeconds() },
+            previousHighWater
+        )
+        if (reaction.createdAt <= anchor) return
+
+        // Reactions on the user's own message are direct interactions worth
+        // surfacing on the group/relay badges, not just the notification feed.
+        // Caller already verified the target message author == self.
+        val highWaterAdvanced = reaction.createdAt > previousHighWater
+        if (highWaterAdvanced) {
+            _latestMessageTimestamps.update { it + (groupId to reaction.createdAt) }
+        }
+
+        val isActive = groupId == activeGroupId
+        if (!(isActive && isAppFocused())) {
+            _unreadCounts.update { current ->
+                current + (groupId to ((current[groupId] ?: 0) + 1))
+            }
+        }
+        persistEntries()
+
+        onReactionNotify?.invoke(groupId, reaction)
     }
 
     fun clear() {

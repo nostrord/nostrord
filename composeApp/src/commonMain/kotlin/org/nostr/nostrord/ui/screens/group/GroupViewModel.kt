@@ -16,6 +16,7 @@ class GroupViewModel(
     val messages = repo.messages
     val connectionState = repo.connectionState
     val joinedGroups = repo.joinedGroups
+    val joinedGroupsByRelay = repo.joinedGroupsByRelay
     val groups = repo.groups
     val groupsByRelay = repo.groupsByRelay
     val userMetadata = repo.userMetadata

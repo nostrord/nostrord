@@ -64,6 +64,7 @@ import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
+import org.nostr.nostrord.ui.screens.notifications.NotificationsScreen
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.theme.NostrordColors
 
@@ -234,10 +235,24 @@ private fun AuthenticatedApp(
     // [previousRelayUrl] must be captured before [selectedRelayUrl] is mutated by
     // the caller — reading it inside this fn would always see the new value and
     // break the same-relay toggle.
-    fun resolveScreenForRelay(clickedUrl: String, previousRelayUrl: String): Screen {
-        if (clickedUrl.isBlank() || clickedUrl == previousRelayUrl) return Screen.Home
+    //
+    // Notifications is a cross-relay screen with no per-relay context: clicking a
+    // relay icon from there restores that relay's last group (or Home) instead of
+    // applying the same-relay toggle, which would surprise the user by sending
+    // them away from the group they were just in.
+    fun resolveScreenForRelay(
+        clickedUrl: String,
+        previousRelayUrl: String,
+        currentScreen: Screen,
+    ): Screen {
+        if (clickedUrl.isBlank()) return Screen.Home
         val pk = pubKey ?: return Screen.Home
-        val (groupId, groupName) = SecureStorage.getLastGroupForRelay(pk, clickedUrl) ?: return Screen.Home
+        val lastGroup = SecureStorage.getLastGroupForRelay(pk, clickedUrl)
+        if (currentScreen is Screen.Notifications) {
+            return lastGroup?.let { (id, name) -> Screen.Group(id, name) } ?: Screen.Home
+        }
+        if (clickedUrl == previousRelayUrl) return Screen.Home
+        val (groupId, groupName) = lastGroup ?: return Screen.Home
         return Screen.Group(groupId, groupName)
     }
 
@@ -375,6 +390,18 @@ private fun AuthenticatedApp(
             onNavigate(Screen.Group(groupId, groupName))
         }
 
+    // Notification-driven navigation. Same relay-switch logic as the regular
+    // cross-relay nav, but preserves [targetMessageId] so MessagesList can scroll
+    // to the exact event the user tapped on.
+    val onOpenGroupAtRelay: (String, String?, String, String?) -> Unit =
+        { groupId, groupName, relayUrl, targetMessageId ->
+            if (relayUrl.isNotBlank() && relayUrl != selectedRelayUrl) {
+                selectedRelayUrl = relayUrl
+                scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
+            }
+            onNavigate(Screen.Group(groupId, groupName, targetMessageId))
+        }
+
     // Direct history navigation — called by native platforms and by BrowserNavigationHandler.
     // Restores the relay that was active when the entry was pushed.
     val onDirectHistoryBack: () -> Unit = {
@@ -427,10 +454,19 @@ private fun AuthenticatedApp(
     // latest lambda — selectedRelayUrl is re-keyed whenever currentRelayUrl changes,
     // so the backing MutableState instance can change between recompositions.
     val latestNavigateToGroupWithRelay by rememberUpdatedState(onNavigateToGroupWithRelay)
+    val latestOpenGroupAtRelay by rememberUpdatedState(onOpenGroupAtRelay)
     LaunchedEffect(Unit) {
         AppModule.notificationService.notificationClicks.collect { click ->
-            val name = AppModule.nostrRepository.groups.value.firstOrNull { it.id == click.groupId }?.name
-            latestNavigateToGroupWithRelay(click.groupId, name, click.relayUrl.takeIf { it.isNotBlank() })
+            // Resolve group name cross-relay so notifications targeting groups on
+            // background relays still get a friendly title in the URL/history entry.
+            val name = AppModule.nostrRepository.groupsByRelay.value.values
+                .firstNotNullOfOrNull { list -> list.firstOrNull { it.id == click.groupId } }
+                ?.name
+            if (click.messageId != null) {
+                latestOpenGroupAtRelay(click.groupId, name, click.relayUrl, click.messageId)
+            } else {
+                latestNavigateToGroupWithRelay(click.groupId, name, click.relayUrl.takeIf { it.isNotBlank() })
+            }
         }
     }
 
@@ -452,13 +488,15 @@ private fun AuthenticatedApp(
     BrowserNavigationHandler(
         currentScreen = currentScreen,
         selectedRelayUrl = selectedRelayUrl,
-        onUrlNavigation = { relayUrl, groupId, inviteCode ->
+        onUrlNavigation = { relayUrl, groupId, inviteCode, viewNotifications ->
             if (showSettings) {
                 // Browser back pressed while settings overlay is open — close it instead of navigating
                 showSettings = false
             } else {
-                // Switch relay if different
-                if (relayUrl != selectedRelayUrl) {
+                // Switch relay only when a relay is explicitly in the URL.
+                // `?view=notifications` has no relay (cross-relay screen) —
+                // keep whichever relay was already selected in the sidebar.
+                if (relayUrl.isNotBlank() && relayUrl != selectedRelayUrl) {
                     selectedRelayUrl = relayUrl
                     scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
                 }
@@ -466,14 +504,15 @@ private fun AuthenticatedApp(
                 if (inviteCode != null) {
                     pendingInviteCode = inviteCode
                 }
-                // Navigate to the correct screen
-                val targetScreen = if (groupId != null) {
-                    Screen.Group(groupId, null)
-                } else {
-                    Screen.Home
+                // Navigate to the correct screen. `group` and `view=notifications`
+                // are mutually exclusive in the URL; group wins if both appear.
+                val targetScreen = when {
+                    groupId != null -> Screen.Group(groupId, null)
+                    viewNotifications -> Screen.Notifications
+                    else -> Screen.Home
                 }
                 if (targetScreen != currentScreen) {
-                    navHistory.navigate(targetScreen, relayUrl)
+                    navHistory.navigate(targetScreen, selectedRelayUrl)
                     AppModule.nostrRepository.setActiveGroup(
                         if (targetScreen is Screen.Group) targetScreen.groupId else null
                     )
@@ -586,9 +625,10 @@ private fun AuthenticatedApp(
                     isGroupsLoading = isGroupsLoading,
                     onRelayClick = { url ->
                         val previousRelayUrl = selectedRelayUrl
+                        val previousScreen = currentScreen
                         selectedRelayUrl = url
                         scope.launch { AppModule.nostrRepository.switchRelay(url) }
-                        onNavigate(resolveScreenForRelay(url, previousRelayUrl))
+                        onNavigate(resolveScreenForRelay(url, previousRelayUrl, previousScreen))
                     },
                     onRelayTitleClick = { onNavigate(Screen.Home) },
                     onAddRelayClick = { onNavigate(Screen.RelaySettings) },
@@ -600,6 +640,9 @@ private fun AuthenticatedApp(
                     onAddRelayFromSidebar = if (hasNoRelays) {{ addRelayInitialTab = 0; showAddRelayModal = true }} else null,
                     onUserClick = { showSettings = true },
                     isProfileActive = showSettings,
+                    onNotificationsClick = { onNavigate(Screen.Notifications) },
+                    isNotificationsActive = currentScreen is Screen.Notifications,
+                    hideGroupsSidebar = currentScreen is Screen.Notifications,
                     modifier = Modifier.weight(1f)
                 ) {
                     val hideAnimatedImages = showSettings || showCreateGroupModal || showAddRelayModal
@@ -610,6 +653,7 @@ private fun AuthenticatedApp(
                             homeGridState = homeGridState,
                             onNavigate = onNavigate,
                             onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
+                            onOpenGroupAtRelay = onOpenGroupAtRelay,
                             hasNoRelays = hasNoRelays,
                             onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
                             onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
@@ -639,12 +683,13 @@ private fun AuthenticatedApp(
                             isProfileActive = showSettings,
                             onRelayClick = { url ->
                                 val previousRelayUrl = selectedRelayUrl
+                                val previousScreen = currentScreen
                                 selectedRelayUrl = url
                                 scope.launch {
                                     drawerState.close()
                                     AppModule.nostrRepository.switchRelay(url)
                                 }
-                                onNavigate(resolveScreenForRelay(url, previousRelayUrl))
+                                onNavigate(resolveScreenForRelay(url, previousRelayUrl, previousScreen))
                             },
                             onRelayTitleClick = {
                                 scope.launch { drawerState.close() }
@@ -673,6 +718,11 @@ private fun AuthenticatedApp(
                             onUserClick = {
                                 scope.launch { drawerState.close() }
                                 showSettings = true
+                            },
+                            isNotificationsActive = currentScreen is Screen.Notifications,
+                            onNotificationsClick = {
+                                scope.launch { drawerState.close() }
+                                onNavigate(Screen.Notifications)
                             }
                         )
                     }
@@ -686,6 +736,7 @@ private fun AuthenticatedApp(
                         homeGridState = homeGridState,
                         onNavigate = onNavigate,
                         onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
+                        onOpenGroupAtRelay = onOpenGroupAtRelay,
                         onCreateGroupClick = { showCreateGroupModal = true },
                         hasNoRelays = hasNoRelays,
                         onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
@@ -735,6 +786,7 @@ private fun DesktopContent(
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onNavigate: (Screen) -> Unit,
     onNavigateToGroupWithRelay: (String, String?, String?) -> Unit = { _, _, _ -> },
+    onOpenGroupAtRelay: (String, String?, String, String?) -> Unit = { _, _, _, _ -> },
     hasNoRelays: Boolean = false,
     onAddRelay: () -> Unit = {},
     onAddRelayCustomUrl: () -> Unit = {},
@@ -770,7 +822,7 @@ private fun DesktopContent(
                 forceDesktop = true,
                 pendingInviteCode = pendingInviteCode,
                 onInviteCodeConsumed = onInviteCodeConsumed,
-                targetMessageId = pendingMessageId,
+                targetMessageId = screen.targetMessageId ?: pendingMessageId,
                 onTargetMessageConsumed = onMessageIdConsumed
             )
         }
@@ -794,6 +846,10 @@ private fun DesktopContent(
                 onNavigate(Screen.Home)
             }
         }
+        is Screen.Notifications -> NotificationsScreen(
+            onNavigate = onNavigate,
+            onOpenGroupAtRelay = onOpenGroupAtRelay,
+        )
         is Screen.BackupPrivateKey -> BackupScreen(forceDesktop = true)
         else -> HomeScreen(relayUrl = selectedRelayUrl, gridState = homeGridState, onNavigate = onNavigate, forceDesktop = true)
     }
@@ -809,6 +865,7 @@ private fun MobileContent(
     homeGridState: androidx.compose.foundation.lazy.grid.LazyGridState,
     onNavigate: (Screen) -> Unit,
     onNavigateToGroupWithRelay: (String, String?, String?) -> Unit = { _, _, _ -> },
+    onOpenGroupAtRelay: (String, String?, String, String?) -> Unit = { _, _, _, _ -> },
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     hasNoRelays: Boolean = false,
@@ -846,7 +903,7 @@ private fun MobileContent(
                 onOpenDrawer = onOpenDrawer,
                 pendingInviteCode = pendingInviteCode,
                 onInviteCodeConsumed = onInviteCodeConsumed,
-                targetMessageId = pendingMessageId,
+                targetMessageId = screen.targetMessageId ?: pendingMessageId,
                 onTargetMessageConsumed = onMessageIdConsumed
             )
         }
@@ -870,6 +927,11 @@ private fun MobileContent(
                 onNavigate(Screen.Home)
             }
         }
+        is Screen.Notifications -> NotificationsScreen(
+            onNavigate = onNavigate,
+            onOpenGroupAtRelay = onOpenGroupAtRelay,
+            onOpenDrawer = onOpenDrawer,
+        )
         is Screen.BackupPrivateKey -> BackupScreen()
         else -> HomeScreen(
             relayUrl = selectedRelayUrl,
@@ -893,6 +955,7 @@ private fun MobileDrawerContent(
     isGroupsLoading: Boolean,
     hasNoRelays: Boolean,
     isProfileActive: Boolean,
+    isNotificationsActive: Boolean,
     onRelayClick: (String) -> Unit,
     onRelayTitleClick: () -> Unit,
     onAddRelayClick: () -> Unit,
@@ -900,7 +963,8 @@ private fun MobileDrawerContent(
     onCreateGroupClick: () -> Unit,
     onJoinGroupClick: () -> Unit = {},
     onAddRelayFromSidebar: (() -> Unit)? = null,
-    onUserClick: () -> Unit = {}
+    onUserClick: () -> Unit = {},
+    onNotificationsClick: () -> Unit = {}
 ) {
     val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
     val joinedGroupsByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
@@ -938,10 +1002,15 @@ private fun MobileDrawerContent(
         pubKey?.let { userMetadata[it] }
     }
 
+    val notificationEntries by AppModule.notificationHistoryStore.entries.collectAsState()
+    val notificationCount = remember(notificationEntries) { notificationEntries.count { !it.read } }
+
     Row(Modifier.fillMaxSize()) {
         ServerRail(
             relays = relays,
-            activeRelayUrl = activeRelayUrl,
+            // Same suppression as DesktopShell — when notifications/profile is the
+            // active screen, no relay should claim the active indicator.
+            activeRelayUrl = if (isNotificationsActive || isProfileActive) "" else activeRelayUrl,
             onRelayClick = onRelayClick,
             onAddRelayClick = onAddRelayClick,
             relayMetadata = relayMetadata,
@@ -951,6 +1020,9 @@ private fun MobileDrawerContent(
             userPubkey = pubKey,
             onUserClick = onUserClick,
             isProfileActive = isProfileActive,
+            notificationCount = notificationCount,
+            onNotificationsClick = onNotificationsClick,
+            isNotificationsActive = isNotificationsActive,
             showTooltips = false
         )
         GroupsNavSidebar(
