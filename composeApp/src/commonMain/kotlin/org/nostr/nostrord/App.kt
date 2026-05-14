@@ -235,10 +235,24 @@ private fun AuthenticatedApp(
     // [previousRelayUrl] must be captured before [selectedRelayUrl] is mutated by
     // the caller — reading it inside this fn would always see the new value and
     // break the same-relay toggle.
-    fun resolveScreenForRelay(clickedUrl: String, previousRelayUrl: String): Screen {
-        if (clickedUrl.isBlank() || clickedUrl == previousRelayUrl) return Screen.Home
+    //
+    // Notifications is a cross-relay screen with no per-relay context: clicking a
+    // relay icon from there restores that relay's last group (or Home) instead of
+    // applying the same-relay toggle, which would surprise the user by sending
+    // them away from the group they were just in.
+    fun resolveScreenForRelay(
+        clickedUrl: String,
+        previousRelayUrl: String,
+        currentScreen: Screen,
+    ): Screen {
+        if (clickedUrl.isBlank()) return Screen.Home
         val pk = pubKey ?: return Screen.Home
-        val (groupId, groupName) = SecureStorage.getLastGroupForRelay(pk, clickedUrl) ?: return Screen.Home
+        val lastGroup = SecureStorage.getLastGroupForRelay(pk, clickedUrl)
+        if (currentScreen is Screen.Notifications) {
+            return lastGroup?.let { (id, name) -> Screen.Group(id, name) } ?: Screen.Home
+        }
+        if (clickedUrl == previousRelayUrl) return Screen.Home
+        val (groupId, groupName) = lastGroup ?: return Screen.Home
         return Screen.Group(groupId, groupName)
     }
 
@@ -474,13 +488,15 @@ private fun AuthenticatedApp(
     BrowserNavigationHandler(
         currentScreen = currentScreen,
         selectedRelayUrl = selectedRelayUrl,
-        onUrlNavigation = { relayUrl, groupId, inviteCode ->
+        onUrlNavigation = { relayUrl, groupId, inviteCode, viewNotifications ->
             if (showSettings) {
                 // Browser back pressed while settings overlay is open — close it instead of navigating
                 showSettings = false
             } else {
-                // Switch relay if different
-                if (relayUrl != selectedRelayUrl) {
+                // Switch relay only when a relay is explicitly in the URL.
+                // `?view=notifications` has no relay (cross-relay screen) —
+                // keep whichever relay was already selected in the sidebar.
+                if (relayUrl.isNotBlank() && relayUrl != selectedRelayUrl) {
                     selectedRelayUrl = relayUrl
                     scope.launch { AppModule.nostrRepository.switchRelay(relayUrl) }
                 }
@@ -488,14 +504,15 @@ private fun AuthenticatedApp(
                 if (inviteCode != null) {
                     pendingInviteCode = inviteCode
                 }
-                // Navigate to the correct screen
-                val targetScreen = if (groupId != null) {
-                    Screen.Group(groupId, null)
-                } else {
-                    Screen.Home
+                // Navigate to the correct screen. `group` and `view=notifications`
+                // are mutually exclusive in the URL; group wins if both appear.
+                val targetScreen = when {
+                    groupId != null -> Screen.Group(groupId, null)
+                    viewNotifications -> Screen.Notifications
+                    else -> Screen.Home
                 }
                 if (targetScreen != currentScreen) {
-                    navHistory.navigate(targetScreen, relayUrl)
+                    navHistory.navigate(targetScreen, selectedRelayUrl)
                     AppModule.nostrRepository.setActiveGroup(
                         if (targetScreen is Screen.Group) targetScreen.groupId else null
                     )
@@ -608,9 +625,10 @@ private fun AuthenticatedApp(
                     isGroupsLoading = isGroupsLoading,
                     onRelayClick = { url ->
                         val previousRelayUrl = selectedRelayUrl
+                        val previousScreen = currentScreen
                         selectedRelayUrl = url
                         scope.launch { AppModule.nostrRepository.switchRelay(url) }
-                        onNavigate(resolveScreenForRelay(url, previousRelayUrl))
+                        onNavigate(resolveScreenForRelay(url, previousRelayUrl, previousScreen))
                     },
                     onRelayTitleClick = { onNavigate(Screen.Home) },
                     onAddRelayClick = { onNavigate(Screen.RelaySettings) },
@@ -665,12 +683,13 @@ private fun AuthenticatedApp(
                             isProfileActive = showSettings,
                             onRelayClick = { url ->
                                 val previousRelayUrl = selectedRelayUrl
+                                val previousScreen = currentScreen
                                 selectedRelayUrl = url
                                 scope.launch {
                                     drawerState.close()
                                     AppModule.nostrRepository.switchRelay(url)
                                 }
-                                onNavigate(resolveScreenForRelay(url, previousRelayUrl))
+                                onNavigate(resolveScreenForRelay(url, previousRelayUrl, previousScreen))
                             },
                             onRelayTitleClick = {
                                 scope.launch { drawerState.close() }

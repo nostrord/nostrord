@@ -43,16 +43,27 @@ private fun parseDeepLinkFromUrl() {
         else param to ""
     }
 
-    val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return
-    val relayUrl = relay.toRelayUrl().takeIf { it.isNotBlank() } ?: return
+    val viewNotifications = params["view"] == "notifications"
+    val relay = params["relay"]?.takeIf { it.isNotBlank() }
+    val relayUrl = relay?.toRelayUrl()?.takeIf { it.isNotBlank() }
+
+    // `?view=notifications` is cross-relay; the screen can boot without any
+    // relay query param and the app falls back to persisted state.
+    if (relayUrl == null) {
+        if (viewNotifications) {
+            StartupResolver.setExternalLaunchContext(ExternalLaunchContext.OpenNotifications())
+        }
+        return
+    }
+
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
     val messageId = params["e"]?.takeIf { it.isNotBlank() }
 
-    val context = if (groupId != null) {
-        ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl, inviteCode = inviteCode, messageId = messageId)
-    } else {
-        ExternalLaunchContext.OpenRelay(relayUrl)
+    val context = when {
+        groupId != null -> ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl, inviteCode = inviteCode, messageId = messageId)
+        viewNotifications -> ExternalLaunchContext.OpenNotifications(relayUrl)
+        else -> ExternalLaunchContext.OpenRelay(relayUrl)
     }
     StartupResolver.setExternalLaunchContext(context)
 }

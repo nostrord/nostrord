@@ -13,6 +13,9 @@ import org.nostr.nostrord.utils.toRelayUrl
 import org.w3c.dom.PopStateEvent
 
 private fun buildUrlQuery(relayUrl: String, screen: Screen): String {
+    // Notifications is cross-relay — keep it out of the relay namespace so the
+    // URL stays meaningful (and refresh-stable) even with no relay context.
+    if (screen is Screen.Notifications) return "?view=notifications"
     if (relayUrl.isBlank()) return window.location.pathname
     val relay = relayUrl
         .removePrefix("wss://")
@@ -26,7 +29,12 @@ private fun buildUrlQuery(relayUrl: String, screen: Screen): String {
 /**
  * Parse relay and group from a URL search string like "?relay=host&group=id".
  */
-private data class UrlParams(val relayUrl: String, val groupId: String?, val inviteCode: String?)
+private data class UrlParams(
+    val relayUrl: String,
+    val groupId: String?,
+    val inviteCode: String?,
+    val viewNotifications: Boolean,
+)
 
 private fun parseUrlQuery(search: String): UrlParams {
     val params = search.removePrefix("?").split("&").associate { param ->
@@ -38,14 +46,15 @@ private fun parseUrlQuery(search: String): UrlParams {
     val relayUrl = relay.toRelayUrl()
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
-    return UrlParams(relayUrl, groupId, inviteCode)
+    val viewNotifications = params["view"] == "notifications"
+    return UrlParams(relayUrl, groupId, inviteCode, viewNotifications)
 }
 
 @Composable
 actual fun BrowserNavigationHandler(
     currentScreen: Screen,
     selectedRelayUrl: String,
-    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?) -> Unit
+    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?, viewNotifications: Boolean) -> Unit
 ) {
     val currentOnUrlNavigation by rememberUpdatedState(onUrlNavigation)
 
@@ -72,8 +81,11 @@ actual fun BrowserNavigationHandler(
             val parsed = parseUrlQuery(window.location.search)
             skipNextPush.value = true
             lastPushedUrl.value = window.location.search.ifBlank { window.location.pathname }
-            if (parsed.relayUrl.isNotBlank()) {
-                currentOnUrlNavigation(parsed.relayUrl, parsed.groupId, parsed.inviteCode)
+            // `view=notifications` is allowed to fire without a relay — the
+            // Notifications screen is cross-relay and the app keeps its
+            // previously selected relay in the sidebar.
+            if (parsed.relayUrl.isNotBlank() || parsed.viewNotifications) {
+                currentOnUrlNavigation(parsed.relayUrl, parsed.groupId, parsed.inviteCode, parsed.viewNotifications)
             }
         }
 

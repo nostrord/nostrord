@@ -14,11 +14,12 @@ import org.nostr.nostrord.ui.Screen
  * On all other platforms: no-op.
  *
  * @param onUrlNavigation Called on popstate with the relay URL, optional group ID,
- *   and optional invite code parsed from the browser URL.
+ *   optional invite code, and a flag indicating that the URL pointed at the
+ *   Notifications screen (`?view=notifications`).
  */
 @Composable
 expect fun BrowserNavigationHandler(
     currentScreen: Screen,
     selectedRelayUrl: String,
-    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?) -> Unit
+    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?, viewNotifications: Boolean) -> Unit
 )

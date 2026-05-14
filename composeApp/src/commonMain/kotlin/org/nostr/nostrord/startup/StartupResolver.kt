@@ -47,6 +47,7 @@ object StartupResolver {
         get() = when (val ctx = externalLaunchContext) {
             is ExternalLaunchContext.OpenGroup -> ctx.relayUrl
             is ExternalLaunchContext.OpenRelay -> ctx.relayUrl
+            is ExternalLaunchContext.OpenNotifications -> ctx.relayUrl
             else -> null
         }
 
@@ -74,6 +75,10 @@ object StartupResolver {
                 )
                 is ExternalLaunchContext.OpenRelay -> ResolvedScreen(
                     screen = Screen.Home,
+                    relayUrl = external.relayUrl
+                )
+                is ExternalLaunchContext.OpenNotifications -> ResolvedScreen(
+                    screen = Screen.Notifications,
                     relayUrl = external.relayUrl
                 )
                 is ExternalLaunchContext.OpenHome -> ResolvedScreen(screen = Screen.Home)
@@ -162,5 +167,6 @@ sealed class ExternalLaunchContext {
         val messageId: String? = null
     ) : ExternalLaunchContext()
     data class OpenRelay(val relayUrl: String) : ExternalLaunchContext()
+    data class OpenNotifications(val relayUrl: String? = null) : ExternalLaunchContext()
     data object OpenHome : ExternalLaunchContext()
 }
