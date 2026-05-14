@@ -1112,7 +1112,13 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         val emoji: String,
         val emojiUrl: String? = null, // URL for custom emoji (NIP-30)
         val targetEventId: String,
-        val createdAt: Long
+        val createdAt: Long,
+        // NIP-25 `p` tag: pubkey of the author of the event being reacted to.
+        // Used to surface "someone reacted to your message" notifications without
+        // needing the target message to already be in the in-memory cache.
+        val targetAuthorPubkey: String? = null,
+        // NIP-29 `h` tag: group id the reaction was published to.
+        val groupId: String? = null,
     )
 
     fun parseMessage(message: String): NostrMessage? {
@@ -1176,13 +1182,18 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                 tag.size >= 3 && tag[0] == "emoji" && tag[1] == shortcode
             }?.getOrNull(2)
 
+            val targetAuthorPubkey = tags.firstOrNull { it.size >= 2 && it[0] == "p" }?.get(1)
+            val groupId = tags.firstOrNull { it.size >= 2 && it[0] == "h" }?.get(1)
+
             NostrReaction(
                 id = event["id"]?.jsonPrimitive?.content ?: return null,
                 pubkey = event["pubkey"]?.jsonPrimitive?.content ?: return null,
                 emoji = emoji,
                 emojiUrl = emojiUrl,
                 targetEventId = targetEventId,
-                createdAt = event["created_at"]?.jsonPrimitive?.long ?: (epochMillis() / 1000)
+                createdAt = event["created_at"]?.jsonPrimitive?.long ?: (epochMillis() / 1000),
+                targetAuthorPubkey = targetAuthorPubkey,
+                groupId = groupId,
             )
         } catch (e: Exception) {
             null

@@ -1975,9 +1975,21 @@ class NostrRepository(
                         }
                         val currentPubkey = sessionManager.getPublicKey()
                         if (currentPubkey != null && reaction.pubkey != currentPubkey) {
-                            val found = groupManager.findMessageByIdAcrossGroups(reaction.targetEventId)
-                            if (found != null && found.second.pubkey == currentPubkey) {
-                                unreadManager.onReactionReceived(found.first, reaction)
+                            // Prefer the NIP-25 `p` tag — it tells us the target author
+                            // directly, so we don't have to wait for the target message
+                            // to clear the EventOrderingBuffer. Fall back to the cross-
+                            // group cache lookup when the reactor omitted the `p` tag.
+                            val groupId = reaction.groupId
+                                ?: groupManager.findMessageByIdAcrossGroups(reaction.targetEventId)?.first
+                            val isForSelf = when {
+                                reaction.targetAuthorPubkey != null ->
+                                    reaction.targetAuthorPubkey == currentPubkey
+                                else -> groupManager
+                                    .findMessageByIdAcrossGroups(reaction.targetEventId)
+                                    ?.second?.pubkey == currentPubkey
+                            }
+                            if (isForSelf && groupId != null) {
+                                unreadManager.onReactionReceived(groupId, reaction)
                             }
                         }
                     }
