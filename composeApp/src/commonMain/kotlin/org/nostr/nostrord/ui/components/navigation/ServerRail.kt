@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.PlainTooltip
@@ -78,6 +79,9 @@ fun ServerRail(
     userPubkey: String? = null,
     onUserClick: () -> Unit = {},
     isProfileActive: Boolean = false,
+    notificationCount: Int = 0,
+    onNotificationsClick: () -> Unit = {},
+    isNotificationsActive: Boolean = false,
     showTooltips: Boolean = true
 ) {
     val listState = rememberLazyListState()
@@ -140,6 +144,15 @@ fun ServerRail(
                 }
             }
         }
+
+        // Notification bell — global, cross-relay. Sits above the avatar so the
+        // badge surfaces unread totals regardless of which screen is active.
+        NotificationBell(
+            count = notificationCount,
+            isActive = isNotificationsActive,
+            onClick = onNotificationsClick,
+            tooltip = if (showTooltips) "Notifications" else null,
+        )
 
         // User avatar at bottom
         Spacer(modifier = Modifier.height(Spacing.sm))
@@ -476,6 +489,123 @@ private fun UserAvatar(
         }
     } else {
         avatarContent()
+    }
+}
+
+/**
+ * Notification bell in the server rail. Mirrors UserAvatar's layout (left pill
+ * indicator + centered icon) so it visually rhymes with the other "pinned"
+ * rail items. The badge reuses UnreadBadge to match per-relay styling.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NotificationBell(
+    count: Int,
+    isActive: Boolean,
+    onClick: () -> Unit,
+    tooltip: String? = "Notifications",
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+
+    val indicatorHeight by animateDpAsState(
+        targetValue = when {
+            isActive -> Spacing.activeIndicatorHeight
+            isHovered -> Spacing.hoverIndicatorHeight
+            else -> 0.dp
+        },
+        animationSpec = NostrordAnimation.indicatorSpec()
+    )
+
+    val cornerRadius by animateDpAsState(
+        targetValue = when {
+            isActive || isHovered -> NostrordShapes.serverIconActive
+            else -> NostrordShapes.serverIconDefault
+        },
+        animationSpec = NostrordAnimation.standardSpec()
+    )
+
+    val bellContent: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Spacing.serverIconSize + Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(Spacing.activeIndicatorWidth)
+                    .height(indicatorHeight)
+                    .background(
+                        if (indicatorHeight > 0.dp) Color.White else Color.Transparent,
+                        RoundedCornerShape(
+                            topEnd = Spacing.activeIndicatorWidth,
+                            bottomEnd = Spacing.activeIndicatorWidth
+                        )
+                    )
+            )
+
+            Spacer(modifier = Modifier.weight(1f))
+
+            Box(
+                modifier = Modifier
+                    .size(Spacing.serverIconSize)
+                    .hoverable(interactionSource)
+                    .clickable(onClick = onClick)
+                    .pointerHoverIcon(PointerIcon.Hand),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(Spacing.serverIconSize)
+                        .clip(RoundedCornerShape(cornerRadius))
+                        .background(
+                            color = when {
+                                isActive -> NostrordColors.Primary
+                                isHovered -> NostrordColors.Primary.copy(alpha = 0.7f)
+                                else -> NostrordColors.SurfaceVariant
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Notifications,
+                        contentDescription = "Notifications",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                if (count > 0) {
+                    UnreadBadge(
+                        count = count,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 4.dp, y = (-4).dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.weight(1f))
+        }
+    }
+
+    if (tooltip != null) {
+        TooltipBox(
+            positionProvider = RightSideTooltipPositionProvider(),
+            tooltip = {
+                PlainTooltip(
+                    containerColor = NostrordColors.Surface,
+                    contentColor = NostrordColors.TextPrimary
+                ) {
+                    Text(tooltip)
+                }
+            },
+            state = rememberTooltipState()
+        ) {
+            bellContent()
+        }
+    } else {
+        bellContent()
     }
 }
 

@@ -169,7 +169,9 @@ fun HomeScreenDesktop(
 
             }
 
-            // Relay options menu — position:absolute; top:8px; right:8px
+            // Relay options — position:absolute; top:8px; right:8px.
+            // Notifications live in the server rail (always visible on desktop),
+            // so we don't duplicate the bell here.
             RelayOptionsMenu(
                 relayUrl = currentRelayUrl,
                 isRelaySaved = isRelaySaved,

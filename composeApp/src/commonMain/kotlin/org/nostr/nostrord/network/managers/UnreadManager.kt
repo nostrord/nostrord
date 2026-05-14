@@ -15,7 +15,11 @@ class UnreadManager(
     private val isJoined: (String) -> Boolean = { true },
     private val isRestricted: (String) -> Boolean = { false },
     private val isAppFocused: () -> Boolean = { true },
+    private val findMessageAuthor: (messageId: String) -> String? = { null },
     private val onUnreadIncrement: ((groupId: String, latestMessage: NostrGroupClient.NostrMessage, delta: Int) -> Unit)? = null,
+    private val onReplyNotify: ((groupId: String, message: NostrGroupClient.NostrMessage) -> Unit)? = null,
+    private val onMentionNotify: ((groupId: String, message: NostrGroupClient.NostrMessage) -> Unit)? = null,
+    private val onReactionNotify: ((groupId: String, reaction: NostrGroupClient.NostrReaction) -> Unit)? = null,
 ) {
 
     private val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -111,7 +115,34 @@ class UnreadManager(
             }
         }
         persistEntries()
-        onUnreadIncrement?.invoke(groupId, qualifying.maxBy { it.createdAt }, qualifying.size)
+
+        val latestReply = qualifying.filter { msg ->
+            msg.tags.any { tag -> tag.size >= 2 && tag[0] == "e" && findMessageAuthor(tag[1]) == pubkey }
+        }.maxByOrNull { it.createdAt }
+
+        val latestMention = qualifying.filter { msg ->
+            msg.tags.any { tag -> tag.size >= 2 && tag[0] == "p" && tag[1] == pubkey }
+        }.maxByOrNull { it.createdAt }
+
+        when {
+            latestReply != null -> onReplyNotify?.invoke(groupId, latestReply)
+            latestMention != null -> onMentionNotify?.invoke(groupId, latestMention)
+            else -> onUnreadIncrement?.invoke(groupId, qualifying.maxBy { it.createdAt }, qualifying.size)
+        }
+    }
+
+    fun onReactionReceived(groupId: String, reaction: NostrGroupClient.NostrReaction) {
+        val pubkey = currentPubkey ?: return
+        if (reaction.pubkey == pubkey) return
+        if (!isJoined(groupId) || isRestricted(groupId)) return
+        val lastRead = SecureStorage.getLastReadTimestamp(pubkey, groupId)
+        val highWater = _latestMessageTimestamps.value[groupId] ?: 0L
+        val anchor = maxOf(
+            lastRead ?: firstSeenAtByGroup.getOrPut(groupId) { epochSeconds() },
+            highWater
+        )
+        if (reaction.createdAt <= anchor) return
+        onReactionNotify?.invoke(groupId, reaction)
     }
 
     fun clear() {

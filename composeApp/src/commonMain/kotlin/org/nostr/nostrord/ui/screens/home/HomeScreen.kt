@@ -10,6 +10,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
+import androidx.compose.runtime.collectAsState
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.utils.normalizeRelayUrl

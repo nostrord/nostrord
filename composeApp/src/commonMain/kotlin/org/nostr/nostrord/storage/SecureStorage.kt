@@ -180,11 +180,22 @@ fun SecureStorage.isFullGroupListCacheFresh(relayUrl: String, nowSeconds: Long):
 // Persisted timestamp of the most recently published (or locally applied) kind:10009 event.
 // Survives app restarts so that handleKind10009Event can reject stale network events that
 // would otherwise restore relays/groups the user explicitly removed while offline.
-fun SecureStorage.saveKind10009Timestamp(timestamp: Long) {
-    saveStringPref("kind10009_latest_ts", timestamp.toString())
+//
+// Pubkey-scoped: a timestamp from account A must NOT bleed into account B's freshness
+// check after a logout+login, otherwise B's kind:10009 (with an older createdAt) gets
+// rejected as "stale" even though it's fresh for B. Without this, B sees no relays
+// because `_kind10009Relays` never populates.
+fun SecureStorage.saveKind10009Timestamp(pubkey: String, timestamp: Long) {
+    saveStringPref("kind10009_latest_ts_${pubkey.hashCode()}", timestamp.toString())
 }
 
-fun SecureStorage.loadKind10009Timestamp(): Long {
+fun SecureStorage.loadKind10009Timestamp(pubkey: String): Long {
+    return getStringPref("kind10009_latest_ts_${pubkey.hashCode()}", "0").toLongOrNull() ?: 0L
+}
+
+// Legacy global key — kept for one-shot migration on first run after the upgrade.
+// Removed once a fresh kind:10009 arrives for any user.
+internal fun SecureStorage.loadLegacyKind10009Timestamp(): Long {
     return getStringPref("kind10009_latest_ts", "0").toLongOrNull() ?: 0L
 }
 
@@ -298,6 +309,35 @@ internal fun SecureStorage.getUnreadEntries(pubkey: String): Map<String, UnreadE
 internal fun SecureStorage.saveUnreadEntries(pubkey: String, entries: Map<String, UnreadEntry>) {
     try {
         saveStringPref(unreadEntriesKey(pubkey), Json.encodeToString<Map<String, UnreadEntry>>(entries))
+    } catch (_: Exception) {}
+}
+
+// Notification history — persisted feed of cross-relay notifications shown in
+// the notification center. Scoped by pubkey so multi-account devices stay isolated.
+private fun notificationHistoryKey(pubkey: String): String =
+    "notification_history_${pubkey.hashCode()}"
+
+fun SecureStorage.getPersistedNotifications(
+    pubkey: String
+): List<org.nostr.nostrord.notifications.NotificationEntry> {
+    val raw = getStringPref(notificationHistoryKey(pubkey), "")
+    if (raw.isBlank()) return emptyList()
+    return try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+fun SecureStorage.savePersistedNotifications(
+    pubkey: String,
+    entries: List<org.nostr.nostrord.notifications.NotificationEntry>
+) {
+    try {
+        saveStringPref(
+            notificationHistoryKey(pubkey),
+            Json.encodeToString<List<org.nostr.nostrord.notifications.NotificationEntry>>(entries)
+        )
     } catch (_: Exception) {}
 }
 

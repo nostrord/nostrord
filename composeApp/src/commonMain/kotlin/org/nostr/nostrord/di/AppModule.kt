@@ -24,9 +24,12 @@ import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
 import org.nostr.nostrord.notifications.FocusTracker
+import org.nostr.nostrord.notifications.NotificationEntry
+import org.nostr.nostrord.notifications.NotificationHistoryStore
 import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.notifications.NotificationRequest
 import org.nostr.nostrord.notifications.NotificationService
+import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.FeatureFlags
 import org.nostr.nostrord.settings.NotificationSettings
@@ -126,6 +129,8 @@ object AppModule {
 
     val notificationService: NotificationService by lazy { NotificationService() }
 
+    val notificationHistoryStore: NotificationHistoryStore by lazy { NotificationHistoryStore() }
+
     val unreadManager: UnreadManager by lazy {
         UnreadManager(
             // groupManager.isGroupJoined() is scoped to the active primary relay —
@@ -136,36 +141,171 @@ object AppModule {
             },
             isRestricted = { groupId -> groupManager.restrictedGroups.value.containsKey(groupId) },
             isAppFocused = { focusTracker.isAppFocused.value },
+            findMessageAuthor = { messageId ->
+                groupManager.findMessageByIdAcrossGroups(messageId)?.second?.pubkey
+            },
             onUnreadIncrement = { groupId, message, _ ->
-                // Sound — gated by the user-facing toggle in Settings → Notifications.
-                // Platform actuals no-op on unsupported targets (iOS for now).
+                val selfPubkey = sessionManager.getPublicKey()
+                if (selfPubkey == null || message.pubkey != selfPubkey) {
+                    val relayUrl = groupManager.getLatestMessageRelayForGroup(groupId)
+                        ?: groupManager.getRelayForGroup(groupId) ?: ""
+                    val preview = resolveMentionsForNotification(message.content).take(120)
+                    val groupName = groupDisplayName(groupId)
+                    val relayName = relayDisplayName(relayUrl)
+                    notificationHistoryStore.add(
+                        NotificationEntry(
+                            id = message.id,
+                            type = NotificationType.MESSAGE,
+                            groupId = groupId,
+                            relayUrl = relayUrl,
+                            actorPubkey = message.pubkey,
+                            createdAt = message.createdAt,
+                            preview = preview,
+                            messageId = message.id,
+                            groupName = groupName,
+                            relayName = relayName,
+                        )
+                    )
+                    // Sound — gated by the user-facing toggle in Settings → Notifications.
+                    // Platform actuals no-op on unsupported targets (iOS for now).
+                    if (notificationSettings.soundEnabled.value) {
+                        playNotificationSound()
+                    }
+                    // Desktop popup — web-only; gated on platform support, granted permission,
+                    // and the user's toggle. The browser itself decides whether to surface
+                    // the popup based on tab focus.
+                    if (notificationSettings.systemNotificationsEnabled.value &&
+                        notificationService.isSupported() &&
+                        notificationService.permission.value == NotificationPermission.Granted) {
+                        val authorName = displayLabelFor(message.pubkey, prefixAt = false)
+                            ?: (message.pubkey.take(8) + "…")
+                        notificationService.notify(
+                            NotificationRequest(
+                                relayUrl = relayUrl,
+                                groupId = groupId,
+                                title = groupName,
+                                body = "$authorName: $preview",
+                            )
+                        )
+                    }
+                }
+            },
+            onReplyNotify = { groupId, message ->
+                val relayUrl = groupManager.getLatestMessageRelayForGroup(groupId)
+                    ?: groupManager.getRelayForGroup(groupId) ?: ""
+                val preview = resolveMentionsForNotification(message.content).take(120)
+                val groupName = groupDisplayName(groupId)
+                val relayName = relayDisplayName(relayUrl)
+                notificationHistoryStore.add(
+                    NotificationEntry(
+                        id = message.id,
+                        type = NotificationType.REPLY,
+                        groupId = groupId,
+                        relayUrl = relayUrl,
+                        actorPubkey = message.pubkey,
+                        createdAt = message.createdAt,
+                        preview = preview,
+                        messageId = message.id,
+                        groupName = groupName,
+                        relayName = relayName,
+                    )
+                )
                 if (notificationSettings.soundEnabled.value) {
                     playNotificationSound()
                 }
-
-                // Desktop popup — web-only; gated on platform support, granted permission,
-                // and the user's toggle. The browser itself decides whether to surface
-                // the popup based on tab focus.
                 if (notificationSettings.systemNotificationsEnabled.value &&
                     notificationService.isSupported() &&
                     notificationService.permission.value == NotificationPermission.Granted) {
-                    val groupName = groupManager.groups.value.firstOrNull { it.id == groupId }?.name
-                        ?: groupId.take(8)
                     val authorName = displayLabelFor(message.pubkey, prefixAt = false)
                         ?: (message.pubkey.take(8) + "…")
-                    val preview = resolveMentionsForNotification(message.content).take(120)
-
-                    val relayUrl = groupManager.getLatestMessageRelayForGroup(groupId)
-                        ?: groupManager.getRelayForGroup(groupId)
-                        ?: ""
                     notificationService.notify(
                         NotificationRequest(
                             relayUrl = relayUrl,
                             groupId = groupId,
                             title = groupName,
-                            body = "$authorName: $preview",
+                            body = "$authorName replied to your message: $preview",
                         )
                     )
+                }
+            },
+            onMentionNotify = { groupId, message ->
+                val relayUrl = groupManager.getLatestMessageRelayForGroup(groupId)
+                    ?: groupManager.getRelayForGroup(groupId) ?: ""
+                val preview = resolveMentionsForNotification(message.content).take(120)
+                val groupName = groupDisplayName(groupId)
+                val relayName = relayDisplayName(relayUrl)
+                notificationHistoryStore.add(
+                    NotificationEntry(
+                        id = message.id,
+                        type = NotificationType.MENTION,
+                        groupId = groupId,
+                        relayUrl = relayUrl,
+                        actorPubkey = message.pubkey,
+                        createdAt = message.createdAt,
+                        preview = preview,
+                        messageId = message.id,
+                        groupName = groupName,
+                        relayName = relayName,
+                    )
+                )
+                if (notificationSettings.soundEnabled.value) {
+                    playNotificationSound()
+                }
+                if (notificationSettings.systemNotificationsEnabled.value &&
+                    notificationService.isSupported() &&
+                    notificationService.permission.value == NotificationPermission.Granted) {
+                    val authorName = displayLabelFor(message.pubkey, prefixAt = false)
+                        ?: (message.pubkey.take(8) + "…")
+                    notificationService.notify(
+                        NotificationRequest(
+                            relayUrl = relayUrl,
+                            groupId = groupId,
+                            title = groupName,
+                            body = "$authorName mentioned you: $preview",
+                        )
+                    )
+                }
+            },
+            onReactionNotify = { groupId, reaction ->
+                val selfPubkey = sessionManager.getPublicKey()
+                if (selfPubkey == null || reaction.pubkey != selfPubkey) {
+                    val relayUrl = groupManager.getLatestMessageRelayForGroup(groupId)
+                        ?: groupManager.getRelayForGroup(groupId) ?: ""
+                    val emoji = reaction.emoji.ifBlank { "+" }
+                    val groupName = groupDisplayName(groupId)
+                    val relayName = relayDisplayName(relayUrl)
+                    notificationHistoryStore.add(
+                        NotificationEntry(
+                            id = reaction.id,
+                            type = NotificationType.REACTION,
+                            groupId = groupId,
+                            relayUrl = relayUrl,
+                            actorPubkey = reaction.pubkey,
+                            createdAt = reaction.createdAt,
+                            preview = emoji,
+                            messageId = reaction.targetEventId,
+                            emoji = emoji,
+                            groupName = groupName,
+                            relayName = relayName,
+                        )
+                    )
+                    if (notificationSettings.soundEnabled.value) {
+                        playNotificationSound()
+                    }
+                    if (notificationSettings.systemNotificationsEnabled.value &&
+                        notificationService.isSupported() &&
+                        notificationService.permission.value == NotificationPermission.Granted) {
+                        val authorName = displayLabelFor(reaction.pubkey, prefixAt = false)
+                            ?: (reaction.pubkey.take(8) + "…")
+                        notificationService.notify(
+                            NotificationRequest(
+                                relayUrl = relayUrl,
+                                groupId = groupId,
+                                title = groupName,
+                                body = "$authorName reacted $emoji to your message",
+                            )
+                        )
+                    }
                 }
             },
         )
@@ -191,6 +331,7 @@ object AppModule {
             relayMetadataManager = relayMetadataManager,
             liveCursorStore = liveCursorStore,
             connStats = connStats,
+            notificationHistoryStore = notificationHistoryStore,
             scope = appScope
         )
     }
@@ -207,6 +348,31 @@ object AppModule {
      * Returns null if no metadata is cached, so callers can decide a fallback
      * (e.g. truncated pubkey) and trigger an async fetch.
      */
+    /**
+     * Resolves a group's display name across every relay's cache. The
+     * notification callbacks fire for groups on background relays too, so
+     * `groupManager.groups` (active relay only) misses them and falls back to
+     * the truncated id. Joined-group metadata is also restored from
+     * [SecureStorage] at startup, so cached entries survive cold launches.
+     */
+    private fun groupDisplayName(groupId: String): String {
+        val name = groupManager.groupsByRelay.value.values
+            .firstNotNullOfOrNull { list ->
+                list.firstOrNull { it.id == groupId }?.name?.takeIf { it.isNotBlank() }
+            }
+        return name ?: groupId.take(8)
+    }
+
+    /**
+     * NIP-11 display name for [relayUrl] from the metadata cache. Returns null
+     * when no entry exists so callers can decide between snapshot omission and
+     * a URL-derived label.
+     */
+    private fun relayDisplayName(relayUrl: String): String? {
+        if (relayUrl.isBlank()) return null
+        return relayMetadataManager.relayMetadata.value[relayUrl]?.name?.takeIf { it.isNotBlank() }
+    }
+
     private fun displayLabelFor(pubkey: String, prefixAt: Boolean): String? {
         val meta = metadataManager.userMetadata.value[pubkey] ?: return null
         val name = meta.name?.takeIf { it.isNotBlank() }
