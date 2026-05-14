@@ -413,7 +413,11 @@ object AppModule {
                 sb.append('@').append(label)
             } else {
                 toFetch += pubkey
-                sb.append('@').append(ref.bech32.take(12)).append('…')
+                // Hex fallback (matches Nip19.summary, SystemEventItem, and the
+                // author-name fallback in the notification callbacks). Mixing
+                // bech32 here was the only place in the app that showed npub
+                // for unknown pubkeys, breaking the visual convention.
+                sb.append('@').append(pubkey.take(8)).append('…')
             }
             cursor = range.last + 1
         }
