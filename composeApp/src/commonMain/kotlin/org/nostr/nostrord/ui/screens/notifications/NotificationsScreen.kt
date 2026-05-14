@@ -38,6 +38,7 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
+import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.ui.util.relayFallbackPainter
 import org.nostr.nostrord.utils.formatTimestamp
@@ -199,6 +200,10 @@ private fun NotificationItem(
     relayIconUrl: String?,
     onClick: () -> Unit,
 ) {
+    // NotoColorEmoji loaded from app resources. Skia (desktop/web) has no
+    // system color-emoji font, so without this the badge glyph and reaction
+    // preview fall back to monochrome tofu.
+    val emojiFontFamily = rememberEmojiFontFamily()
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -246,7 +251,8 @@ private fun NotificationItem(
                     Text(
                         text = notificationTypeEmoji(entry),
                         fontSize = 8.sp,
-                        lineHeight = 8.sp
+                        lineHeight = 8.sp,
+                        fontFamily = emojiFontFamily,
                     )
                 }
             }
@@ -273,13 +279,16 @@ private fun NotificationItem(
 
             Spacer(Modifier.height(2.dp))
 
+            val isReaction = entry.type == NotificationType.REACTION
             Text(
-                text = if (entry.type == NotificationType.REACTION) entry.emoji ?: entry.preview
-                       else entry.preview,
+                text = if (isReaction) entry.emoji ?: entry.preview else entry.preview,
                 color = NostrordColors.TextSecondary,
                 fontSize = 13.sp,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                // Only swap the family when the body IS the emoji; for regular
+                // message previews we keep system text rendering.
+                fontFamily = if (isReaction) emojiFontFamily else null,
             )
 
             Spacer(Modifier.height(4.dp))
