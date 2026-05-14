@@ -18,8 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.di.AppModule
@@ -258,24 +261,29 @@ private fun NotificationItem(
             }
 
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = authorName,
-                    fontWeight = FontWeight.SemiBold,
-                    color = NostrordColors.TextPrimary,
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    text = notificationTypeLabel(entry.type),
-                    color = NostrordColors.TextMuted,
-                    fontSize = 13.sp,
-                    maxLines = 1
-                )
+            // Author + action in a single AnnotatedString so the action label
+            // wraps to a second line instead of clipping off-screen on narrow
+            // viewports (e.g. Android compact). The previous two-Text Row had
+            // the label without weight or ellipsis, and "reacted to your
+            // message" went out of bounds before users could see it.
+            val header = buildAnnotatedString {
+                withStyle(
+                    SpanStyle(
+                        fontWeight = FontWeight.SemiBold,
+                        color = NostrordColors.TextPrimary,
+                    )
+                ) { append(authorName) }
+                append(' ')
+                withStyle(SpanStyle(color = NostrordColors.TextMuted)) {
+                    append(notificationTypeLabel(entry.type))
+                }
             }
+            Text(
+                text = header,
+                fontSize = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
 
             Spacer(Modifier.height(2.dp))
 
