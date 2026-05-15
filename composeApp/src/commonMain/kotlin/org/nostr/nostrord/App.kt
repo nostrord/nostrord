@@ -661,7 +661,6 @@ private fun AuthenticatedApp(
                             onNavigate = onNavigate,
                             onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
                             onOpenGroupAtRelay = onOpenGroupAtRelay,
-                            onOpenAccountMenu = { showMeMenu = true },
                             hasNoRelays = hasNoRelays,
                             onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
                             onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
@@ -745,7 +744,6 @@ private fun AuthenticatedApp(
                         onNavigate = onNavigate,
                         onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
                         onOpenGroupAtRelay = onOpenGroupAtRelay,
-                        onOpenAccountMenu = { showMeMenu = true },
                         onCreateGroupClick = { showCreateGroupModal = true },
                         hasNoRelays = hasNoRelays,
                         onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
@@ -831,7 +829,6 @@ private fun DesktopContent(
     onNavigate: (Screen) -> Unit,
     onNavigateToGroupWithRelay: (String, String?, String?) -> Unit = { _, _, _ -> },
     onOpenGroupAtRelay: (String, String?, String, String?) -> Unit = { _, _, _, _ -> },
-    onOpenAccountMenu: () -> Unit = {},
     hasNoRelays: Boolean = false,
     onAddRelay: () -> Unit = {},
     onAddRelayCustomUrl: () -> Unit = {},
@@ -894,7 +891,6 @@ private fun DesktopContent(
         is Screen.Notifications -> NotificationsScreen(
             onNavigate = onNavigate,
             onOpenGroupAtRelay = onOpenGroupAtRelay,
-            onOpenAccountMenu = onOpenAccountMenu,
         )
         is Screen.BackupPrivateKey -> BackupScreen(forceDesktop = true)
         else -> HomeScreen(relayUrl = selectedRelayUrl, gridState = homeGridState, onNavigate = onNavigate, forceDesktop = true)
@@ -912,7 +908,6 @@ private fun MobileContent(
     onNavigate: (Screen) -> Unit,
     onNavigateToGroupWithRelay: (String, String?, String?) -> Unit = { _, _, _ -> },
     onOpenGroupAtRelay: (String, String?, String, String?) -> Unit = { _, _, _, _ -> },
-    onOpenAccountMenu: () -> Unit = {},
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     hasNoRelays: Boolean = false,
@@ -977,7 +972,6 @@ private fun MobileContent(
         is Screen.Notifications -> NotificationsScreen(
             onNavigate = onNavigate,
             onOpenGroupAtRelay = onOpenGroupAtRelay,
-            onOpenAccountMenu = onOpenAccountMenu,
             onOpenDrawer = onOpenDrawer,
         )
         is Screen.BackupPrivateKey -> BackupScreen()
