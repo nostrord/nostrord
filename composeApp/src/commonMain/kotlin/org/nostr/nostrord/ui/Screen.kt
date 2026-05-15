@@ -10,5 +10,4 @@ sealed class Screen {
     data object Notifications : Screen()
     object NostrLogin : Screen()
     object BackupPrivateKey : Screen()
-    data object Accounts : Screen()
 }

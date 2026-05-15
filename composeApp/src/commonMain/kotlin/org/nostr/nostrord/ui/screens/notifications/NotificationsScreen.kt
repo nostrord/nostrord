@@ -52,6 +52,7 @@ import org.nostr.nostrord.utils.formatTimestamp
 fun NotificationsScreen(
     onNavigate: (Screen) -> Unit,
     onOpenGroupAtRelay: (groupId: String, groupName: String?, relayUrl: String, targetMessageId: String?) -> Unit,
+    onOpenAccountMenu: () -> Unit = {},
     onOpenDrawer: (() -> Unit)? = null,
 ) {
     val entries by AppModule.notificationHistoryStore.entries.collectAsState()
@@ -143,7 +144,7 @@ fun NotificationsScreen(
                     pubkey = activePubkey!!,
                     displayName = activeDisplayName.orEmpty(),
                     avatarUrl = activeMeta?.picture?.takeIf { it.isNotBlank() },
-                    onClick = { onNavigate(Screen.Accounts) },
+                    onClick = onOpenAccountMenu,
                 )
             }
             if (entries.isEmpty()) {

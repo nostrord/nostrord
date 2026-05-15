@@ -62,7 +62,6 @@ import org.nostr.nostrord.ui.screens.settings.SettingsScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.relay.AddRelayModal
 import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
-import org.nostr.nostrord.ui.screens.accounts.AccountsScreen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
@@ -322,6 +321,7 @@ private fun AuthenticatedApp(
     var showAddRelayModal by remember { mutableStateOf(false) }
     var addRelayInitialTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
+    var showMeMenu by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -643,8 +643,8 @@ private fun AuthenticatedApp(
                     onCreateGroupClick = { showCreateGroupModal = true },
                     onJoinGroupClick = { showJoinGroupModal = true },
                     onAddRelayFromSidebar = if (hasNoRelays) {{ addRelayInitialTab = 0; showAddRelayModal = true }} else null,
-                    onUserClick = { showSettings = true },
-                    isProfileActive = showSettings,
+                    onUserClick = { showMeMenu = true },
+                    isProfileActive = showSettings || showMeMenu,
                     onNotificationsClick = { onNavigate(Screen.Notifications) },
                     isNotificationsActive = currentScreen is Screen.Notifications,
                     hideGroupsSidebar = currentScreen is Screen.Notifications,
@@ -659,6 +659,7 @@ private fun AuthenticatedApp(
                             onNavigate = onNavigate,
                             onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
                             onOpenGroupAtRelay = onOpenGroupAtRelay,
+                            onOpenAccountMenu = { showMeMenu = true },
                             hasNoRelays = hasNoRelays,
                             onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
                             onAddRelayCustomUrl = { addRelayInitialTab = 1; showAddRelayModal = true },
@@ -722,7 +723,7 @@ private fun AuthenticatedApp(
                             }} else null,
                             onUserClick = {
                                 scope.launch { drawerState.close() }
-                                showSettings = true
+                                showMeMenu = true
                             },
                             isNotificationsActive = currentScreen is Screen.Notifications,
                             onNotificationsClick = {
@@ -742,6 +743,7 @@ private fun AuthenticatedApp(
                         onNavigate = onNavigate,
                         onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
                         onOpenGroupAtRelay = onOpenGroupAtRelay,
+                        onOpenAccountMenu = { showMeMenu = true },
                         onCreateGroupClick = { showCreateGroupModal = true },
                         hasNoRelays = hasNoRelays,
                         onAddRelay = { addRelayInitialTab = 0; showAddRelayModal = true },
@@ -775,6 +777,25 @@ private fun AuthenticatedApp(
         )
     }
 
+    // Account menu — opened from the rail avatar / mobile drawer avatar /
+    // notifications header chip. Replaces the standalone accounts screen.
+    org.nostr.nostrord.ui.components.accounts.MeMenu(
+        visible = showMeMenu,
+        onDismiss = { showMeMenu = false },
+        onAddAccount = {
+            showMeMenu = false
+            onNavigate(Screen.NostrLogin)
+        },
+        onSettings = {
+            showMeMenu = false
+            showSettings = true
+        },
+        onLogout = {
+            showMeMenu = false
+            scope.launch { AppModule.nostrRepository.logout() }
+        },
+    )
+
     // Floating prompt to enable desktop notifications. Mounted at the root so it
     // persists across navigation; renders only when supported + permission Default.
     NotificationPermissionBanner(modifier = Modifier.align(Alignment.TopCenter))
@@ -792,6 +813,7 @@ private fun DesktopContent(
     onNavigate: (Screen) -> Unit,
     onNavigateToGroupWithRelay: (String, String?, String?) -> Unit = { _, _, _ -> },
     onOpenGroupAtRelay: (String, String?, String, String?) -> Unit = { _, _, _, _ -> },
+    onOpenAccountMenu: () -> Unit = {},
     hasNoRelays: Boolean = false,
     onAddRelay: () -> Unit = {},
     onAddRelayCustomUrl: () -> Unit = {},
@@ -854,9 +876,9 @@ private fun DesktopContent(
         is Screen.Notifications -> NotificationsScreen(
             onNavigate = onNavigate,
             onOpenGroupAtRelay = onOpenGroupAtRelay,
+            onOpenAccountMenu = onOpenAccountMenu,
         )
         is Screen.BackupPrivateKey -> BackupScreen(forceDesktop = true)
-        is Screen.Accounts -> AccountsScreen(onNavigate = onNavigate)
         else -> HomeScreen(relayUrl = selectedRelayUrl, gridState = homeGridState, onNavigate = onNavigate, forceDesktop = true)
     }
 }
@@ -872,6 +894,7 @@ private fun MobileContent(
     onNavigate: (Screen) -> Unit,
     onNavigateToGroupWithRelay: (String, String?, String?) -> Unit = { _, _, _ -> },
     onOpenGroupAtRelay: (String, String?, String, String?) -> Unit = { _, _, _, _ -> },
+    onOpenAccountMenu: () -> Unit = {},
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     hasNoRelays: Boolean = false,
@@ -936,10 +959,10 @@ private fun MobileContent(
         is Screen.Notifications -> NotificationsScreen(
             onNavigate = onNavigate,
             onOpenGroupAtRelay = onOpenGroupAtRelay,
+            onOpenAccountMenu = onOpenAccountMenu,
             onOpenDrawer = onOpenDrawer,
         )
         is Screen.BackupPrivateKey -> BackupScreen()
-        is Screen.Accounts -> AccountsScreen(onNavigate = onNavigate)
         else -> HomeScreen(
             relayUrl = selectedRelayUrl,
             gridState = homeGridState,

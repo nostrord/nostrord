@@ -364,10 +364,6 @@ private fun DesktopSettings(
                         activeSection = activeSection,
                         onSelectSection = onSelectSection,
                         onLogout = onLogout,
-                        onOpenAccounts = {
-                            onClose()
-                            onNavigate(Screen.Accounts)
-                        }
                     )
                 }
 
@@ -425,10 +421,6 @@ private fun MobileSettings(
                     onSelectSection = onSelectSection,
                     onLogout = onLogout,
                     compact = true,
-                    onOpenAccounts = {
-                        onClose()
-                        onNavigate(Screen.Accounts)
-                    }
                 )
             }
         }
@@ -465,7 +457,6 @@ private fun SettingsSidebar(
     activeSection: SettingsSection,
     onSelectSection: (SettingsSection) -> Unit,
     onLogout: () -> Unit,
-    onOpenAccounts: () -> Unit,
     compact: Boolean = false
 ) {
     var showLogoutConfirm by remember { mutableStateOf(false) }
@@ -515,7 +506,6 @@ private fun SettingsSidebar(
         onSelectSection(SettingsSection.Experimental)
     }
     SettingsNavDivider(compact)
-    SettingsNavItem("Accounts", isActive = false, compact = compact, onClick = onOpenAccounts)
     SettingsNavItem("Log Out", isActive = false, isDanger = true, compact = compact,
         onClick = { showLogoutConfirm = true })
 }
