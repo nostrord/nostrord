@@ -87,6 +87,13 @@ interface NostrRepositoryApi {
     suspend fun completeNostrConnectLogin(client: Nip46Client, relays: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")): String
     suspend fun logout()
 
+    /**
+     * After AccountManager.switchAccount has swapped credentials and reset
+     * in-memory caches, re-hydrate joined-group state from per-account storage
+     * for the new pubkey and re-issue subscriptions on the active relay.
+     */
+    suspend fun reloadForActiveAccount()
+
     // --- Connection operations ---
     suspend fun connect()
     suspend fun reconnect(): Boolean

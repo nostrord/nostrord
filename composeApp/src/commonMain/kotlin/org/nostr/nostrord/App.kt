@@ -61,6 +61,7 @@ import org.nostr.nostrord.ui.screens.settings.SettingsScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.relay.AddRelayModal
 import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
+import org.nostr.nostrord.ui.screens.accounts.AccountsScreen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
@@ -851,6 +852,7 @@ private fun DesktopContent(
             onOpenGroupAtRelay = onOpenGroupAtRelay,
         )
         is Screen.BackupPrivateKey -> BackupScreen(forceDesktop = true)
+        is Screen.Accounts -> AccountsScreen(onNavigate = onNavigate)
         else -> HomeScreen(relayUrl = selectedRelayUrl, gridState = homeGridState, onNavigate = onNavigate, forceDesktop = true)
     }
 }
@@ -933,6 +935,7 @@ private fun MobileContent(
             onOpenDrawer = onOpenDrawer,
         )
         is Screen.BackupPrivateKey -> BackupScreen()
+        is Screen.Accounts -> AccountsScreen(onNavigate = onNavigate)
         else -> HomeScreen(
             relayUrl = selectedRelayUrl,
             gridState = homeGridState,

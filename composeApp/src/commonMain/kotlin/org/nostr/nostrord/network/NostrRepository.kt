@@ -543,6 +543,34 @@ class NostrRepository(
         sessionManager.forgetBunkerConnection()
     }
 
+    override suspend fun reloadForActiveAccount() {
+        val pubkey = sessionManager.getPublicKey() ?: return
+        val activeRelay = connectionManager.currentRelayUrl.value
+        val savedRelays = SecureStorage.loadRelayList()
+
+        if (activeRelay.isNotBlank()) {
+            groupManager.loadJoinedGroupsFromStorage(pubkey, activeRelay)
+        }
+        if (savedRelays.isNotEmpty()) {
+            groupManager.loadAllJoinedGroupsFromStorage(pubkey, savedRelays)
+            groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, savedRelays)
+            groupManager.loadRestrictedGroupsFromStorage(pubkey, savedRelays)
+        }
+
+        initializeOutboxModel()
+        scope.launch {
+            outboxManager.loadJoinedGroupsFromNostr(pubkey) { msg, c ->
+                enqueueToRelayPipeline(msg, c)
+            }
+        }
+
+        // Force re-subscribe on the active relay so pubkey-filtered REQs
+        // reissue with the new identity instead of carrying stale ones.
+        if (activeRelay.isNotBlank()) {
+            triggerReconnect()
+        }
+    }
+
     private fun initializeOutboxModel() {
         val pubKey = sessionManager.getPublicKey() ?: return
         outboxManager.initialize(

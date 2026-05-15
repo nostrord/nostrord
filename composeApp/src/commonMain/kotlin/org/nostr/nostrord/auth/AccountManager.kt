@@ -15,13 +15,9 @@ import org.nostr.nostrord.utils.epochMillis
  * actions: add a new account without disturbing the active session, switch
  * which account is active, and remove an account.
  *
- * Subscription resync (closing pubkey-filtered REQs on the current relay
- * and re-issuing with the new pubkey) is intentionally NOT performed here:
- * the cheapest correct behavior would be a full primary-relay reconnect,
- * which makes switch latency noticeable; we defer that to the UI layer
- * (Phase 5) which can trigger it explicitly. In the meantime, signing and
- * persisted state are correctly scoped, and the next natural reconnect
- * (network blip, app foreground) will resubscribe with the new pubkey.
+ * On [switchAccount], pubkey-filtered REQs on the active relay are reissued
+ * via [NostrRepository.reloadForActiveAccount], which also re-hydrates
+ * per-account joined-group state from storage.
  */
 class AccountManager(
     private val accountStore: AccountStore,
@@ -71,6 +67,7 @@ class AccountManager(
         if (!ok) return Result.failure(IllegalStateException("Could not load credentials for $accountId"))
 
         AppModule.applyActiveAccountChange(target)
+        AppModule.nostrRepository.reloadForActiveAccount()
         return Result.success(Unit)
     }
 

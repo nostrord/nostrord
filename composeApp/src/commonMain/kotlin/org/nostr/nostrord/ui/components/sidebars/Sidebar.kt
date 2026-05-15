@@ -10,7 +10,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -91,15 +94,21 @@ fun Sidebar(
         if (pubKey != null) {
             Spacer(modifier = Modifier.height(8.dp))
 
+            var showSwitcher by remember { mutableStateOf(false) }
+            val accounts by AppModule.accountStore.accounts.collectAsState()
+            val activeId by AppModule.accountStore.activeId.collectAsState()
+
             // User profile card
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-                    .background(NostrordColors.Background, shape = RoundedCornerShape(8.dp))
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp)
+                        .background(NostrordColors.Background, shape = RoundedCornerShape(8.dp))
+                        .clickable { showSwitcher = true }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                 val displayName = currentUserMetadata?.displayName
                     ?: currentUserMetadata?.name
                     ?: pubKey.take(8)
@@ -126,6 +135,61 @@ fun Sidebar(
                         text = "${pubKey.take(8)}…",
                         color = NostrordColors.TextSecondary,
                         style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                }
+
+                DropdownMenu(
+                    expanded = showSwitcher,
+                    onDismissRequest = { showSwitcher = false },
+                ) {
+                    accounts.forEach { account ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        account.label,
+                                        modifier = Modifier.weight(1f, fill = false),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (account.id == activeId) {
+                                        Spacer(Modifier.width(8.dp))
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = NostrordColors.Primary,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
+                                showSwitcher = false
+                                if (account.id != activeId) {
+                                    scope.launch {
+                                        AppModule.accountManager.switchAccount(account.id)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Add account") },
+                        leadingIcon = { Icon(Icons.Default.Add, contentDescription = null) },
+                        onClick = {
+                            showSwitcher = false
+                            onNavigate(Screen.Accounts)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Manage accounts") },
+                        leadingIcon = { Icon(Icons.Default.SwitchAccount, contentDescription = null) },
+                        onClick = {
+                            showSwitcher = false
+                            onNavigate(Screen.Accounts)
+                        },
                     )
                 }
             }
