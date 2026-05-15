@@ -11,6 +11,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.components.navigation.ServerRail
@@ -92,7 +93,9 @@ fun DesktopShell(
     }
 
 
-    val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
+    // Reactive pubkey: re-derives on account switch so the rail avatar updates.
+    val activeSession by ActiveAccountManager.session.collectAsState()
+    val pubKey = activeSession?.pubkey
     val currentUserMetadata = remember(pubKey, userMetadata) {
         pubKey?.let { userMetadata[it] }
     }

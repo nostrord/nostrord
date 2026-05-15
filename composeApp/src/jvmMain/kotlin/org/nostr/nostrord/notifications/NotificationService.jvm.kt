@@ -17,4 +17,5 @@ actual class NotificationService actual constructor() {
     actual fun isSupported(): Boolean = false
     actual fun requestPermission() {}
     actual fun notify(request: NotificationRequest) {}
+    actual fun cancelAllPending() {}
 }

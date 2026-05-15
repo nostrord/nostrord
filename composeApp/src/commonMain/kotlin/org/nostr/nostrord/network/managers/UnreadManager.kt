@@ -38,6 +38,37 @@ class UnreadManager(
     // initial history sync from inflating the badge for groups never opened.
     private val firstSeenAtByGroup = mutableMapOf<String, Long>()
 
+    // When a switch-in catch-up is active, the "first seen" fallback below is
+    // pinned to this value (seconds) instead of `epochSeconds()`. Without
+    // this, every event arriving via catch-up gets filtered as "older than
+    // first encounter" because firstSeenAt = now while the event predates the
+    // switch. Set by [setCatchUpAnchor] and cleared automatically when stale.
+    @kotlin.concurrent.Volatile
+    private var catchUpAnchorSeconds: Long? = null
+    @kotlin.concurrent.Volatile
+    private var catchUpAnchorSetAt: Long = 0L
+    private val CATCH_UP_ANCHOR_TTL_S = 60L
+
+    /**
+     * Use [seconds] as the "first seen" fallback anchor for groups without a
+     * persisted lastRead. Effective for [CATCH_UP_ANCHOR_TTL_S] seconds. Pass
+     * null to clear. Called from `reloadForActiveAccount` right after a switch.
+     */
+    fun setCatchUpAnchor(seconds: Long?) {
+        catchUpAnchorSeconds = seconds
+        catchUpAnchorSetAt = if (seconds != null) epochSeconds() else 0L
+    }
+
+    private fun firstSeenFallback(): Long {
+        val s = catchUpAnchorSeconds
+        return if (s != null && epochSeconds() - catchUpAnchorSetAt <= CATCH_UP_ANCHOR_TTL_S) {
+            s
+        } else {
+            catchUpAnchorSeconds = null
+            epochSeconds()
+        }
+    }
+
     fun setActiveGroup(groupId: String?) {
         val previous = activeGroupId
         activeGroupId = groupId
@@ -96,7 +127,7 @@ class UnreadManager(
 
         val lastRead = SecureStorage.getLastReadTimestamp(pubkey, groupId)
         val anchor = maxOf(
-            lastRead ?: firstSeenAtByGroup.getOrPut(groupId) { epochSeconds() },
+            lastRead ?: firstSeenAtByGroup.getOrPut(groupId) { firstSeenFallback() },
             previousHighWater,
         )
         val qualifying = newMessages.filter {
@@ -145,7 +176,7 @@ class UnreadManager(
         val lastRead = SecureStorage.getLastReadTimestamp(pubkey, groupId)
         val previousHighWater = _latestMessageTimestamps.value[groupId] ?: 0L
         val anchor = maxOf(
-            lastRead ?: firstSeenAtByGroup.getOrPut(groupId) { epochSeconds() },
+            lastRead ?: firstSeenAtByGroup.getOrPut(groupId) { firstSeenFallback() },
             previousHighWater
         )
         if (reaction.createdAt <= anchor) return

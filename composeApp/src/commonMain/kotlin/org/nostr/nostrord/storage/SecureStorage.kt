@@ -207,6 +207,79 @@ internal fun SecureStorage.loadLegacyKind10009Timestamp(): Long {
     return getStringPref("kind10009_latest_ts", "0").toLongOrNull() ?: 0L
 }
 
+// ── Per-account NIP-29 relay list ───────────────────────────────────────────
+// Pubkey-scoped wrappers around the legacy global `saveRelayList`/`loadRelayList`
+// slot, which would otherwise leak relays across accounts. The first read for
+// any pubkey adopts the legacy slot once and clears it.
+private fun relayListForAccountKey(pubkey: String) = "relay_list_${pubkey.hashCode()}"
+private const val RELAY_LIST_MIGRATION_DONE_KEY = "relay_list_legacy_migrated"
+
+fun SecureStorage.saveRelayListFor(pubkey: String, relays: List<String>) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(relayListForAccountKey(pubkey), Json.encodeToString<List<String>>(relays))
+    } catch (_: Exception) {}
+}
+
+fun SecureStorage.loadRelayListFor(pubkey: String): List<String> {
+    if (pubkey.isBlank()) return emptyList()
+    val raw = getStringPref(relayListForAccountKey(pubkey), "")
+    if (raw.isNotBlank()) {
+        return try { Json.decodeFromString(raw) } catch (_: Exception) { emptyList() }
+    }
+    // Per-account slot is empty. Migrate from the legacy global slot once —
+    // the first pubkey to read after the rollout adopts the legacy list.
+    if (!getBooleanPref(RELAY_LIST_MIGRATION_DONE_KEY, false)) {
+        val legacy = loadRelayList()
+        saveBooleanPref(RELAY_LIST_MIGRATION_DONE_KEY, true)
+        if (legacy.isNotEmpty()) {
+            saveRelayListFor(pubkey, legacy)
+            saveRelayList(emptyList())
+            return legacy
+        }
+    }
+    return emptyList()
+}
+
+fun SecureStorage.clearRelayListFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(relayListForAccountKey(pubkey), "")
+}
+
+// ── Per-account "current relay" pointer ─────────────────────────────────────
+// Pubkey-scoped wrappers around the legacy global `saveCurrentRelayUrl`, so a
+// freshly added account doesn't inherit the previous account's last-used relay.
+// The first read for any pubkey adopts the legacy slot once and clears it.
+private fun currentRelayUrlForAccountKey(pubkey: String) =
+    "current_relay_url_${pubkey.hashCode()}"
+private const val CURRENT_RELAY_URL_MIGRATION_DONE_KEY = "current_relay_url_legacy_migrated"
+
+fun SecureStorage.saveCurrentRelayUrlFor(pubkey: String, relayUrl: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(currentRelayUrlForAccountKey(pubkey), relayUrl)
+}
+
+fun SecureStorage.getCurrentRelayUrlFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    val raw = getStringPref(currentRelayUrlForAccountKey(pubkey), "")
+    if (raw.isNotBlank()) return raw
+    if (!getBooleanPref(CURRENT_RELAY_URL_MIGRATION_DONE_KEY, false)) {
+        val legacy = getCurrentRelayUrl()
+        saveBooleanPref(CURRENT_RELAY_URL_MIGRATION_DONE_KEY, true)
+        if (!legacy.isNullOrBlank()) {
+            saveCurrentRelayUrlFor(pubkey, legacy)
+            clearCurrentRelayUrl()
+            return legacy
+        }
+    }
+    return null
+}
+
+fun SecureStorage.clearCurrentRelayUrlFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(currentRelayUrlForAccountKey(pubkey), "")
+}
+
 // Per-relay lazy fetch mode — when true (the default), only joined-group metadata is fetched on
 // connect; the full group list is deferred until the user expands "OTHER GROUPS".
 // Set to false on relays where you always want the full list loaded at startup (EAGER mode).
@@ -349,12 +422,32 @@ fun SecureStorage.savePersistedNotifications(
     } catch (_: Exception) {}
 }
 
+// Per-account "last active" timestamp in Unix seconds. Written when the user
+// switches away from this account and as a periodic heartbeat while active so
+// it survives crashes. Used to compute the catch-up `since` for notification
+// subscriptions on the next switch-in.
+private fun lastActiveAtKey(pubkey: String): String =
+    "account_last_active_at_${pubkey.hashCode()}"
+
+fun SecureStorage.saveLastActiveAt(pubkey: String, unixSeconds: Long) {
+    if (pubkey.isBlank()) return
+    saveStringPref(lastActiveAtKey(pubkey), unixSeconds.toString())
+}
+
+fun SecureStorage.getLastActiveAt(pubkey: String): Long {
+    if (pubkey.isBlank()) return 0L
+    return getStringPref(lastActiveAtKey(pubkey), "0").toLongOrNull() ?: 0L
+}
+
+fun SecureStorage.clearLastActiveAt(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(lastActiveAtKey(pubkey), "")
+}
+
 // ── Account-scoped credential storage ──────────────────────────────────────
-// Each login method has its own pubkey-keyed slot so multiple accounts can
-// coexist. The legacy single-slot variants (`savePrivateKey`, `saveBunkerUrl`,
-// ...) are still used as a transient "active session" pointer during the
-// rollout; the migration in StartupResolver moves data from the legacy slot
-// into the account-scoped slot once on first launch.
+// Each login method has its own pubkey-keyed slot so multiple accounts coexist.
+// Legacy single-slot variants remain as a transient "active session" pointer;
+// the one-shot legacy → per-account migration lives in StartupResolver.
 
 private fun privKeyForAccountKey(pubkey: String) = "priv_key_${pubkey.hashCode()}"
 private fun bunkerUrlForAccountKey(pubkey: String) = "bunker_url_${pubkey.hashCode()}"

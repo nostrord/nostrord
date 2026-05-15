@@ -11,7 +11,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.auth.AccountStore
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.auth.AuthMethod
+import org.nostr.nostrord.auth.NostrSigner
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.Nip07
@@ -67,10 +69,14 @@ class AuthManager(
     }
 
     /**
-     * Get the current user's public key (hex)
+     * Get the current user's public key (hex).
+     *
+     * Prefers [ActiveAccountManager]'s session so the value is always in sync
+     * with the active session after a switch. Falls back to the inline fields
+     * for compatibility during the login flow before the session is activated.
      */
     fun getPublicKey(): String? {
-        return when {
+        return ActiveAccountManager.currentPubkey ?: when {
             isBunkerLogin -> bunkerUserPubkey
             isNip07Login -> nip07UserPubkey
             keyPair != null -> keyPair?.publicKeyHex
@@ -88,6 +94,20 @@ class AuthManager(
     fun isUsingBunker(): Boolean = isBunkerLogin
 
     fun isBunkerReady(): Boolean = isBunkerLogin && nip46Client != null
+
+    /**
+     * Live local key pair for [AccountSessionFactory]. Null for non-LOCAL
+     * accounts. Shared instance: disposing the session's signer zeroes this
+     * manager's bytes too (desired on switch).
+     */
+    internal fun activeKeyPair(): org.nostr.nostrord.nostr.KeyPair? = keyPair
+
+    /**
+     * Live NIP-46 client for [AccountSessionFactory]. Null for non-BUNKER
+     * accounts. Shared instance: disposing the session's signer disconnects
+     * this manager's client too (desired on switch).
+     */
+    internal fun activeNip46Client(): Nip46Client? = nip46Client
 
     private fun zeroAndClearKeyPair() {
         keyPair?.privateKey?.fill(0)
@@ -295,13 +315,50 @@ class AuthManager(
 
     /**
      * Load credentials for [account] into this AuthManager instance and emit
-     * the resulting auth-state flows. Used by both restoreSession() and (in
-     * Phase 4) switchAccount().
+     * the resulting auth-state flows. Used by both restoreSession() and
+     * AccountManager.switchAccount.
      *
-     * Tears down any current session first. On success, [accountStore.active]
-     * is set to [account].
+     * Validates the new credentials BEFORE tearing down the current session,
+     * so a missing/invalid slot does not leave the app in a half-logged-in
+     * state. On success, [accountStore] is set to active.
      */
     suspend fun useAccount(account: Account): Boolean {
+        // PHASE 1 — build new credentials WITHOUT touching the current session.
+        // For BUNKER this opens the new client's WebSockets; a failure here
+        // leaves the existing session intact so the user is not stranded on
+        // the login screen.
+        val prepared: PreparedAccount = when (account.authMethod) {
+            AuthMethod.LOCAL -> {
+                val priv = SecureStorage.getPrivateKeyFor(account.pubkey)
+                    ?: SecureStorage.getPrivateKey()
+                    ?: return false
+                val kp = try {
+                    KeyPair.fromPrivateKeyHex(priv)
+                } catch (_: Exception) {
+                    return false
+                }
+                PreparedAccount.Local(kp)
+            }
+            AuthMethod.BUNKER -> {
+                val bunkerUrl = SecureStorage.getBunkerUrlFor(account.pubkey)
+                    ?: SecureStorage.getBunkerUrl()
+                    ?: return false
+                val client = buildBunkerClient(bunkerUrl, account.pubkey)
+                    ?: return false  // connect failed — keep current session
+                PreparedAccount.Bunker(bunkerUrl, client)
+            }
+            AuthMethod.NIP07 -> {
+                if (!Nip07.isAvailable()) return false
+                PreparedAccount.Nip07
+            }
+            AuthMethod.READ_ONLY, AuthMethod.GUEST -> {
+                // Signing is fully delegated to the AccountSession's NostrSigner.
+                // No inline credential state needed in AuthManager.
+                PreparedAccount.NoInlineCredentials
+            }
+        }
+
+        // PHASE 2 — credentials validated, tear down the current session.
         nip46Client?.disconnect()
         nip46Client = null
         isBunkerLogin = false
@@ -311,36 +368,133 @@ class AuthManager(
         zeroAndClearKeyPair()
         _isBunkerConnected.value = false
 
-        val ok = when (account.authMethod) {
-            AuthMethod.LOCAL -> {
-                val priv = SecureStorage.getPrivateKeyFor(account.pubkey)
-                    ?: SecureStorage.getPrivateKey()
-                    ?: return false
-                try {
-                    keyPair = KeyPair.fromPrivateKeyHex(priv)
-                    _isLoggedIn.value = true
-                    true
-                } catch (_: Exception) {
-                    false
-                }
+        // PHASE 3 — apply the new credentials.
+        when (prepared) {
+            is PreparedAccount.Local -> {
+                keyPair = prepared.keyPair
+                _isLoggedIn.value = true
             }
-            AuthMethod.BUNKER -> {
-                val bunkerUrl = SecureStorage.getBunkerUrlFor(account.pubkey)
-                    ?: SecureStorage.getBunkerUrl()
-                    ?: return false
-                restoreBunkerSession(bunkerUrl, account.pubkey)
+            is PreparedAccount.Bunker -> {
+                installBunkerClient(prepared.client, prepared.bunkerUrl, account.pubkey)
             }
-            AuthMethod.NIP07 -> {
-                if (!Nip07.isAvailable()) return false
+            PreparedAccount.Nip07 -> {
                 isNip07Login = true
                 nip07UserPubkey = account.pubkey
                 _isLoggedIn.value = true
-                true
+            }
+            PreparedAccount.NoInlineCredentials -> {
+                _isLoggedIn.value = true
             }
         }
 
-        if (ok) accountStore.setActive(account.pubkey)
-        return ok
+        accountStore.setActive(account.pubkey)
+        return true
+    }
+
+    /**
+     * Build a [Nip46Client] object for [bunkerUrl]. Only validates that the
+     * URL parses; no network I/O happens here.
+     *
+     * Returns null only when the bunker URL is malformed — i.e. a true
+     * credential problem. Transient network failures during relay connect are
+     * handled later in [installBunkerClient] (async), so a flaky relay does
+     * not block the account switch.
+     */
+    private fun buildBunkerClient(bunkerUrl: String, userPubkey: String): Nip46Client? {
+        return try {
+            parseBunkerUrl(bunkerUrl)  // validate URL
+            val savedClientPrivateKey =
+                SecureStorage.getBunkerClientPrivateKeyFor(userPubkey)
+                    ?: SecureStorage.getBunkerClientPrivateKey()
+            val client = if (savedClientPrivateKey != null) {
+                Nip46Client(savedClientPrivateKey)
+            } else {
+                Nip46Client()
+            }
+            client.onAuthUrl = { url -> _authUrl.value = url }
+            client
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Install a [client] that was already prepared by [buildBunkerClient],
+     * and start the asynchronous relay connect + NIP-46 connect RPC in
+     * [authScope].
+     *
+     * Failures during the async connect mark the bunker as disconnected
+     * but do NOT log the user out — they remain on this account and the
+     * UI can offer a retry. Explicit signer rejection still routes through
+     * the [onRevoked] callback (which calls [handlePermissionDenied]).
+     *
+     * Identity-guarded callbacks: every async callback checks
+     * `nip46Client === client` so stale events from a swapped-out client
+     * cannot affect the current account.
+     */
+    private fun installBunkerClient(client: Nip46Client, bunkerUrl: String, userPubkey: String) {
+        nip46Client = client
+        bunkerUserPubkey = userPubkey
+        isBunkerLogin = true
+        _isLoggedIn.value = true
+        // Optimistic: assume reachable. The async block below flips this to
+        // false if the WebSocket open fails so the UI can show "Disconnected".
+        _isBunkerConnected.value = true
+        _isBunkerVerifying.value = true
+
+        val savedClientPrivateKey = SecureStorage.getBunkerClientPrivateKeyFor(userPubkey)
+            ?: SecureStorage.getBunkerClientPrivateKey()
+
+        authScope.launch {
+            val info = try {
+                parseBunkerUrl(bunkerUrl)
+            } catch (_: Exception) {
+                if (nip46Client === client) {
+                    _isBunkerVerifying.value = false
+                    _isBunkerConnected.value = false
+                }
+                return@launch
+            }
+            try {
+                client.connectRelaysOnly(info.pubkey, info.relays)
+            } catch (_: Exception) {
+                // Relay unreachable — keep the user on this account, just
+                // surface the disconnected state. They can retry later;
+                // backgroundConnect below would just time out without sockets.
+                if (nip46Client === client) {
+                    _isBunkerConnected.value = false
+                    _isBunkerVerifying.value = false
+                }
+                return@launch
+            }
+            client.backgroundConnect(
+                secret = info.secret,
+                onSuccess = {
+                    if (nip46Client === client) _isBunkerVerifying.value = false
+                },
+                onRevoked = {
+                    if (nip46Client !== client) return@backgroundConnect
+                    handlePermissionDenied()
+                    authScope.launch {
+                        delay(1500)
+                        _isBunkerVerifying.value = false
+                    }
+                }
+            )
+        }
+
+        if (savedClientPrivateKey == null) {
+            SecureStorage.saveBunkerClientPrivateKey(client.clientPrivateKey)
+            SecureStorage.saveBunkerClientPrivateKeyFor(userPubkey, client.clientPrivateKey)
+        }
+    }
+
+    private sealed class PreparedAccount {
+        data class Local(val keyPair: KeyPair) : PreparedAccount()
+        data class Bunker(val bunkerUrl: String, val client: Nip46Client) : PreparedAccount()
+        object Nip07 : PreparedAccount()
+        /** READ_ONLY or GUEST — signing is delegated entirely to ActiveAccountManager. */
+        object NoInlineCredentials : PreparedAccount()
     }
 
     private suspend fun restoreBunkerSession(bunkerUrl: String, savedUserPubkey: String): Boolean {
@@ -482,9 +636,27 @@ class AuthManager(
     }
 
     /**
-     * Sign an event using the active auth method (NIP-07, bunker, or local keypair)
+     * Sign an event using the active account's isolated [NostrSigner].
+     *
+     * Routes through [ActiveAccountManager] first so the correct signer is
+     * always used regardless of which account is active. Falls back to the
+     * inline auth state for the initial login flow, before the session is
+     * activated.
      */
     suspend fun signEvent(event: Event): Event {
+        val sessionSigner = ActiveAccountManager.session.value?.signer
+        if (sessionSigner != null) {
+            return try {
+                sessionSigner.signEvent(event)
+            } catch (e: NostrSigner.SigningException) {
+                if (isPermissionError(e)) {
+                    handlePermissionDenied()
+                    throw Exception("Signing permission denied. Please login again.")
+                }
+                throw e
+            }
+        }
+        // Fallback: session not yet activated (e.g. initial login in progress).
         return when {
             isNip07Login -> signWithNip07(event)
             isBunkerLogin -> signWithBunker(event)

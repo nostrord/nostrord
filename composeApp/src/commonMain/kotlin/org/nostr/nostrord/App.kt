@@ -32,6 +32,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.AppStartState
 import org.nostr.nostrord.startup.StartupResolver
@@ -222,8 +223,11 @@ private fun AuthenticatedApp(
     val groupTagRelays by AppModule.nostrRepository.groupTagRelays.collectAsState()
     val isLoggedIn by AppModule.nostrRepository.isLoggedIn.collectAsState()
 
-    // Get pubKey reactively (needed for persistScreenState)
-    val pubKey = remember(isLoggedIn) { AppModule.nostrRepository.getPublicKey() }
+    // Reactive pubkey from the active AccountSession so the UI follows the
+    // new identity immediately after a switch.
+    val activeSessionForRoot by ActiveAccountManager.session.collectAsState()
+    val pubKey = activeSessionForRoot?.pubkey
+        ?: if (isLoggedIn) AppModule.nostrRepository.getPublicKey() else null
 
     // Remember scroll states across navigation
     val homeGridState = rememberLazyGridState()
@@ -1000,7 +1004,9 @@ private fun MobileDrawerContent(
         orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
     }
 
-    val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
+    // Reactive pubkey so the avatar/rail re-renders when the active account changes.
+    val activeSession by ActiveAccountManager.session.collectAsState()
+    val pubKey = activeSession?.pubkey
     val currentUserMetadata = remember(pubKey, userMetadata) {
         pubKey?.let { userMetadata[it] }
     }

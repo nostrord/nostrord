@@ -46,6 +46,11 @@ private external fun jsObservePermissionChanges(cb: (String) -> Unit)
             n.close();
             onClick();
         };
+        if (!window.__nostrordNotifications) window.__nostrordNotifications = [];
+        window.__nostrordNotifications.push(n);
+        if (window.__nostrordNotifications.length > 100) {
+            window.__nostrordNotifications.shift();
+        }
     }"""
 )
 private external fun jsShowNotification(
@@ -55,6 +60,19 @@ private external fun jsShowNotification(
     iconUrl: String,
     onClick: () -> Unit,
 )
+
+@JsFun(
+    """() => {
+        try {
+            var arr = window.__nostrordNotifications || [];
+            for (var i = 0; i < arr.length; i++) {
+                try { arr[i].close(); } catch (e) {}
+            }
+            window.__nostrordNotifications = [];
+        } catch (e) {}
+    }"""
+)
+private external fun jsCloseAllNotifications()
 
 actual class NotificationService actual constructor() {
     private val _permission = MutableStateFlow(readPermission())
@@ -90,6 +108,11 @@ actual class NotificationService actual constructor() {
             request.tag,
             request.iconUrl ?: "",
         ) { _clicks.tryEmit(NotificationClick(request.relayUrl, request.groupId, request.messageId)) }
+    }
+
+    actual fun cancelAllPending() {
+        if (!jsSupported()) return
+        jsCloseAllNotifications()
     }
 
     private fun readPermission(): NotificationPermission {

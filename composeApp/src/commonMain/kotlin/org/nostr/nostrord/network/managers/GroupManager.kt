@@ -425,16 +425,42 @@ class GroupManager(
         const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
     }
 
-    // Current user pubkey for storage scoping
     private var currentPubkey: String? = null
 
-    /**
-     * Set the current user pubkey for storage scoping.
-     * Should be called after login.
-     */
     fun setCurrentPubkey(pubkey: String?) {
         currentPubkey = pubkey
     }
+
+    // Catch-up `since` for the first mux refresh after an account switch.
+    // Lets the now-active account fetch events that happened while it was
+    // inactive. Expires automatically after [CATCH_UP_TTL_S] so it never
+    // re-applies on a later reconnect of the same session.
+    @kotlin.concurrent.Volatile
+    private var catchUpSinceSeconds: Long? = null
+    @kotlin.concurrent.Volatile
+    private var catchUpSetAtSeconds: Long = 0L
+    private val CATCH_UP_TTL_S = 60L
+
+    /**
+     * Set a one-shot catch-up `since` to apply on the next mux refresh(es).
+     * Pass null to clear. Used by [reloadForActiveAccount] right after an
+     * account switch so notification-bearing events that happened while this
+     * account was inactive still arrive.
+     */
+    fun setCatchUpSince(unixSeconds: Long?) {
+        catchUpSinceSeconds = unixSeconds
+        catchUpSetAtSeconds = if (unixSeconds != null) epochSeconds() else 0L
+    }
+
+    private fun activeCatchUpSince(): Long? {
+        val s = catchUpSinceSeconds ?: return null
+        if (epochSeconds() - catchUpSetAtSeconds > CATCH_UP_TTL_S) {
+            catchUpSinceSeconds = null
+            return null
+        }
+        return s
+    }
+
 
     // Mutex for message list updates (separate from loading state)
     private val messageMutex = Mutex()
@@ -616,8 +642,14 @@ class GroupManager(
         // chat for *every* joined group so notifications/sound/unread fire cross-relay
         // — the user isn't browsing them, so the on-demand fallback to _activeGroupId
         // (which lives on a different relay) would silence them entirely.
+        //
+        // Exception: during a switch-in catch-up window, the primary relay also
+        // subscribes to chat for ALL joined groups. Without this, an account that
+        // landed on the home screen would only receive notifications for groups
+        // it manually opened, defeating the whole point of the catch-up since.
+        val catchUp = activeCatchUpSince()
         val isPrimary = relayUrl.normalizeRelayUrl() == currentRelayUrl?.normalizeRelayUrl()
-        val chatGroupIds = if (isPrimary) {
+        val chatGroupIds = if (isPrimary && catchUp == null) {
             _openedGroupIds.value
                 .filter { it in allGroupIds }
                 .ifEmpty {
@@ -628,10 +660,19 @@ class GroupManager(
             allGroupIds
         }
 
-        val chatSince = if (chatGroupIds.isNotEmpty()) {
+        val baseChatSince = if (chatGroupIds.isNotEmpty()) {
             liveCursorStore.getMinSince(relayUrl, chatGroupIds)
         } else {
             0L
+        }
+        // After a switch-in, regress `since` (one-shot, TTL-bounded) so the
+        // mux replays anything the now-active account missed while inactive.
+        // `MuxSubscriptionTracker.needsRefresh` already treats a regressed
+        // `since` as a refresh trigger, so the CLOSE+REQ cycle fires here.
+        val chatSince = when {
+            catchUp == null -> baseChatSince
+            chatGroupIds.isEmpty() -> baseChatSince
+            else -> minOf(baseChatSince, catchUp)
         }
 
         val desired = MuxSubscriptionTracker.MuxState(
@@ -2597,6 +2638,11 @@ class GroupManager(
      * Called by [EventOrderingBuffer] after its debounce window expires.
      */
     private fun flushBatchToState(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
+        // Guard: currentPubkey is nulled in clear() before a switch. Any flush
+        // that arrives after clear() but before setCurrentPubkey() is discarded
+        // here to prevent cross-account message contamination.
+        if (currentPubkey == null) return
+
         val chatMessages = messages.filter { it.kind == 9 }
         if (chatMessages.isNotEmpty()) {
         }
@@ -2880,12 +2926,26 @@ class GroupManager(
      * Use on logout or full account reset.
      */
     suspend fun clear() {
+        // Null out currentPubkey BEFORE flushing so any in-flight flush that
+        // fires during or after the clear is discarded by flushBatchToState's
+        // null guard. This prevents stale messages from a previous account
+        // writing into _messages after a switch.
+        currentPubkey = null
         eventOrderingBuffer.flushAll()
         _completeGroupLoadRelays.value = emptySet()
         _fullGroupListFetchedRelays.value = emptySet()
         _loadingRelays.value = emptySet()
         _groupsByRelay.value = emptyMap()
         _openedGroupIds.value = emptySet()
+        // Messages from the previous account must NOT survive into the new
+        // session. flushBatchToState rebuilds messageIdIndex from _messages,
+        // so leaving an event id behind makes the next account's catch-up
+        // REQ silently drop it — newMessages stays empty, onNewMessagesFlushed
+        // never fires, and UnreadManager never sees the event. Cleared here
+        // (not in clearForRelaySwitch) because relay switch must preserve the
+        // user's message history for the active account.
+        _messages.value = emptyMap()
+        _latestMessageRelayByGroup.value = emptyMap()
         clearForRelaySwitch()
     }
 

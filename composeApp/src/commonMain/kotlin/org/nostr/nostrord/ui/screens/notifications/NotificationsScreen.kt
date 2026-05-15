@@ -38,6 +38,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
+import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -62,6 +63,20 @@ fun NotificationsScreen(
 
     val hasUnread = remember(entries) { entries.any { !it.read } }
     var overflowOpen by remember { mutableStateOf(false) }
+
+    // Tag the header with the active account so the feed is unambiguous in
+    // multi-account mode.
+    val accounts by AppModule.accountStore.accounts.collectAsState()
+    val activeId by AppModule.accountStore.activeId.collectAsState()
+    val activeAccount = remember(accounts, activeId) {
+        accounts.firstOrNull { it.id == activeId }
+    }
+    val activePubkey = activeAccount?.pubkey
+    val activeMeta = activePubkey?.let { userMetadata[it] }
+    val activeDisplayName = activeMeta?.displayName?.takeIf { it.isNotBlank() }
+        ?: activeMeta?.name?.takeIf { it.isNotBlank() }
+        ?: activeAccount?.label
+    val showAccountChip = accounts.size > 1 && activeAccount != null
 
     Scaffold(
         topBar = {
@@ -122,27 +137,36 @@ fun NotificationsScreen(
         },
         containerColor = NostrordColors.Background
     ) { padding ->
-        if (entries.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.Notifications,
-                        contentDescription = null,
-                        tint = NostrordColors.TextMuted,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text("No notifications yet", color = NostrordColors.TextMuted, fontSize = 15.sp)
-                }
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (showAccountChip) {
+                AccountContextChip(
+                    pubkey = activePubkey!!,
+                    displayName = activeDisplayName.orEmpty(),
+                    avatarUrl = activeMeta?.picture?.takeIf { it.isNotBlank() },
+                    onClick = { onNavigate(Screen.Accounts) },
+                )
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(vertical = 8.dp)
-            ) {
+            if (entries.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = NostrordColors.TextMuted,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("No notifications yet", color = NostrordColors.TextMuted, fontSize = 15.sp)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
                 items(entries, key = { it.id }) { entry ->
                     val meta = userMetadata[entry.actorPubkey]
                     val authorName = meta?.displayName?.takeIf { it.isNotBlank() }
@@ -188,8 +212,49 @@ fun NotificationsScreen(
                     HorizontalDivider(color = NostrordColors.BackgroundDark, thickness = 1.dp)
                 }
             }
+            }
         }
     }
+}
+
+@Composable
+private fun AccountContextChip(
+    pubkey: String,
+    displayName: String,
+    avatarUrl: String?,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(NostrordColors.BackgroundDark)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ProfileAvatar(
+            imageUrl = avatarUrl,
+            displayName = displayName,
+            pubkey = pubkey,
+            size = 24.dp,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            "Notifications for ",
+            color = NostrordColors.TextMuted,
+            fontSize = 12.sp,
+        )
+        Text(
+            displayName.ifBlank { pubkey.take(8) + "…" },
+            color = NostrordColors.TextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+    }
+    HorizontalDivider(color = NostrordColors.BackgroundDark.copy(alpha = 0.5f), thickness = 1.dp)
 }
 
 @Composable

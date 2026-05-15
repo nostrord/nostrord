@@ -13,8 +13,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.getCurrentRelayUrlFor
+import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
@@ -140,13 +143,17 @@ class ConnectionManager(
     }
 
     /**
-     * Load saved relay URL from storage
+     * Load the active account's saved relay URL into [currentRelayUrl].
+     *
+     * Pubkey-scoped: without an active account we leave the StateFlow blank
+     * so the rail starts empty for a freshly added (yet-to-be-activated)
+     * identity instead of inheriting the previous account's relay.
      */
     suspend fun loadSavedRelay() {
-        val savedRelayUrl = SecureStorage.getCurrentRelayUrl()
-        if (savedRelayUrl != null) {
-            _currentRelayUrl.value = savedRelayUrl.normalizeRelayUrl()
-        }
+        val pubkey = ActiveAccountManager.currentPubkey
+        val savedRelayUrl = if (pubkey.isNullOrBlank()) null
+        else SecureStorage.getCurrentRelayUrlFor(pubkey)
+        _currentRelayUrl.value = savedRelayUrl?.normalizeRelayUrl().orEmpty()
     }
 
     fun clearCurrentRelay() {
@@ -389,7 +396,9 @@ class ConnectionManager(
         reconnectJob = null
 
         _currentRelayUrl.value = normalizedNewUrl
-        SecureStorage.saveCurrentRelayUrl(normalizedNewUrl)
+        ActiveAccountManager.currentPubkey?.takeIf { it.isNotBlank() }?.let { pubkey ->
+            SecureStorage.saveCurrentRelayUrlFor(pubkey, normalizedNewUrl)
+        }
 
         if (existingPoolClient != null) {
             // Re-use the already-connected pool client as the new primary.

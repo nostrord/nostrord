@@ -86,6 +86,22 @@ class NotificationHistoryStore {
         SecureStorage.savePersistedNotifications(pubkey, _entries.value)
     }
 
+    /**
+     * Count of unread notifications for any account, active or not. For the
+     * active account this reads in-memory state so badges react instantly to
+     * marks/clears. For inactive accounts it falls back to the persisted blob
+     * — the app isn't subscribed for those, so the count only changes on
+     * account switch / add / remove, which already triggers recomposition.
+     */
+    fun unreadCountFor(pubkey: String): Int {
+        if (pubkey.isBlank()) return 0
+        return if (pubkey == currentPubkey) {
+            _entries.value.count { !it.read }
+        } else {
+            SecureStorage.getPersistedNotifications(pubkey).count { !it.read }
+        }
+    }
+
     companion object {
         private const val MAX_ENTRIES = 50
     }

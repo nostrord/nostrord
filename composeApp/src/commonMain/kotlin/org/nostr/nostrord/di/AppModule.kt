@@ -7,7 +7,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.auth.AccountManager
+import org.nostr.nostrord.auth.AccountSessionFactory
 import org.nostr.nostrord.auth.AccountStore
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.managers.ConnectionManager
@@ -37,6 +39,7 @@ import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.FeatureFlags
 import org.nostr.nostrord.settings.NotificationSettings
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.utils.epochSeconds
 
 /**
  * Simple dependency injection container.
@@ -65,7 +68,13 @@ object AppModule {
 
     val authManager: AuthManager by lazy { AuthManager(accountStore) }
 
-    val accountManager: AccountManager by lazy { AccountManager(accountStore, authManager) }
+    val accountSessionFactory: AccountSessionFactory by lazy {
+        AccountSessionFactory(appScope)
+    }
+
+    val accountManager: AccountManager by lazy {
+        AccountManager(accountStore, authManager, accountSessionFactory)
+    }
 
     // Lazy initialization of dependencies
     val relayListManager: RelayListManager by lazy {
@@ -140,6 +149,17 @@ object AppModule {
 
     val notificationHistoryStore: NotificationHistoryStore by lazy { NotificationHistoryStore() }
 
+    // Unix-seconds timestamp of the most recent account activation. Events
+    // with `createdAt < switchInstantSeconds` are catch-up: they predate the
+    // user's current session of this account, so they enter the in-app feed
+    // but do NOT play sound or fire OS popups. Set on every activation in
+    // [applyActiveAccountChange].
+    @kotlin.concurrent.Volatile
+    private var switchInstantSeconds: Long = 0L
+
+    private fun isRealtime(eventCreatedAt: Long): Boolean =
+        eventCreatedAt >= switchInstantSeconds
+
     val unreadManager: UnreadManager by lazy {
         UnreadManager(
             // groupManager.isGroupJoined() is scoped to the active primary relay —
@@ -175,15 +195,18 @@ object AppModule {
                             relayName = relayName,
                         )
                     )
-                    // Sound — gated by the user-facing toggle in Settings → Notifications.
+                    val realtime = isRealtime(message.createdAt)
+                    // Sound — gated by the user-facing toggle in Settings → Notifications,
+                    // and suppressed for catch-up events (older than the current activation)
+                    // so a switch-in doesn't trigger a burst of sounds.
                     // Platform actuals no-op on unsupported targets (iOS for now).
-                    if (notificationSettings.soundEnabled.value) {
+                    if (realtime && notificationSettings.soundEnabled.value) {
                         playNotificationSound()
                     }
                     // Desktop popup — web-only; gated on platform support, granted permission,
-                    // and the user's toggle. The browser itself decides whether to surface
-                    // the popup based on tab focus.
-                    if (notificationSettings.systemNotificationsEnabled.value &&
+                    // the user's toggle, and realtime so catch-up events don't pop.
+                    if (realtime &&
+                        notificationSettings.systemNotificationsEnabled.value &&
                         notificationService.isSupported() &&
                         notificationService.permission.value == NotificationPermission.Granted) {
                         val authorName = displayLabelFor(message.pubkey, prefixAt = false)
@@ -220,10 +243,12 @@ object AppModule {
                         relayName = relayName,
                     )
                 )
-                if (notificationSettings.soundEnabled.value) {
+                val realtime = isRealtime(message.createdAt)
+                if (realtime && notificationSettings.soundEnabled.value) {
                     playNotificationSound()
                 }
-                if (notificationSettings.systemNotificationsEnabled.value &&
+                if (realtime &&
+                    notificationSettings.systemNotificationsEnabled.value &&
                     notificationService.isSupported() &&
                     notificationService.permission.value == NotificationPermission.Granted) {
                     val authorName = displayLabelFor(message.pubkey, prefixAt = false)
@@ -259,10 +284,12 @@ object AppModule {
                         relayName = relayName,
                     )
                 )
-                if (notificationSettings.soundEnabled.value) {
+                val realtime = isRealtime(message.createdAt)
+                if (realtime && notificationSettings.soundEnabled.value) {
                     playNotificationSound()
                 }
-                if (notificationSettings.systemNotificationsEnabled.value &&
+                if (realtime &&
+                    notificationSettings.systemNotificationsEnabled.value &&
                     notificationService.isSupported() &&
                     notificationService.permission.value == NotificationPermission.Granted) {
                     val authorName = displayLabelFor(message.pubkey, prefixAt = false)
@@ -301,10 +328,12 @@ object AppModule {
                             relayName = relayName,
                         )
                     )
-                    if (notificationSettings.soundEnabled.value) {
+                    val realtime = isRealtime(reaction.createdAt)
+                    if (realtime && notificationSettings.soundEnabled.value) {
                         playNotificationSound()
                     }
-                    if (notificationSettings.systemNotificationsEnabled.value &&
+                    if (realtime &&
+                        notificationSettings.systemNotificationsEnabled.value &&
                         notificationService.isSupported() &&
                         notificationService.permission.value == NotificationPermission.Granted) {
                         val authorName = displayLabelFor(reaction.pubkey, prefixAt = false)
@@ -356,6 +385,23 @@ object AppModule {
     fun getRepository(): NostrRepository = nostrRepository
 
     /**
+     * Build and activate an [AccountSession] for the currently active account.
+     *
+     * Must be called after every successful login and after every cold-start
+     * session restore — i.e. anywhere AuthManager has just loaded credentials
+     * for an account. The session reuses AuthManager's KeyPair / Nip46Client
+     * so there is exactly one credential instance per active account.
+     *
+     * Idempotent: if no active account exists in [accountStore] or AuthManager
+     * has not loaded credentials yet, the existing session is left unchanged.
+     */
+    suspend fun activateSessionForActiveAccount() {
+        val account = accountStore.active ?: return
+        val session = accountSessionFactory.build(account, authManager) ?: return
+        ActiveAccountManager.activate(session)
+    }
+
+    /**
      * Reset every per-account in-memory cache and rebind it to [account].
      *
      * Called by switchAccount (Phase 4) after the AuthManager has loaded the
@@ -366,14 +412,41 @@ object AppModule {
      * REQs is the caller's responsibility.
      */
     suspend fun applyActiveAccountChange(account: Account?) {
+        // Record the activation instant before any state is cleared. Events
+        // with createdAt < this value are treated as catch-up (feed only,
+        // no sound/popup). Set to 0 on logout so realtime gating is moot.
+        switchInstantSeconds = if (account != null) epochSeconds() else 0L
+        // Cancel any OS popups still in flight from the previous account so a
+        // notification scheduled for A doesn't surface after B is active.
+        try { notificationService.cancelAllPending() } catch (_: Throwable) {}
         groupManager.clear()
         unreadManager.clear()
         notificationHistoryStore.clear()
+        // OutboxManager owns the per-account kind:10009 relay list and the
+        // user's NIP-65 relay list. Without clearing here, the previous
+        // account's relays linger in the rail until a new kind:10009 arrives
+        // (and for accounts that never published one, they linger forever).
+        outboxManager.clear()
+        // Pending events are per-account (signed by the previous account's
+        // signer). Replaying them against the new account is wrong.
+        pendingEventManager.clear()
+        // The "current relay" pointer is per-account in storage but
+        // ConnectionManager only reads it on loadSavedRelay(). Clear here so
+        // the rail's "current" slot doesn't keep showing the previous
+        // account's relay before reloadForActiveAccount runs.
+        connectionManager.clearCurrentRelay()
 
         if (account != null) {
             groupManager.setCurrentPubkey(account.pubkey)
+            pendingEventManager.setCurrentPubkey(account.pubkey)
             unreadManager.initialize(account.pubkey)
             notificationHistoryStore.initialize(account.pubkey)
+            // Restore the new account's saved relay (no-op if they don't have
+            // one yet — a freshly added account starts with a blank rail).
+            connectionManager.loadSavedRelay()
+        } else {
+            // Logout path: clear the active session so signing is impossible.
+            ActiveAccountManager.clear()
         }
     }
 

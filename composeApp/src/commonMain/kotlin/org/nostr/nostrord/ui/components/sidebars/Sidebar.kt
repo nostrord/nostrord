@@ -97,6 +97,9 @@ fun Sidebar(
             var showSwitcher by remember { mutableStateOf(false) }
             val accounts by AppModule.accountStore.accounts.collectAsState()
             val activeId by AppModule.accountStore.activeId.collectAsState()
+            // Notifications feed for the active account; drives badge
+            // recomposition when the active user marks/clears notifications.
+            val activeNotifications by AppModule.notificationHistoryStore.entries.collectAsState()
 
             // User profile card
             Box(modifier = Modifier.fillMaxWidth()) {
@@ -144,6 +147,9 @@ fun Sidebar(
                     onDismissRequest = { showSwitcher = false },
                 ) {
                     accounts.forEach { account ->
+                        val unread = remember(account.pubkey, activeId, activeNotifications) {
+                            AppModule.notificationHistoryStore.unreadCountFor(account.pubkey)
+                        }
                         DropdownMenuItem(
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -153,6 +159,10 @@ fun Sidebar(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
+                                    if (unread > 0) {
+                                        Spacer(Modifier.width(8.dp))
+                                        UnreadBadge(count = unread)
+                                    }
                                     if (account.id == activeId) {
                                         Spacer(Modifier.width(8.dp))
                                         Icon(

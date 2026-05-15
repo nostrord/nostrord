@@ -47,8 +47,8 @@ class AccountTest {
 
     @Test
     fun `auth method values cover all login paths`() {
-        // Guards against accidentally dropping a variant. Each path in AuthManager
-        // (local key, bunker, NIP-07) corresponds to one enum value.
-        assertEquals(3, AuthMethod.entries.size)
+        // Guards against accidentally dropping a variant.
+        // LOCAL, BUNKER, NIP07, READ_ONLY, GUEST
+        assertEquals(5, AuthMethod.entries.size)
     }
 }
