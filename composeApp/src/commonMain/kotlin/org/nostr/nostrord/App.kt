@@ -322,6 +322,8 @@ private fun AuthenticatedApp(
     var addRelayInitialTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
     var showMeMenu by remember { mutableStateOf(false) }
+    var showAddAccount by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -784,7 +786,7 @@ private fun AuthenticatedApp(
         onDismiss = { showMeMenu = false },
         onAddAccount = {
             showMeMenu = false
-            onNavigate(Screen.NostrLogin)
+            showAddAccount = true
         },
         onSettings = {
             showMeMenu = false
@@ -796,9 +798,25 @@ private fun AuthenticatedApp(
         },
     )
 
+    org.nostr.nostrord.ui.components.accounts.AddAccountSheet(
+        visible = showAddAccount,
+        onDismiss = { showAddAccount = false },
+        onAdded = { displayLabel ->
+            showAddAccount = false
+            scope.launch {
+                snackbarHostState.showSnackbar("Switched to $displayLabel")
+            }
+        },
+    )
+
     // Floating prompt to enable desktop notifications. Mounted at the root so it
     // persists across navigation; renders only when supported + permission Default.
     NotificationPermissionBanner(modifier = Modifier.align(Alignment.TopCenter))
+
+    androidx.compose.material3.SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = Modifier.align(Alignment.BottomCenter),
+    )
     } // Box
 }
 
