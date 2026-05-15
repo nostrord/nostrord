@@ -346,6 +346,18 @@ actual object SecureStorage {
         return localStorage.getItem(key) ?: default
     }
 
+    actual fun saveSensitive(key: String, value: String) {
+        localStorage.setItem(key, value)
+    }
+
+    actual fun getSensitive(key: String): String? {
+        return localStorage.getItem(key)
+    }
+
+    actual fun clearSensitive(key: String) {
+        localStorage.removeItem(key)
+    }
+
     // Open IndexedDB, read all kv entries, and populate in-memory caches.
     // Stores the DB connection for subsequent writes — must be called before any reads or writes.
     actual suspend fun preloadMetadata() {

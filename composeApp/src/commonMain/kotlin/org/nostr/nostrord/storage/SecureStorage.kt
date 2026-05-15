@@ -101,6 +101,14 @@ expect object SecureStorage {
     fun saveStringPref(key: String, value: String)
     fun getStringPref(key: String, default: String): String
 
+    // Sensitive credential blob. Uses the platform's encrypted/secure path
+    // (EncryptedSharedPreferences on Android, AES-GCM on JVM, localStorage on web).
+    // Use these directly only for credentials. Account-scoped wrappers live as
+    // extension functions below (`savePrivateKeyFor`, `saveBunkerUrlFor`, ...).
+    fun saveSensitive(key: String, value: String)
+    fun getSensitive(key: String): String?
+    fun clearSensitive(key: String)
+
     // Preload large metadata blobs from async storage (IndexedDB on web) into the in-memory cache.
     // Must be called once before restoreJoinedGroupMetadataFromStorage to ensure synchronous reads work.
     // No-op on Android and JVM (EncryptedSharedPreferences / Preferences are synchronous).
@@ -339,6 +347,69 @@ fun SecureStorage.savePersistedNotifications(
             Json.encodeToString<List<org.nostr.nostrord.notifications.NotificationEntry>>(entries)
         )
     } catch (_: Exception) {}
+}
+
+// ── Account-scoped credential storage ──────────────────────────────────────
+// Each login method has its own pubkey-keyed slot so multiple accounts can
+// coexist. The legacy single-slot variants (`savePrivateKey`, `saveBunkerUrl`,
+// ...) are still used as a transient "active session" pointer during the
+// rollout; the migration in StartupResolver moves data from the legacy slot
+// into the account-scoped slot once on first launch.
+
+private fun privKeyForAccountKey(pubkey: String) = "priv_key_${pubkey.hashCode()}"
+private fun bunkerUrlForAccountKey(pubkey: String) = "bunker_url_${pubkey.hashCode()}"
+private fun bunkerClientPrivForAccountKey(pubkey: String) = "bunker_client_priv_${pubkey.hashCode()}"
+
+fun SecureStorage.savePrivateKeyFor(pubkey: String, privateKeyHex: String) {
+    if (pubkey.isBlank()) return
+    saveSensitive(privKeyForAccountKey(pubkey), privateKeyHex)
+}
+
+fun SecureStorage.getPrivateKeyFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getSensitive(privKeyForAccountKey(pubkey))
+}
+
+fun SecureStorage.clearPrivateKeyFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    clearSensitive(privKeyForAccountKey(pubkey))
+}
+
+fun SecureStorage.saveBunkerUrlFor(pubkey: String, bunkerUrl: String) {
+    if (pubkey.isBlank()) return
+    saveSensitive(bunkerUrlForAccountKey(pubkey), bunkerUrl)
+}
+
+fun SecureStorage.getBunkerUrlFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getSensitive(bunkerUrlForAccountKey(pubkey))
+}
+
+fun SecureStorage.clearBunkerUrlFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    clearSensitive(bunkerUrlForAccountKey(pubkey))
+}
+
+fun SecureStorage.saveBunkerClientPrivateKeyFor(pubkey: String, clientPrivateKey: String) {
+    if (pubkey.isBlank()) return
+    saveSensitive(bunkerClientPrivForAccountKey(pubkey), clientPrivateKey)
+}
+
+fun SecureStorage.getBunkerClientPrivateKeyFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getSensitive(bunkerClientPrivForAccountKey(pubkey))
+}
+
+fun SecureStorage.clearBunkerClientPrivateKeyFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    clearSensitive(bunkerClientPrivForAccountKey(pubkey))
+}
+
+/** Convenience: wipe every credential slot belonging to [pubkey]. */
+fun SecureStorage.clearAllCredentialsForAccount(pubkey: String) {
+    clearPrivateKeyFor(pubkey)
+    clearBunkerUrlFor(pubkey)
+    clearBunkerClientPrivateKeyFor(pubkey)
 }
 
 // Legacy support functions (deprecated - use account-scoped versions)

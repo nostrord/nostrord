@@ -9,17 +9,34 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.auth.Account
+import org.nostr.nostrord.auth.AccountStore
+import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.clearAllCredentialsForAccount
+import org.nostr.nostrord.storage.getBunkerClientPrivateKeyFor
+import org.nostr.nostrord.storage.getBunkerUrlFor
+import org.nostr.nostrord.storage.getPrivateKeyFor
+import org.nostr.nostrord.storage.saveBunkerClientPrivateKeyFor
+import org.nostr.nostrord.storage.saveBunkerUrlFor
+import org.nostr.nostrord.storage.savePrivateKeyFor
+import org.nostr.nostrord.utils.epochMillis
 
 /**
  * Manages authentication state and signing operations.
- * Handles both local keypair and NIP-46 bunker authentication.
+ *
+ * One instance is alive at a time, holding state for the currently active
+ * account. Switching accounts re-loads credentials in place rather than
+ * creating new instances, so dependents (SessionManager, UI) can keep their
+ * StateFlow references stable across switches.
  */
-object AuthManager {
+class AuthManager(
+    private val accountStore: AccountStore,
+) {
 
     private val authScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -122,7 +139,10 @@ object AuthManager {
         SecureStorage.saveBunkerUrl(bunkerUrl)
         SecureStorage.saveBunkerUserPubkey(userPubkey)
         SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
+        SecureStorage.saveBunkerUrlFor(userPubkey, bunkerUrl)
+        SecureStorage.saveBunkerClientPrivateKeyFor(userPubkey, newNip46Client.clientPrivateKey)
         SecureStorage.clearPrivateKey()
+        registerAccountAfterLogin(userPubkey, AuthMethod.BUNKER)
 
         _isBunkerConnected.value = true
         _authUrl.value = null
@@ -169,7 +189,10 @@ object AuthManager {
         SecureStorage.saveBunkerUrl(bunkerUrl)
         SecureStorage.saveBunkerUserPubkey(userPubkey)
         SecureStorage.saveBunkerClientPrivateKey(client.clientPrivateKey)
+        SecureStorage.saveBunkerUrlFor(userPubkey, bunkerUrl)
+        SecureStorage.saveBunkerClientPrivateKeyFor(userPubkey, client.clientPrivateKey)
         SecureStorage.clearPrivateKey()
+        registerAccountAfterLogin(userPubkey, AuthMethod.BUNKER)
 
         _isBunkerConnected.value = true
         _authUrl.value = null
@@ -193,6 +216,7 @@ object AuthManager {
         SecureStorage.clearBunkerUrl()
         SecureStorage.clearBunkerUserPubkey()
         SecureStorage.clearBunkerClientPrivateKey()
+        registerAccountAfterLogin(pubkey, AuthMethod.NIP07)
     }
 
     /**
@@ -208,18 +232,45 @@ object AuthManager {
         nip46Client = null
 
         SecureStorage.savePrivateKey(privateKeyHex)
+        SecureStorage.savePrivateKeyFor(publicKeyHex, privateKeyHex)
         SecureStorage.clearBunkerUrl()
         SecureStorage.clearBunkerUserPubkey()
         SecureStorage.clearBunkerClientPrivateKey()
         SecureStorage.clearNip07UserPubkey()
+        registerAccountAfterLogin(publicKeyHex, AuthMethod.LOCAL)
     }
 
     /**
-     * Restore session from saved credentials
-     * Returns true if session was restored
+     * Insert or update the Account record for [pubkey] and set it as active.
+     * Called by every login method after credentials are persisted.
+     */
+    private fun registerAccountAfterLogin(pubkey: String, method: AuthMethod) {
+        if (pubkey.isBlank()) return
+        val existing = accountStore.get(pubkey)
+        val account = existing?.copy(authMethod = method) ?: Account(
+            pubkey = pubkey,
+            label = "Account ${accountStore.accounts.value.size + 1}",
+            authMethod = method,
+            addedAt = epochMillis(),
+        )
+        accountStore.upsert(account)
+        accountStore.setActive(pubkey)
+    }
+
+    /**
+     * Restore session from saved credentials.
+     *
+     * Prefers the AccountStore: if there's an active account, load credentials
+     * from its pubkey-scoped slot. Falls back to legacy single-slot lookup so
+     * an in-flight upgrade (Account record present but credentials still only
+     * in legacy slot) doesn't lock the user out.
      */
     suspend fun restoreSession(): Boolean {
-        // Try NIP-07 first (if available and previously used)
+        val active = accountStore.active
+        if (active != null && useAccount(active)) return true
+
+        // Legacy fallback path. Order matches the original precedence
+        // (NIP-07 > bunker > local key).
         val savedNip07Pubkey = SecureStorage.getNip07UserPubkey()
         if (savedNip07Pubkey != null && Nip07.isAvailable()) {
             isNip07Login = true
@@ -228,15 +279,12 @@ object AuthManager {
             return true
         }
 
-        // Try bunker
         val savedBunkerUrl = SecureStorage.getBunkerUrl()
         val savedUserPubkey = SecureStorage.getBunkerUserPubkey()
-
         if (savedBunkerUrl != null && savedUserPubkey != null) {
             return restoreBunkerSession(savedBunkerUrl, savedUserPubkey)
         }
 
-        // Try private key
         val savedPrivateKey = SecureStorage.getPrivateKey()
         if (savedPrivateKey != null) {
             return restorePrivateKeySession(savedPrivateKey)
@@ -245,10 +293,62 @@ object AuthManager {
         return false
     }
 
+    /**
+     * Load credentials for [account] into this AuthManager instance and emit
+     * the resulting auth-state flows. Used by both restoreSession() and (in
+     * Phase 4) switchAccount().
+     *
+     * Tears down any current session first. On success, [accountStore.active]
+     * is set to [account].
+     */
+    suspend fun useAccount(account: Account): Boolean {
+        nip46Client?.disconnect()
+        nip46Client = null
+        isBunkerLogin = false
+        bunkerUserPubkey = null
+        isNip07Login = false
+        nip07UserPubkey = null
+        zeroAndClearKeyPair()
+        _isBunkerConnected.value = false
+
+        val ok = when (account.authMethod) {
+            AuthMethod.LOCAL -> {
+                val priv = SecureStorage.getPrivateKeyFor(account.pubkey)
+                    ?: SecureStorage.getPrivateKey()
+                    ?: return false
+                try {
+                    keyPair = KeyPair.fromPrivateKeyHex(priv)
+                    _isLoggedIn.value = true
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            }
+            AuthMethod.BUNKER -> {
+                val bunkerUrl = SecureStorage.getBunkerUrlFor(account.pubkey)
+                    ?: SecureStorage.getBunkerUrl()
+                    ?: return false
+                restoreBunkerSession(bunkerUrl, account.pubkey)
+            }
+            AuthMethod.NIP07 -> {
+                if (!Nip07.isAvailable()) return false
+                isNip07Login = true
+                nip07UserPubkey = account.pubkey
+                _isLoggedIn.value = true
+                true
+            }
+        }
+
+        if (ok) accountStore.setActive(account.pubkey)
+        return ok
+    }
+
     private suspend fun restoreBunkerSession(bunkerUrl: String, savedUserPubkey: String): Boolean {
         try {
             val bunkerInfo = parseBunkerUrl(bunkerUrl)
-            val savedClientPrivateKey = SecureStorage.getBunkerClientPrivateKey()
+            val savedClientPrivateKey =
+                SecureStorage.getBunkerClientPrivateKeyFor(savedUserPubkey)
+                    ?: SecureStorage.getBunkerClientPrivateKey()
 
             val newNip46Client = if (savedClientPrivateKey != null) {
                 Nip46Client(savedClientPrivateKey)
@@ -288,6 +388,10 @@ object AuthManager {
 
             if (savedClientPrivateKey == null) {
                 SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
+                SecureStorage.saveBunkerClientPrivateKeyFor(
+                    savedUserPubkey,
+                    newNip46Client.clientPrivateKey,
+                )
             }
 
             return true
@@ -323,8 +427,14 @@ object AuthManager {
     }
 
     private suspend fun reconnectBunker(): Boolean {
-        val savedBunkerUrl = SecureStorage.getBunkerUrl() ?: return false
-        val savedClientPrivateKey = SecureStorage.getBunkerClientPrivateKey()
+        val activePubkey = bunkerUserPubkey
+        val savedBunkerUrl =
+            activePubkey?.let { SecureStorage.getBunkerUrlFor(it) }
+                ?: SecureStorage.getBunkerUrl()
+                ?: return false
+        val savedClientPrivateKey =
+            activePubkey?.let { SecureStorage.getBunkerClientPrivateKeyFor(it) }
+                ?: SecureStorage.getBunkerClientPrivateKey()
 
         try {
             val bunkerInfo = parseBunkerUrl(savedBunkerUrl)
@@ -357,6 +467,12 @@ object AuthManager {
 
             if (savedClientPrivateKey == null) {
                 SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
+                activePubkey?.let {
+                    SecureStorage.saveBunkerClientPrivateKeyFor(
+                        it,
+                        newNip46Client.clientPrivateKey,
+                    )
+                }
             }
 
             return true
@@ -445,9 +561,15 @@ object AuthManager {
     }
 
     /**
-     * Logout - clear all auth state
+     * Logout - clear all auth state and forget the active account.
+     *
+     * Wipes credentials for the active account (both legacy slots and the
+     * pubkey-scoped slot) and removes the Account record so re-login starts
+     * fresh. Other accounts in the store, if any, are left intact.
      */
     fun logout() {
+        val activePubkey = accountStore.active?.pubkey ?: getPublicKey()
+
         nip46Client?.disconnect()
         nip46Client = null
         isBunkerLogin = false
@@ -463,7 +585,12 @@ object AuthManager {
         SecureStorage.clearBunkerUrl()
         SecureStorage.clearBunkerUserPubkey()
         SecureStorage.clearNip07UserPubkey()
-        // Keep client key for re-login
+        // Keep legacy client key for re-login.
+
+        if (!activePubkey.isNullOrBlank()) {
+            SecureStorage.clearAllCredentialsForAccount(activePubkey)
+            accountStore.remove(activePubkey)
+        }
     }
 
     /**

@@ -28,6 +28,7 @@ import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.isGroupFetchLazy
@@ -261,6 +262,11 @@ class NostrRepository(
         // Populate IndexedDB-backed caches (relay_metadata, joined_group_meta) before any reads.
         // No-op on Android/JVM where storage is synchronous.
         SecureStorage.preloadMetadata()
+
+        // One-shot legacy → multi-account migration. Idempotent; no-op once any
+        // account exists. Runs before restoreSession() so the AccountStore is
+        // ready when Phase 2 wires AuthManager to read from it.
+        AppModule.accountStore.migrateFromLegacyIfNeeded()
 
         // Now that the IDB cache is populated, prime the relay-metadata StateFlow so the sidebar
         // shows icons/names immediately instead of waiting for NIP-11 HTTP fetches.

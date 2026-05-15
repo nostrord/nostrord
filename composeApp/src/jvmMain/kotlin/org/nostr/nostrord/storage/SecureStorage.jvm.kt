@@ -657,5 +657,21 @@ actual object SecureStorage {
         return getString(key) ?: default
     }
 
+    actual fun saveSensitive(key: String, value: String) {
+        prefs.put(key, encrypt(value))
+        prefs.flush()
+        maybePromptPassphraseSetup()
+    }
+
+    actual fun getSensitive(key: String): String? {
+        val encrypted = prefs.get(key, null) ?: return null
+        return decrypt(encrypted)
+    }
+
+    actual fun clearSensitive(key: String) {
+        prefs.remove(key)
+        prefs.flush()
+    }
+
     actual suspend fun preloadMetadata() {}
 }

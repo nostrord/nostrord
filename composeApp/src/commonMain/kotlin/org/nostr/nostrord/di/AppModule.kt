@@ -5,6 +5,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.auth.Account
+import org.nostr.nostrord.auth.AccountManager
+import org.nostr.nostrord.auth.AccountStore
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.managers.ConnectionManager
@@ -58,6 +61,12 @@ object AppModule {
 
     val connStats: ConnectionStats by lazy { ConnectionStats() }
 
+    val accountStore: AccountStore by lazy { AccountStore() }
+
+    val authManager: AuthManager by lazy { AuthManager(accountStore) }
+
+    val accountManager: AccountManager by lazy { AccountManager(accountStore, authManager) }
+
     // Lazy initialization of dependencies
     val relayListManager: RelayListManager by lazy {
         RelayListManager(
@@ -72,7 +81,7 @@ object AppModule {
 
     val sessionManager: SessionManager by lazy {
         SessionManager(
-            authManager = AuthManager,
+            authManager = authManager,
             scope = appScope
         )
     }
@@ -345,6 +354,28 @@ object AppModule {
      * This provides backward compatibility with code that uses NostrRepository directly.
      */
     fun getRepository(): NostrRepository = nostrRepository
+
+    /**
+     * Reset every per-account in-memory cache and rebind it to [account].
+     *
+     * Called by switchAccount (Phase 4) after the AuthManager has loaded the
+     * new account's credentials. Pass null to fully tear down on logout.
+     *
+     * This does NOT touch connection sockets or shared caches (metadata,
+     * relay metadata, dedup, live cursors). Re-subscribing pubkey-filtered
+     * REQs is the caller's responsibility.
+     */
+    suspend fun applyActiveAccountChange(account: Account?) {
+        groupManager.clear()
+        unreadManager.clear()
+        notificationHistoryStore.clear()
+
+        if (account != null) {
+            groupManager.setCurrentPubkey(account.pubkey)
+            unreadManager.initialize(account.pubkey)
+            notificationHistoryStore.initialize(account.pubkey)
+        }
+    }
 
     /**
      * Look up a human-readable label for [pubkey] from the metadata cache.
