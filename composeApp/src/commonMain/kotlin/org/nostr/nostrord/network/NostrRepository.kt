@@ -548,14 +548,11 @@ class NostrRepository(
     override suspend fun logout() {
         scope.coroutineContext.cancelChildren()
 
-        val loggedOutPubkey = sessionManager.getPublicKey()
-        loggedOutPubkey?.let { pubKey ->
-            groupManager.clearJoinedGroupsForAccount(pubKey)
-            // Drop persisted UI state for this account — otherwise the next login
-            // (same pubkey) would restore a group whose relay is no longer the
-            // primary, leaving the user on the wrong relay with a stale group open.
-            try { SecureStorage.clearLastViewedGroup(pubKey) } catch (_: Exception) {}
-        }
+        // Preserve persisted per-account state (relay list, joined groups,
+        // current relay, last viewed group). Re-login with the same pubkey
+        // should restore the previous setup from local storage. Wiping here
+        // forced a cold-start that came back empty or, worse, raced an
+        // in-flight kind:10009 from another account.
         _isDiscoveringRelays.value = false
         outboxManager.clear()
         groupManager.clear()
@@ -564,10 +561,6 @@ class NostrRepository(
         liveCursorStore?.clear()
         relayPipelines.values.forEach { (_, pipeline) -> pipeline.close() }
         relayPipelines.clear()
-        loggedOutPubkey?.let {
-            SecureStorage.clearRelayListFor(it)
-            SecureStorage.clearCurrentRelayUrlFor(it)
-        }
         connectionManager.clearCurrentRelay()
 
         try { connectionManager.clearAll() } catch (_: Exception) {}

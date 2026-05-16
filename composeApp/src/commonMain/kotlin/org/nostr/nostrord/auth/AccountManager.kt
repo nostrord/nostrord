@@ -114,13 +114,14 @@ class AccountManager(
                 .sortedByDescending { it.addedAt }
         } else emptyList()
 
+        // Wipe secrets and pending signed work; these would let someone act as
+        // this account if left behind. Public/reconstituible state (relay list,
+        // joined groups, messages, last viewed group) is intentionally preserved:
+        // if the user re-adds the same pubkey, their setup is restored from local
+        // storage instead of coming back empty or racing kind:10009 from another
+        // account's in-flight session.
         SecureStorage.clearAllCredentialsForAccount(account.pubkey)
-        SecureStorage.clearAllJoinedGroupsForAccount(account.pubkey)
-        SecureStorage.clearAllJoinedGroupMetadataForAccount(account.pubkey)
-        SecureStorage.clearAllMessagesForAccount(account.pubkey)
         SecureStorage.clearPendingEvents(account.pubkey)
-        SecureStorage.clearLastViewedGroup(account.pubkey)
-        SecureStorage.clearRelayListFor(account.pubkey)
 
         accountStore.remove(accountId)
 
