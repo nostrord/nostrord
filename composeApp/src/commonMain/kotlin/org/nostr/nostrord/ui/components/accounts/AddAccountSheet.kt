@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -120,34 +121,6 @@ fun AddAccountSheet(
         onAdded(label)
     }
 
-    val createNewAccount: () -> Unit = {
-        if (!isBusy) {
-            isBusy = true
-            pendingError = null
-            scope.launch {
-                try {
-                    val kp = KeyPair.generate()
-                    val added = AppModule.accountManager.addLocalAccount(kp.privateKeyHex)
-                        .getOrElse {
-                            pendingError = it.message ?: "Could not create account"
-                            isBusy = false
-                            return@launch
-                        }
-                    val r = AppModule.accountManager.switchAccount(added.id)
-                    isBusy = false
-                    if (r.isFailure) {
-                        pendingError = r.exceptionOrNull()?.message ?: "Switch failed"
-                    } else {
-                        notifyAdded()
-                    }
-                } catch (e: Exception) {
-                    pendingError = e.message ?: "Could not create account"
-                    isBusy = false
-                }
-            }
-        }
-    }
-
     val onMethodSuccess: () -> Unit = { notifyAdded() }
 
     val content: @Composable ColumnScope.() -> Unit = {
@@ -181,7 +154,6 @@ fun AddAccountSheet(
                 onPickPrivateKey = { step = AddStep.PrivateKey },
                 onPickBunker = { step = AddStep.Bunker },
                 onPickExtension = { step = AddStep.Extension },
-                onCreateNew = createNewAccount,
             )
             AddStep.PrivateKey -> Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 PrivateKeyLoginTab(onLoginSuccess = onMethodSuccess)
@@ -261,6 +233,10 @@ private fun StepHeader(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
             }
+        } else if (title == "Add account") {
+            Spacer(Modifier.width(12.dp))
+            Icon(Icons.Default.PersonAdd, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
         } else {
             Spacer(Modifier.width(48.dp))
         }
@@ -287,7 +263,6 @@ private fun PickMethodContent(
     onPickPrivateKey: () -> Unit,
     onPickBunker: () -> Unit,
     onPickExtension: () -> Unit,
-    onCreateNew: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
         if (activeDisplayName != null) {
@@ -303,22 +278,6 @@ private fun PickMethodContent(
         if (hasExtension) {
             MethodRow(icon = Icons.Default.Extension, label = "Browser extension", enabled = !isBusy, onClick = onPickExtension)
         }
-        Spacer(Modifier.height(16.dp))
-        HorizontalDivider(color = NostrordColors.BackgroundDark)
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "Don't have a key yet?",
-            color = NostrordColors.TextSecondary,
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Spacer(Modifier.height(8.dp))
-        MethodRow(
-            icon = Icons.Default.AutoAwesome,
-            label = if (isBusy) "Creating…" else "Create new account",
-            enabled = !isBusy,
-            highlight = true,
-            onClick = onCreateNew,
-        )
     }
 }
 
