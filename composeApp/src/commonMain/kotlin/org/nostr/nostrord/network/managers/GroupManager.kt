@@ -2946,6 +2946,16 @@ class GroupManager(
         // user's message history for the active account.
         _messages.value = emptyMap()
         _latestMessageRelayByGroup.value = emptyMap()
+        // Joined-group sets and restricted-group markers are pubkey-scoped.
+        // Leaving them in place lets isJoined() / isRestricted() report the
+        // PREVIOUS account's data while the new account's flow is still
+        // settling. Concretely: a kind:9 buffered in the ordering buffer (or
+        // arriving on a still-open socket) flushes a few hundred ms after the
+        // switch, UnreadManager.isJoined() returns true on the stale set, and
+        // the notification lands in the new account's history.
+        _joinedGroupsByRelay.value = emptyMap()
+        _restrictedGroups.value = emptyMap()
+        _activeGroupId = null
         clearForRelaySwitch()
     }
 
