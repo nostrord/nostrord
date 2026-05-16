@@ -23,19 +23,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -102,7 +97,6 @@ fun MeMenu(
     val activeAccount = accounts.firstOrNull { it.id == activeId }
     val scope = rememberCoroutineScope()
 
-    var renameTarget by remember { mutableStateOf<Account?>(null) }
     var removeTarget by remember { mutableStateOf<Account?>(null) }
     var isBusy by remember { mutableStateOf(false) }
     var pendingError by remember { mutableStateOf<String?>(null) }
@@ -156,7 +150,6 @@ fun MeMenu(
                     isBusy = isBusy,
                     unreadCount = unread,
                     onClick = { onSwitchAccount(account) },
-                    onRename = { renameTarget = account },
                     onRemove = { removeTarget = account },
                 )
             }
@@ -187,17 +180,6 @@ fun MeMenu(
         DesktopMeMenu(onDismiss = onDismiss, content = content)
     } else {
         MobileMeMenu(onDismiss = onDismiss, content = content)
-    }
-
-    renameTarget?.let { target ->
-        RenameAccountDialog(
-            current = target,
-            onDismiss = { renameTarget = null },
-            onConfirm = { newLabel ->
-                AppModule.accountStore.rename(target.id, newLabel)
-                renameTarget = null
-            },
-        )
     }
 
     removeTarget?.let { target ->
@@ -351,13 +333,11 @@ private fun AccountRow(
     isBusy: Boolean,
     unreadCount: Int,
     onClick: () -> Unit,
-    onRename: () -> Unit,
     onRemove: () -> Unit,
 ) {
     val profileName = metadata?.displayName?.takeIf { it.isNotBlank() }
         ?: metadata?.name?.takeIf { it.isNotBlank() }
     val displayName = profileName ?: account.label
-    var menuOpen by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier
@@ -383,25 +363,15 @@ private fun AccountRow(
             }
         }
         Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                displayName,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (profileName != null && !account.label.startsWith("Account ")) {
-                Text(
-                    account.label,
-                    color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+        Text(
+            displayName,
+            color = Color.White,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
         if (isActive) {
             Icon(
                 Icons.Default.Check,
@@ -411,22 +381,12 @@ private fun AccountRow(
             )
             Spacer(Modifier.width(4.dp))
         }
-        Box {
-            IconButton(onClick = { menuOpen = true }, enabled = !isBusy) {
-                Icon(Icons.Default.MoreVert, contentDescription = "More", tint = NostrordColors.TextSecondary)
-            }
-            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                DropdownMenuItem(
-                    text = { Text("Rename") },
-                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                    onClick = { menuOpen = false; onRename() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Remove", color = NostrordColors.Error) },
-                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = NostrordColors.Error) },
-                    onClick = { menuOpen = false; onRemove() },
-                )
-            }
+        IconButton(onClick = onRemove, enabled = !isBusy) {
+            Icon(
+                Icons.Default.Delete,
+                contentDescription = "Remove",
+                tint = NostrordColors.TextSecondary,
+            )
         }
     }
 }
@@ -449,38 +409,6 @@ private fun ActionRow(
         Spacer(Modifier.width(16.dp))
         Text(label, color = tint, style = MaterialTheme.typography.bodyMedium)
     }
-}
-
-@Composable
-private fun RenameAccountDialog(
-    current: Account,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit,
-) {
-    var label by remember { mutableStateOf(current.label) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = NostrordColors.Surface,
-        title = { Text("Rename account", color = Color.White) },
-        text = {
-            OutlinedTextField(
-                value = label,
-                onValueChange = { label = it },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(label.trim().ifBlank { current.label }) }) {
-                Text("Save", color = NostrordColors.Primary)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = NostrordColors.TextSecondary)
-            }
-        },
-    )
 }
 
 @Composable

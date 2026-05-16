@@ -53,14 +53,6 @@ class AccountStore {
         return account
     }
 
-    fun rename(id: String, label: String) {
-        val current = _accounts.value
-        if (current.none { it.id == id }) return
-        val updated = current.map { if (it.id == id) it.copy(label = label) else it }
-        _accounts.value = updated
-        persistAccounts(updated)
-    }
-
     /**
      * Remove the account. If it was active, [activeId] is cleared; callers are
      * expected to pick a new active (or log out) afterwards.
