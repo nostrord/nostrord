@@ -52,6 +52,15 @@ class AuthManager(
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
 
+    /**
+     * Invoked when the active session is invalidated involuntarily (bunker
+     * permission revoked, etc). Receives the pubkey that just lost its
+     * session so the host can try to switch to another signed-in account
+     * before falling back to a logged-out state. If unset, [handlePermissionDenied]
+     * sets [_isLoggedIn] to false directly.
+     */
+    internal var onSessionInvalidated: (suspend (invalidatedPubkey: String?) -> Unit)? = null
+
     private val _isBunkerConnected = MutableStateFlow(false)
     val isBunkerConnected: StateFlow<Boolean> = _isBunkerConnected.asStateFlow()
 
@@ -706,13 +715,28 @@ class AuthManager(
     }
 
     private fun handlePermissionDenied() {
+        // Capture the invalidated account's pubkey BEFORE clearing in-memory
+        // state so the host's fallback can act on it.
+        val invalidatedPubkey = bunkerUserPubkey ?: getPublicKey()
+
         nip46Client?.disconnect()
         nip46Client = null
         _isBunkerConnected.value = false
         clearBunkerCredentials()
         isBunkerLogin = false
         bunkerUserPubkey = null
+        // Flip immediately so the resolve() in App.kt does not briefly land in
+        // Authenticated (gray-screen flicker) while the async callback below is
+        // still running. If the callback successfully activates a fallback
+        // account, installBunkerClient / useAccount will set this back to true.
         _isLoggedIn.value = false
+
+        val callback = onSessionInvalidated
+        if (callback != null) {
+            authScope.launch {
+                try { callback(invalidatedPubkey) } catch (_: Throwable) {}
+            }
+        }
     }
 
     private fun parseSignedEvent(jsonString: String): Event {
@@ -752,6 +776,11 @@ class AuthManager(
 
         _isLoggedIn.value = false
         _isBunkerConnected.value = false
+        // Reset the verifying flag so a hung backgroundConnect does not keep
+        // the UI stuck on "Reconnecting to signer..." after logout completes.
+        // The delay(1500) clearer in installBunkerClient / restoreBunkerSession
+        // is best-effort; this is the deterministic path.
+        _isBunkerVerifying.value = false
 
         SecureStorage.clearPrivateKey()
         SecureStorage.clearBunkerUrl()

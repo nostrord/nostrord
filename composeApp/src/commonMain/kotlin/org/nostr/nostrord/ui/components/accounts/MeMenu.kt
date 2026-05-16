@@ -87,7 +87,6 @@ fun MeMenu(
     onDismiss: () -> Unit,
     onAddAccount: () -> Unit,
     onSettings: () -> Unit,
-    onLogout: () -> Unit,
 ) {
     if (!visible) return
 
@@ -177,9 +176,9 @@ fun MeMenu(
         HorizontalDivider(color = NostrordColors.BackgroundDark)
         ActionRow(
             icon = Icons.AutoMirrored.Filled.Logout,
-            label = "Logout",
+            label = "Sign out",
             tint = NostrordColors.Error,
-            onClick = { onDismiss(); onLogout() },
+            onClick = { activeAccount?.let { removeTarget = it } },
         )
         Spacer(Modifier.height(8.dp))
     }
@@ -501,22 +500,25 @@ private fun RemoveAccountDialog(
                 "this device. You'll switch to \"$fallbackLabel\"."
         isActive ->
             "Credentials and local data for \"${account.label}\" will be erased on " +
-                "this device. You'll be signed out."
+                "this device. You'll need to sign in again to continue."
         else ->
             "Credentials and local data for \"${account.label}\" will be erased on " +
                 "this device."
     }
+    val title = if (isActive) "Sign out of \"${account.label}\"?" else "Remove account?"
+    val confirmLabel = if (isActive) "Sign out" else "Remove"
+    val busyLabel = if (isActive) "Signing out…" else "Removing…"
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = NostrordColors.Surface,
         titleContentColor = Color.White,
         textContentColor = NostrordColors.TextSecondary,
-        title = { Text("Remove account?") },
+        title = { Text(title) },
         text = { Text(body) },
         confirmButton = {
             TextButton(onClick = onConfirm, enabled = !isBusy) {
                 Text(
-                    if (isBusy) "Removing…" else "Remove",
+                    if (isBusy) busyLabel else confirmLabel,
                     color = NostrordColors.Error,
                     fontWeight = FontWeight.SemiBold,
                 )

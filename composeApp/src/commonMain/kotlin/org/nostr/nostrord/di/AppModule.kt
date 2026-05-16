@@ -66,7 +66,19 @@ object AppModule {
 
     val accountStore: AccountStore by lazy { AccountStore() }
 
-    val authManager: AuthManager by lazy { AuthManager(accountStore) }
+    // One-shot transient messages surfaced to the user (snackbar). Used for
+    // events the user did not explicitly trigger, e.g. a bunker session that
+    // got revoked while the user was sitting on another screen.
+    private val _systemMessages = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val systemMessages: kotlinx.coroutines.flow.SharedFlow<String> = _systemMessages
+
+    val authManager: AuthManager by lazy {
+        AuthManager(accountStore).also { am ->
+            am.onSessionInvalidated = { invalidatedPubkey ->
+                handleSessionInvalidated(invalidatedPubkey)
+            }
+        }
+    }
 
     val accountSessionFactory: AccountSessionFactory by lazy {
         AccountSessionFactory(appScope)
@@ -74,6 +86,42 @@ object AppModule {
 
     val accountManager: AccountManager by lazy {
         AccountManager(accountStore, authManager, accountSessionFactory)
+    }
+
+    /**
+     * Bunker permission revoked / NIP-07 session lost / etc. Try to keep the
+     * user inside the app by switching to another signed-in account.
+     *
+     * NON-DESTRUCTIVE: the invalidated account stays in the AccountStore with
+     * its credentials intact. [Nip46Client.backgroundConnect] cannot distinguish
+     * an explicit revoke from a transient signer outage (sleeping phone, flaky
+     * relay), so deleting credentials here would force the user to re-pair on
+     * a temporary failure. Worst case: the bunker is genuinely revoked and the
+     * user will see the same Reconnecting / failure cycle next launch — at
+     * which point they can explicitly remove the account from the MeMenu.
+     */
+    private suspend fun handleSessionInvalidated(invalidatedPubkey: String?) {
+        if (invalidatedPubkey.isNullOrBlank()) {
+            _systemMessages.emit("Session ended. Please sign in.")
+            return
+        }
+        val invalidatedLabel = accountStore.get(invalidatedPubkey)?.label
+            ?: "previous account"
+        val candidates = accountStore.accounts.value
+            .filter { it.pubkey != invalidatedPubkey }
+            .sortedByDescending { it.addedAt }
+
+        for (candidate in candidates) {
+            val result = accountManager.switchAccount(candidate.id)
+            if (result.isSuccess) {
+                _systemMessages.emit(
+                    "$invalidatedLabel disconnected. Switched to ${candidate.label}."
+                )
+                return
+            }
+        }
+
+        _systemMessages.emit("Couldn't reconnect to $invalidatedLabel.")
     }
 
     // Lazy initialization of dependencies

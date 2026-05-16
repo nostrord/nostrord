@@ -104,14 +104,15 @@ class AccountManager(
     suspend fun removeAccount(accountId: String): Account? {
         val account = accountStore.get(accountId) ?: return accountStore.active
         val wasActive = accountStore.activeId.value == accountId
-        // Pick the fallback BEFORE mutating the store so the list is still
-        // intact. Most-recently-added first feels closer to "the other account
-        // the user just used" than alphabetical / id order.
-        val fallback = if (wasActive) {
+        // Pick all candidates BEFORE mutating the store, sorted most-recently-
+        // added first. Iterate so a single broken fallback (bunker offline,
+        // credentials wiped) does not drop the user to the login screen when
+        // other valid accounts still exist.
+        val candidates = if (wasActive) {
             accountStore.accounts.value
                 .filter { it.id != accountId }
-                .maxByOrNull { it.addedAt }
-        } else null
+                .sortedByDescending { it.addedAt }
+        } else emptyList()
 
         SecureStorage.clearAllCredentialsForAccount(account.pubkey)
         SecureStorage.clearAllJoinedGroupsForAccount(account.pubkey)
@@ -125,13 +126,9 @@ class AccountManager(
 
         if (!wasActive) return accountStore.active
 
-        if (fallback != null) {
-            // Reuse switchAccount so the new identity goes through the same
-            // session-swap + cache-reset path as a manual switch. Failure here
-            // (e.g. fallback credentials were never persisted) drops the user
-            // to the logged-out state — better than a half-active session.
-            val result = switchAccount(fallback.id)
-            if (result.isSuccess) return fallback
+        for (candidate in candidates) {
+            val result = switchAccount(candidate.id)
+            if (result.isSuccess) return candidate
         }
 
         authManager.logout()

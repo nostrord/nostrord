@@ -325,6 +325,15 @@ private fun AuthenticatedApp(
     var showAddAccount by remember { mutableStateOf(false) }
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
+    // Bunker revoke / NIP-07 disconnect / other involuntary deauth events.
+    // AppModule fires a system message after attempting fallback so the
+    // user always sees what happened, whether or not we kept them in-app.
+    LaunchedEffect(snackbarHostState) {
+        AppModule.systemMessages.collect { msg ->
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
+
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
 
@@ -771,7 +780,12 @@ private fun AuthenticatedApp(
             onNavigate = onNavigate,
             onLogout = {
                 scope.launch {
-                    AppModule.nostrRepository.logout()
+                    val activeId = AppModule.accountStore.activeId.value
+                    if (activeId != null) {
+                        AppModule.accountManager.removeAccount(activeId)
+                    } else {
+                        AppModule.nostrRepository.logout()
+                    }
                 }
             }
         )
@@ -789,10 +803,6 @@ private fun AuthenticatedApp(
         onSettings = {
             showMeMenu = false
             showSettings = true
-        },
-        onLogout = {
-            showMeMenu = false
-            scope.launch { AppModule.nostrRepository.logout() }
         },
     )
 
