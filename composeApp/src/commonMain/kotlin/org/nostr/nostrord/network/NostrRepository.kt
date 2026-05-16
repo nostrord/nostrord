@@ -1961,6 +1961,15 @@ class NostrRepository(
                     if (activeGroupIds.isNotEmpty()) {
                         _closedGroupSubscriptions.update { it + activeGroupIds }
                     }
+                    // If the relay denied the unfiltered group-list REQ with auth-required,
+                    // clear the pending-full-fetch marker. Otherwise the flag stays set
+                    // forever (EOSE never arrives), and any later attempt (including the
+                    // user expanding OTHER GROUPS) is silently dropped by the dedup guard
+                    // in requestFullGroupListForRelay, leaving the panel empty until restart.
+                    if (subId.startsWith("group-list")) {
+                        groupManager.cancelPendingFullFetch(relayUrl)
+                        groupManager.markRelayLoaded(relayUrl)
+                    }
                 }
 
                 // Track per-group "restricted" status so the UI can show a private
