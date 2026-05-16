@@ -577,6 +577,11 @@ class GroupManager(
                 val muxJob = scope.launch { refreshMuxSubscriptionsForRelay(url) }
 
                 if (client != null && client.isConnected()) {
+                    // Wait for NIP-42 AUTH before the direct REQs. Closed/private
+                    // groups answer with CLOSED "auth-required" if these race ahead,
+                    // and the 39002 never arrives, leaving the screen stuck on
+                    // "Awaiting admin approval" for an already-approved member.
+                    client.awaitAuthOrTimeout()
                     // Direct requests for the ACTIVE group — fast-lane.
                     // Mux provides breadth; these provide speed for the group the user is looking at.
                     // Duplicates are handled by the event deduplicator.
