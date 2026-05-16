@@ -2336,7 +2336,17 @@ class NostrRepository(
         if (connectionManager.getPrimaryClient() === client) {
             val now = epochSeconds()
             val lastAt = lastRequestGroupsAt[relayUrl] ?: 0L
-            if (now - lastAt > 10L) {
+            // Bypass the 10s dedup when THIS SESSION hasn't received an EOSE for
+            // the full group list yet. The previous REQ likely raced AUTH and was
+            // CLOSED auth-required, so skipping the retry leaves OTHER GROUPS
+            // permanently empty until the user switches relays or restarts. We
+            // deliberately read the in-memory set (not hasFullGroupListBeenFetched)
+            // so a fresh re-login doesn't get fooled by the still-fresh persisted
+            // cache from a previous session; that cache predates the auth-required
+            // CLOSED on this socket.
+            val sessionFetched = relayUrl.normalizeRelayUrl() in
+                groupManager.fullGroupListFetchedRelays.value
+            if (!sessionFetched || now - lastAt > 10L) {
                 lastRequestGroupsAt[relayUrl] = now
                 groupManager.markRelayLoading(relayUrl)
                 requestGroupsForRelay(client, relayUrl)
