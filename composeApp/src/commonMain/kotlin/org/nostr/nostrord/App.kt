@@ -50,6 +50,7 @@ import org.nostr.nostrord.ui.components.notifications.NotificationPermissionBann
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import org.nostr.nostrord.ui.navigation.BrowserNavigationHandler
+import org.nostr.nostrord.ui.navigation.NavEntry
 import org.nostr.nostrord.ui.navigation.NavigationHistory
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.navigation.browserGoBack
@@ -309,6 +310,25 @@ private fun AuthenticatedApp(
         // Web: hook document.visibilitychange + window.focus/blur → FocusTracker.
         // Other platforms are no-ops (Lifecycle observer drives them).
         org.nostr.nostrord.notifications.installPlatformFocusListeners(AppModule.focusTracker)
+    }
+
+    // Account switch: resolve a fresh initial screen for the new identity so the
+    // previous account's open group does not bleed into the new session. The
+    // first emission is the boot pubkey — already reflected in [initialScreen] —
+    // so we only act on subsequent transitions.
+    var lastSeenPubkey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pubKey) {
+        val current = pubKey ?: return@LaunchedEffect
+        val prev = lastSeenPubkey
+        lastSeenPubkey = current
+        if (prev == null || prev == current) return@LaunchedEffect
+
+        val resolved = StartupResolver.resolveInitialScreen(current)
+        navHistory.reset(NavEntry(resolved.screen, ""))
+        persistScreenState(resolved.screen)
+        AppModule.nostrRepository.setActiveGroup(
+            if (resolved.screen is Screen.Group) resolved.screen.groupId else null
+        )
     }
 
     // Pending invite code from deep link or browser navigation.

@@ -80,6 +80,17 @@ class NavigationHistory(initialScreen: Screen, initialRelayUrl: String = "") {
     }
 
     /**
+     * Replace the entire history with a single entry. Used when switching
+     * accounts so the previous account's back stack does not leak into the
+     * new identity's session.
+     */
+    fun reset(entry: NavEntry) {
+        history.clear()
+        history.add(entry)
+        cursorIndex = 0
+    }
+
+    /**
      * Prepend Home at the base of the history stack so back navigation
      * returns to Home instead of closing the app (e.g. after restore).
      */
