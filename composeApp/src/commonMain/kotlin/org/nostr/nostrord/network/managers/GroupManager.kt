@@ -2940,6 +2940,11 @@ class GroupManager(
         _completeGroupLoadRelays.value = emptySet()
         _fullGroupListFetchedRelays.value = emptySet()
         _loadingRelays.value = emptySet()
+        // Without clearing this, an in-flight full fetch from the previous account
+        // leaves the relay flagged as "pending", and the new account's expand of
+        // OTHER GROUPS is silently skipped by requestFullGroupListForRelay's guard.
+        pendingFullFetchRelays.clear()
+        pendingFetchSeenGroups.clear()
         _groupsByRelay.value = emptyMap()
         _openedGroupIds.value = emptySet()
         // Messages from the previous account must NOT survive into the new
@@ -2960,6 +2965,22 @@ class GroupManager(
         // the notification lands in the new account's history.
         _joinedGroupsByRelay.value = emptyMap()
         _restrictedGroups.value = emptyMap()
+        // Per-group state from the previous account must be cleared too.
+        // Without this, an account switch leaves stale kind:39002/39001/39003
+        // caches that don't include the new account's pubkey, so opening a
+        // closed group falls straight into the "Awaiting admin approval" branch
+        // in GroupScreen. memberEventTimestamps must also be reset, otherwise a
+        // fresh 39002 with the same createdAt is treated as stale and the cache
+        // never updates.
+        _groupMembers.value = emptyMap()
+        _groupAdmins.value = emptyMap()
+        _groupRoles.value = emptyMap()
+        _loadingMembers.value = emptySet()
+        memberEventTimestamps.clear()
+        adminEventTimestamps.clear()
+        roleEventTimestamps.clear()
+        pendingApprovalSince.clear()
+        recentlyLeftAt.clear()
         _activeGroupId = null
         clearForRelaySwitch()
     }
