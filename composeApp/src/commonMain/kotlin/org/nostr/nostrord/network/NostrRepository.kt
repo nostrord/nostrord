@@ -2272,6 +2272,12 @@ class NostrRepository(
         val relayUrl = connectionManager.currentRelayUrl.value
         // Restore cache so the UI shows groups immediately while the re-fetch is in flight.
         groupManager.restoreGroupsForRelay(relayUrl)
+        // Wait for the relay's NIP-42 AUTH challenge to complete before sending REQs;
+        // otherwise the group-list races ahead and is rejected with auth-required
+        // CLOSED. Then always re-fetch (mirroring switchRelay) — resubscribeAfterAuth's
+        // 10s guard would otherwise suppress this call when the previous identity's
+        // timestamp on this relay is still fresh (warm-swap between accounts).
+        client.awaitAuthOrTimeout()
         // Always re-fetch on reconnect. restoreGroupsForRelay already populated the UI;
         // the fresh EOSE will prune any stale groups the relay no longer serves
         // (e.g. an ephemeral relay that was restarted and lost its group list).
