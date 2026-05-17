@@ -127,10 +127,10 @@ class AccountManager(
 
         if (!wasActive) return accountStore.active
 
-        for (candidate in candidates) {
-            val result = switchAccount(candidate.id)
-            if (result.isSuccess) return candidate
+        val winner = pickFirstSuccess(candidates) { candidate ->
+            switchAccount(candidate.id).isSuccess
         }
+        if (winner != null) return winner
 
         authManager.logout()
         AppModule.applyActiveAccountChange(null)

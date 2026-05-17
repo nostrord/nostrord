@@ -10,6 +10,7 @@ import org.nostr.nostrord.auth.AccountManager
 import org.nostr.nostrord.auth.AccountSessionFactory
 import org.nostr.nostrord.auth.AccountStore
 import org.nostr.nostrord.auth.ActiveAccountManager
+import org.nostr.nostrord.auth.pickFirstSuccess
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.NostrRepository
 import org.nostr.nostrord.network.managers.ConnectionManager
@@ -114,14 +115,14 @@ object AppModule {
             .filter { it.pubkey != invalidatedPubkey }
             .sortedByDescending { it.addedAt }
 
-        for (candidate in candidates) {
-            val result = accountManager.switchAccount(candidate.id)
-            if (result.isSuccess) {
-                _systemMessages.emit(
-                    "$invalidatedLabel disconnected. Switched to ${candidate.label}."
-                )
-                return
-            }
+        val winner = pickFirstSuccess(candidates) { candidate ->
+            accountManager.switchAccount(candidate.id).isSuccess
+        }
+        if (winner != null) {
+            _systemMessages.emit(
+                "$invalidatedLabel disconnected. Switched to ${winner.label}."
+            )
+            return
         }
 
         _systemMessages.emit("Couldn't reconnect to $invalidatedLabel.")
