@@ -32,33 +32,40 @@ import org.nostr.nostrord.utils.Result
 @Composable
 fun MessageUploadButton(
     onUploadComplete: (UploadResult) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
     var isUploading by remember { mutableStateOf(false) }
     var uploadError by remember { mutableStateOf<String?>(null) }
 
-    val picker = rememberMediaPickerLauncher(
-        accept = MediaAccept.ImagesVideosAudio,
-        onPickStart = { isUploading = true },
-        onError = { isUploading = false; uploadError = it }
-    ) { bytes, filename ->
-        scope.launch {
-            try {
-                val mime = NostrBuildUploader.mimeTypeForFilename(filename)
-                val result = NostrBuildUploader.upload(
-                    bytes, filename, mime,
-                    AppModule.nostrRepository::buildNip98AuthHeader
-                )
-                when (result) {
-                    is Result.Success -> onUploadComplete(result.data)
-                    is Result.Error -> uploadError = result.error.message
-                }
-            } finally {
+    val picker =
+        rememberMediaPickerLauncher(
+            accept = MediaAccept.ImagesVideosAudio,
+            onPickStart = { isUploading = true },
+            onError = {
                 isUploading = false
+                uploadError = it
+            },
+        ) { bytes, filename ->
+            scope.launch {
+                try {
+                    val mime = NostrBuildUploader.mimeTypeForFilename(filename)
+                    val result =
+                        NostrBuildUploader.upload(
+                            bytes,
+                            filename,
+                            mime,
+                            AppModule.nostrRepository::buildNip98AuthHeader,
+                        )
+                    when (result) {
+                        is Result.Success -> onUploadComplete(result.data)
+                        is Result.Error -> uploadError = result.error.message
+                    }
+                } finally {
+                    isUploading = false
+                }
             }
         }
-    }
 
     uploadError?.let { error ->
         AlertDialog(
@@ -68,31 +75,32 @@ fun MessageUploadButton(
             confirmButton = {
                 TextButton(
                     onClick = { uploadError = null },
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary)
+                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary),
                 ) { Text("OK") }
-            }
+            },
         )
     }
 
     IconButton(
         onClick = { picker.launch() },
         enabled = !isUploading,
-        modifier = modifier
+        modifier =
+        modifier
             .size(40.dp)
-            .pointerHoverIcon(PointerIcon.Hand)
+            .pointerHoverIcon(PointerIcon.Hand),
     ) {
         if (isUploading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 color = NostrordColors.Primary,
-                strokeWidth = 2.dp
+                strokeWidth = 2.dp,
             )
         } else {
             Icon(
                 imageVector = Icons.Default.AttachFile,
                 contentDescription = "Attach image",
                 tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
     }

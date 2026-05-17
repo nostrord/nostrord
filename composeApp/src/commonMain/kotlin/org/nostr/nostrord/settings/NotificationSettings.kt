@@ -13,14 +13,16 @@ import org.nostr.nostrord.storage.SecureStorage
  * inside the consumer; this flag just lets the user opt out even when supported.
  */
 class NotificationSettings {
-    private val _soundEnabled = MutableStateFlow(
-        SecureStorage.getBooleanPref(KEY_SOUND_ENABLED, default = true)
-    )
+    private val _soundEnabled =
+        MutableStateFlow(
+            SecureStorage.getBooleanPref(KEY_SOUND_ENABLED, default = true),
+        )
     val soundEnabled: StateFlow<Boolean> = _soundEnabled.asStateFlow()
 
-    private val _systemNotificationsEnabled = MutableStateFlow(
-        SecureStorage.getBooleanPref(KEY_SYSTEM_ENABLED, default = true)
-    )
+    private val _systemNotificationsEnabled =
+        MutableStateFlow(
+            SecureStorage.getBooleanPref(KEY_SYSTEM_ENABLED, default = true),
+        )
     val systemNotificationsEnabled: StateFlow<Boolean> = _systemNotificationsEnabled.asStateFlow()
 
     fun setSoundEnabled(enabled: Boolean) {

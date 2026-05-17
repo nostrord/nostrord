@@ -16,7 +16,7 @@ val LocalAwtWindow = staticCompositionLocalOf<Frame?> { null }
 actual fun WindowDraggableArea(
     modifier: Modifier,
     onDoubleClick: (() -> Unit)?,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val window = LocalAwtWindow.current
     if (window == null) {
@@ -29,35 +29,37 @@ actual fun WindowDraggableArea(
     var dragStartMouseX = 0
     var dragStartMouseY = 0
 
-    val dragModifier = Modifier.pointerInput(window) {
-        detectDragGestures(
-            onDragStart = {
-                val mouseLocation = MouseInfo.getPointerInfo().location
-                dragStartMouseX = mouseLocation.x
-                dragStartMouseY = mouseLocation.y
-                dragStartWindowX = window.x
-                dragStartWindowY = window.y
-            },
-            onDrag = { change, _ ->
-                change.consume()
-                val mouseLocation = MouseInfo.getPointerInfo().location
-                val deltaX = mouseLocation.x - dragStartMouseX
-                val deltaY = mouseLocation.y - dragStartMouseY
-                window.setLocation(
-                    dragStartWindowX + deltaX,
-                    dragStartWindowY + deltaY
-                )
-            }
-        )
-    }
-
-    val doubleTapModifier = if (onDoubleClick != null) {
-        Modifier.pointerInput(onDoubleClick) {
-            detectTapGestures(onDoubleTap = { onDoubleClick() })
+    val dragModifier =
+        Modifier.pointerInput(window) {
+            detectDragGestures(
+                onDragStart = {
+                    val mouseLocation = MouseInfo.getPointerInfo().location
+                    dragStartMouseX = mouseLocation.x
+                    dragStartMouseY = mouseLocation.y
+                    dragStartWindowX = window.x
+                    dragStartWindowY = window.y
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    val mouseLocation = MouseInfo.getPointerInfo().location
+                    val deltaX = mouseLocation.x - dragStartMouseX
+                    val deltaY = mouseLocation.y - dragStartMouseY
+                    window.setLocation(
+                        dragStartWindowX + deltaX,
+                        dragStartWindowY + deltaY,
+                    )
+                },
+            )
         }
-    } else {
-        Modifier
-    }
+
+    val doubleTapModifier =
+        if (onDoubleClick != null) {
+            Modifier.pointerInput(onDoubleClick) {
+                detectTapGestures(onDoubleTap = { onDoubleClick() })
+            }
+        } else {
+            Modifier
+        }
 
     Box(modifier.then(doubleTapModifier).then(dragModifier)) {
         content()

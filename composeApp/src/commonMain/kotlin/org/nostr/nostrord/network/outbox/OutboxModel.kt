@@ -120,7 +120,7 @@ import kotlinx.coroutines.flow.StateFlow
 data class Nip65Relay(
     val url: String,
     val read: Boolean = true,
-    val write: Boolean = true
+    val write: Boolean = true,
 ) {
     companion object {
         fun fromTag(tag: List<String>): Nip65Relay? {
@@ -135,13 +135,11 @@ data class Nip65Relay(
         }
     }
 
-    fun toTag(): List<String> {
-        return when {
-            read && write -> listOf("r", url)
-            read -> listOf("r", url, "read")
-            write -> listOf("r", url, "write")
-            else -> listOf("r", url)
-        }
+    fun toTag(): List<String> = when {
+        read && write -> listOf("r", url)
+        read -> listOf("r", url, "read")
+        write -> listOf("r", url, "write")
+        else -> listOf("r", url)
     }
 }
 
@@ -153,7 +151,7 @@ data class CachedRelayList(
     val relays: List<Nip65Relay>,
     val eventCreatedAt: Long = 0,
     val fetchedAt: Long,
-    val expiresAt: Long
+    val expiresAt: Long,
 ) {
     fun isExpired(currentTimeMs: Long): Boolean = currentTimeMs > expiresAt
 

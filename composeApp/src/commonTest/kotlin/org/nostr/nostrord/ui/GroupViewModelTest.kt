@@ -17,7 +17,6 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GroupViewModelTest {
-
     private val testDispatcher = StandardTestDispatcher()
 
     @BeforeTest
@@ -30,8 +29,7 @@ class GroupViewModelTest {
         Dispatchers.resetMain()
     }
 
-    private fun vm(fake: FakeNostrRepository = FakeNostrRepository()) =
-        GroupViewModel(fake, "test-group")
+    private fun vm(fake: FakeNostrRepository = FakeNostrRepository()) = GroupViewModel(fake, "test-group")
 
     // -------------------------------------------------------------------------
     // State passthrough
@@ -71,7 +69,11 @@ class GroupViewModelTest {
     fun `leaveGroup passes correct groupId to repo`() = runTest {
         val fake = FakeNostrRepository()
         var calledWith: String? = null
-        fake.leaveGroupAction = { id, _ -> calledWith = id; org.nostr.nostrord.utils.Result.Success(Unit) }
+        fake.leaveGroupAction = { id, _ ->
+            calledWith = id
+            org.nostr.nostrord.utils.Result
+                .Success(Unit)
+        }
         val vm = GroupViewModel(fake, "my-group")
 
         vm.leaveGroup {}
@@ -107,7 +109,8 @@ class GroupViewModelTest {
         fake.sendMessageAction = { gid, content, _, _, _ ->
             sentGroupId = gid
             sentContent = content
-            org.nostr.nostrord.utils.Result.Success(Unit)
+            org.nostr.nostrord.utils.Result
+                .Success(Unit)
         }
         val vm = GroupViewModel(fake, "chat-room")
 

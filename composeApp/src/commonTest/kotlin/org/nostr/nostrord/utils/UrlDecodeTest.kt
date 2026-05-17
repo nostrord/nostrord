@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class UrlDecodeTest {
-
     // -------------------------------------------------------------------------
     // ASCII / no-op cases
     // -------------------------------------------------------------------------
@@ -107,7 +106,7 @@ class UrlDecodeTest {
     fun `relay url with encoded colon and slashes`() {
         assertEquals(
             "wss://relay.example.com",
-            "wss%3A%2F%2Frelay.example.com".urlDecode()
+            "wss%3A%2F%2Frelay.example.com".urlDecode(),
         )
     }
 }

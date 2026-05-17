@@ -43,17 +43,19 @@ fun EditProfileScreenDesktop(
     onNip05Change: (String) -> Unit,
     onLightningAddressChange: (String) -> Unit,
     onWebsiteChange: (String) -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
 ) {
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxSize()
-            .background(NostrordColors.Background)
+            .background(NostrordColors.Background),
     ) {
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(rememberScrollState()),
         ) {
             // Top bar
             TopAppBar(
@@ -61,69 +63,73 @@ fun EditProfileScreenDesktop(
                     Text(
                         "Edit Profile",
                         style = NostrordTypography.ServerHeader,
-                        color = Color.White
+                        color = Color.White,
                     )
                 },
                 actions = {
                     TextButton(
                         onClick = onSave,
-                        enabled = !isSaving
+                        enabled = !isSaving,
                     ) {
                         if (isSaving) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(20.dp),
                                 color = NostrordColors.Primary,
-                                strokeWidth = 2.dp
+                                strokeWidth = 2.dp,
                             )
                         } else {
                             Text(
                                 "Save",
                                 color = NostrordColors.Primary,
-                                style = NostrordTypography.Button
+                                style = NostrordTypography.Button,
                             )
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = NostrordColors.BackgroundDark
-                )
+                colors =
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = NostrordColors.BackgroundDark,
+                ),
             )
 
             // Centered content
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth()
                     .padding(Spacing.xl),
-                contentAlignment = Alignment.TopCenter
+                contentAlignment = Alignment.TopCenter,
             ) {
                 Column(
-                    modifier = Modifier.widthIn(max = 600.dp)
+                    modifier = Modifier.widthIn(max = 600.dp),
                 ) {
                     // Avatar preview card
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = NostrordShapes.cardShape,
-                        colors = CardDefaults.cardColors(
-                            containerColor = NostrordColors.Surface
-                        )
+                        colors =
+                        CardDefaults.cardColors(
+                            containerColor = NostrordColors.Surface,
+                        ),
                     ) {
                         Column(
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .fillMaxWidth()
                                 .padding(Spacing.xl),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             ProfileAvatar(
                                 imageUrl = pictureUrl.ifBlank { null },
                                 displayName = name.ifBlank { "User" },
                                 pubkey = pubkey ?: "",
-                                size = 120.dp
+                                size = 120.dp,
                             )
                             Spacer(modifier = Modifier.height(Spacing.sm))
                             Text(
                                 text = "Avatar Preview",
                                 style = NostrordTypography.Caption,
-                                color = NostrordColors.TextMuted
+                                color = NostrordColors.TextMuted,
                             )
                         }
                     }
@@ -134,20 +140,22 @@ fun EditProfileScreenDesktop(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = NostrordShapes.cardShape,
-                        colors = CardDefaults.cardColors(
-                            containerColor = NostrordColors.Surface
-                        )
+                        colors =
+                        CardDefaults.cardColors(
+                            containerColor = NostrordColors.Surface,
+                        ),
                     ) {
                         Column(
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .fillMaxWidth()
                                 .padding(Spacing.xl),
-                            verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+                            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
                         ) {
                             Text(
                                 text = "PROFILE INFORMATION",
                                 style = NostrordTypography.SectionHeader,
-                                color = NostrordColors.TextMuted
+                                color = NostrordColors.TextMuted,
                             )
 
                             Spacer(modifier = Modifier.height(Spacing.sm))
@@ -156,7 +164,7 @@ fun EditProfileScreenDesktop(
                                 label = "Name",
                                 value = name,
                                 onValueChange = onNameChange,
-                                placeholder = "Your name"
+                                placeholder = "Your name",
                             )
 
                             ProfileTextField(
@@ -165,42 +173,42 @@ fun EditProfileScreenDesktop(
                                 onValueChange = onAboutChange,
                                 placeholder = "Tell us about yourself",
                                 singleLine = false,
-                                maxLines = 4
+                                maxLines = 4,
                             )
 
                             ProfileTextField(
                                 label = "Avatar URL",
                                 value = pictureUrl,
                                 onValueChange = onPictureUrlChange,
-                                placeholder = "https://example.com/avatar.jpg"
+                                placeholder = "https://example.com/avatar.jpg",
                             )
 
                             ProfileTextField(
                                 label = "Banner URL",
                                 value = bannerUrl,
                                 onValueChange = onBannerUrlChange,
-                                placeholder = "https://example.com/banner.jpg"
+                                placeholder = "https://example.com/banner.jpg",
                             )
 
                             ProfileTextField(
                                 label = "Nostr Address (NIP-05)",
                                 value = nip05,
                                 onValueChange = onNip05Change,
-                                placeholder = "you@example.com"
+                                placeholder = "you@example.com",
                             )
 
                             ProfileTextField(
                                 label = "Lightning Address",
                                 value = lightningAddress,
                                 onValueChange = onLightningAddressChange,
-                                placeholder = "you@walletofsatoshi.com"
+                                placeholder = "you@walletofsatoshi.com",
                             )
 
                             ProfileTextField(
                                 label = "Website",
                                 value = website,
                                 onValueChange = onWebsiteChange,
-                                placeholder = "https://example.com"
+                                placeholder = "https://example.com",
                             )
                         }
                     }
@@ -212,46 +220,48 @@ fun EditProfileScreenDesktop(
         when {
             showSuccessMessage -> {
                 Snackbar(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .align(Alignment.BottomCenter)
                         .padding(Spacing.lg),
-                    containerColor = NostrordColors.Success
+                    containerColor = NostrordColors.Success,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Default.Check,
                             contentDescription = "Success",
                             tint = Color.White,
-                            modifier = Modifier.size(Spacing.iconSm + Spacing.xs)
+                            modifier = Modifier.size(Spacing.iconSm + Spacing.xs),
                         )
                         Spacer(modifier = Modifier.width(Spacing.sm))
                         Text(
                             "Profile updated successfully",
                             color = Color.White,
-                            style = NostrordTypography.Button
+                            style = NostrordTypography.Button,
                         )
                     }
                 }
             }
             errorMessage != null -> {
                 Snackbar(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .align(Alignment.BottomCenter)
                         .padding(Spacing.lg),
-                    containerColor = NostrordColors.Error
+                    containerColor = NostrordColors.Error,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Default.Error,
                             contentDescription = "Error",
                             tint = Color.White,
-                            modifier = Modifier.size(Spacing.iconSm + Spacing.xs)
+                            modifier = Modifier.size(Spacing.iconSm + Spacing.xs),
                         )
                         Spacer(modifier = Modifier.width(Spacing.sm))
                         Text(
                             errorMessage,
                             color = Color.White,
-                            style = NostrordTypography.Button
+                            style = NostrordTypography.Button,
                         )
                     }
                 }
@@ -267,13 +277,13 @@ private fun ProfileTextField(
     onValueChange: (String) -> Unit,
     placeholder: String,
     singleLine: Boolean = true,
-    maxLines: Int = 1
+    maxLines: Int = 1,
 ) {
     Column {
         Text(
             text = label,
             style = NostrordTypography.SectionHeader,
-            color = NostrordColors.TextMuted
+            color = NostrordColors.TextMuted,
         )
         Spacer(modifier = Modifier.height(Spacing.sm))
         OutlinedTextField(
@@ -283,21 +293,22 @@ private fun ProfileTextField(
             placeholder = {
                 Text(
                     text = placeholder,
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
             },
             singleLine = singleLine,
             maxLines = maxLines,
-            colors = OutlinedTextFieldDefaults.colors(
+            colors =
+            OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = NostrordColors.Primary,
                 unfocusedBorderColor = NostrordColors.Divider,
                 focusedContainerColor = NostrordColors.InputBackground,
                 unfocusedContainerColor = NostrordColors.InputBackground,
                 cursorColor = NostrordColors.Primary,
                 focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
+                unfocusedTextColor = Color.White,
             ),
-            shape = NostrordShapes.shapeSmall
+            shape = NostrordShapes.shapeSmall,
         )
     }
 }

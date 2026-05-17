@@ -21,12 +21,12 @@ fun InfoCard(
     content: String,
     icon: ImageVector = Icons.Default.Lightbulb,
     isCompact: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(12.dp),
     ) {
         Column(modifier = Modifier.padding(if (isCompact) 12.dp else 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -34,21 +34,21 @@ fun InfoCard(
                     icon,
                     contentDescription = title,
                     tint = titleColor,
-                    modifier = Modifier.size(if (isCompact) 18.dp else 20.dp)
+                    modifier = Modifier.size(if (isCompact) 18.dp else 20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     title,
                     color = titleColor,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 content,
                 color = Color.White,
-                style = if (isCompact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodySmall
+                style = if (isCompact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodySmall,
             )
         }
     }

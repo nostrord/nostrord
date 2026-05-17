@@ -22,19 +22,19 @@ import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,11 +45,10 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupPositionProvider
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
-import org.nostr.nostrord.ui.util.buildRelayIconRequest
+import kotlinx.coroutines.delay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
@@ -57,6 +56,7 @@ import org.nostr.nostrord.ui.theme.NostrordAnimation
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.util.buildRelayIconRequest
 import org.nostr.nostrord.ui.util.relayFallbackPainter
 
 /**
@@ -82,24 +82,25 @@ fun ServerRail(
     notificationCount: Int = 0,
     onNotificationsClick: () -> Unit = {},
     isNotificationsActive: Boolean = false,
-    showTooltips: Boolean = true
+    showTooltips: Boolean = true,
 ) {
     val listState = rememberLazyListState()
 
     Column(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxHeight()
             .width(Spacing.serverRailWidth)
             .background(NostrordColors.BackgroundDark)
             .padding(vertical = Spacing.sm)
             .then(modifier),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             items(relays, key = { it }) { relayUrl ->
                 val isActive = relayUrl == activeRelayUrl
@@ -110,7 +111,7 @@ fun ServerRail(
                     isActive = isActive,
                     onClick = { onRelayClick(relayUrl) },
                     tooltip = if (showTooltips) tooltipText else null,
-                    badgeCount = unread
+                    badgeCount = unread,
                 ) {
                     RelayIcon(relayUrl = relayUrl, isActive = isActive, iconUrl = meta?.icon)
                 }
@@ -123,22 +124,23 @@ fun ServerRail(
                     isActive = false,
                     onClick = onAddRelayClick,
                     showIndicator = false,
-                    tooltip = if (showTooltips) "Add relay" else null
+                    tooltip = if (showTooltips) "Add relay" else null,
                 ) {
                     Box(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .size(Spacing.serverIconSize)
                             .background(
                                 NostrordColors.SurfaceVariant,
-                                RoundedCornerShape(NostrordShapes.serverIconDefault)
+                                RoundedCornerShape(NostrordShapes.serverIconDefault),
                             ),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add relay",
                             tint = NostrordColors.Success,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(24.dp),
                         )
                     }
                 }
@@ -162,17 +164,24 @@ fun ServerRail(
             pubkey = userPubkey,
             onClick = onUserClick,
             tooltip = if (showTooltips) userDisplayName ?: "Profile" else null,
-            isActive = isProfileActive
+            isActive = isProfileActive,
         )
     }
 }
 
 /** Extracts a short readable label from a relay URL. */
 fun relayShortLabel(url: String): String {
-    val domain = url.removePrefix("wss://").removePrefix("ws://").split("/").first()
+    val domain =
+        url
+            .removePrefix("wss://")
+            .removePrefix("ws://")
+            .split("/")
+            .first()
     val parts = domain.split(".")
-    val label = parts.filter { it !in setOf("groups", "relay", "relay1", "relay2", "www", "nostr", "com", "io", "net", "org") }
-        .firstOrNull() ?: parts.firstOrNull() ?: domain
+    val label =
+        parts
+            .filter { it !in setOf("groups", "relay", "relay1", "relay2", "www", "nostr", "com", "io", "net", "org") }
+            .firstOrNull() ?: parts.firstOrNull() ?: domain
     return label.take(7)
 }
 
@@ -184,16 +193,21 @@ fun relayShortLabel(url: String): String {
  * If the image fails or is absent, the text shows through.
  */
 @Composable
-private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = null) {
+private fun RelayIcon(
+    relayUrl: String,
+    isActive: Boolean,
+    iconUrl: String? = null,
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     val cornerRadius by animateDpAsState(
-        targetValue = when {
+        targetValue =
+        when {
             isActive || isHovered -> NostrordShapes.serverIconActive
             else -> NostrordShapes.serverIconDefault
         },
-        animationSpec = NostrordAnimation.standardSpec()
+        animationSpec = NostrordAnimation.standardSpec(),
     )
 
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
@@ -218,18 +232,20 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
     }
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(Spacing.serverIconSize)
             .hoverable(interactionSource)
             .clip(RoundedCornerShape(cornerRadius))
             .background(
-                color = when {
+                color =
+                when {
                     isActive -> NostrordColors.Primary
                     isHovered -> NostrordColors.Primary.copy(alpha = 0.7f)
                     else -> NostrordColors.SurfaceVariant
-                }
+                },
             ),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         // Base layer: fallback is ALWAYS visible until the image successfully overlays it.
         // Fallback is a visual placeholder, not a terminal state.
@@ -238,7 +254,7 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
                 painter = fallbackPainter,
                 contentDescription = null,
                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             )
         } else if (!imageLoaded) {
             Text(
@@ -249,7 +265,7 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Clip,
-                modifier = Modifier.padding(horizontal = 2.dp)
+                modifier = Modifier.padding(horizontal = 2.dp),
             )
         }
 
@@ -277,7 +293,7 @@ private fun RelayIcon(relayUrl: String, isActive: Boolean, iconUrl: String? = nu
                             }
                             else -> {}
                         }
-                    }
+                    },
                 )
             }
         }
@@ -295,38 +311,41 @@ private fun ServerRailItem(
     showIndicator: Boolean = true,
     tooltip: String? = null,
     badgeCount: Int = 0,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     val indicatorHeight by animateDpAsState(
-        targetValue = when {
+        targetValue =
+        when {
             isActive -> Spacing.activeIndicatorHeight
             isHovered -> Spacing.hoverIndicatorHeight
             else -> 0.dp
         },
-        animationSpec = NostrordAnimation.indicatorSpec()
+        animationSpec = NostrordAnimation.indicatorSpec(),
     )
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .height(Spacing.serverIconSize + Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         if (showIndicator) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .width(Spacing.activeIndicatorWidth)
                     .height(indicatorHeight)
                     .background(
                         if (indicatorHeight > 0.dp) Color.White else Color.Transparent,
                         RoundedCornerShape(
                             topEnd = Spacing.activeIndicatorWidth,
-                            bottomEnd = Spacing.activeIndicatorWidth
-                        )
-                    )
+                            bottomEnd = Spacing.activeIndicatorWidth,
+                        ),
+                    ),
             )
         } else {
             Spacer(modifier = Modifier.width(Spacing.activeIndicatorWidth))
@@ -336,20 +355,22 @@ private fun ServerRailItem(
 
         val iconContent: @Composable () -> Unit = {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(Spacing.serverIconSize)
                     .hoverable(interactionSource)
                     .clickable(onClick = onClick)
                     .pointerHoverIcon(PointerIcon.Hand),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 content()
                 if (badgeCount > 0) {
                     UnreadBadge(
                         count = badgeCount,
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .align(Alignment.TopEnd)
-                            .offset(x = 4.dp, y = (-4).dp)
+                            .offset(x = 4.dp, y = (-4).dp),
                     )
                 }
             }
@@ -361,12 +382,12 @@ private fun ServerRailItem(
                 tooltip = {
                     PlainTooltip(
                         containerColor = NostrordColors.Surface,
-                        contentColor = NostrordColors.TextPrimary
+                        contentColor = NostrordColors.TextPrimary,
                     ) {
                         Text(tooltip)
                     }
                 },
-                state = rememberTooltipState()
+                state = rememberTooltipState(),
             ) {
                 iconContent()
             }
@@ -383,15 +404,19 @@ private fun ServerRailItem(
  * counts for joined groups on that relay. Capped at "99+" to keep within 16 dp.
  */
 @Composable
-private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
+private fun UnreadBadge(
+    count: Int,
+    modifier: Modifier = Modifier,
+) {
     val label = if (count > 99) "99+" else count.toString()
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .defaultMinSize(minWidth = 16.dp, minHeight = 16.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(NostrordColors.BadgeBackground)
             .padding(horizontal = 4.dp),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,
@@ -400,7 +425,7 @@ private fun UnreadBadge(count: Int, modifier: Modifier = Modifier) {
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Clip,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -416,55 +441,59 @@ private fun UserAvatar(
     pubkey: String?,
     onClick: () -> Unit,
     tooltip: String? = "Profile",
-    isActive: Boolean = false
+    isActive: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     val indicatorHeight by animateDpAsState(
-        targetValue = when {
+        targetValue =
+        when {
             isActive -> Spacing.activeIndicatorHeight
             isHovered -> Spacing.hoverIndicatorHeight
             else -> 0.dp
         },
-        animationSpec = NostrordAnimation.indicatorSpec()
+        animationSpec = NostrordAnimation.indicatorSpec(),
     )
 
     val avatarContent: @Composable () -> Unit = {
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .height(Spacing.serverIconSize + Spacing.sm),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .width(Spacing.activeIndicatorWidth)
                     .height(indicatorHeight)
                     .background(
                         if (indicatorHeight > 0.dp) Color.White else Color.Transparent,
                         RoundedCornerShape(
                             topEnd = Spacing.activeIndicatorWidth,
-                            bottomEnd = Spacing.activeIndicatorWidth
-                        )
-                    )
+                            bottomEnd = Spacing.activeIndicatorWidth,
+                        ),
+                    ),
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(Spacing.serverIconSize)
                     .hoverable(interactionSource)
                     .clickable(onClick = onClick)
                     .pointerHoverIcon(PointerIcon.Hand),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 OptimizedUserAvatar(
                     imageUrl = avatarUrl,
                     pubkey = pubkey ?: "unknown",
                     displayName = displayName,
-                    size = Spacing.serverIconSize
+                    size = Spacing.serverIconSize,
                 )
             }
 
@@ -478,12 +507,12 @@ private fun UserAvatar(
             tooltip = {
                 PlainTooltip(
                     containerColor = NostrordColors.Surface,
-                    contentColor = NostrordColors.TextPrimary
+                    contentColor = NostrordColors.TextPrimary,
                 ) {
                     Text(tooltip)
                 }
             },
-            state = rememberTooltipState()
+            state = rememberTooltipState(),
         ) {
             avatarContent()
         }
@@ -509,78 +538,86 @@ private fun NotificationBell(
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     val indicatorHeight by animateDpAsState(
-        targetValue = when {
+        targetValue =
+        when {
             isActive -> Spacing.activeIndicatorHeight
             isHovered -> Spacing.hoverIndicatorHeight
             else -> 0.dp
         },
-        animationSpec = NostrordAnimation.indicatorSpec()
+        animationSpec = NostrordAnimation.indicatorSpec(),
     )
 
     val cornerRadius by animateDpAsState(
-        targetValue = when {
+        targetValue =
+        when {
             isActive || isHovered -> NostrordShapes.serverIconActive
             else -> NostrordShapes.serverIconDefault
         },
-        animationSpec = NostrordAnimation.standardSpec()
+        animationSpec = NostrordAnimation.standardSpec(),
     )
 
     val bellContent: @Composable () -> Unit = {
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .height(Spacing.serverIconSize + Spacing.sm),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .width(Spacing.activeIndicatorWidth)
                     .height(indicatorHeight)
                     .background(
                         if (indicatorHeight > 0.dp) Color.White else Color.Transparent,
                         RoundedCornerShape(
                             topEnd = Spacing.activeIndicatorWidth,
-                            bottomEnd = Spacing.activeIndicatorWidth
-                        )
-                    )
+                            bottomEnd = Spacing.activeIndicatorWidth,
+                        ),
+                    ),
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(Spacing.serverIconSize)
                     .hoverable(interactionSource)
                     .clickable(onClick = onClick)
                     .pointerHoverIcon(PointerIcon.Hand),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(Spacing.serverIconSize)
                         .clip(RoundedCornerShape(cornerRadius))
                         .background(
-                            color = when {
+                            color =
+                            when {
                                 isActive -> NostrordColors.Primary
                                 isHovered -> NostrordColors.Primary.copy(alpha = 0.7f)
                                 else -> NostrordColors.SurfaceVariant
-                            }
+                            },
                         ),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Notifications,
                         contentDescription = "Notifications",
                         tint = Color.White,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(22.dp),
                     )
                 }
                 if (count > 0) {
                     UnreadBadge(
                         count = count,
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .align(Alignment.TopEnd)
-                            .offset(x = 4.dp, y = (-4).dp)
+                            .offset(x = 4.dp, y = (-4).dp),
                     )
                 }
             }
@@ -595,12 +632,12 @@ private fun NotificationBell(
             tooltip = {
                 PlainTooltip(
                     containerColor = NostrordColors.Surface,
-                    contentColor = NostrordColors.TextPrimary
+                    contentColor = NostrordColors.TextPrimary,
                 ) {
                     Text(tooltip)
                 }
             },
-            state = rememberTooltipState()
+            state = rememberTooltipState(),
         ) {
             bellContent()
         }
@@ -610,13 +647,13 @@ private fun NotificationBell(
 }
 
 private class RightSideTooltipPositionProvider(
-    private val spacing: Int = 8
+    private val spacing: Int = 8,
 ) : PopupPositionProvider {
     override fun calculatePosition(
         anchorBounds: IntRect,
         windowSize: IntSize,
         layoutDirection: LayoutDirection,
-        popupContentSize: IntSize
+        popupContentSize: IntSize,
     ): IntOffset {
         val x = anchorBounds.right + spacing
         val y = anchorBounds.top + (anchorBounds.height - popupContentSize.height) / 2

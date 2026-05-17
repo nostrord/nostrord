@@ -4,12 +4,12 @@ data class RelayInfo(
     val url: String,
     var status: RelayStatus = RelayStatus.DISCONNECTED,
     var groupCount: Int? = null,
-    var details: String = "No additional details available."
+    var details: String = "No additional details available.",
 )
 
 enum class RelayStatus {
     CONNECTED,
     DISCONNECTED,
     CONNECTING,
-    ERROR
+    ERROR,
 }

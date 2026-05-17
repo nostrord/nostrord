@@ -34,7 +34,7 @@ class EventOrderingBuffer(
     private val scope: CoroutineScope,
     private val windowProvider: () -> Long = { WINDOW_MS },
     val maxBufferSize: Int = MAX_BUFFER_SIZE,
-    private val onFlush: (groupId: String, messages: List<NostrGroupClient.NostrMessage>) -> Unit
+    private val onFlush: (groupId: String, messages: List<NostrGroupClient.NostrMessage>) -> Unit,
 ) {
     companion object {
         const val WINDOW_MS = 100L
@@ -42,8 +42,10 @@ class EventOrderingBuffer(
     }
 
     private val mutex = Mutex()
+
     // groupId → messages collected in the current window
     private val buffers = mutableMapOf<String, MutableList<NostrGroupClient.NostrMessage>>()
+
     // groupId → active debounce Job (replaced on each enqueue)
     private val flushJobs = mutableMapOf<String, Job>()
 
@@ -54,7 +56,10 @@ class EventOrderingBuffer(
      * waiting for the debounce window. Otherwise, the [onFlush] callback fires after
      * [windowProvider] ms of inactivity for this group.
      */
-    fun enqueue(groupId: String, message: NostrGroupClient.NostrMessage) {
+    fun enqueue(
+        groupId: String,
+        message: NostrGroupClient.NostrMessage,
+    ) {
         scope.launch {
             var immediateFlush: List<NostrGroupClient.NostrMessage>? = null
 
@@ -71,17 +76,19 @@ class EventOrderingBuffer(
                     // Debounce: cancel the old timer and start a fresh one.
                     flushJobs[groupId]?.cancel()
                     val currentWindow = windowProvider()
-                    flushJobs[groupId] = scope.launch {
-                        delay(currentWindow)
-                        val batch = mutex.withLock {
-                            flushJobs.remove(groupId)
-                            val b = buffers.remove(groupId) ?: return@withLock emptyList()
-                            b.toList()
+                    flushJobs[groupId] =
+                        scope.launch {
+                            delay(currentWindow)
+                            val batch =
+                                mutex.withLock {
+                                    flushJobs.remove(groupId)
+                                    val b = buffers.remove(groupId) ?: return@withLock emptyList()
+                                    b.toList()
+                                }
+                            if (batch.isNotEmpty()) {
+                                onFlush(groupId, batch.sortedBy { it.createdAt })
+                            }
                         }
-                        if (batch.isNotEmpty()) {
-                            onFlush(groupId, batch.sortedBy { it.createdAt })
-                        }
-                    }
                 }
             }
 
@@ -96,13 +103,14 @@ class EventOrderingBuffer(
      */
     fun flushAll() {
         scope.launch {
-            val snapshot = mutex.withLock {
-                flushJobs.values.forEach { it.cancel() }
-                flushJobs.clear()
-                val snap = buffers.toMap()
-                buffers.clear()
-                snap
-            }
+            val snapshot =
+                mutex.withLock {
+                    flushJobs.values.forEach { it.cancel() }
+                    flushJobs.clear()
+                    val snap = buffers.toMap()
+                    buffers.clear()
+                    snap
+                }
             snapshot.forEach { (groupId, messages) ->
                 if (messages.isNotEmpty()) {
                     onFlush(groupId, messages.sortedBy { it.createdAt })

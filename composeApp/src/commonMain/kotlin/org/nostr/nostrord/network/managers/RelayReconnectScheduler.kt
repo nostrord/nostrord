@@ -29,13 +29,14 @@ import kotlin.random.Random
 class RelayReconnectScheduler(
     private val scope: CoroutineScope,
     private val isRelayActive: (relayUrl: String) -> Boolean,
-    private val doReconnect: suspend (relayUrl: String) -> Boolean
+    private val doReconnect: suspend (relayUrl: String) -> Boolean,
 ) {
     enum class Priority {
         /** Relay hosts the group currently open on screen — fastest backoff. */
         ACTIVE,
+
         /** NIP-29 relay the user has groups on — standard backoff. */
-        BACKGROUND
+        BACKGROUND,
     }
 
     /** Maximum number of reconnect attempts running at the same time. */
@@ -60,7 +61,7 @@ class RelayReconnectScheduler(
     fun schedule(
         relayUrl: String,
         attempt: Int = 1,
-        priority: Priority = Priority.BACKGROUND
+        priority: Priority = Priority.BACKGROUND,
     ) {
         scope.launch {
             val delayMs = computeDelay(attempt, priority)
@@ -71,9 +72,14 @@ class RelayReconnectScheduler(
                 return@launch
             }
 
-            val success = concurrency.withPermit {
-                try { doReconnect(relayUrl) } catch (_: Exception) { false }
-            }
+            val success =
+                concurrency.withPermit {
+                    try {
+                        doReconnect(relayUrl)
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
 
             if (!success) {
                 schedule(relayUrl, attempt + 1, priority)
@@ -83,14 +89,18 @@ class RelayReconnectScheduler(
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private fun computeDelay(attempt: Int, priority: Priority): Long {
+    private fun computeDelay(
+        attempt: Int,
+        priority: Priority,
+    ): Long {
         // After fast phase, use a flat 30 s slow-retry interval.
         if (attempt > MAX_FAST_ATTEMPTS) return SLOW_RETRY_DELAY_MS
 
-        val baseMs = when (priority) {
-            Priority.ACTIVE     -> minOf(500L  * (1L shl (attempt - 1)), 10_000L)
-            Priority.BACKGROUND -> minOf(1000L * (1L shl (attempt - 1)), 30_000L)
-        }
+        val baseMs =
+            when (priority) {
+                Priority.ACTIVE -> minOf(500L * (1L shl (attempt - 1)), 10_000L)
+                Priority.BACKGROUND -> minOf(1000L * (1L shl (attempt - 1)), 30_000L)
+            }
         // Add 0–25 % jitter so multiple relays don't all retry at the exact same instant.
         val jitter = (baseMs * Random.nextDouble(0.0, 0.25)).toLong()
         return baseMs + jitter

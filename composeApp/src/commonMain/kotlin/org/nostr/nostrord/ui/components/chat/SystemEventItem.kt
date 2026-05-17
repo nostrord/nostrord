@@ -46,32 +46,34 @@ fun SystemEventItem(
     createdAt: Long,
     metadata: UserMetadata? = null,
     additionalUsers: List<String> = emptyList(),
-    allUserMetadata: Map<String, UserMetadata> = emptyMap()
+    allUserMetadata: Map<String, UserMetadata> = emptyMap(),
 ) {
     val isJoinEvent = action.contains("joined", ignoreCase = true)
     val totalUsers = 1 + additionalUsers.size
     val accentColor = if (isJoinEvent) NostrordColors.Success else NostrordColors.TextMuted
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .padding(vertical = 12.dp, horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
+        horizontalArrangement = Arrangement.Center,
     ) {
         // Icon with accent background
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .size(24.dp)
                 .clip(CircleShape)
                 .background(accentColor.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = if (isJoinEvent) Icons.AutoMirrored.Filled.Login else Icons.AutoMirrored.Filled.Logout,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
-                tint = accentColor
+                tint = accentColor,
             )
         }
 
@@ -84,7 +86,7 @@ fun SystemEventItem(
                 primaryMetadata = metadata,
                 additionalPubkeys = additionalUsers,
                 allMetadata = allUserMetadata,
-                maxVisible = 4
+                maxVisible = 4,
             )
             Spacer(modifier = Modifier.width(10.dp))
         } else {
@@ -92,7 +94,7 @@ fun SystemEventItem(
             MiniAvatar(
                 pubkey = pubkey,
                 metadata = metadata,
-                size = 20
+                size = 20,
             )
             Spacer(modifier = Modifier.width(8.dp))
         }
@@ -100,7 +102,7 @@ fun SystemEventItem(
         // Event text
         Column {
             Row(
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (totalUsers == 1) {
                     val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
@@ -110,26 +112,26 @@ fun SystemEventItem(
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = action,
                         color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 } else {
                     Text(
                         text = "$totalUsers members",
                         color = Color.White,
                         style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = action,
                         color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
@@ -141,7 +143,7 @@ fun SystemEventItem(
         Text(
             text = formatTimestamp(createdAt),
             color = NostrordColors.TextMuted.copy(alpha = 0.6f),
-            style = MaterialTheme.typography.labelSmall
+            style = MaterialTheme.typography.labelSmall,
         )
     }
 }
@@ -152,23 +154,24 @@ private fun StackedAvatars(
     primaryMetadata: UserMetadata?,
     additionalPubkeys: List<String>,
     allMetadata: Map<String, UserMetadata>,
-    maxVisible: Int = 4
+    maxVisible: Int = 4,
 ) {
     val allPubkeys = listOf(primaryPubkey) + additionalPubkeys
     val visiblePubkeys = allPubkeys.take(maxVisible)
     val overflow = allPubkeys.size - maxVisible
 
     Row(
-        horizontalArrangement = Arrangement.spacedBy((-8).dp)
+        horizontalArrangement = Arrangement.spacedBy((-8).dp),
     ) {
         visiblePubkeys.forEachIndexed { index, pk ->
             val meta = if (index == 0) primaryMetadata else allMetadata[pk]
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(24.dp)
                     .clip(CircleShape)
                     .background(NostrordColors.Background)
-                    .padding(1.dp)
+                    .padding(1.dp),
             ) {
                 MiniAvatar(pubkey = pk, metadata = meta, size = 22)
             }
@@ -177,17 +180,18 @@ private fun StackedAvatars(
         // Overflow indicator
         if (overflow > 0) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(24.dp)
                     .clip(CircleShape)
                     .background(NostrordColors.Surface),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "+$overflow",
                     color = NostrordColors.TextSecondary,
                     fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
             }
         }
@@ -198,7 +202,7 @@ private fun StackedAvatars(
 private fun MiniAvatar(
     pubkey: String,
     metadata: UserMetadata?,
-    size: Int = 20
+    size: Int = 20,
 ) {
     val pictureUrl = metadata?.picture?.takeIf { it.isNotBlank() }
 
@@ -210,42 +214,47 @@ private fun MiniAvatar(
         }
 
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .size(size.dp)
                 .clip(CircleShape),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             if (imageState is AsyncImagePainter.State.Error) {
                 Jdenticon(value = pubkey, size = size.dp)
             } else {
-                val imageRequest = remember(pictureUrl, context) {
-                    ImageRequest.Builder(context)
-                        .data(pictureUrl)
-                        .crossfade(true)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .build()
-                }
+                val imageRequest =
+                    remember(pictureUrl, context) {
+                        ImageRequest
+                            .Builder(context)
+                            .data(pictureUrl)
+                            .crossfade(true)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                    }
                 if (imageState is AsyncImagePainter.State.Loading || imageState is AsyncImagePainter.State.Empty) {
                     Jdenticon(value = pubkey, size = size.dp)
                 }
                 AsyncImage(
                     model = imageRequest,
                     contentDescription = displayName,
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(size.dp)
                         .clip(CircleShape),
                     contentScale = ContentScale.Crop,
-                    onState = { imageState = it }
+                    onState = { imageState = it },
                 )
             }
         }
     } else {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .size(size.dp)
                 .clip(CircleShape),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Jdenticon(value = pubkey, size = size.dp)
         }

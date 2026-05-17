@@ -8,9 +8,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 enum class ScreenSize {
-    Compact,  // Mobile: < 912dp
-    Medium,   // Tablet: 912-1200dp
-    Large     // Desktop: > 1200dp
+    Compact, // Mobile: < 912dp
+    Medium, // Tablet: 912-1200dp
+    Large, // Desktop: > 1200dp
 }
 
 @Composable
@@ -18,7 +18,7 @@ fun ResponsiveScaffold(
     compactBreakpoint: Dp = 912.dp,
     mediumBreakpoint: Dp = 840.dp,
     mobile: @Composable () -> Unit,
-    desktop: @Composable () -> Unit
+    desktop: @Composable () -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth < compactBreakpoint) {
@@ -33,19 +33,21 @@ fun ResponsiveScaffold(
 fun ResponsiveScaffold(
     compactBreakpoint: Dp = 912.dp,
     mediumBreakpoint: Dp = 840.dp,
-    content: @Composable (screenSize: ScreenSize, gridColumns: Int) -> Unit
+    content: @Composable (screenSize: ScreenSize, gridColumns: Int) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val screenSize = when {
-            maxWidth < compactBreakpoint -> ScreenSize.Compact
-            maxWidth < mediumBreakpoint -> ScreenSize.Medium
-            else -> ScreenSize.Large
-        }
-        val gridColumns = when (screenSize) {
-            ScreenSize.Compact -> 1
-            ScreenSize.Medium -> 2
-            ScreenSize.Large -> 3
-        }
+        val screenSize =
+            when {
+                maxWidth < compactBreakpoint -> ScreenSize.Compact
+                maxWidth < mediumBreakpoint -> ScreenSize.Medium
+                else -> ScreenSize.Large
+            }
+        val gridColumns =
+            when (screenSize) {
+                ScreenSize.Compact -> 1
+                ScreenSize.Medium -> 2
+                ScreenSize.Large -> 3
+            }
         content(screenSize, gridColumns)
     }
 }

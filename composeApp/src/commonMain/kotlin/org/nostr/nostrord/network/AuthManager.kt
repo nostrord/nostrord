@@ -4,18 +4,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.auth.AccountStore
 import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.auth.NostrSigner
-import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Event
+import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.storage.SecureStorage
@@ -39,7 +39,6 @@ import org.nostr.nostrord.utils.epochMillis
 class AuthManager(
     private val accountStore: AccountStore,
 ) {
-
     private val authScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private var keyPair: KeyPair? = null
@@ -84,21 +83,17 @@ class AuthManager(
      * with the active session after a switch. Falls back to the inline fields
      * for compatibility during the login flow before the session is activated.
      */
-    fun getPublicKey(): String? {
-        return ActiveAccountManager.currentPubkey ?: when {
-            isBunkerLogin -> bunkerUserPubkey
-            isNip07Login -> nip07UserPubkey
-            keyPair != null -> keyPair?.publicKeyHex
-            else -> null
-        }
+    fun getPublicKey(): String? = ActiveAccountManager.currentPubkey ?: when {
+        isBunkerLogin -> bunkerUserPubkey
+        isNip07Login -> nip07UserPubkey
+        keyPair != null -> keyPair?.publicKeyHex
+        else -> null
     }
 
     /**
      * Get the current user's private key (hex) - only for local login
      */
-    fun getPrivateKey(): String? {
-        return if (isBunkerLogin || isNip07Login) null else keyPair?.privateKeyHex
-    }
+    fun getPrivateKey(): String? = if (isBunkerLogin || isNip07Login) null else keyPair?.privateKeyHex
 
     fun isUsingBunker(): Boolean = isBunkerLogin
 
@@ -132,11 +127,12 @@ class AuthManager(
 
         // Check if we have an existing client key (from previous session)
         val existingClientKey = SecureStorage.getBunkerClientPrivateKey()
-        val newNip46Client = if (existingClientKey != null) {
-            Nip46Client(existingClientKey)
-        } else {
-            Nip46Client(null)
-        }
+        val newNip46Client =
+            if (existingClientKey != null) {
+                Nip46Client(existingClientKey)
+            } else {
+                Nip46Client(null)
+            }
 
         // Set up auth URL callback
         newNip46Client.onAuthUrl = { url ->
@@ -147,7 +143,7 @@ class AuthManager(
             newNip46Client.connect(
                 remoteSignerPubkey = bunkerInfo.pubkey,
                 relays = bunkerInfo.relays,
-                secret = bunkerInfo.secret
+                secret = bunkerInfo.secret,
             )
         } catch (e: Exception) {
             // "already connected" means the signer remembers us - success!
@@ -186,18 +182,21 @@ class AuthManager(
      * (SecureStorage.*For(pubkey)) trust this returned pubkey, so a swap here
      * would silently re-point an existing account at a foreign signer.
      */
-    private fun rejectIfBunkerSwap(returnedPubkey: String, bunkerUrl: String) {
+    private fun rejectIfBunkerSwap(
+        returnedPubkey: String,
+        bunkerUrl: String,
+    ) {
         val existing = accountStore.get(returnedPubkey) ?: return
         if (existing.authMethod != AuthMethod.BUNKER) {
             throw IllegalStateException(
-                "Account $returnedPubkey is already registered with a different sign-in method."
+                "Account $returnedPubkey is already registered with a different sign-in method.",
             )
         }
         val savedUrl = SecureStorage.getBunkerUrlFor(returnedPubkey)
         if (!savedUrl.isNullOrBlank() && savedUrl != bunkerUrl) {
             throw IllegalStateException(
                 "Account $returnedPubkey already exists with a different bunker. " +
-                "Remove the existing account before reconnecting."
+                    "Remove the existing account before reconnecting.",
             )
         }
     }
@@ -223,7 +222,7 @@ class AuthManager(
      */
     suspend fun completeNostrConnectLogin(
         client: Nip46Client,
-        relays: List<String> = defaultNostrConnectRelays
+        relays: List<String> = defaultNostrConnectRelays,
     ): String {
         val signerPubkey = client.awaitIncomingConnection()
 
@@ -276,7 +275,10 @@ class AuthManager(
     /**
      * Login with local private key
      */
-    fun loginWithPrivateKey(privateKeyHex: String, publicKeyHex: String) {
+    fun loginWithPrivateKey(
+        privateKeyHex: String,
+        publicKeyHex: String,
+    ) {
         zeroAndClearKeyPair()
         keyPair = KeyPair.fromPrivateKeyHex(privateKeyHex)
         isBunkerLogin = false
@@ -298,15 +300,19 @@ class AuthManager(
      * Insert or update the Account record for [pubkey] and set it as active.
      * Called by every login method after credentials are persisted.
      */
-    private fun registerAccountAfterLogin(pubkey: String, method: AuthMethod) {
+    private fun registerAccountAfterLogin(
+        pubkey: String,
+        method: AuthMethod,
+    ) {
         if (pubkey.isBlank()) return
         val existing = accountStore.get(pubkey)
-        val account = existing?.copy(authMethod = method) ?: Account(
-            pubkey = pubkey,
-            label = "Account ${accountStore.accounts.value.size + 1}",
-            authMethod = method,
-            addedAt = epochMillis(),
-        )
+        val account =
+            existing?.copy(authMethod = method) ?: Account(
+                pubkey = pubkey,
+                label = "Account ${accountStore.accounts.value.size + 1}",
+                authMethod = method,
+                addedAt = epochMillis(),
+            )
         accountStore.upsert(account)
         accountStore.setActive(pubkey)
     }
@@ -359,31 +365,36 @@ class AuthManager(
     suspend fun useAccount(account: Account): Boolean {
         // Build new credentials before touching the current session — a
         // BUNKER connect failure here leaves the existing session intact.
-        val prepared: PreparedAccount = when (account.authMethod) {
-            AuthMethod.LOCAL -> {
-                val priv = SecureStorage.getPrivateKeyFor(account.pubkey)
-                    ?: SecureStorage.getPrivateKey()
-                    ?: return false
-                val kp = try {
-                    KeyPair.fromPrivateKeyHex(priv)
-                } catch (_: Exception) {
-                    return false
+        val prepared: PreparedAccount =
+            when (account.authMethod) {
+                AuthMethod.LOCAL -> {
+                    val priv =
+                        SecureStorage.getPrivateKeyFor(account.pubkey)
+                            ?: SecureStorage.getPrivateKey()
+                            ?: return false
+                    val kp =
+                        try {
+                            KeyPair.fromPrivateKeyHex(priv)
+                        } catch (_: Exception) {
+                            return false
+                        }
+                    PreparedAccount.Local(kp)
                 }
-                PreparedAccount.Local(kp)
+                AuthMethod.BUNKER -> {
+                    val bunkerUrl =
+                        SecureStorage.getBunkerUrlFor(account.pubkey)
+                            ?: SecureStorage.getBunkerUrl()
+                            ?: return false
+                    val client =
+                        buildBunkerClient(bunkerUrl, account.pubkey)
+                            ?: return false // connect failed — keep current session
+                    PreparedAccount.Bunker(bunkerUrl, client)
+                }
+                AuthMethod.NIP07 -> {
+                    if (!Nip07.isAvailable()) return false
+                    PreparedAccount.Nip07
+                }
             }
-            AuthMethod.BUNKER -> {
-                val bunkerUrl = SecureStorage.getBunkerUrlFor(account.pubkey)
-                    ?: SecureStorage.getBunkerUrl()
-                    ?: return false
-                val client = buildBunkerClient(bunkerUrl, account.pubkey)
-                    ?: return false  // connect failed — keep current session
-                PreparedAccount.Bunker(bunkerUrl, client)
-            }
-            AuthMethod.NIP07 -> {
-                if (!Nip07.isAvailable()) return false
-                PreparedAccount.Nip07
-            }
-        }
 
         nip46Client?.disconnect()
         nip46Client = null
@@ -422,22 +433,24 @@ class AuthManager(
      * handled later in [installBunkerClient] (async), so a flaky relay does
      * not block the account switch.
      */
-    private fun buildBunkerClient(bunkerUrl: String, userPubkey: String): Nip46Client? {
-        return try {
-            parseBunkerUrl(bunkerUrl)  // validate URL
-            val savedClientPrivateKey =
-                SecureStorage.getBunkerClientPrivateKeyFor(userPubkey)
-                    ?: SecureStorage.getBunkerClientPrivateKey()
-            val client = if (savedClientPrivateKey != null) {
+    private fun buildBunkerClient(
+        bunkerUrl: String,
+        userPubkey: String,
+    ): Nip46Client? = try {
+        parseBunkerUrl(bunkerUrl) // validate URL
+        val savedClientPrivateKey =
+            SecureStorage.getBunkerClientPrivateKeyFor(userPubkey)
+                ?: SecureStorage.getBunkerClientPrivateKey()
+        val client =
+            if (savedClientPrivateKey != null) {
                 Nip46Client(savedClientPrivateKey)
             } else {
                 Nip46Client()
             }
-            client.onAuthUrl = { url -> _authUrl.value = url }
-            client
-        } catch (_: Exception) {
-            null
-        }
+        client.onAuthUrl = { url -> _authUrl.value = url }
+        client
+    } catch (_: Exception) {
+        null
     }
 
     /**
@@ -454,7 +467,11 @@ class AuthManager(
      * `nip46Client === client` so stale events from a swapped-out client
      * cannot affect the current account.
      */
-    private fun installBunkerClient(client: Nip46Client, bunkerUrl: String, userPubkey: String) {
+    private fun installBunkerClient(
+        client: Nip46Client,
+        bunkerUrl: String,
+        userPubkey: String,
+    ) {
         nip46Client = client
         bunkerUserPubkey = userPubkey
         isBunkerLogin = true
@@ -464,19 +481,21 @@ class AuthManager(
         _isBunkerConnected.value = true
         _isBunkerVerifying.value = true
 
-        val savedClientPrivateKey = SecureStorage.getBunkerClientPrivateKeyFor(userPubkey)
-            ?: SecureStorage.getBunkerClientPrivateKey()
+        val savedClientPrivateKey =
+            SecureStorage.getBunkerClientPrivateKeyFor(userPubkey)
+                ?: SecureStorage.getBunkerClientPrivateKey()
 
         authScope.launch {
-            val info = try {
-                parseBunkerUrl(bunkerUrl)
-            } catch (_: Exception) {
-                if (nip46Client === client) {
-                    _isBunkerVerifying.value = false
-                    _isBunkerConnected.value = false
+            val info =
+                try {
+                    parseBunkerUrl(bunkerUrl)
+                } catch (_: Exception) {
+                    if (nip46Client === client) {
+                        _isBunkerVerifying.value = false
+                        _isBunkerConnected.value = false
+                    }
+                    return@launch
                 }
-                return@launch
-            }
             try {
                 client.connectRelaysOnly(info.pubkey, info.relays)
             } catch (_: Exception) {
@@ -498,12 +517,13 @@ class AuthManager(
                     // contents leaked across accounts) could sign under a key the
                     // user does not own. See SecureStorage credential slot fix.
                     authScope.launch {
-                        val signerPubkey = try {
-                            client.getPublicKey()
-                        } catch (_: Exception) {
-                            if (nip46Client === client) _isBunkerVerifying.value = false
-                            return@launch
-                        }
+                        val signerPubkey =
+                            try {
+                                client.getPublicKey()
+                            } catch (_: Exception) {
+                                if (nip46Client === client) _isBunkerVerifying.value = false
+                                return@launch
+                            }
                         if (nip46Client !== client) return@launch
                         if (!signerPubkey.equals(userPubkey, ignoreCase = true)) {
                             // Signer identity does not match — refuse the session.
@@ -522,7 +542,7 @@ class AuthManager(
                         delay(1500)
                         _isBunkerVerifying.value = false
                     }
-                }
+                },
             )
         }
 
@@ -533,23 +553,34 @@ class AuthManager(
     }
 
     private sealed class PreparedAccount {
-        data class Local(val keyPair: KeyPair) : PreparedAccount()
-        data class Bunker(val bunkerUrl: String, val client: Nip46Client) : PreparedAccount()
+        data class Local(
+            val keyPair: KeyPair,
+        ) : PreparedAccount()
+
+        data class Bunker(
+            val bunkerUrl: String,
+            val client: Nip46Client,
+        ) : PreparedAccount()
+
         object Nip07 : PreparedAccount()
     }
 
-    private suspend fun restoreBunkerSession(bunkerUrl: String, savedUserPubkey: String): Boolean {
+    private suspend fun restoreBunkerSession(
+        bunkerUrl: String,
+        savedUserPubkey: String,
+    ): Boolean {
         try {
             val bunkerInfo = parseBunkerUrl(bunkerUrl)
             val savedClientPrivateKey =
                 SecureStorage.getBunkerClientPrivateKeyFor(savedUserPubkey)
                     ?: SecureStorage.getBunkerClientPrivateKey()
 
-            val newNip46Client = if (savedClientPrivateKey != null) {
-                Nip46Client(savedClientPrivateKey)
-            } else {
-                Nip46Client()
-            }
+            val newNip46Client =
+                if (savedClientPrivateKey != null) {
+                    Nip46Client(savedClientPrivateKey)
+                } else {
+                    Nip46Client()
+                }
 
             bunkerUserPubkey = savedUserPubkey
             isBunkerLogin = true
@@ -575,7 +606,7 @@ class AuthManager(
                         delay(1500)
                         _isBunkerVerifying.value = false
                     }
-                }
+                },
             )
 
             nip46Client = newNip46Client
@@ -590,7 +621,6 @@ class AuthManager(
             }
 
             return true
-
         } catch (e: Exception) {
             _isLoggedIn.value = false
             _isBunkerVerifying.value = false
@@ -599,16 +629,14 @@ class AuthManager(
         }
     }
 
-    private fun restorePrivateKeySession(privateKeyHex: String): Boolean {
-        return try {
-            keyPair = KeyPair.fromPrivateKeyHex(privateKeyHex)
-            isBunkerLogin = false
-            _isLoggedIn.value = true
-            true
-        } catch (e: Exception) {
-            SecureStorage.clearPrivateKey()
-            false
-        }
+    private fun restorePrivateKeySession(privateKeyHex: String): Boolean = try {
+        keyPair = KeyPair.fromPrivateKeyHex(privateKeyHex)
+        isBunkerLogin = false
+        _isLoggedIn.value = true
+        true
+    } catch (e: Exception) {
+        SecureStorage.clearPrivateKey()
+        false
     }
 
     /**
@@ -634,11 +662,12 @@ class AuthManager(
         try {
             val bunkerInfo = parseBunkerUrl(savedBunkerUrl)
 
-            val newNip46Client = if (savedClientPrivateKey != null) {
-                Nip46Client(savedClientPrivateKey)
-            } else {
-                Nip46Client()
-            }
+            val newNip46Client =
+                if (savedClientPrivateKey != null) {
+                    Nip46Client(savedClientPrivateKey)
+                } else {
+                    Nip46Client()
+                }
 
             newNip46Client.onAuthUrl = { url ->
                 _authUrl.value = url
@@ -648,7 +677,7 @@ class AuthManager(
                 newNip46Client.connect(
                     remoteSignerPubkey = bunkerInfo.pubkey,
                     relays = bunkerInfo.relays,
-                    secret = bunkerInfo.secret
+                    secret = bunkerInfo.secret,
                 )
             } catch (e: Exception) {
                 if (e.message?.contains("already connected", ignoreCase = true) == true) {
@@ -749,8 +778,8 @@ class AuthManager(
     private fun isPermissionError(e: Exception): Boolean {
         val msg = e.message?.lowercase() ?: return false
         return msg.contains("no permission") ||
-               msg.contains("not authorized") ||
-               msg.contains("permission denied")
+            msg.contains("not authorized") ||
+            msg.contains("permission denied")
     }
 
     private fun handlePermissionDenied() {
@@ -773,7 +802,10 @@ class AuthManager(
         val callback = onSessionInvalidated
         if (callback != null) {
             authScope.launch {
-                try { callback(invalidatedPubkey) } catch (_: Throwable) {}
+                try {
+                    callback(invalidatedPubkey)
+                } catch (_: Throwable) {
+                }
             }
         }
     }
@@ -787,11 +819,12 @@ class AuthManager(
             pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: "",
             createdAt = obj["created_at"]?.jsonPrimitive?.long ?: 0L,
             kind = obj["kind"]?.jsonPrimitive?.int ?: 0,
-            tags = obj["tags"]?.jsonArray?.map { tag ->
+            tags =
+            obj["tags"]?.jsonArray?.map { tag ->
                 tag.jsonArray.map { it.jsonPrimitive.content }
             } ?: emptyList(),
             content = obj["content"]?.jsonPrimitive?.content ?: "",
-            sig = obj["sig"]?.jsonPrimitive?.content
+            sig = obj["sig"]?.jsonPrimitive?.content,
         )
     }
 

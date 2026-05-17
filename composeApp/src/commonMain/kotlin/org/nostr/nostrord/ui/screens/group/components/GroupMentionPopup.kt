@@ -38,16 +38,18 @@ import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.utils.normalizeForSearch
 
-fun getFilteredGroups(groups: List<GroupInfo>, query: String): List<GroupInfo> {
-    return if (query.isEmpty()) {
-        groups.take(8)
-    } else {
-        val normalizedQuery = query.normalizeForSearch()
-        groups.filter { group ->
+fun getFilteredGroups(
+    groups: List<GroupInfo>,
+    query: String,
+): List<GroupInfo> = if (query.isEmpty()) {
+    groups.take(8)
+} else {
+    val normalizedQuery = query.normalizeForSearch()
+    groups
+        .filter { group ->
             group.name.normalizeForSearch().contains(normalizedQuery) ||
-            group.id.contains(query, ignoreCase = true)
+                group.id.contains(query, ignoreCase = true)
         }.take(8)
-    }
 }
 
 @Composable
@@ -56,7 +58,7 @@ fun GroupMentionPopup(
     query: String,
     selectedIndex: Int = 0,
     onGroupSelect: (GroupInfo) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val filteredGroups = getFilteredGroups(groups, query)
 
@@ -65,30 +67,32 @@ fun GroupMentionPopup(
     val safeSelectedIndex = selectedIndex.coerceIn(0, filteredGroups.size - 1)
 
     Surface(
-        modifier = modifier
+        modifier =
+        modifier
             .width(300.dp)
             .heightIn(max = 320.dp),
         shape = NostrordShapes.menuShape,
         color = NostrordColors.Surface,
         shadowElevation = 16.dp,
-        tonalElevation = 0.dp
+        tonalElevation = 0.dp,
     ) {
         Column {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Spacing.inputPadding, vertical = Spacing.sm)
+                    .padding(horizontal = Spacing.inputPadding, vertical = Spacing.sm),
             ) {
                 Text(
                     text = "GROUPS",
                     style = NostrordTypography.SectionHeader,
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
             }
 
             HorizontalDivider(
                 color = NostrordColors.BackgroundDark,
-                thickness = Spacing.dividerThickness
+                thickness = Spacing.dividerThickness,
             )
 
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
@@ -96,7 +100,7 @@ fun GroupMentionPopup(
                     GroupMentionItem(
                         group = group,
                         isSelected = index == safeSelectedIndex,
-                        onClick = { onGroupSelect(group) }
+                        onClick = { onGroupSelect(group) },
                     )
                 }
             }
@@ -108,38 +112,39 @@ fun GroupMentionPopup(
 private fun GroupMentionItem(
     group: GroupInfo,
     isSelected: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    val backgroundColor = when {
-        isPressed -> NostrordColors.SurfaceVariant
-        isSelected -> NostrordColors.Primary.copy(alpha = 0.2f)
-        isHovered -> NostrordColors.HoverBackground
-        else -> Color.Transparent
-    }
+    val backgroundColor =
+        when {
+            isPressed -> NostrordColors.SurfaceVariant
+            isSelected -> NostrordColors.Primary.copy(alpha = 0.2f)
+            isHovered -> NostrordColors.HoverBackground
+            else -> Color.Transparent
+        }
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .hoverable(interactionSource = interactionSource)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
-            )
-            .pointerHoverIcon(PointerIcon.Hand)
+                onClick = onClick,
+            ).pointerHoverIcon(PointerIcon.Hand)
             .background(backgroundColor)
             .padding(horizontal = Spacing.inputPadding, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         GroupIcon(
             groupId = group.id,
             name = group.name,
             pictureUrl = group.picture,
-            size = Spacing.avatarSizeSmall
+            size = Spacing.avatarSizeSmall,
         )
 
         Spacer(modifier = Modifier.width(Spacing.inputPadding))
@@ -150,17 +155,18 @@ private fun GroupMentionItem(
                 style = NostrordTypography.MemberName,
                 color = NostrordColors.TextContent,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
 
             Text(
-                text = group.relay
+                text =
+                group.relay
                     .removePrefix("wss://")
                     .removePrefix("ws://"),
                 style = NostrordTypography.Tiny,
                 color = NostrordColors.TextMuted,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -171,7 +177,7 @@ private fun GroupIcon(
     groupId: String,
     name: String,
     pictureUrl: String?,
-    size: Dp
+    size: Dp,
 ) {
     val context = LocalPlatformContext.current
     val shape = RoundedCornerShape(8.dp)
@@ -181,34 +187,38 @@ private fun GroupIcon(
     val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(shape)
             .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         if (!showImage) {
             Text(
                 text = name.take(1).uppercase(),
                 color = Color.White,
                 fontSize = (size.value * 0.5f).sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
         if (!pictureUrl.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = name,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clip(shape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }

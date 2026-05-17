@@ -14,7 +14,6 @@ import kotlin.test.assertTrue
  * compute a catch-up `since` on account switch.
  */
 class LastActiveAtTest {
-
     private val pubA = "a".repeat(64)
     private val pubB = "b".repeat(64)
 

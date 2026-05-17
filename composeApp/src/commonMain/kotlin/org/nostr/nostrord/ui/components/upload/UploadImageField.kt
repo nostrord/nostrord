@@ -30,37 +30,41 @@ fun UploadImageField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String = "https://...",
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
     var isUploading by remember { mutableStateOf(false) }
     var uploadError by remember { mutableStateOf<String?>(null) }
 
-    val picker: MediaPickerLauncher = rememberMediaPickerLauncher { bytes, filename ->
-        isUploading = true
-        uploadError = null
-        scope.launch {
-            try {
-                val mime = NostrBuildUploader.mimeTypeForFilename(filename)
-                val result = NostrBuildUploader.upload(
-                    bytes, filename, mime,
-                    AppModule.nostrRepository::buildNip98AuthHeader
-                )
-                when (result) {
-                    is Result.Success -> onValueChange(result.data.url)
-                    is Result.Error   -> uploadError = result.error.message
+    val picker: MediaPickerLauncher =
+        rememberMediaPickerLauncher { bytes, filename ->
+            isUploading = true
+            uploadError = null
+            scope.launch {
+                try {
+                    val mime = NostrBuildUploader.mimeTypeForFilename(filename)
+                    val result =
+                        NostrBuildUploader.upload(
+                            bytes,
+                            filename,
+                            mime,
+                            AppModule.nostrRepository::buildNip98AuthHeader,
+                        )
+                    when (result) {
+                        is Result.Success -> onValueChange(result.data.url)
+                        is Result.Error -> uploadError = result.error.message
+                    }
+                } finally {
+                    isUploading = false
                 }
-            } finally {
-                isUploading = false
             }
         }
-    }
 
     Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             OutlinedTextField(
                 value = value,
@@ -72,37 +76,39 @@ fun UploadImageField(
                 placeholder = { Text(placeholder, color = NostrordColors.TextMuted, fontSize = 13.sp) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
-                colors = OutlinedTextFieldDefaults.colors(
+                colors =
+                OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = NostrordColors.Primary,
                     unfocusedBorderColor = NostrordColors.Divider,
                     focusedTextColor = NostrordColors.TextPrimary,
                     unfocusedTextColor = NostrordColors.TextPrimary,
                     focusedContainerColor = NostrordColors.BackgroundDark,
                     unfocusedContainerColor = NostrordColors.BackgroundDark,
-                    cursorColor = NostrordColors.Primary
+                    cursorColor = NostrordColors.Primary,
                 ),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
             )
 
             IconButton(
                 onClick = { picker.launch() },
                 enabled = !isUploading,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(48.dp)
-                    .pointerHoverIcon(PointerIcon.Hand)
+                    .pointerHoverIcon(PointerIcon.Hand),
             ) {
                 if (isUploading) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
                         color = NostrordColors.Primary,
-                        strokeWidth = 2.dp
+                        strokeWidth = 2.dp,
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.Upload,
                         contentDescription = "Upload image to nostr.build",
                         tint = NostrordColors.TextMuted,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(20.dp),
                     )
                 }
             }
@@ -113,7 +119,7 @@ fun UploadImageField(
                 text = uploadError!!,
                 color = NostrordColors.Error,
                 fontSize = 11.sp,
-                modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                modifier = Modifier.padding(start = 4.dp, top = 2.dp),
             )
         }
     }

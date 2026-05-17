@@ -35,20 +35,20 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
-import coil3.compose.LocalPlatformContext
 import coil3.SingletonImageLoader
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
-import coil3.compose.AsyncImage
-import coil3.compose.AsyncImagePainter
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 import org.nostr.nostrord.utils.proxyViaWeserv
 
 /**
@@ -67,24 +67,27 @@ fun ReactionBadges(
     currentUserPubkey: String? = null,
     resolveMetadata: (String) -> UserMetadata? = { null },
     onReactionClick: (emoji: String) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     if (reactions.isEmpty()) return
 
     val context = LocalPlatformContext.current
-    val emojiUrls = remember(reactions) {
-        reactions.values.mapNotNull { it.emojiUrl }.distinct()
-    }
+    val emojiUrls =
+        remember(reactions) {
+            reactions.values.mapNotNull { it.emojiUrl }.distinct()
+        }
     LaunchedEffect(emojiUrls) {
         if (emojiUrls.isEmpty()) return@LaunchedEffect
         val loader = SingletonImageLoader.get(context)
         emojiUrls.forEach { url ->
-            val request = ImageRequest.Builder(context)
-                .data(url)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .size(Size(36, 36))
-                .build()
+            val request =
+                ImageRequest
+                    .Builder(context)
+                    .data(url)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .size(Size(36, 36))
+                    .build()
             loader.enqueue(request)
         }
     }
@@ -92,15 +95,18 @@ fun ReactionBadges(
     FlowRow(
         modifier = modifier.padding(top = Spacing.xs),
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-        verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         // Sort by count (highest first), then alphabetically — memoized to avoid
         // re-sorting on every recomposition when the reactions map hasn't changed.
-        val sortedReactions = remember(reactions) {
-            reactions.entries
-                .sortedWith(compareByDescending<Map.Entry<String, GroupManager.ReactionInfo>> { it.value.reactors.size }
-                    .thenBy { it.key })
-        }
+        val sortedReactions =
+            remember(reactions) {
+                reactions.entries
+                    .sortedWith(
+                        compareByDescending<Map.Entry<String, GroupManager.ReactionInfo>> { it.value.reactors.size }
+                            .thenBy { it.key },
+                    )
+            }
 
         sortedReactions.forEach { (emoji, info) ->
             val hasCurrentUserReacted = currentUserPubkey != null && currentUserPubkey in info.reactors
@@ -112,7 +118,7 @@ fun ReactionBadges(
                 count = info.reactors.size,
                 isUserReacted = hasCurrentUserReacted,
                 resolveMetadata = resolveMetadata,
-                onClick = { onReactionClick(emoji) }
+                onClick = { onReactionClick(emoji) },
             )
         }
     }
@@ -129,7 +135,7 @@ private fun ReactionBadge(
     count: Int,
     isUserReacted: Boolean,
     resolveMetadata: (String) -> UserMetadata?,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -137,19 +143,22 @@ private fun ReactionBadge(
     val shape = RoundedCornerShape(8.dp)
 
     // Background and border colors based on state
-    val backgroundColor = when {
-        isUserReacted -> NostrordColors.PrimarySubtle
-        isHovered -> NostrordColors.HoverBackground
-        else -> NostrordColors.SurfaceVariant.copy(alpha = 0.6f)
-    }
+    val backgroundColor =
+        when {
+            isUserReacted -> NostrordColors.PrimarySubtle
+            isHovered -> NostrordColors.HoverBackground
+            else -> NostrordColors.SurfaceVariant.copy(alpha = 0.6f)
+        }
 
-    val borderColor = when {
-        isUserReacted -> NostrordColors.Primary
-        else -> Color.Transparent
-    }
+    val borderColor =
+        when {
+            isUserReacted -> NostrordColors.Primary
+            else -> Color.Transparent
+        }
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .clip(shape)
             .background(backgroundColor)
             .then(
@@ -157,17 +166,16 @@ private fun ReactionBadge(
                     Modifier.border(1.dp, borderColor, shape)
                 } else {
                     Modifier
-                }
-            )
-            .hoverable(interactionSource)
+                },
+            ).hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
             .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             // Display the emoji - either as image (custom emoji) or text
             if (emojiUrl != null) {
@@ -175,28 +183,29 @@ private fun ReactionBadge(
                 CustomEmojiImage(
                     url = emojiUrl,
                     shortcode = emoji.trim(':'),
-                    size = 18
+                    size = 18,
                 )
             } else {
                 // Standard emoji or special cases
-                val displayEmoji = when (emoji) {
-                    "+" -> "\uD83D\uDC4D" // 👍
-                    "-" -> "\uD83D\uDC4E" // 👎
-                    else -> emoji
-                }
+                val displayEmoji =
+                    when (emoji) {
+                        "+" -> "\uD83D\uDC4D" // 👍
+                        "-" -> "\uD83D\uDC4E" // 👎
+                        else -> emoji
+                    }
 
                 val emojiFontFamily = rememberEmojiFontFamily()
                 Text(
                     text = displayEmoji,
                     fontSize = 16.sp,
-                    fontFamily = emojiFontFamily
+                    fontFamily = emojiFontFamily,
                 )
             }
 
             // Reactor avatar stack (max 3, overlapping)
             ReactorAvatarStack(
                 reactors = reactors,
-                resolveMetadata = resolveMetadata
+                resolveMetadata = resolveMetadata,
             )
 
             // Count (only show if more reactors than visible avatars)
@@ -205,7 +214,7 @@ private fun ReactionBadge(
                     text = "+${count - MAX_VISIBLE_AVATARS}",
                     color = if (isUserReacted) NostrordColors.Primary else NostrordColors.TextSecondary,
                     fontSize = 11.sp,
-                    fontWeight = if (isUserReacted) FontWeight.SemiBold else FontWeight.Normal
+                    fontWeight = if (isUserReacted) FontWeight.SemiBold else FontWeight.Normal,
                 )
             }
         }
@@ -224,7 +233,7 @@ private val AVATAR_OVERLAP = 6.dp
 @Composable
 private fun ReactorAvatarStack(
     reactors: List<String>,
-    resolveMetadata: (String) -> UserMetadata?
+    resolveMetadata: (String) -> UserMetadata?,
 ) {
     val visible = reactors.take(MAX_VISIBLE_AVATARS)
     if (visible.isEmpty()) return
@@ -233,39 +242,44 @@ private fun ReactorAvatarStack(
     val context = LocalPlatformContext.current
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .width(totalWidth)
-            .height(AVATAR_SIZE)
+            .height(AVATAR_SIZE),
     ) {
         visible.forEachIndexed { index, pubkey ->
             val meta = resolveMetadata(pubkey)
             val pictureUrl = meta?.picture
 
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .offset(x = AVATAR_OVERLAP * index)
                     .size(AVATAR_SIZE)
                     .clip(CircleShape)
                     .border(1.dp, NostrordColors.SurfaceVariant, CircleShape),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 var imageState by remember(pictureUrl) {
                     mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
                 }
-                val showFallback = pictureUrl.isNullOrBlank() ||
-                    imageState is AsyncImagePainter.State.Loading ||
-                    imageState is AsyncImagePainter.State.Error
+                val showFallback =
+                    pictureUrl.isNullOrBlank() ||
+                        imageState is AsyncImagePainter.State.Loading ||
+                        imageState is AsyncImagePainter.State.Error
 
                 if (showFallback) {
                     Jdenticon(
                         value = pubkey,
-                        size = AVATAR_SIZE
+                        size = AVATAR_SIZE,
                     )
                 }
 
                 if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
                     AsyncImage(
-                        model = ImageRequest.Builder(context)
+                        model =
+                        ImageRequest
+                            .Builder(context)
                             .data(pictureUrl)
                             .crossfade(true)
                             .size(Size(64, 64))
@@ -273,11 +287,12 @@ private fun ReactorAvatarStack(
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .build(),
                         contentDescription = null,
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .size(AVATAR_SIZE)
                             .clip(CircleShape),
                         contentScale = ContentScale.Crop,
-                        onState = { imageState = it }
+                        onState = { imageState = it },
                     )
                 }
             }
@@ -292,22 +307,23 @@ private fun ReactorAvatarStack(
 private fun CustomEmojiImage(
     url: String,
     shortcode: String,
-    size: Int = 18
+    size: Int = 18,
 ) {
     var useProxy by remember(url) { mutableStateOf(false) }
     var showFallback by remember(url) { mutableStateOf(false) }
 
-    val effectiveUrl = if (useProxy) {
-        proxyViaWeserv(url, width = size * 2, height = size * 2)
-    } else {
-        url
-    }
+    val effectiveUrl =
+        if (useProxy) {
+            proxyViaWeserv(url, width = size * 2, height = size * 2)
+        } else {
+            url
+        }
 
     if (showFallback) {
         Text(
             text = ":$shortcode:",
             fontSize = 12.sp,
-            color = NostrordColors.TextSecondary
+            color = NostrordColors.TextSecondary,
         )
     } else {
         EmojiImage(
@@ -321,7 +337,7 @@ private fun CustomEmojiImage(
                 } else {
                     showFallback = true
                 }
-            }
+            },
         )
     }
 }

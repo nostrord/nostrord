@@ -19,9 +19,13 @@ import javax.crypto.spec.SecretKeySpec
 
 sealed class UnlockState {
     object Initializing : UnlockState()
+
     object Unlocked : UnlockState()
+
     object NeedsPassphrase : UnlockState()
+
     object NeedsPassphraseSetup : UnlockState()
+
     object NeedsLegacyMigration : UnlockState()
 }
 
@@ -64,6 +68,7 @@ actual object SecureStorage {
     private var keySource: KeySource = KeySource.Ephemeral
 
     fun usesKeychain(): Boolean = keySource == KeySource.Keychain
+
     fun usesPassphrase(): Boolean = keySource == KeySource.Passphrase
 
     init {
@@ -118,11 +123,12 @@ actual object SecureStorage {
         val saltB64 = prefs.get(PASSPHRASE_SALT_PREF, null) ?: return false
         val verifier = prefs.get(PASSPHRASE_VERIFIER_PREF, null) ?: return false
         val key = deriveKeyFromPassphrase(passphrase, Base64.getDecoder().decode(saltB64))
-        val plain = try {
-            decryptV2(verifier, key)
-        } catch (_: Exception) {
-            return false
-        }
+        val plain =
+            try {
+                decryptV2(verifier, key)
+            } catch (_: Exception) {
+                return false
+            }
         if (plain != PASSPHRASE_VERIFIER_PLAINTEXT) return false
         masterKey = key
         keySource = KeySource.Passphrase
@@ -155,17 +161,21 @@ actual object SecureStorage {
         return true
     }
 
-    fun changePassphrase(current: String, new: String): Boolean {
+    fun changePassphrase(
+        current: String,
+        new: String,
+    ): Boolean {
         if (new.isEmpty()) return false
         if (keySource != KeySource.Passphrase) return false
         val saltB64 = prefs.get(PASSPHRASE_SALT_PREF, null) ?: return false
         val verifier = prefs.get(PASSPHRASE_VERIFIER_PREF, null) ?: return false
         val currentKey = deriveKeyFromPassphrase(current, Base64.getDecoder().decode(saltB64))
-        val plain = try {
-            decryptV2(verifier, currentKey)
-        } catch (_: Exception) {
-            return false
-        }
+        val plain =
+            try {
+                decryptV2(verifier, currentKey)
+            } catch (_: Exception) {
+                return false
+            }
         if (plain != PASSPHRASE_VERIFIER_PLAINTEXT) return false
         val oldKey = masterKey ?: return false
         val newSalt = ByteArray(16).also { SecureRandom().nextBytes(it) }
@@ -178,21 +188,41 @@ actual object SecureStorage {
         return true
     }
 
-    private fun reencryptAllV2Blobs(oldKey: SecretKey, newKey: SecretKey) {
-        val protectedKeys = setOf(
-            LEGACY_ENCRYPTION_KEY_PREF,
-            PASSPHRASE_SALT_PREF,
-            PASSPHRASE_VERIFIER_PREF,
-        )
-        val keys = try { prefs.keys().toList() } catch (_: Exception) { emptyList() }
+    private fun reencryptAllV2Blobs(
+        oldKey: SecretKey,
+        newKey: SecretKey,
+    ) {
+        val protectedKeys =
+            setOf(
+                LEGACY_ENCRYPTION_KEY_PREF,
+                PASSPHRASE_SALT_PREF,
+                PASSPHRASE_VERIFIER_PREF,
+            )
+        val keys =
+            try {
+                prefs.keys().toList()
+            } catch (_: Exception) {
+                emptyList()
+            }
         keys.forEach { k ->
             if (k in protectedKeys) return@forEach
             val v = prefs.get(k, null) ?: return@forEach
             if (!v.startsWith(V2_PREFIX)) return@forEach
-            val plain = try { decryptV2(v, oldKey) } catch (_: Exception) { return@forEach }
-            try { prefs.put(k, encryptV2(plain, newKey)) } catch (_: Exception) {}
+            val plain =
+                try {
+                    decryptV2(v, oldKey)
+                } catch (_: Exception) {
+                    return@forEach
+                }
+            try {
+                prefs.put(k, encryptV2(plain, newKey))
+            } catch (_: Exception) {
+            }
         }
-        try { prefs.flush() } catch (_: Exception) {}
+        try {
+            prefs.flush()
+        } catch (_: Exception) {
+        }
     }
 
     private fun maybePromptPassphraseSetup() {
@@ -216,14 +246,20 @@ actual object SecureStorage {
         return kg.generateKey().encoded
     }
 
-    private fun deriveKeyFromPassphrase(passphrase: String, salt: ByteArray): SecretKey {
+    private fun deriveKeyFromPassphrase(
+        passphrase: String,
+        salt: ByteArray,
+    ): SecretKey {
         val spec = PBEKeySpec(passphrase.toCharArray(), salt, PBKDF2_ITERATIONS, KEY_LEN_BITS)
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
         val keyBytes = factory.generateSecret(spec).encoded
         return SecretKeySpec(keyBytes, "AES")
     }
 
-    private fun encryptV2(plain: String, key: SecretKey): String {
+    private fun encryptV2(
+        plain: String,
+        key: SecretKey,
+    ): String {
         val iv = ByteArray(GCM_IV_LEN).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
@@ -234,7 +270,10 @@ actual object SecureStorage {
         return V2_PREFIX + Base64.getEncoder().encodeToString(out)
     }
 
-    private fun decryptV2(blob: String, key: SecretKey): String {
+    private fun decryptV2(
+        blob: String,
+        key: SecretKey,
+    ): String {
         require(blob.startsWith(V2_PREFIX)) { "not a v2 blob" }
         val raw = Base64.getDecoder().decode(blob.removePrefix(V2_PREFIX))
         val iv = raw.copyOfRange(0, GCM_IV_LEN)
@@ -244,7 +283,10 @@ actual object SecureStorage {
         return String(cipher.doFinal(ct), Charsets.UTF_8)
     }
 
-    private fun decryptLegacy(blob: String, key: SecretKey): String {
+    private fun decryptLegacy(
+        blob: String,
+        key: SecretKey,
+    ): String {
         // "AES" alone resolves to AES/ECB/PKCS5Padding — kept only to read v1 blobs during migration.
         val cipher = Cipher.getInstance("AES")
         cipher.init(Cipher.DECRYPT_MODE, key)
@@ -274,23 +316,30 @@ actual object SecureStorage {
         val legacy = legacyKey ?: return
         val newKey = masterKey ?: return
 
-        val protectedKeys = setOf(
-            LEGACY_ENCRYPTION_KEY_PREF,
-            PASSPHRASE_SALT_PREF,
-            PASSPHRASE_VERIFIER_PREF,
-        )
+        val protectedKeys =
+            setOf(
+                LEGACY_ENCRYPTION_KEY_PREF,
+                PASSPHRASE_SALT_PREF,
+                PASSPHRASE_VERIFIER_PREF,
+            )
 
-        val keys = try { prefs.keys().toList() } catch (_: Exception) { emptyList() }
+        val keys =
+            try {
+                prefs.keys().toList()
+            } catch (_: Exception) {
+                emptyList()
+            }
         var saveFailed = false
         keys.forEach { k ->
             if (k in protectedKeys) return@forEach
             val v = prefs.get(k, null) ?: return@forEach
             if (v.startsWith(V2_PREFIX)) return@forEach
-            val plain = try {
-                decryptLegacy(v, legacy)
-            } catch (_: Exception) {
-                return@forEach
-            }
+            val plain =
+                try {
+                    decryptLegacy(v, legacy)
+                } catch (_: Exception) {
+                    return@forEach
+                }
             try {
                 prefs.put(k, encryptV2(plain, newKey))
             } catch (_: Exception) {
@@ -323,9 +372,7 @@ actual object SecureStorage {
         return decrypt(encrypted)
     }
 
-    actual fun hasPrivateKey(): Boolean {
-        return prefs.get(PRIVATE_KEY_PREF, null) != null
-    }
+    actual fun hasPrivateKey(): Boolean = prefs.get(PRIVATE_KEY_PREF, null) != null
 
     actual fun clearPrivateKey() {
         prefs.remove(PRIVATE_KEY_PREF)
@@ -336,9 +383,7 @@ actual object SecureStorage {
         saveString(CURRENT_RELAY_URL, relayUrl)
     }
 
-    actual fun getCurrentRelayUrl(): String? {
-        return getString(CURRENT_RELAY_URL)
-    }
+    actual fun getCurrentRelayUrl(): String? = getString(CURRENT_RELAY_URL)
 
     actual fun clearCurrentRelayUrl() {
         remove(CURRENT_RELAY_URL)
@@ -353,13 +398,20 @@ actual object SecureStorage {
         return if (raw.isBlank()) emptyList() else raw.split(",").filter { it.isNotBlank() }
     }
 
-    actual fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>) {
+    actual fun saveJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+        groupIds: Set<String>,
+    ) {
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = Json.encodeToString(groupIds.toList())
         saveString(key, json)
     }
 
-    actual fun getJoinedGroupsForRelay(pubkey: String, relayUrl: String): Set<String> {
+    actual fun getJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+    ): Set<String> {
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = getString(key) ?: return emptySet()
         return try {
@@ -369,7 +421,10 @@ actual object SecureStorage {
         }
     }
 
-    actual fun clearJoinedGroupsForRelay(pubkey: String, relayUrl: String) {
+    actual fun clearJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+    ) {
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         remove(key)
     }
@@ -398,9 +453,7 @@ actual object SecureStorage {
         return decrypt(encrypted)
     }
 
-    actual fun hasBunkerUrl(): Boolean {
-        return prefs.get(BUNKER_URL_PREF, null) != null
-    }
+    actual fun hasBunkerUrl(): Boolean = prefs.get(BUNKER_URL_PREF, null) != null
 
     actual fun clearBunkerUrl() {
         prefs.remove(BUNKER_URL_PREF)
@@ -440,7 +493,9 @@ actual object SecureStorage {
     }
 
     actual fun saveNip07UserPubkey(pubkey: String) {}
+
     actual fun getNip07UserPubkey(): String? = null
+
     actual fun clearNip07UserPubkey() {}
 
     actual fun clearAll() {
@@ -449,19 +504,29 @@ actual object SecureStorage {
         KeychainStore.deleteMasterKey()
     }
 
-    actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
+    actual fun saveLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+        timestamp: Long,
+    ) {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         prefs.putLong(key, timestamp)
         prefs.flush()
     }
 
-    actual fun getLastReadTimestamp(pubkey: String, groupId: String): Long? {
+    actual fun getLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+    ): Long? {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         val value = prefs.getLong(key, -1L)
         return if (value == -1L) null else value
     }
 
-    actual fun clearLastReadTimestamp(pubkey: String, groupId: String) {
+    actual fun clearLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+    ) {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         prefs.remove(key)
         prefs.flush()
@@ -485,7 +550,10 @@ actual object SecureStorage {
         return result
     }
 
-    private fun saveString(key: String, value: String) {
+    private fun saveString(
+        key: String,
+        value: String,
+    ) {
         prefs.put(key, encrypt(value))
         prefs.flush()
     }
@@ -500,7 +568,11 @@ actual object SecureStorage {
         prefs.flush()
     }
 
-    actual fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?) {
+    actual fun saveLastViewedGroup(
+        pubkey: String,
+        groupId: String,
+        groupName: String?,
+    ) {
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
         val value = "$groupId|${groupName ?: ""}"
         saveString(key, value)
@@ -521,17 +593,27 @@ actual object SecureStorage {
         remove(key)
     }
 
-    actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
+    actual fun saveMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+        messagesJson: String,
+    ) {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         saveString(key, messagesJson)
     }
 
-    actual fun getMessagesForGroup(pubkey: String, groupId: String): String? {
+    actual fun getMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+    ): String? {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         return getString(key)
     }
 
-    actual fun clearMessagesForGroup(pubkey: String, groupId: String) {
+    actual fun clearMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+    ) {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         remove(key)
     }
@@ -549,7 +631,10 @@ actual object SecureStorage {
         }
     }
 
-    actual fun savePendingEvents(pubkey: String, eventsJson: String) {
+    actual fun savePendingEvents(
+        pubkey: String,
+        eventsJson: String,
+    ) {
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         saveString(key, eventsJson)
     }
@@ -564,7 +649,10 @@ actual object SecureStorage {
         remove(key)
     }
 
-    actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
+    actual fun saveGroupsForRelay(
+        relayUrl: String,
+        groupsJson: String,
+    ) {
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         saveString(key, groupsJson)
     }
@@ -579,12 +667,19 @@ actual object SecureStorage {
         remove(key)
     }
 
-    actual fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String) {
+    actual fun saveJoinedGroupMetadata(
+        pubkey: String,
+        relayUrl: String,
+        groupsJson: String,
+    ) {
         val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         saveString(key, groupsJson)
     }
 
-    actual fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String? {
+    actual fun getJoinedGroupMetadata(
+        pubkey: String,
+        relayUrl: String,
+    ): String? {
         val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         return getString(key)
     }
@@ -596,7 +691,8 @@ actual object SecureStorage {
                 if (key.startsWith(accountPrefix)) prefs.remove(key)
             }
             prefs.flush()
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     // Relay metadata is NOT stored in Preferences because java.util.prefs.Preferences.put()
@@ -617,15 +713,16 @@ actual object SecureStorage {
         }
     }
 
-    actual fun getRelayMetadata(): String? {
-        return try {
-            if (relayMetadataFile.exists()) relayMetadataFile.readText() else null
-        } catch (_: Exception) {
-            null
-        }
+    actual fun getRelayMetadata(): String? = try {
+        if (relayMetadataFile.exists()) relayMetadataFile.readText() else null
+    } catch (_: Exception) {
+        null
     }
 
-    actual fun saveLiveCursors(relayUrl: String, json: String) {
+    actual fun saveLiveCursors(
+        relayUrl: String,
+        json: String,
+    ) {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         saveString(key, json)
     }
@@ -640,24 +737,35 @@ actual object SecureStorage {
         remove(key)
     }
 
-    actual fun saveBooleanPref(key: String, value: Boolean) {
+    actual fun saveBooleanPref(
+        key: String,
+        value: Boolean,
+    ) {
         prefs.putBoolean(key, value)
         prefs.flush()
     }
 
-    actual fun getBooleanPref(key: String, default: Boolean): Boolean {
-        return prefs.getBoolean(key, default)
-    }
+    actual fun getBooleanPref(
+        key: String,
+        default: Boolean,
+    ): Boolean = prefs.getBoolean(key, default)
 
-    actual fun saveStringPref(key: String, value: String) {
+    actual fun saveStringPref(
+        key: String,
+        value: String,
+    ) {
         saveString(key, value)
     }
 
-    actual fun getStringPref(key: String, default: String): String {
-        return getString(key) ?: default
-    }
+    actual fun getStringPref(
+        key: String,
+        default: String,
+    ): String = getString(key) ?: default
 
-    actual fun saveSensitive(key: String, value: String) {
+    actual fun saveSensitive(
+        key: String,
+        value: String,
+    ) {
         prefs.put(key, encrypt(value))
         prefs.flush()
         maybePromptPassphraseSetup()

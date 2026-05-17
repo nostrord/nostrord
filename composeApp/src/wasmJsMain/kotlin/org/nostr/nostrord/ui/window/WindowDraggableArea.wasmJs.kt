@@ -8,7 +8,7 @@ import androidx.compose.ui.Modifier
 actual fun WindowDraggableArea(
     modifier: Modifier,
     onDoubleClick: (() -> Unit)?,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     Box(modifier) { content() }
 }

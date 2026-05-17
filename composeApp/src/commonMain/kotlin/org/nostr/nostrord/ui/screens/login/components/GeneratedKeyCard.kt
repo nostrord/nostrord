@@ -1,6 +1,5 @@
 package org.nostr.nostrord.ui.screens.login.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
@@ -8,7 +7,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -22,7 +20,7 @@ fun GeneratedKeyCard(privateKey: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = NostrordShapes.shapeMedium,
-        color = NostrordColors.WarningOrange.copy(alpha = 0.1f)
+        color = NostrordColors.WarningOrange.copy(alpha = 0.1f),
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -30,27 +28,27 @@ fun GeneratedKeyCard(privateKey: String) {
                     imageVector = Icons.Default.Warning,
                     contentDescription = null,
                     tint = NostrordColors.WarningOrange,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     "SAVE YOUR PRIVATE KEY",
                     color = NostrordColors.WarningOrange,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 "This is your only copy. Store it somewhere safe!",
                 color = NostrordColors.TextContent,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
             )
             Spacer(modifier = Modifier.height(12.dp))
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = NostrordShapes.shapeSmall,
-                color = NostrordColors.BackgroundDark
+                color = NostrordColors.BackgroundDark,
             ) {
                 Text(
                     text = privateKey,
@@ -58,7 +56,7 @@ fun GeneratedKeyCard(privateKey: String) {
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(12.dp),
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
                 )
             }
         }

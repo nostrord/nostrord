@@ -32,24 +32,25 @@ actual class AudioPlayer actual constructor() {
         if (url != currentUrl) {
             audio?.pause()
             currentUrl = url
-            audio = Audio(url).apply {
-                onloadedmetadata = {
-                    _durationMs.value = (duration * 1000).toLong()
-                    null
+            audio =
+                Audio(url).apply {
+                    onloadedmetadata = {
+                        _durationMs.value = (duration * 1000).toLong()
+                        null
+                    }
+                    onended = {
+                        _isPlaying.value = false
+                        _currentPositionMs.value = _durationMs.value
+                        positionJob?.cancel()
+                        null
+                    }
+                    onerror = { _, _, _, _, _ ->
+                        _isPlaying.value = false
+                        positionJob?.cancel()
+                        null
+                    }
+                    play()
                 }
-                onended = {
-                    _isPlaying.value = false
-                    _currentPositionMs.value = _durationMs.value
-                    positionJob?.cancel()
-                    null
-                }
-                onerror = { _, _, _, _, _ ->
-                    _isPlaying.value = false
-                    positionJob?.cancel()
-                    null
-                }
-                play()
-            }
             _isPlaying.value = true
             startPositionTracking()
         } else {
@@ -95,19 +96,20 @@ actual class AudioPlayer actual constructor() {
 
     private fun startPositionTracking() {
         positionJob?.cancel()
-        positionJob = scope.launch {
-            while (isActive) {
-                audio?.let { a ->
-                    _currentPositionMs.value = (a.currentTime * 1000).toLong()
-                    // Update duration if it wasn't available during loadedmetadata
-                    val dur = a.duration
-                    if (!dur.isNaN() && dur.isFinite()) {
-                        _durationMs.value = (dur * 1000).toLong()
+        positionJob =
+            scope.launch {
+                while (isActive) {
+                    audio?.let { a ->
+                        _currentPositionMs.value = (a.currentTime * 1000).toLong()
+                        // Update duration if it wasn't available during loadedmetadata
+                        val dur = a.duration
+                        if (!dur.isNaN() && dur.isFinite()) {
+                            _durationMs.value = (dur * 1000).toLong()
+                        }
                     }
+                    delay(250)
                 }
-                delay(250)
             }
-        }
     }
 }
 

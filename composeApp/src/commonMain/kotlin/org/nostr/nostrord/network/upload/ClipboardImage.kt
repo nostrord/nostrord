@@ -2,17 +2,17 @@ package org.nostr.nostrord.network.upload
 
 import androidx.compose.runtime.Composable
 
-fun isSupportedMediaMime(mime: String): Boolean =
-    mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")
+fun isSupportedMediaMime(mime: String): Boolean = mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/")
 
-internal class FileTooLargeException :
-    Exception("This file is too large. The maximum upload size is 20 MB.")
+internal class FileTooLargeException : Exception("This file is too large. The maximum upload size is 20 MB.")
 
-internal class UnsupportedFileTypeException(ext: String) :
-    Exception("\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE")
+internal class UnsupportedFileTypeException(
+    ext: String,
+) : Exception("\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE")
 
 expect class ClipboardImageReader {
     fun hasImage(): Boolean
+
     suspend fun read(): Pair<ByteArray, String>?
 }
 
@@ -27,5 +27,5 @@ expect fun rememberClipboardImageReader(): ClipboardImageReader
 @Composable
 expect fun PasteMediaEffect(
     onMediaPasted: (ByteArray, String) -> Unit,
-    onError: (String) -> Unit = {}
+    onError: (String) -> Unit = {},
 )

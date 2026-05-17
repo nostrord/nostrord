@@ -36,7 +36,7 @@ actual fun AnimatedImage(
     modifier: Modifier,
     contentScale: ContentScale,
     onClick: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
     var loadError by remember(url) { mutableStateOf(false) }
@@ -46,9 +46,11 @@ actual fun AnimatedImage(
     }
 
     AsyncImage(
-        model = ImageRequest.Builder(context)
+        model =
+        ImageRequest
+            .Builder(context)
             .data(getImageUrl(url))
-            .crossfade(false)            // false: crossfade interferes with per-frame rendering
+            .crossfade(false) // false: crossfade interferes with per-frame rendering
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .size(Size.ORIGINAL)
@@ -61,6 +63,6 @@ actual fun AnimatedImage(
                 loadError = true
                 onError()
             }
-        }
+        },
     )
 }

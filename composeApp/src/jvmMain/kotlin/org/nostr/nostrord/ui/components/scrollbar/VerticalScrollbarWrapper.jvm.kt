@@ -11,32 +11,32 @@ import androidx.compose.ui.Modifier
 @Composable
 actual fun VerticalScrollbarWrapper(
     listState: LazyListState,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     VerticalScrollbar(
         modifier = modifier,
-        adapter = rememberScrollbarAdapter(listState)
+        adapter = rememberScrollbarAdapter(listState),
     )
 }
 
 @Composable
 actual fun VerticalScrollbarWrapper(
     scrollState: ScrollState,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     VerticalScrollbar(
         modifier = modifier,
-        adapter = rememberScrollbarAdapter(scrollState)
+        adapter = rememberScrollbarAdapter(scrollState),
     )
 }
 
 @Composable
 actual fun VerticalScrollbarWrapper(
     gridState: LazyGridState,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     VerticalScrollbar(
         modifier = modifier,
-        adapter = rememberScrollbarAdapter(gridState)
+        adapter = rememberScrollbarAdapter(gridState),
     )
 }

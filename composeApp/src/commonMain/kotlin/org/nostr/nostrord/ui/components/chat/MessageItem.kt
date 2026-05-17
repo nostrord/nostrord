@@ -39,9 +39,8 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-import org.nostr.nostrord.network.CachedEvent
-import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
@@ -91,7 +90,7 @@ fun MessageItem(
     onUsernameClick: (String) -> Unit = {},
     onScrollToMessage: (String) -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
-    isHighlighted: Boolean = false
+    isHighlighted: Boolean = false,
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -105,9 +104,10 @@ fun MessageItem(
     val currentOnDeleteMessage by rememberUpdatedState(onDeleteMessage)
 
     // Memoize display name calculation
-    val displayName = remember(metadata?.displayName, metadata?.name, message.pubkey) {
-        metadata?.displayName ?: metadata?.name ?: message.pubkey.take(8) + "..."
-    }
+    val displayName =
+        remember(metadata?.displayName, metadata?.name, message.pubkey) {
+            metadata?.displayName ?: metadata?.name ?: message.pubkey.take(8) + "..."
+        }
 
     // Check if this message is a reply and find the parent message
     val replyParentId = remember(message.tags) { getReplyParentId(message) }
@@ -116,25 +116,29 @@ fun MessageItem(
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
 
     // Look up parent via caller-provided resolver, then in cachedEvents
-    val parentMessage = remember(replyParentId) {
-        if (replyParentId != null) resolveReplyMessage(replyParentId) else null
-    }
+    val parentMessage =
+        remember(replyParentId) {
+            if (replyParentId != null) resolveReplyMessage(replyParentId) else null
+        }
 
     // If not in allMessages, check cachedEvents and convert to NostrMessage
-    val parentFromCache: NostrGroupClient.NostrMessage? = remember(replyParentId, cachedEvents, parentMessage) {
-        if (replyParentId != null && parentMessage == null) {
-            cachedEvents[replyParentId]?.let { cached ->
-                NostrGroupClient.NostrMessage(
-                    id = cached.id,
-                    pubkey = cached.pubkey,
-                    content = cached.content,
-                    createdAt = cached.createdAt,
-                    kind = cached.kind,
-                    tags = cached.tags
-                )
+    val parentFromCache: NostrGroupClient.NostrMessage? =
+        remember(replyParentId, cachedEvents, parentMessage) {
+            if (replyParentId != null && parentMessage == null) {
+                cachedEvents[replyParentId]?.let { cached ->
+                    NostrGroupClient.NostrMessage(
+                        id = cached.id,
+                        pubkey = cached.pubkey,
+                        content = cached.content,
+                        createdAt = cached.createdAt,
+                        kind = cached.kind,
+                        tags = cached.tags,
+                    )
+                }
+            } else {
+                null
             }
-        } else null
-    }
+        }
 
     // Use whichever parent we found
     val resolvedParentMessage = parentMessage ?: parentFromCache
@@ -156,9 +160,10 @@ fun MessageItem(
         }
     }
 
-    val parentMetadata = remember(resolvedParentMessage?.pubkey) {
-        resolvedParentMessage?.let { resolveMetadata(it.pubkey) }
-    }
+    val parentMetadata =
+        remember(resolvedParentMessage?.pubkey) {
+            resolvedParentMessage?.let { resolveMetadata(it.pubkey) }
+        }
 
     // Request metadata for parent message author if not available
     LaunchedEffect(resolvedParentMessage?.pubkey, parentMetadata) {
@@ -196,55 +201,59 @@ fun MessageItem(
     }
     val highlightColor by animateColorAsState(
         targetValue = if (highlightActive) NostrordColors.Primary.copy(alpha = 0.18f) else Color.Transparent,
-        animationSpec = if (highlightActive) snap() else tween(durationMillis = 1200)
+        animationSpec = if (highlightActive) snap() else tween(durationMillis = 1200),
     )
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .hoverable(interactionSource)
             // Right-click opens context menu directly (bypasses hover actions)
-            .then(rightClickContextMenuModifier {
-                showActions = false  // Hide hover actions immediately
-                showContextMenu = true
-            })
-            .background(
+            .then(
+                rightClickContextMenuModifier {
+                    showActions = false // Hide hover actions immediately
+                    showContextMenu = true
+                },
+            ).background(
                 when {
                     showContextMenu -> NostrordColors.SurfaceVariant
                     isHovered || isPressed -> NostrordColors.MessageHover
                     else -> highlightColor
-                }
-            )
+                },
+            ),
     ) {
         // Main message content - this defines the Box size
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .padding(
                     start = Spacing.messagePaddingHorizontal,
                     end = Spacing.messagePaddingHorizontal,
                     top = if (isFirstInGroup) Spacing.messageGroupStart else Spacing.messageGroupGap,
-                    bottom = if (isLastInGroup) Spacing.sm else Spacing.messageGroupGap
-                )
+                    bottom = if (isLastInGroup) Spacing.sm else Spacing.messageGroupGap,
+                ),
         ) {
             // Avatar column - 72dp total width
             Box(
                 modifier = Modifier.width(Spacing.avatarColumnWidth - Spacing.messagePaddingHorizontal),
-                contentAlignment = Alignment.TopStart
+                contentAlignment = Alignment.TopStart,
             ) {
                 if (isFirstInGroup) {
                     Box(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .size(Spacing.avatarSize)
                             .clip(CircleShape)
                             .clickable { currentOnUsernameClick(message.pubkey) }
-                            .pointerHoverIcon(PointerIcon.Hand)
+                            .pointerHoverIcon(PointerIcon.Hand),
                     ) {
                         ProfileAvatar(
                             imageUrl = metadata?.picture,
                             displayName = displayName,
                             pubkey = message.pubkey,
-                            size = Spacing.avatarSize
+                            size = Spacing.avatarSize,
                         )
                     }
                 } else if (isHovered) {
@@ -253,7 +262,7 @@ fun MessageItem(
                         text = formatTime(message.createdAt),
                         color = NostrordColors.TextMuted,
                         style = NostrordTypography.Timestamp,
-                        modifier = Modifier.padding(top = Spacing.xs)
+                        modifier = Modifier.padding(top = Spacing.xs),
                     )
                 }
             }
@@ -266,15 +275,16 @@ fun MessageItem(
                             text = displayName,
                             color = Color.White,
                             style = NostrordTypography.Username,
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .clickable { currentOnUsernameClick(message.pubkey) }
-                                .pointerHoverIcon(PointerIcon.Hand)
+                                .pointerHoverIcon(PointerIcon.Hand),
                         )
                         Spacer(modifier = Modifier.width(Spacing.sm))
                         Text(
                             text = formatTime(message.createdAt),
                             color = NostrordColors.TextMuted,
-                            style = NostrordTypography.Timestamp
+                            style = NostrordTypography.Timestamp,
                         )
                     }
                     Spacer(modifier = Modifier.height(Spacing.xs))
@@ -287,7 +297,7 @@ fun MessageItem(
                         parentMessage = resolvedParentMessage,
                         parentMetadata = parentMetadata,
                         resolveMetadata = resolveMetadata,
-                        onReplyClick = { onScrollToMessage(replyParentId) }
+                        onReplyClick = { onScrollToMessage(replyParentId) },
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
                 }
@@ -302,7 +312,7 @@ fun MessageItem(
                     },
                     currentGroupId = currentGroupId,
                     currentRelayUrl = currentRelayUrl,
-                    onNavigateToGroup = onNavigateToGroup
+                    onNavigateToGroup = onNavigateToGroup,
                 )
 
                 // Reaction badges
@@ -311,7 +321,7 @@ fun MessageItem(
                         reactions = reactions,
                         currentUserPubkey = currentUserPubkey,
                         resolveMetadata = resolveMetadata,
-                        onReactionClick = onReactionBadgeClick
+                        onReactionClick = onReactionBadgeClick,
                     )
                 }
             }
@@ -320,23 +330,24 @@ fun MessageItem(
         // Overlay layer for hover actions - uses matchParentSize to not affect layout
         // This Box matches parent size exactly, then positions content inside
         Box(
-            modifier = Modifier
-                .matchParentSize()  // Critical: doesn't affect parent measurement
+            modifier =
+            Modifier
+                .matchParentSize() // Critical: doesn't affect parent measurement
                 .padding(end = Spacing.sm),
-            contentAlignment = Alignment.TopEnd
+            contentAlignment = Alignment.TopEnd,
         ) {
             // Hover actions - fade in/out without affecting layout
             androidx.compose.animation.AnimatedVisibility(
                 visible = showActions && !showContextMenu,
                 enter = fadeIn(animationSpec = tween(NostrordAnimation.actionsAppear)),
-                exit = fadeOut(animationSpec = tween(NostrordAnimation.actionsDisappear))
+                exit = fadeOut(animationSpec = tween(NostrordAnimation.actionsDisappear)),
             ) {
                 // DisableSelection prevents toolbar from being part of text selection
                 DisableSelection {
                     MessageActions(
                         onReplyClick = currentOnReplyClick,
                         onReactionClick = currentOnReactionClick,
-                        onMoreClick = { showContextMenu = true }
+                        onMoreClick = { showContextMenu = true },
                     )
                 }
             }
@@ -360,7 +371,7 @@ fun MessageItem(
                 }
             },
             isAuthor = isAuthor,
-            isAdmin = isAdmin
+            isAdmin = isAdmin,
         )
     }
 }
@@ -379,15 +390,16 @@ private fun MessageActions(
     onReplyClick: () -> Unit,
     onReactionClick: () -> Unit,
     onMoreClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .padding(end = Spacing.sm)
             .clip(NostrordShapes.messageActionsShape)
             .background(NostrordColors.SurfaceVariant)
             .padding(horizontal = Spacing.xs),
-        horizontalArrangement = Arrangement.spacedBy(0.dp)
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         // 1. Add Reaction (emoji)
         ActionButton(
@@ -395,10 +407,10 @@ private fun MessageActions(
                 Icon(
                     Icons.Outlined.EmojiEmotions,
                     contentDescription = "React",
-                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs) // 16dp
+                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs), // 16dp
                 )
             },
-            onClick = onReactionClick
+            onClick = onReactionClick,
         )
         // 2. Reply
         ActionButton(
@@ -406,10 +418,10 @@ private fun MessageActions(
                 Icon(
                     Icons.AutoMirrored.Outlined.Reply,
                     contentDescription = "Reply",
-                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs) // 16dp
+                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs), // 16dp
                 )
             },
-            onClick = onReplyClick
+            onClick = onReplyClick,
         )
         // 3. More (three dots)
         ActionButton(
@@ -417,10 +429,10 @@ private fun MessageActions(
                 Icon(
                     Icons.Outlined.MoreVert,
                     contentDescription = "More options",
-                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs) // 16dp
+                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs), // 16dp
                 )
             },
-            onClick = onMoreClick
+            onClick = onMoreClick,
         )
     }
 }
@@ -431,23 +443,24 @@ private fun MessageActions(
 @Composable
 private fun ActionButton(
     icon: @Composable () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(28.dp) // Fixed size for touch target
             .clip(NostrordShapes.channelItemShape)
             .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         CompositionLocalProvider(
-            LocalContentColor provides if (isHovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary
+            LocalContentColor provides if (isHovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
         ) {
             icon()
         }

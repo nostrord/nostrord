@@ -25,24 +25,24 @@ fun KeyCard(
     onCopy: () -> Unit,
     isCompact: Boolean,
     modifier: Modifier = Modifier,
-    showSecretBadge: Boolean = false
+    showSecretBadge: Boolean = false,
 ) {
     Card(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(12.dp),
     ) {
         Column(modifier = Modifier.padding(if (isCompact) 12.dp else 16.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     title,
                     color = titleColor,
                     style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
                 if (showSecretBadge) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -50,14 +50,14 @@ fun KeyCard(
                             Icons.Default.Lock,
                             contentDescription = "Secret",
                             tint = NostrordColors.Error,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(14.dp),
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             "SECRET",
                             color = NostrordColors.Error,
                             style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
@@ -69,13 +69,13 @@ fun KeyCard(
                 style = if (isCompact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
                 fontWeight = if (showSecretBadge) FontWeight.Bold else FontWeight.Normal,
                 maxLines = if (isCompact) 2 else Int.MAX_VALUE,
-                overflow = if (isCompact) TextOverflow.Ellipsis else TextOverflow.Clip
+                overflow = if (isCompact) TextOverflow.Ellipsis else TextOverflow.Clip,
             )
             Spacer(modifier = Modifier.height(8.dp))
             Button(
                 onClick = onCopy,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = buttonColor)
+                colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
             ) {
                 Text(buttonText, color = Color.White)
             }

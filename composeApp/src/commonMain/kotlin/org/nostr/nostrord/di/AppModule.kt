@@ -13,17 +13,17 @@ import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.auth.pickFirstSuccess
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.NostrRepository
+import org.nostr.nostrord.network.managers.AdaptiveConfig
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.ConnectionStats
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
+import org.nostr.nostrord.network.managers.MuxSubscriptionTracker
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.PendingEventManager
 import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.SessionManager
-import org.nostr.nostrord.network.managers.AdaptiveConfig
-import org.nostr.nostrord.network.managers.MuxSubscriptionTracker
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.network.outbox.RelayListManager
@@ -120,7 +120,7 @@ object AppModule {
         }
         if (winner != null) {
             _systemMessages.emit(
-                "$invalidatedLabel disconnected. Switched to ${winner.label}."
+                "$invalidatedLabel disconnected. Switched to ${winner.label}.",
             )
             return
         }
@@ -136,15 +136,19 @@ object AppModule {
      * isBunkerVerifying flags that nostrRepository.logout() resets.
      */
     private suspend fun fullTeardown() {
-        try { nostrRepository.logout() } catch (_: Throwable) {}
-        try { applyActiveAccountChange(null) } catch (_: Throwable) {}
+        try {
+            nostrRepository.logout()
+        } catch (_: Throwable) {}
+        try {
+            applyActiveAccountChange(null)
+        } catch (_: Throwable) {}
     }
 
     // Lazy initialization of dependencies
     val relayListManager: RelayListManager by lazy {
         RelayListManager(
             bootstrapRelays = RelayListManager.DEFAULT_BOOTSTRAP_RELAYS,
-            connectionManager = connectionManager
+            connectionManager = connectionManager,
         )
     }
 
@@ -155,7 +159,7 @@ object AppModule {
     val sessionManager: SessionManager by lazy {
         SessionManager(
             authManager = authManager,
-            scope = appScope
+            scope = appScope,
         )
     }
 
@@ -163,14 +167,14 @@ object AppModule {
         OutboxManager(
             connectionManager = connectionManager,
             relayListManager = relayListManager,
-            scope = appScope
+            scope = appScope,
         )
     }
 
     val pendingEventManager: PendingEventManager by lazy {
         PendingEventManager(
             connectionManager = connectionManager,
-            scope = appScope
+            scope = appScope,
         )
     }
 
@@ -203,7 +207,7 @@ object AppModule {
         MetadataManager(
             connectionManager = connectionManager,
             outboxManager = outboxManager,
-            scope = appScope
+            scope = appScope,
         )
     }
 
@@ -221,8 +225,7 @@ object AppModule {
     @kotlin.concurrent.Volatile
     private var switchInstantSeconds: Long = 0L
 
-    private fun isRealtime(eventCreatedAt: Long): Boolean =
-        eventCreatedAt >= switchInstantSeconds
+    private fun isRealtime(eventCreatedAt: Long): Boolean = eventCreatedAt >= switchInstantSeconds
 
     val unreadManager: UnreadManager by lazy {
         UnreadManager(
@@ -257,7 +260,7 @@ object AppModule {
                             messageId = message.id,
                             groupName = groupName,
                             relayName = relayName,
-                        )
+                        ),
                     )
                     val realtime = isRealtime(message.createdAt)
                     // Sound — gated by the user-facing toggle in Settings → Notifications,
@@ -272,7 +275,8 @@ object AppModule {
                     if (realtime &&
                         notificationSettings.systemNotificationsEnabled.value &&
                         notificationService.isSupported() &&
-                        notificationService.permission.value == NotificationPermission.Granted) {
+                        notificationService.permission.value == NotificationPermission.Granted
+                    ) {
                         val authorName = displayLabelFor(message.pubkey, prefixAt = false)
                             ?: (message.pubkey.take(8) + "…")
                         notificationService.notify(
@@ -282,7 +286,7 @@ object AppModule {
                                 title = groupName,
                                 body = "$authorName: $preview",
                                 messageId = message.id,
-                            )
+                            ),
                         )
                     }
                 }
@@ -305,7 +309,7 @@ object AppModule {
                         messageId = message.id,
                         groupName = groupName,
                         relayName = relayName,
-                    )
+                    ),
                 )
                 val realtime = isRealtime(message.createdAt)
                 if (realtime && notificationSettings.soundEnabled.value) {
@@ -314,7 +318,8 @@ object AppModule {
                 if (realtime &&
                     notificationSettings.systemNotificationsEnabled.value &&
                     notificationService.isSupported() &&
-                    notificationService.permission.value == NotificationPermission.Granted) {
+                    notificationService.permission.value == NotificationPermission.Granted
+                ) {
                     val authorName = displayLabelFor(message.pubkey, prefixAt = false)
                         ?: (message.pubkey.take(8) + "…")
                     notificationService.notify(
@@ -324,7 +329,7 @@ object AppModule {
                             title = groupName,
                             body = "$authorName replied to your message: $preview",
                             messageId = message.id,
-                        )
+                        ),
                     )
                 }
             },
@@ -346,7 +351,7 @@ object AppModule {
                         messageId = message.id,
                         groupName = groupName,
                         relayName = relayName,
-                    )
+                    ),
                 )
                 val realtime = isRealtime(message.createdAt)
                 if (realtime && notificationSettings.soundEnabled.value) {
@@ -355,7 +360,8 @@ object AppModule {
                 if (realtime &&
                     notificationSettings.systemNotificationsEnabled.value &&
                     notificationService.isSupported() &&
-                    notificationService.permission.value == NotificationPermission.Granted) {
+                    notificationService.permission.value == NotificationPermission.Granted
+                ) {
                     val authorName = displayLabelFor(message.pubkey, prefixAt = false)
                         ?: (message.pubkey.take(8) + "…")
                     notificationService.notify(
@@ -365,7 +371,7 @@ object AppModule {
                             title = groupName,
                             body = "$authorName mentioned you: $preview",
                             messageId = message.id,
-                        )
+                        ),
                     )
                 }
             },
@@ -390,7 +396,7 @@ object AppModule {
                             emoji = emoji,
                             groupName = groupName,
                             relayName = relayName,
-                        )
+                        ),
                     )
                     val realtime = isRealtime(reaction.createdAt)
                     if (realtime && notificationSettings.soundEnabled.value) {
@@ -399,7 +405,8 @@ object AppModule {
                     if (realtime &&
                         notificationSettings.systemNotificationsEnabled.value &&
                         notificationService.isSupported() &&
-                        notificationService.permission.value == NotificationPermission.Granted) {
+                        notificationService.permission.value == NotificationPermission.Granted
+                    ) {
                         val authorName = displayLabelFor(reaction.pubkey, prefixAt = false)
                             ?: (reaction.pubkey.take(8) + "…")
                         notificationService.notify(
@@ -409,7 +416,7 @@ object AppModule {
                                 title = groupName,
                                 body = "$authorName reacted $emoji to your message",
                                 messageId = reaction.targetEventId,
-                            )
+                            ),
                         )
                     }
                 }
@@ -438,7 +445,7 @@ object AppModule {
             liveCursorStore = liveCursorStore,
             connStats = connStats,
             notificationHistoryStore = notificationHistoryStore,
-            scope = appScope
+            scope = appScope,
         )
     }
 
@@ -483,13 +490,17 @@ object AppModule {
         switchInstantSeconds = if (account != null) epochSeconds() else 0L
         // Cancel any OS popups still in flight from the previous account so a
         // notification scheduled for A doesn't surface after B is active.
-        try { notificationService.cancelAllPending() } catch (_: Throwable) {}
+        try {
+            notificationService.cancelAllPending()
+        } catch (_: Throwable) {}
         // Close the old account's group-list subscriptions on every open
         // socket — the sub ID is a function of the relay URL alone, so the
         // new account would otherwise reuse it and a late EOSE from A's REQ
         // would consume B's pendingFullFetchRelays entry, falsely marking
         // the relay fully fetched and pruning partial data.
-        try { connectionManager.closeGroupListSubscriptionsOnAllClients() } catch (_: Throwable) {}
+        try {
+            connectionManager.closeGroupListSubscriptionsOnAllClients()
+        } catch (_: Throwable) {}
         groupManager.clear()
         unreadManager.clear()
         notificationHistoryStore.clear()

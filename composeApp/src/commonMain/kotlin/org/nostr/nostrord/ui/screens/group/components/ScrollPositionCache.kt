@@ -8,10 +8,10 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.first
  */
 data class ScrollPosition(
     val anchorKey: String,
-    val offset: Int
+    val offset: Int,
 )
 
 /**
@@ -32,7 +32,10 @@ data class ScrollPosition(
 object ScrollPositionCache {
     private val positions = mutableMapOf<String, ScrollPosition>()
 
-    fun save(groupId: String, position: ScrollPosition) {
+    fun save(
+        groupId: String,
+        position: ScrollPosition,
+    ) {
         positions[groupId] = position
     }
 
@@ -53,7 +56,7 @@ object ScrollPositionCache {
 @Stable
 class ScrollStateHolder(
     val groupId: String,
-    initialPosition: ScrollPosition? = null
+    initialPosition: ScrollPosition? = null,
 ) {
     var savedPosition by mutableStateOf(initialPosition)
         private set
@@ -67,7 +70,10 @@ class ScrollStateHolder(
     var isScrolledAway by mutableStateOf(false)
         internal set
 
-    fun savePosition(anchorKey: String, offset: Int) {
+    fun savePosition(
+        anchorKey: String,
+        offset: Int,
+    ) {
         val position = ScrollPosition(anchorKey, offset)
         savedPosition = position
         ScrollPositionCache.save(groupId, position)
@@ -89,33 +95,32 @@ class ScrollStateHolder(
                 listOf(
                     holder.groupId,
                     holder.savedPosition?.anchorKey,
-                    holder.savedPosition?.offset
+                    holder.savedPosition?.offset,
                 )
             },
             restore = { saved ->
                 val groupId = saved[0] as String
                 val anchorKey = saved[1] as? String
                 val offset = saved[2] as? Int
-                val position = if (anchorKey != null && offset != null) {
-                    ScrollPosition(anchorKey, offset)
-                } else {
-                    ScrollPositionCache.get(groupId)
-                }
+                val position =
+                    if (anchorKey != null && offset != null) {
+                        ScrollPosition(anchorKey, offset)
+                    } else {
+                        ScrollPositionCache.get(groupId)
+                    }
                 ScrollStateHolder(groupId, position)
-            }
+            },
         )
     }
 }
 
 @Composable
-fun rememberScrollStateHolder(groupId: String): ScrollStateHolder {
-    return rememberSaveable(
-        inputs = arrayOf(groupId),
-        saver = ScrollStateHolder.saver()
-    ) {
-        val cached = ScrollPositionCache.get(groupId)
-        ScrollStateHolder(groupId, cached)
-    }
+fun rememberScrollStateHolder(groupId: String): ScrollStateHolder = rememberSaveable(
+    inputs = arrayOf(groupId),
+    saver = ScrollStateHolder.saver(),
+) {
+    val cached = ScrollPositionCache.get(groupId)
+    ScrollStateHolder(groupId, cached)
 }
 
 /**
@@ -129,7 +134,7 @@ fun <T> ScrollPositionEffect(
     items: List<T>,
     stateHolder: ScrollStateHolder,
     getItemKey: (T) -> String,
-    initialScrollToEnd: Boolean = true
+    initialScrollToEnd: Boolean = true,
 ) {
     val currentItems by rememberUpdatedState(items)
 
@@ -163,10 +168,12 @@ fun <T> ScrollPositionEffect(
         if (!initialScrollToEnd) return@LaunchedEffect
         var prevFirstVisible = listState.firstVisibleItemIndex
         snapshotFlow {
-            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val lastVisible =
+                listState.layoutInfo.visibleItemsInfo
+                    .lastOrNull()
+                    ?.index ?: -1
             lastVisible to listState.firstVisibleItemIndex
-        }
-            .distinctUntilChanged()
+        }.distinctUntilChanged()
             .collect { (lastVisible, firstVisible) ->
                 val size = currentItems.size
                 if (size > 0 && lastVisible >= 0) {
@@ -204,8 +211,7 @@ fun <T> ScrollPositionEffect(
     LaunchedEffect(groupId, listState) {
         snapshotFlow {
             Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
-        }
-            .distinctUntilChanged()
+        }.distinctUntilChanged()
             .collect { (index, offset) ->
                 val curItems = currentItems
                 if (index < curItems.size && curItems.isNotEmpty()) {
@@ -238,7 +244,7 @@ fun <T> AutoScrollEffect(
     getItemKey: ((T) -> String)? = null,
     enabled: Boolean = true,
     nearBottomThreshold: Int = 3,
-    isFromCurrentUser: ((T) -> Boolean)? = null
+    isFromCurrentUser: ((T) -> Boolean)? = null,
 ) {
     var previousLastKey by remember { mutableStateOf<String?>(null) }
     var previousSize by remember { mutableStateOf(items.size) }
@@ -254,14 +260,18 @@ fun <T> AutoScrollEffect(
         val currentLastKey = getItemKey?.invoke(lastItem)
 
         // Only for appended messages, not pagination prepends.
-        val newMessageAppended = getItemKey != null &&
-            currentLastKey != null &&
-            currentLastKey != previousLastKey &&
-            previousSize > 0
+        val newMessageAppended =
+            getItemKey != null &&
+                currentLastKey != null &&
+                currentLastKey != previousLastKey &&
+                previousSize > 0
 
         if (newMessageAppended) {
             val ownAppend = isFromCurrentUser?.invoke(lastItem) == true
-            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            val lastVisibleIndex =
+                listState.layoutInfo.visibleItemsInfo
+                    .lastOrNull()
+                    ?.index ?: 0
             val wasNearBottom = lastVisibleIndex >= previousSize - nearBottomThreshold
             if (ownAppend || wasNearBottom) {
                 listState.scrollToItem(items.lastIndex)

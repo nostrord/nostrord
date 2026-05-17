@@ -1,4 +1,5 @@
 @file:OptIn(ExperimentalWasmJsInterop::class)
+
 package org.nostr.nostrord.notifications
 
 import kotlin.js.ExperimentalWasmJsInterop
@@ -11,7 +12,7 @@ import kotlin.js.ExperimentalWasmJsInterop
             if (document.hidden) { onBlur(); } else { onFocus(); }
         });
         return document.hidden ? false : true;
-    }"""
+    }""",
 )
 private external fun jsInstallFocusListeners(
     onFocus: () -> Unit,
@@ -19,9 +20,10 @@ private external fun jsInstallFocusListeners(
 ): Boolean
 
 actual fun installPlatformFocusListeners(tracker: FocusTracker) {
-    val initialFocused = jsInstallFocusListeners(
-        onFocus = { tracker.setFocused(true) },
-        onBlur = { tracker.setFocused(false) },
-    )
+    val initialFocused =
+        jsInstallFocusListeners(
+            onFocus = { tracker.setFocused(true) },
+            onBlur = { tracker.setFocused(false) },
+        )
     tracker.setFocused(initialFocused)
 }

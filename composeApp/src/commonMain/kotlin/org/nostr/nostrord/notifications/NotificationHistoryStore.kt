@@ -40,14 +40,21 @@ class NotificationHistoryStore {
 
     fun initialize(pubkey: String?) {
         currentPubkey = pubkey
-        _entries.value = if (pubkey == null) emptyList()
-        else SecureStorage.getPersistedNotifications(pubkey)
+        _entries.value =
+            if (pubkey == null) {
+                emptyList()
+            } else {
+                SecureStorage.getPersistedNotifications(pubkey)
+            }
     }
 
     fun add(entry: NotificationEntry) {
         _entries.update { current ->
-            if (current.any { it.id == entry.id }) current
-            else (listOf(entry) + current).take(MAX_ENTRIES)
+            if (current.any { it.id == entry.id }) {
+                current
+            } else {
+                (listOf(entry) + current).take(MAX_ENTRIES)
+            }
         }
         persist()
     }
@@ -59,7 +66,9 @@ class NotificationHistoryStore {
                 if (it.id == id && !it.read) {
                     changed = true
                     it.copy(read = true)
-                } else it
+                } else {
+                    it
+                }
             }
         }
         if (changed) persist()

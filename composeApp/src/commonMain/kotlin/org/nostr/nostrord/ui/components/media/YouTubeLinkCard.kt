@@ -49,22 +49,20 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 
 private data class YouTubeOEmbed(
     val title: String,
-    val authorName: String
+    val authorName: String,
 )
 
-private suspend fun fetchYouTubeOEmbed(url: String): YouTubeOEmbed? {
-    return try {
-        val client = createNip11HttpClient()
-        val response = client.get("https://www.youtube.com/oembed?url=$url&format=json")
-        val json = Json { ignoreUnknownKeys = true }
-        val obj = json.parseToJsonElement(response.bodyAsText()).jsonObject
-        YouTubeOEmbed(
-            title = obj["title"]?.jsonPrimitive?.content ?: "",
-            authorName = obj["author_name"]?.jsonPrimitive?.content ?: ""
-        )
-    } catch (_: Exception) {
-        null
-    }
+private suspend fun fetchYouTubeOEmbed(url: String): YouTubeOEmbed? = try {
+    val client = createNip11HttpClient()
+    val response = client.get("https://www.youtube.com/oembed?url=$url&format=json")
+    val json = Json { ignoreUnknownKeys = true }
+    val obj = json.parseToJsonElement(response.bodyAsText()).jsonObject
+    YouTubeOEmbed(
+        title = obj["title"]?.jsonPrimitive?.content ?: "",
+        authorName = obj["author_name"]?.jsonPrimitive?.content ?: "",
+    )
+} catch (_: Exception) {
+    null
 }
 
 /**
@@ -77,7 +75,7 @@ fun YouTubeLinkCard(
     videoId: String,
     url: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val thumbnailUrl = "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
     val context = LocalPlatformContext.current
@@ -88,21 +86,25 @@ fun YouTubeLinkCard(
     }
 
     Column(
-        modifier = modifier
+        modifier =
+        modifier
             .widthIn(max = 400.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(NostrordColors.SurfaceVariant)
             .clickable(onClick = onClick)
-            .pointerHoverIcon(PointerIcon.Hand)
+            .pointerHoverIcon(PointerIcon.Hand),
     ) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(thumbnailUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
@@ -110,26 +112,27 @@ fun YouTubeLinkCard(
                     .build(),
                 contentDescription = oembed?.title ?: "YouTube video thumbnail",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             )
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.7f)),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
                     contentDescription = "Play",
                     tint = Color.White,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(28.dp),
                 )
             }
         }
 
         Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
         ) {
             if (oembed?.title?.isNotEmpty() == true) {
                 Text(
@@ -138,7 +141,7 @@ fun YouTubeLinkCard(
                     fontWeight = FontWeight.Medium,
                     color = NostrordColors.TextPrimary,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
@@ -149,7 +152,7 @@ fun YouTubeLinkCard(
                     color = NostrordColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp)
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
 
@@ -158,7 +161,7 @@ fun YouTubeLinkCard(
                 color = Color.Gray,
                 fontSize = 11.sp,
                 maxLines = 1,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
     }

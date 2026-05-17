@@ -14,13 +14,13 @@ import kotlinx.atomicfu.locks.synchronized
  * @param maxSize Maximum number of entries to keep in the cache
  */
 class LruCache<K, V>(
-    private val maxSize: Int
+    private val maxSize: Int,
 ) : SynchronizedObject() {
     private class Node<K, V>(
         val key: K,
         var value: V,
         var prev: Node<K, V>? = null,
-        var next: Node<K, V>? = null
+        var next: Node<K, V>? = null,
     )
 
     // Sentinel nodes — avoids null checks in link/unlink
@@ -54,7 +54,10 @@ class LruCache<K, V>(
     }
 
     /** Put a value in the cache, evicting the LRU entry if over capacity. O(1). */
-    fun put(key: K, value: V): Unit = synchronized(this) {
+    fun put(
+        key: K,
+        value: V,
+    ): Unit = synchronized(this) {
         val existing = map[key]
         if (existing != null) {
             unlink(existing)

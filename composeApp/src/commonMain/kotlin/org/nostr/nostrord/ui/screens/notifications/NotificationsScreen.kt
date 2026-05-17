@@ -18,24 +18,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.notifications.NotificationEntry
-import org.nostr.nostrord.notifications.NotificationType
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.notifications.NotificationEntry
+import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
@@ -76,7 +76,7 @@ fun NotificationsScreen(
                             Icon(
                                 Icons.Default.Menu,
                                 contentDescription = "Open sidebar",
-                                tint = NostrordColors.TextSecondary
+                                tint = NostrordColors.TextSecondary,
                             )
                         }
                     }
@@ -89,8 +89,12 @@ fun NotificationsScreen(
                         Icon(
                             Icons.Default.DoneAll,
                             contentDescription = "Mark all as read",
-                            tint = if (hasUnread) NostrordColors.TextSecondary
-                                   else NostrordColors.TextMuted.copy(alpha = 0.4f),
+                            tint =
+                            if (hasUnread) {
+                                NostrordColors.TextSecondary
+                            } else {
+                                NostrordColors.TextMuted.copy(alpha = 0.4f)
+                            },
                         )
                     }
                     Box {
@@ -117,23 +121,23 @@ fun NotificationsScreen(
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = NostrordColors.BackgroundDark)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = NostrordColors.BackgroundDark),
             )
         },
-        containerColor = NostrordColors.Background
+        containerColor = NostrordColors.Background,
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (entries.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             Icons.Default.Notifications,
                             contentDescription = null,
                             tint = NostrordColors.TextMuted,
-                            modifier = Modifier.size(48.dp)
+                            modifier = Modifier.size(48.dp),
                         )
                         Spacer(Modifier.height(12.dp))
                         Text("No notifications yet", color = NostrordColors.TextMuted, fontSize = 15.sp)
@@ -142,53 +146,57 @@ fun NotificationsScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 8.dp)
+                    contentPadding = PaddingValues(vertical = 8.dp),
                 ) {
-                items(entries, key = { it.id }) { entry ->
-                    val meta = userMetadata[entry.actorPubkey]
-                    val authorName = meta?.displayName?.takeIf { it.isNotBlank() }
-                        ?: meta?.name?.takeIf { it.isNotBlank() }
-                        ?: (entry.actorPubkey.take(8) + "…")
-                    // Prefer the entry's own relay bucket; fall back to any relay
-                    // that knows the group (joined groups can appear on multiple
-                    // mirrored relays). Last resort is the truncated id.
-                    val groupMeta = groupsByRelay[entry.relayUrl]?.firstOrNull { it.id == entry.groupId }
-                        ?: groupsByRelay.values.firstNotNullOfOrNull { list ->
-                            list.firstOrNull { it.id == entry.groupId }
-                        }
-                    // Prefer the snapshot captured at notification time. Live cache
-                    // lookup is the secondary path for legacy entries that predate
-                    // snapshotting. Truncated id is the last resort.
-                    val groupName = entry.groupName?.takeIf { it.isNotBlank() }
-                        ?: groupMeta?.name?.takeIf { it.isNotBlank() }
-                        ?: entry.groupId.take(8)
-                    val relayInfo = relayMetadata[entry.relayUrl]
-                    val relayName = entry.relayName?.takeIf { it.isNotBlank() }
-                        ?: relayInfo?.name?.takeIf { it.isNotBlank() }
-                        ?: entry.relayUrl.takeIf { it.isNotBlank() }?.let { relayShortLabel(it) }
-                        ?: ""
+                    items(entries, key = { it.id }) { entry ->
+                        val meta = userMetadata[entry.actorPubkey]
+                        val authorName =
+                            meta?.displayName?.takeIf { it.isNotBlank() }
+                                ?: meta?.name?.takeIf { it.isNotBlank() }
+                                ?: (entry.actorPubkey.take(8) + "…")
+                        // Prefer the entry's own relay bucket; fall back to any relay
+                        // that knows the group (joined groups can appear on multiple
+                        // mirrored relays). Last resort is the truncated id.
+                        val groupMeta =
+                            groupsByRelay[entry.relayUrl]?.firstOrNull { it.id == entry.groupId }
+                                ?: groupsByRelay.values.firstNotNullOfOrNull { list ->
+                                    list.firstOrNull { it.id == entry.groupId }
+                                }
+                        // Prefer the snapshot captured at notification time. Live cache
+                        // lookup is the secondary path for legacy entries that predate
+                        // snapshotting. Truncated id is the last resort.
+                        val groupName =
+                            entry.groupName?.takeIf { it.isNotBlank() }
+                                ?: groupMeta?.name?.takeIf { it.isNotBlank() }
+                                ?: entry.groupId.take(8)
+                        val relayInfo = relayMetadata[entry.relayUrl]
+                        val relayName =
+                            entry.relayName?.takeIf { it.isNotBlank() }
+                                ?: relayInfo?.name?.takeIf { it.isNotBlank() }
+                                ?: entry.relayUrl.takeIf { it.isNotBlank() }?.let { relayShortLabel(it) }
+                                ?: ""
 
-                    NotificationItem(
-                        entry = entry,
-                        authorName = authorName,
-                        avatarUrl = meta?.picture,
-                        groupName = groupName,
-                        groupPicture = groupMeta?.picture,
-                        relayName = relayName,
-                        relayIconUrl = relayInfo?.icon,
-                        onClick = {
-                            AppModule.notificationHistoryStore.markRead(entry.id)
-                            onOpenGroupAtRelay(
-                                entry.groupId,
-                                groupName,
-                                entry.relayUrl,
-                                entry.messageId,
-                            )
-                        }
-                    )
-                    HorizontalDivider(color = NostrordColors.BackgroundDark, thickness = 1.dp)
+                        NotificationItem(
+                            entry = entry,
+                            authorName = authorName,
+                            avatarUrl = meta?.picture,
+                            groupName = groupName,
+                            groupPicture = groupMeta?.picture,
+                            relayName = relayName,
+                            relayIconUrl = relayInfo?.icon,
+                            onClick = {
+                                AppModule.notificationHistoryStore.markRead(entry.id)
+                                onOpenGroupAtRelay(
+                                    entry.groupId,
+                                    groupName,
+                                    entry.relayUrl,
+                                    entry.messageId,
+                                )
+                            },
+                        )
+                        HorizontalDivider(color = NostrordColors.BackgroundDark, thickness = 1.dp)
+                    }
                 }
-            }
             }
         }
     }
@@ -210,29 +218,34 @@ private fun NotificationItem(
     // preview fall back to monochrome tofu.
     val emojiFontFamily = rememberEmojiFontFamily()
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .background(
-                if (!entry.read) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                else Color.Transparent
-            )
-            .height(IntrinsicSize.Min),
-        verticalAlignment = Alignment.Top
+                if (!entry.read) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+                } else {
+                    Color.Transparent
+                },
+            ).height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.Top,
     ) {
         // Left accent bar — primary-color stripe on unread, transparent spacer
         // on read entries so content alignment stays stable across states.
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .width(3.dp)
                 .fillMaxHeight()
                 .background(
-                    if (!entry.read) MaterialTheme.colorScheme.primary else Color.Transparent
-                )
+                    if (!entry.read) MaterialTheme.colorScheme.primary else Color.Transparent,
+                ),
         )
 
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .weight(1f)
                 .padding(start = 13.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -243,15 +256,16 @@ private fun NotificationItem(
                     imageUrl = avatarUrl,
                     identifier = entry.actorPubkey,
                     displayName = authorName,
-                    size = 40.dp
+                    size = 40.dp,
                 )
                 Box(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(16.dp)
                         .align(Alignment.BottomEnd)
                         .clip(CircleShape)
                         .background(notificationTypeColor(entry.type)),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = notificationTypeEmoji(entry),
@@ -262,92 +276,93 @@ private fun NotificationItem(
                 }
             }
 
-        Column(modifier = Modifier.weight(1f)) {
-            // Author + action in a single AnnotatedString so the action label
-            // wraps to a second line instead of clipping off-screen on narrow
-            // viewports (e.g. Android compact). The previous two-Text Row had
-            // the label without weight or ellipsis, and "reacted to your
-            // message" went out of bounds before users could see it.
-            val header = buildAnnotatedString {
-                withStyle(
-                    SpanStyle(
-                        fontWeight = FontWeight.SemiBold,
-                        color = NostrordColors.TextPrimary,
-                    )
-                ) { append(authorName) }
-                append(' ')
-                withStyle(SpanStyle(color = NostrordColors.TextMuted)) {
-                    append(notificationTypeLabel(entry.type))
-                }
-            }
-            Text(
-                text = header,
-                fontSize = 14.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Spacer(Modifier.height(2.dp))
-
-            val isReaction = entry.type == NotificationType.REACTION
-            Text(
-                text = if (isReaction) entry.emoji ?: entry.preview else entry.preview,
-                color = NostrordColors.TextSecondary,
-                fontSize = 13.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                // Only swap the family when the body IS the emoji; for regular
-                // message previews we keep system text rendering.
-                fontFamily = if (isReaction) emojiFontFamily else null,
-            )
-
-            Spacer(Modifier.height(4.dp))
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ContextIcon(
-                    imageUrl = groupPicture,
-                    identifier = entry.groupId,
-                    label = groupName,
-                    size = 16.dp,
-                )
+            Column(modifier = Modifier.weight(1f)) {
+                // Author + action in a single AnnotatedString so the action label
+                // wraps to a second line instead of clipping off-screen on narrow
+                // viewports (e.g. Android compact). The previous two-Text Row had
+                // the label without weight or ellipsis, and "reacted to your
+                // message" went out of bounds before users could see it.
+                val header =
+                    buildAnnotatedString {
+                        withStyle(
+                            SpanStyle(
+                                fontWeight = FontWeight.SemiBold,
+                                color = NostrordColors.TextPrimary,
+                            ),
+                        ) { append(authorName) }
+                        append(' ')
+                        withStyle(SpanStyle(color = NostrordColors.TextMuted)) {
+                            append(notificationTypeLabel(entry.type))
+                        }
+                    }
                 Text(
-                    text = groupName,
-                    color = NostrordColors.TextMuted,
-                    fontSize = 12.sp,
-                    maxLines = 1,
+                    text = header,
+                    fontSize = 14.sp,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
                 )
-                if (relayName.isNotBlank()) {
-                    Text("·", color = NostrordColors.TextMuted, fontSize = 12.sp)
+
+                Spacer(Modifier.height(2.dp))
+
+                val isReaction = entry.type == NotificationType.REACTION
+                Text(
+                    text = if (isReaction) entry.emoji ?: entry.preview else entry.preview,
+                    color = NostrordColors.TextSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    // Only swap the family when the body IS the emoji; for regular
+                    // message previews we keep system text rendering.
+                    fontFamily = if (isReaction) emojiFontFamily else null,
+                )
+
+                Spacer(Modifier.height(4.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     ContextIcon(
-                        imageUrl = relayIconUrl,
-                        identifier = entry.relayUrl,
-                        label = relayName,
+                        imageUrl = groupPicture,
+                        identifier = entry.groupId,
+                        label = groupName,
                         size = 16.dp,
-                        bundledFallback = relayFallbackPainter(entry.relayUrl),
                     )
                     Text(
-                        text = relayName,
+                        text = groupName,
                         color = NostrordColors.TextMuted,
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (relayName.isNotBlank()) {
+                        Text("·", color = NostrordColors.TextMuted, fontSize = 12.sp)
+                        ContextIcon(
+                            imageUrl = relayIconUrl,
+                            identifier = entry.relayUrl,
+                            label = relayName,
+                            size = 16.dp,
+                            bundledFallback = relayFallbackPainter(entry.relayUrl),
+                        )
+                        Text(
+                            text = relayName,
+                            color = NostrordColors.TextMuted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                    Text("·", color = NostrordColors.TextMuted, fontSize = 12.sp)
+                    Text(
+                        text = formatTimestamp(entry.createdAt),
+                        color = NostrordColors.TextMuted,
+                        fontSize = 12.sp,
+                        maxLines = 1,
                     )
                 }
-                Text("·", color = NostrordColors.TextMuted, fontSize = 12.sp)
-                Text(
-                    text = formatTimestamp(entry.createdAt),
-                    color = NostrordColors.TextMuted,
-                    fontSize = 12.sp,
-                    maxLines = 1
-                )
             }
-        }
         }
     }
 }
@@ -401,7 +416,8 @@ private fun ContextIcon(
     val showLetter = !remoteOk && !showBundled
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(shape)
             .background(if (showLetter) generateColorFromString(identifier) else NostrordColors.BackgroundDark),
@@ -423,21 +439,25 @@ private fun ContextIcon(
                 painter = bundledFallback,
                 contentDescription = label,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clip(shape),
             )
         }
         if (!imageUrl.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(imageUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = label,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clip(shape),
                 contentScale = ContentScale.Crop,

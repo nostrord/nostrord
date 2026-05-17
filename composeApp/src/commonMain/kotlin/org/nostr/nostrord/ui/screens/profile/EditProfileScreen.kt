@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.Screen
@@ -23,7 +22,7 @@ import org.nostr.nostrord.ui.Screen
 @Composable
 fun EditProfileScreen(
     onNavigate: (Screen) -> Unit,
-    forceDesktop: Boolean = false
+    forceDesktop: Boolean = false,
 ) {
     val vm = viewModel { EditProfileViewModel(AppModule.nostrRepository) }
 
@@ -88,7 +87,7 @@ fun EditProfileScreen(
             banner = bannerUrl.ifBlank { null },
             nip05 = nip05.ifBlank { null },
             lud16 = lightningAddress.ifBlank { null },
-            website = website.ifBlank { null }
+            website = website.ifBlank { null },
         ) { result ->
             isSaving = false
             if (result.isSuccess) {
@@ -122,7 +121,7 @@ fun EditProfileScreen(
                 onNip05Change = { nip05 = it },
                 onLightningAddressChange = { lightningAddress = it },
                 onWebsiteChange = { website = it },
-                onSave = onSave
+                onSave = onSave,
             )
         } else {
             EditProfileScreenDesktop(
@@ -144,7 +143,7 @@ fun EditProfileScreen(
                 onNip05Change = { nip05 = it },
                 onLightningAddressChange = { lightningAddress = it },
                 onWebsiteChange = { website = it },
-                onSave = onSave
+                onSave = onSave,
             )
         }
     }

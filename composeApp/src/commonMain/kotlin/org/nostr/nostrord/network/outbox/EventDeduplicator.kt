@@ -20,7 +20,7 @@ import org.nostr.nostrord.utils.epochMillis
  */
 class EventDeduplicator(
     private val maxSize: Int = DEFAULT_MAX_SIZE,
-    private val ttlMs: Long = DEFAULT_TTL_MS
+    private val ttlMs: Long = DEFAULT_TTL_MS,
 ) {
     companion object {
         // 20k covers ~50 groups × 3 relays × many events in a long session.
@@ -106,10 +106,8 @@ class EventDeduplicator(
     /**
      * Check if an event ID has been seen (without adding it)
      */
-    suspend fun contains(eventId: String): Boolean {
-        return mutex.withLock {
-            seenEvents.containsKey(eventId)
-        }
+    suspend fun contains(eventId: String): Boolean = mutex.withLock {
+        seenEvents.containsKey(eventId)
     }
 
     /**
@@ -201,9 +199,12 @@ class EventDeduplicator(
      * Get deduplication statistics
      */
     fun getStats(): DeduplicationStats {
-        val rate = if (totalEvents > 0) {
-            (duplicateEvents.toDouble() / totalEvents * 100)
-        } else 0.0
+        val rate =
+            if (totalEvents > 0) {
+                (duplicateEvents.toDouble() / totalEvents * 100)
+            } else {
+                0.0
+            }
 
         return DeduplicationStats(
             totalEvents = totalEvents,
@@ -211,7 +212,7 @@ class EventDeduplicator(
             duplicateEvents = duplicateEvents,
             deduplicationRate = rate,
             cacheSize = seenEvents.size,
-            maxCacheSize = maxSize
+            maxCacheSize = maxSize,
         )
     }
 
@@ -221,12 +222,12 @@ class EventDeduplicator(
         val duplicateEvents: Long,
         val deduplicationRate: Double,
         val cacheSize: Int,
-        val maxCacheSize: Int
+        val maxCacheSize: Int,
     ) {
         override fun toString(): String {
             val rateStr = ((deduplicationRate * 10).toLong() / 10.0).toString()
             return "EventDeduplicator: $uniqueEvents unique, $duplicateEvents duplicates " +
-                    "($rateStr% dedup rate), cache $cacheSize/$maxCacheSize"
+                "($rateStr% dedup rate), cache $cacheSize/$maxCacheSize"
         }
     }
 }
@@ -234,13 +235,9 @@ class EventDeduplicator(
 /**
  * Extension for batch deduplication
  */
-suspend fun EventDeduplicator.filterNew(eventIds: List<String>): List<String> {
-    return eventIds.filter { tryAdd(it) }
-}
+suspend fun EventDeduplicator.filterNew(eventIds: List<String>): List<String> = eventIds.filter { tryAdd(it) }
 
 /**
  * Synchronous batch filter
  */
-fun EventDeduplicator.filterNewSync(eventIds: List<String>): List<String> {
-    return eventIds.filter { tryAddSync(it) }
-}
+fun EventDeduplicator.filterNewSync(eventIds: List<String>): List<String> = eventIds.filter { tryAddSync(it) }

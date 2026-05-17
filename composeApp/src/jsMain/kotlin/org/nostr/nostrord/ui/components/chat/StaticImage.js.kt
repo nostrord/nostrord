@@ -20,13 +20,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
-import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.yield
-import org.jetbrains.skia.Bitmap as SkiaBitmap
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
@@ -34,6 +30,10 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.ByteBoundedImageCache
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.getImageUrl
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import kotlin.coroutines.suspendCoroutine
+import org.jetbrains.skia.Bitmap as SkiaBitmap
 
 /**
  * Process-level LRU cache for decoded static image bitmaps, bounded at 80 MB.
@@ -58,28 +58,46 @@ private val fetchPermits = Semaphore(5)
  */
 private suspend fun awaitDynamic(promise: dynamic): dynamic = suspendCoroutine { cont ->
     promise.then(
-        { value: dynamic -> cont.resume(value); null },
-        { err: dynamic -> cont.resumeWithException(Exception(err.toString())); null }
+        { value: dynamic ->
+            cont.resume(value)
+            null
+        },
+        { err: dynamic ->
+            cont.resumeWithException(Exception(err.toString()))
+            null
+        },
     )
 }
 
-private fun jsFetchWithTimeout(url: String, timeoutMs: Int): dynamic =
-    js("fetch(url, { signal: AbortSignal.timeout(timeoutMs) })")
+private fun jsFetchWithTimeout(
+    url: String,
+    timeoutMs: Int,
+): dynamic = js("fetch(url, { signal: AbortSignal.timeout(timeoutMs) })")
 
 private fun responseToBlob(response: dynamic): dynamic = js("response.blob()")
 
-private fun createImageBitmapCapped(blob: dynamic, maxW: Int): dynamic =
-    js("createImageBitmap(blob, { resizeWidth: maxW, resizeQuality: 'medium' })")
+private fun createImageBitmapCapped(
+    blob: dynamic,
+    maxW: Int,
+): dynamic = js("createImageBitmap(blob, { resizeWidth: maxW, resizeQuality: 'medium' })")
 
-private fun makOffscreenCanvas(w: Int, h: Int): dynamic = js("new OffscreenCanvas(w, h)")
+private fun makOffscreenCanvas(
+    w: Int,
+    h: Int,
+): dynamic = js("new OffscreenCanvas(w, h)")
 
 private fun getContext2d(canvas: dynamic): dynamic = js("canvas.getContext('2d')")
 
-private fun drawImage(ctx: dynamic, bitmap: dynamic): Unit =
-    js("ctx.drawImage(bitmap, 0, 0)")
+private fun drawImage(
+    ctx: dynamic,
+    bitmap: dynamic,
+): Unit = js("ctx.drawImage(bitmap, 0, 0)")
 
-private fun getImageData(ctx: dynamic, w: Int, h: Int): dynamic =
-    js("ctx.getImageData(0, 0, w, h)")
+private fun getImageData(
+    ctx: dynamic,
+    w: Int,
+    h: Int,
+): dynamic = js("ctx.getImageData(0, 0, w, h)")
 
 /**
  * Copies a JS Uint8ClampedArray (imageData.data) into a Kotlin ByteArray.
@@ -119,8 +137,9 @@ private suspend fun loadStaticImageBitmap(url: String): ImageBitmap? {
 
         // Try optimized URL first, fall back to original on failure
         val optimizedUrl = getImageUrl(url)
-        val result = fetchAndDecode(optimizedUrl)
-            ?: if (optimizedUrl != url) fetchAndDecode(url) else null
+        val result =
+            fetchAndDecode(optimizedUrl)
+                ?: if (optimizedUrl != url) fetchAndDecode(url) else null
 
         if (result != null) {
             staticImageCache.put(url, result)
@@ -179,7 +198,7 @@ actual fun StaticImage(
     modifier: Modifier,
     contentScale: ContentScale,
     onClick: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     val alreadyFailed = failedUrls.get(url) == true
     var bitmap by remember(url) { mutableStateOf(staticImageCache.get(url)) }
@@ -208,16 +227,17 @@ actual fun StaticImage(
         }
         bitmap == null -> {
             Box(
-                modifier = baseModifier
+                modifier =
+                baseModifier
                     .widthIn(min = 200.dp)
                     .heightIn(min = 100.dp)
                     .background(NostrordColors.Surface),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(28.dp),
                     color = NostrordColors.TextMuted,
-                    strokeWidth = 2.5.dp
+                    strokeWidth = 2.5.dp,
                 )
             }
         }
@@ -226,7 +246,7 @@ actual fun StaticImage(
                 bitmap = bitmap!!,
                 contentDescription = "Image",
                 contentScale = contentScale,
-                modifier = baseModifier
+                modifier = baseModifier,
             )
         }
     }

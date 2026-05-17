@@ -14,7 +14,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -23,10 +22,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
-import org.jetbrains.skia.Bitmap as SkiaBitmap
-import org.jetbrains.skia.Codec as SkiaCodec
-import org.jetbrains.skia.Data as SkiaData
-import org.jetbrains.skia.Image as SkiaImage
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.normalizeAnimatedUrl
@@ -38,6 +33,10 @@ import java.net.URI
 import javax.imageio.ImageIO
 import javax.imageio.metadata.IIOMetadataNode
 import javax.imageio.stream.MemoryCacheImageInputStream
+import org.jetbrains.skia.Bitmap as SkiaBitmap
+import org.jetbrains.skia.Codec as SkiaCodec
+import org.jetbrains.skia.Data as SkiaData
+import org.jetbrains.skia.Image as SkiaImage
 
 /** Max bytes allowed for a single downloaded image before we refuse to decode. */
 private const val MAX_IMAGE_DOWNLOAD_BYTES = 15L * 1024 * 1024 // 15 MB
@@ -63,7 +62,7 @@ private object FrameCache {
 
     private data class Entry(
         val frames: List<Pair<ImageBitmap, Int>>,
-        val estimatedBytes: Long
+        val estimatedBytes: Long,
     )
 
     private val cache = LinkedHashMap<String, Entry>(16, 0.75f, /* accessOrder = */ true)
@@ -73,7 +72,10 @@ private object FrameCache {
     fun get(url: String): List<Pair<ImageBitmap, Int>>? = cache[url]?.frames
 
     @Synchronized
-    fun put(url: String, frames: List<Pair<ImageBitmap, Int>>) {
+    fun put(
+        url: String,
+        frames: List<Pair<ImageBitmap, Int>>,
+    ) {
         if (frames.isEmpty()) return
         val first = frames[0].first
         val estimatedBytes = first.width.toLong() * first.height * 4 * frames.size
@@ -119,7 +121,7 @@ actual fun AnimatedImage(
     modifier: Modifier,
     contentScale: ContentScale,
     onClick: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     // Initialise directly from cache — composables that re-enter after scrolling away
     // will already have frames and skip the loading state entirely.
@@ -130,36 +132,37 @@ actual fun AnimatedImage(
         // Cache hit: frames were set in the remember initialiser — nothing to do.
         if (frames != null) return@LaunchedEffect
 
-        val decoded: List<Pair<ImageBitmap, Int>> = withContext(Dispatchers.IO) {
-            try {
-                // Try optimized URL first (proxy + Giphy page→media conversion)
-                val optimizedUrl = getImageUrl(normalizeAnimatedUrl(url))
-                val bytes = fetchWithTimeout(optimizedUrl)
-                val result = bytes?.let { decodeBytes(it) } ?: emptyList()
+        val decoded: List<Pair<ImageBitmap, Int>> =
+            withContext(Dispatchers.IO) {
+                try {
+                    // Try optimized URL first (proxy + Giphy page→media conversion)
+                    val optimizedUrl = getImageUrl(normalizeAnimatedUrl(url))
+                    val bytes = fetchWithTimeout(optimizedUrl)
+                    val result = bytes?.let { decodeBytes(it) } ?: emptyList()
 
-                if (result.isNotEmpty()) return@withContext result
+                    if (result.isNotEmpty()) return@withContext result
 
-                // Fallback 1: try original URL directly (if different)
-                if (optimizedUrl != url) {
-                    val rawBytes = fetchWithTimeout(url)
-                    val rawResult = rawBytes?.let { decodeBytes(it) } ?: emptyList()
-                    if (rawResult.isNotEmpty()) return@withContext rawResult
+                    // Fallback 1: try original URL directly (if different)
+                    if (optimizedUrl != url) {
+                        val rawBytes = fetchWithTimeout(url)
+                        val rawResult = rawBytes?.let { decodeBytes(it) } ?: emptyList()
+                        if (rawResult.isNotEmpty()) return@withContext rawResult
+                    }
+
+                    // Fallback 2: force proxy via wsrv.nl (normalizes format to GIF)
+                    val proxyUrl = proxyViaWeserv(normalizeAnimatedUrl(url))
+                    if (proxyUrl != optimizedUrl) {
+                        val proxyBytes = fetchWithTimeout(proxyUrl)
+                        val proxyResult = proxyBytes?.let { decodeBytes(it) } ?: emptyList()
+                        if (proxyResult.isNotEmpty()) return@withContext proxyResult
+                    }
+
+                    emptyList()
+                } catch (e: Exception) {
+                    println("[AnimatedImage/JVM] Failed to load $url: ${e.message}")
+                    emptyList()
                 }
-
-                // Fallback 2: force proxy via wsrv.nl (normalizes format to GIF)
-                val proxyUrl = proxyViaWeserv(normalizeAnimatedUrl(url))
-                if (proxyUrl != optimizedUrl) {
-                    val proxyBytes = fetchWithTimeout(proxyUrl)
-                    val proxyResult = proxyBytes?.let { decodeBytes(it) } ?: emptyList()
-                    if (proxyResult.isNotEmpty()) return@withContext proxyResult
-                }
-
-                emptyList()
-            } catch (e: Exception) {
-                println("[AnimatedImage/JVM] Failed to load $url: ${e.message}")
-                emptyList()
             }
-        }
         frames = decoded
         if (decoded.isNotEmpty()) FrameCache.put(url, decoded)
     }
@@ -173,7 +176,7 @@ actual fun AnimatedImage(
                 CircularProgressIndicator(
                     modifier = Modifier.size(32.dp),
                     color = NostrordColors.Primary,
-                    strokeWidth = 3.dp
+                    strokeWidth = 3.dp,
                 )
             }
         }
@@ -187,7 +190,7 @@ actual fun AnimatedImage(
                 bitmap = frames!![0].first,
                 contentDescription = "Image",
                 contentScale = contentScale,
-                modifier = baseModifier
+                modifier = baseModifier,
             )
         }
         else -> {
@@ -204,7 +207,7 @@ actual fun AnimatedImage(
                 bitmap = frameList[currentFrame].first,
                 contentDescription = "Animated GIF",
                 contentScale = contentScale,
-                modifier = baseModifier
+                modifier = baseModifier,
             )
         }
     }
@@ -213,12 +216,10 @@ actual fun AnimatedImage(
 /**
  * Decodes raw image bytes into animation frames based on detected format.
  */
-private fun decodeBytes(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
-    return when (detectImageFormat(bytes)) {
-        ImageFormat.GIF -> decodeGifFrames(bytes)
-        ImageFormat.WEBP -> decodeWebpFrames(bytes)
-        ImageFormat.OTHER -> decodeStaticViaSkia(bytes)
-    }
+private fun decodeBytes(bytes: ByteArray): List<Pair<ImageBitmap, Int>> = when (detectImageFormat(bytes)) {
+    ImageFormat.GIF -> decodeGifFrames(bytes)
+    ImageFormat.WEBP -> decodeWebpFrames(bytes)
+    ImageFormat.OTHER -> decodeStaticViaSkia(bytes)
 }
 
 /**
@@ -241,9 +242,10 @@ private fun fetchWithTimeout(url: String): ByteArray? {
         if (contentLength > MAX_IMAGE_DOWNLOAD_BYTES) return null
 
         conn.inputStream.use { stream ->
-            val buffer = java.io.ByteArrayOutputStream(
-                if (contentLength > 0) contentLength.toInt() else 65536
-            )
+            val buffer =
+                java.io.ByteArrayOutputStream(
+                    if (contentLength > 0) contentLength.toInt() else 65536,
+                )
             val chunk = ByteArray(8192)
             var totalRead = 0L
             while (true) {
@@ -274,15 +276,25 @@ private enum class ImageFormat { GIF, WEBP, OTHER }
 private fun detectImageFormat(bytes: ByteArray): ImageFormat {
     if (bytes.size < 12) return ImageFormat.OTHER
     // GIF: 47 49 46 38 (GIF8)
-    if (bytes[0] == 0x47.toByte() && bytes[1] == 0x49.toByte() &&
-        bytes[2] == 0x46.toByte() && bytes[3] == 0x38.toByte()
-    ) return ImageFormat.GIF
+    if (bytes[0] == 0x47.toByte() &&
+        bytes[1] == 0x49.toByte() &&
+        bytes[2] == 0x46.toByte() &&
+        bytes[3] == 0x38.toByte()
+    ) {
+        return ImageFormat.GIF
+    }
     // WebP: RIFF....WEBP
-    if (bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() &&
-        bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
-        bytes[8] == 0x57.toByte() && bytes[9] == 0x45.toByte() &&
-        bytes[10] == 0x42.toByte() && bytes[11] == 0x50.toByte()
-    ) return ImageFormat.WEBP
+    if (bytes[0] == 0x52.toByte() &&
+        bytes[1] == 0x49.toByte() &&
+        bytes[2] == 0x46.toByte() &&
+        bytes[3] == 0x46.toByte() &&
+        bytes[8] == 0x57.toByte() &&
+        bytes[9] == 0x45.toByte() &&
+        bytes[10] == 0x42.toByte() &&
+        bytes[11] == 0x50.toByte()
+    ) {
+        return ImageFormat.WEBP
+    }
     return ImageFormat.OTHER
 }
 
@@ -290,16 +302,14 @@ private fun detectImageFormat(bytes: ByteArray): ImageFormat {
  * Decodes a static image (PNG, JPEG, etc.) via Skia into a single-frame list.
  * This allows AnimatedImage to handle any image format, not just GIF/WebP.
  */
-private fun decodeStaticViaSkia(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
-    return try {
-        val skiaImage = SkiaImage.makeFromEncoded(bytes)
-        val composeBitmap = skiaImage.toComposeImageBitmap()
-        skiaImage.close()
-        listOf(composeBitmap to 0)
-    } catch (e: Exception) {
-        println("[Static/JVM] Decode error: ${e.message}")
-        emptyList()
-    }
+private fun decodeStaticViaSkia(bytes: ByteArray): List<Pair<ImageBitmap, Int>> = try {
+    val skiaImage = SkiaImage.makeFromEncoded(bytes)
+    val composeBitmap = skiaImage.toComposeImageBitmap()
+    skiaImage.close()
+    listOf(composeBitmap to 0)
+} catch (e: Exception) {
+    println("[Static/JVM] Decode error: ${e.message}")
+    emptyList()
 }
 
 /**
@@ -319,37 +329,41 @@ private fun decodeWebpFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
 
         // Reject absurdly large images (e.g. 16000×16000) before allocating frames
         if (info.width.toLong() * info.height > 8_000_000) { // ~8 megapixels max
-            codec.close(); data.close()
+            codec.close()
+            data.close()
             return emptyList()
         }
 
         // Static WebP (VP8/VP8L): frameCount is 0 or 1 — fall back to SkiaImage
         // which handles all WebP variants reliably for single-frame decode.
         if (codec.frameCount <= 1) {
-            codec.close(); data.close()
+            codec.close()
+            data.close()
             return decodeStaticViaSkia(bytes)
         }
 
         // Reject video-length WebPs to prevent hundreds of MB of frame allocations
         if (codec.frameCount > 300) {
-            codec.close(); data.close()
+            codec.close()
+            data.close()
             return emptyList()
         }
 
-        val result = (0 until codec.frameCount).map { i ->
-            val bitmap = SkiaBitmap()
-            bitmap.allocPixels(info)
-            codec.readPixels(bitmap, i)
+        val result =
+            (0 until codec.frameCount).map { i ->
+                val bitmap = SkiaBitmap()
+                bitmap.allocPixels(info)
+                codec.readPixels(bitmap, i)
 
-            val delayMs = codec.getFrameInfo(i).duration.coerceAtLeast(50)
-            // SkiaBitmap → SkiaImage → Compose ImageBitmap (no PNG round-trip)
-            val skiaImage = SkiaImage.makeFromBitmap(bitmap)
-            val composeBitmap = skiaImage.toComposeImageBitmap()
-            skiaImage.close()
-            bitmap.close()
+                val delayMs = codec.getFrameInfo(i).duration.coerceAtLeast(50)
+                // SkiaBitmap → SkiaImage → Compose ImageBitmap (no PNG round-trip)
+                val skiaImage = SkiaImage.makeFromBitmap(bitmap)
+                val composeBitmap = skiaImage.toComposeImageBitmap()
+                skiaImage.close()
+                bitmap.close()
 
-            composeBitmap to delayMs
-        }
+                composeBitmap to delayMs
+            }
 
         codec.close()
         data.close()
@@ -432,15 +446,17 @@ private fun decodeGifFrames(bytes: ByteArray): List<Pair<ImageBitmap, Int>> {
                 val tree = meta.getAsTree("javax_imageio_gif_image_1.0") as IIOMetadataNode
 
                 // Frame delay from GraphicControlExtension
-                val gce = tree.getElementsByTagName("GraphicControlExtension").item(0)
-                    as? IIOMetadataNode
+                val gce =
+                    tree.getElementsByTagName("GraphicControlExtension").item(0)
+                        as? IIOMetadataNode
                 val cs = gce?.getAttribute("delayTime")?.toIntOrNull() ?: 10
                 delayMs = (cs * 10).coerceAtLeast(50)
                 disposalMethod = gce?.getAttribute("disposalMethod") ?: "none"
 
                 // Frame offset from ImageDescriptor
-                val desc = tree.getElementsByTagName("ImageDescriptor").item(0)
-                    as? IIOMetadataNode
+                val desc =
+                    tree.getElementsByTagName("ImageDescriptor").item(0)
+                        as? IIOMetadataNode
                 frameX = desc?.getAttribute("imageLeftPosition")?.toIntOrNull() ?: 0
                 frameY = desc?.getAttribute("imageTopPosition")?.toIntOrNull() ?: 0
             }

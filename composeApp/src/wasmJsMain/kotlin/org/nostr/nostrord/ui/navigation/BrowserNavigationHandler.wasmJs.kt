@@ -1,4 +1,5 @@
 @file:OptIn(ExperimentalWasmJsInterop::class)
+
 package org.nostr.nostrord.ui.navigation
 
 import androidx.compose.runtime.Composable
@@ -8,9 +9,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import kotlin.js.ExperimentalWasmJsInterop
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.utils.toRelayUrl
+import kotlin.js.ExperimentalWasmJsInterop
 
 @JsFun("(url) => window.history.replaceState(null, '', url)")
 private external fun jsHistoryReplaceState(url: String)
@@ -28,23 +29,29 @@ private external fun jsGetPathname(): String
  * Registers a popstate listener that calls back with the current search string.
  * Returns a function that removes the listener when called.
  */
-@JsFun("""(callback) => {
+@JsFun(
+    """(callback) => {
     const listener = () => {
         callback(window.location.search || '');
     };
     window.addEventListener('popstate', listener);
     return () => window.removeEventListener('popstate', listener);
-}""")
+}""",
+)
 private external fun jsAddPopStateListener(callback: (String) -> Unit): () -> Unit
 
-private fun buildUrlQuery(relayUrl: String, screen: Screen): String {
+private fun buildUrlQuery(
+    relayUrl: String,
+    screen: Screen,
+): String {
     // Notifications is cross-relay — keep it out of the relay namespace so the
     // URL stays meaningful (and refresh-stable) even with no relay context.
     if (screen is Screen.Notifications) return "?view=notifications"
     if (relayUrl.isBlank()) return jsGetPathname()
-    val relay = relayUrl
-        .removePrefix("wss://")
-        .removePrefix("ws://")
+    val relay =
+        relayUrl
+            .removePrefix("wss://")
+            .removePrefix("ws://")
     return when (screen) {
         is Screen.Group -> "?relay=$relay&group=${screen.groupId}"
         else -> "?relay=$relay"
@@ -62,11 +69,15 @@ private data class UrlParams(
 )
 
 private fun parseUrlQuery(search: String): UrlParams {
-    val params = search.removePrefix("?").split("&").associate { param ->
-        val idx = param.indexOf("=")
-        if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1)
-        else param to ""
-    }
+    val params =
+        search.removePrefix("?").split("&").associate { param ->
+            val idx = param.indexOf("=")
+            if (idx >= 0) {
+                param.substring(0, idx) to param.substring(idx + 1)
+            } else {
+                param to ""
+            }
+        }
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: ""
     val relayUrl = relay.toRelayUrl()
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
@@ -79,7 +90,7 @@ private fun parseUrlQuery(search: String): UrlParams {
 actual fun BrowserNavigationHandler(
     currentScreen: Screen,
     selectedRelayUrl: String,
-    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?, viewNotifications: Boolean) -> Unit
+    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?, viewNotifications: Boolean) -> Unit,
 ) {
     val currentOnUrlNavigation by rememberUpdatedState(onUrlNavigation)
 
@@ -101,17 +112,18 @@ actual fun BrowserNavigationHandler(
             lastPushedUrl.value = jsGetSearch().ifBlank { jsGetPathname() }
         }
 
-        val removeListener = jsAddPopStateListener { search ->
-            val parsed = parseUrlQuery(search)
-            skipNextPush.value = true
-            lastPushedUrl.value = search.ifBlank { jsGetPathname() }
-            // `view=notifications` is allowed to fire without a relay — the
-            // Notifications screen is cross-relay and the app keeps its
-            // previously selected relay in the sidebar.
-            if (parsed.relayUrl.isNotBlank() || parsed.viewNotifications) {
-                currentOnUrlNavigation(parsed.relayUrl, parsed.groupId, parsed.inviteCode, parsed.viewNotifications)
+        val removeListener =
+            jsAddPopStateListener { search ->
+                val parsed = parseUrlQuery(search)
+                skipNextPush.value = true
+                lastPushedUrl.value = search.ifBlank { jsGetPathname() }
+                // `view=notifications` is allowed to fire without a relay — the
+                // Notifications screen is cross-relay and the app keeps its
+                // previously selected relay in the sidebar.
+                if (parsed.relayUrl.isNotBlank() || parsed.viewNotifications) {
+                    currentOnUrlNavigation(parsed.relayUrl, parsed.groupId, parsed.inviteCode, parsed.viewNotifications)
+                }
             }
-        }
 
         onDispose {
             removeListener()

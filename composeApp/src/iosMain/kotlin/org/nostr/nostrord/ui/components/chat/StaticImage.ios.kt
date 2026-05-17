@@ -21,11 +21,13 @@ actual fun StaticImage(
     modifier: Modifier,
     contentScale: ContentScale,
     onClick: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
     AsyncImage(
-        model = ImageRequest.Builder(context)
+        model =
+        ImageRequest
+            .Builder(context)
             .data(getImageUrl(url))
             .crossfade(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
@@ -39,6 +41,6 @@ actual fun StaticImage(
             if (state is AsyncImagePainter.State.Error) {
                 onError()
             }
-        }
+        },
     )
 }

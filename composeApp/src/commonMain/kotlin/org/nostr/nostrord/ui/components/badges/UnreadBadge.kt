@@ -31,7 +31,7 @@ fun UnreadBadge(
     modifier: Modifier = Modifier,
     size: Dp = 20.dp,
     backgroundColor: Color = NostrordColors.Error,
-    textColor: Color = Color.White
+    textColor: Color = Color.White,
 ) {
     if (count <= 0) return
 
@@ -39,19 +39,20 @@ fun UnreadBadge(
     val shape = RoundedCornerShape(size / 2)
 
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .widthIn(min = size)
             .clip(shape)
             .background(backgroundColor)
             .padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = displayText,
             color = textColor,
             fontSize = (size.value * 0.55f).sp,
             fontWeight = FontWeight.Bold,
-            style = NostrordTypography.Badge
+            style = NostrordTypography.Badge,
         )
     }
 }
@@ -64,12 +65,13 @@ fun UnreadBadge(
 fun UnreadDot(
     modifier: Modifier = Modifier,
     size: Dp = 10.dp,
-    color: Color = NostrordColors.Error
+    color: Color = NostrordColors.Error,
 ) {
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .size(size)
             .clip(CircleShape)
-            .background(color)
+            .background(color),
     )
 }

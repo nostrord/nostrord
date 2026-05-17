@@ -1,4 +1,5 @@
 @file:OptIn(ExperimentalWasmJsInterop::class)
+
 package org.nostr.nostrord.notifications
 
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -18,7 +19,7 @@ private external fun jsGetPermission(): String
 @JsFun(
     """(cb) => {
         Notification.requestPermission().then(function(result) { cb(result); });
-    }"""
+    }""",
 )
 private external fun jsRequestPermission(cb: (String) -> Unit)
 
@@ -32,7 +33,7 @@ private external fun jsRequestPermission(cb: (String) -> Unit)
                 }).catch(function() {});
             }
         } catch (e) {}
-    }"""
+    }""",
 )
 private external fun jsObservePermissionChanges(cb: (String) -> Unit)
 
@@ -51,7 +52,7 @@ private external fun jsObservePermissionChanges(cb: (String) -> Unit)
         if (window.__nostrordNotifications.length > 100) {
             window.__nostrordNotifications.shift();
         }
-    }"""
+    }""",
 )
 private external fun jsShowNotification(
     title: String,
@@ -70,7 +71,7 @@ private external fun jsShowNotification(
             }
             window.__nostrordNotifications = [];
         } catch (e) {}
-    }"""
+    }""",
 )
 private external fun jsCloseAllNotifications()
 

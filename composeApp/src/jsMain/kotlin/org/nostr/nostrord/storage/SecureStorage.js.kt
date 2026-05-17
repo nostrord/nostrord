@@ -59,13 +59,9 @@ actual object SecureStorage {
         localStorage.setItem(PRIVATE_KEY_PREF, privateKeyHex)
     }
 
-    actual fun getPrivateKey(): String? {
-        return localStorage.getItem(PRIVATE_KEY_PREF)
-    }
+    actual fun getPrivateKey(): String? = localStorage.getItem(PRIVATE_KEY_PREF)
 
-    actual fun hasPrivateKey(): Boolean {
-        return localStorage.getItem(PRIVATE_KEY_PREF) != null
-    }
+    actual fun hasPrivateKey(): Boolean = localStorage.getItem(PRIVATE_KEY_PREF) != null
 
     actual fun clearPrivateKey() {
         localStorage.removeItem(PRIVATE_KEY_PREF)
@@ -75,9 +71,7 @@ actual object SecureStorage {
         localStorage.setItem(CURRENT_RELAY_URL, relayUrl)
     }
 
-    actual fun getCurrentRelayUrl(): String? {
-        return localStorage.getItem(CURRENT_RELAY_URL)
-    }
+    actual fun getCurrentRelayUrl(): String? = localStorage.getItem(CURRENT_RELAY_URL)
 
     actual fun clearCurrentRelayUrl() {
         localStorage.removeItem(CURRENT_RELAY_URL)
@@ -125,13 +119,9 @@ actual object SecureStorage {
         localStorage.setItem(BUNKER_URL_PREF, bunkerUrl)
     }
 
-    actual fun getBunkerUrl(): String? {
-        return localStorage.getItem(BUNKER_URL_PREF)
-    }
+    actual fun getBunkerUrl(): String? = localStorage.getItem(BUNKER_URL_PREF)
 
-    actual fun hasBunkerUrl(): Boolean {
-        return localStorage.getItem(BUNKER_URL_PREF) != null
-    }
+    actual fun hasBunkerUrl(): Boolean = localStorage.getItem(BUNKER_URL_PREF) != null
 
     actual fun clearBunkerUrl() {
         localStorage.removeItem(BUNKER_URL_PREF)
@@ -141,9 +131,7 @@ actual object SecureStorage {
         localStorage.setItem(BUNKER_USER_PUBKEY_PREF, pubkey)
     }
 
-    actual fun getBunkerUserPubkey(): String? {
-        return localStorage.getItem(BUNKER_USER_PUBKEY_PREF)
-    }
+    actual fun getBunkerUserPubkey(): String? = localStorage.getItem(BUNKER_USER_PUBKEY_PREF)
 
     actual fun clearBunkerUserPubkey() {
         localStorage.removeItem(BUNKER_USER_PUBKEY_PREF)
@@ -153,9 +141,7 @@ actual object SecureStorage {
         localStorage.setItem(BUNKER_CLIENT_PRIVATE_KEY_PREF, privateKey)
     }
 
-    actual fun getBunkerClientPrivateKey(): String? {
-        return localStorage.getItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
-    }
+    actual fun getBunkerClientPrivateKey(): String? = localStorage.getItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
 
     actual fun clearBunkerClientPrivateKey() {
         localStorage.removeItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
@@ -165,9 +151,7 @@ actual object SecureStorage {
         localStorage.setItem(NIP07_USER_PUBKEY_PREF, pubkey)
     }
 
-    actual fun getNip07UserPubkey(): String? {
-        return localStorage.getItem(NIP07_USER_PUBKEY_PREF)
-    }
+    actual fun getNip07UserPubkey(): String? = localStorage.getItem(NIP07_USER_PUBKEY_PREF)
 
     actual fun clearNip07UserPubkey() {
         localStorage.removeItem(NIP07_USER_PUBKEY_PREF)
@@ -342,17 +326,13 @@ actual object SecureStorage {
         localStorage.setItem(key, value)
     }
 
-    actual fun getStringPref(key: String, default: String): String {
-        return localStorage.getItem(key) ?: default
-    }
+    actual fun getStringPref(key: String, default: String): String = localStorage.getItem(key) ?: default
 
     actual fun saveSensitive(key: String, value: String) {
         localStorage.setItem(key, value)
     }
 
-    actual fun getSensitive(key: String): String? {
-        return localStorage.getItem(key)
-    }
+    actual fun getSensitive(key: String): String? = localStorage.getItem(key)
 
     actual fun clearSensitive(key: String) {
         localStorage.removeItem(key)
@@ -366,7 +346,10 @@ actual object SecureStorage {
             suspendCoroutine<Unit> { cont ->
                 var resumed = false
                 fun safeResume() {
-                    if (!resumed) { resumed = true; cont.resume(Unit) }
+                    if (!resumed) {
+                        resumed = true
+                        cont.resume(Unit)
+                    }
                 }
 
                 val idb: dynamic = window.asDynamic().indexedDB

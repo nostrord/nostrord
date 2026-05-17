@@ -7,15 +7,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,7 +45,8 @@ fun NotificationPermissionBanner(modifier: Modifier = Modifier) {
     if (dismissed || permission != NotificationPermission.Default) return
 
     Card(
-        modifier = modifier
+        modifier =
+        modifier
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .widthIn(max = 520.dp),
         shape = RoundedCornerShape(12.dp),

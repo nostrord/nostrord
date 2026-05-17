@@ -10,9 +10,10 @@ expect fun getImageUrl(url: String): String
 private const val CDN_MAX_WIDTH = 800
 
 /** Hosts with unreliable image serving — never attempt to fetch, show as text instead. */
-private val BLOCKED_IMAGE_HOSTS = listOf(
-    "pomf2.lain.la",
-)
+private val BLOCKED_IMAGE_HOSTS =
+    listOf(
+        "pomf2.lain.la",
+    )
 
 /**
  * Returns true if the URL belongs to a host that should never be fetched
@@ -28,20 +29,21 @@ fun isBlockedImageHost(url: String): Boolean {
  * width/height query params on these hosts are either native resize directives
  * or harmless metadata that the server ignores.
  */
-private val NATIVE_HOSTS = listOf(
-    "nostr.build",
-    "lain.la",
-    "void.cat",
-    "imgur.com",
-    "i.imgur.com",
-    "imgproxy.",
-    "wsrv.nl",
-    "weserv.nl",
-    "primal.b-cdn.net",
-    "tenor.com",
-    "i.redd.it",
-    "pbs.twimg.com",
-)
+private val NATIVE_HOSTS =
+    listOf(
+        "nostr.build",
+        "lain.la",
+        "void.cat",
+        "imgur.com",
+        "i.imgur.com",
+        "imgproxy.",
+        "wsrv.nl",
+        "weserv.nl",
+        "primal.b-cdn.net",
+        "tenor.com",
+        "i.redd.it",
+        "pbs.twimg.com",
+    )
 
 /**
  * Converts Giphy/Tenor page URLs to direct media URLs.
@@ -84,16 +86,21 @@ fun optimizeImageUrl(url: String): String {
  * Proxies through wsrv.nl for resize, preserving animation.
  * Also usable as a CORS fallback for web targets.
  */
-fun proxyViaWeserv(url: String, width: Int = CDN_MAX_WIDTH, height: Int? = null): String {
+fun proxyViaWeserv(
+    url: String,
+    width: Int = CDN_MAX_WIDTH,
+    height: Int? = null,
+): String {
     val stripped = url.removePrefix("https://").removePrefix("http://")
-    val encoded = stripped
-        .replace("%", "%25")   // must be first — existing %XX stay valid
-        .replace(" ", "%20")
-        .replace("#", "%23")
-        .replace("&", "%26")
-        .replace("?", "%3F")
-        .replace("[", "%5B")
-        .replace("]", "%5D")
+    val encoded =
+        stripped
+            .replace("%", "%25") // must be first — existing %XX stay valid
+            .replace(" ", "%20")
+            .replace("#", "%23")
+            .replace("&", "%26")
+            .replace("?", "%3F")
+            .replace("[", "%5B")
+            .replace("]", "%5D")
     val animated = isAnimatedImageUrl(url)
     return buildString {
         append("https://wsrv.nl/?url=")
@@ -121,9 +128,14 @@ fun proxyViaWeserv(url: String, width: Int = CDN_MAX_WIDTH, height: Int? = null)
 fun isAnimatedImageUrl(url: String): Boolean {
     val lower = url.lowercase()
     if (lower.contains(".gif") || lower.contains(".webp")) return true
-    val animatedHosts = listOf(
-        "giphy.com", "i.giphy.com", "media.giphy.com",
-        "tenor.com", "media.tenor.com", "c.tenor.com"
-    )
+    val animatedHosts =
+        listOf(
+            "giphy.com",
+            "i.giphy.com",
+            "media.giphy.com",
+            "tenor.com",
+            "media.tenor.com",
+            "c.tenor.com",
+        )
     return animatedHosts.any { lower.contains(it) }
 }

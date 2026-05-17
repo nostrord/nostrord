@@ -21,9 +21,12 @@ import org.nostr.nostrord.utils.getImageUrl
  *   - no crossfade     — memory-cache hits must render in the same frame, not after a fade
  *   - no transformations, headers, or precision overrides
  */
-fun buildRelayIconRequest(iconUrl: String, context: PlatformContext): ImageRequest =
-    ImageRequest.Builder(context)
-        .data(getImageUrl(iconUrl))
-        .memoryCachePolicy(CachePolicy.ENABLED)
-        .diskCachePolicy(CachePolicy.ENABLED)
-        .build()
+fun buildRelayIconRequest(
+    iconUrl: String,
+    context: PlatformContext,
+): ImageRequest = ImageRequest
+    .Builder(context)
+    .data(getImageUrl(iconUrl))
+    .memoryCachePolicy(CachePolicy.ENABLED)
+    .diskCachePolicy(CachePolicy.ENABLED)
+    .build()

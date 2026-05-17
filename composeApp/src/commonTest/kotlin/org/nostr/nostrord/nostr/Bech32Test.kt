@@ -6,7 +6,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class Bech32Test {
-
     // -------------------------------------------------------------------------
     // Encode → decode round-trips
     // -------------------------------------------------------------------------
@@ -94,5 +93,6 @@ class Bech32Test {
     // -------------------------------------------------------------------------
 
     private fun ByteArray.toHexString() = joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+
     private fun String.hexToByteArray() = chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 }

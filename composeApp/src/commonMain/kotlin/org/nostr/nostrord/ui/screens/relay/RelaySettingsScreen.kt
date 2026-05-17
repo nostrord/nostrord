@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -14,13 +15,12 @@ import org.nostr.nostrord.ui.screens.relay.model.RelayInfo
 import org.nostr.nostrord.ui.screens.relay.model.RelayStatus
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.isValidRelayUrl
-import androidx.compose.runtime.mutableStateMapOf
 
 @Composable
 fun RelaySettingsScreen(
     listState: LazyListState = rememberLazyListState(),
     onNavigate: (Screen) -> Unit,
-    forceDesktop: Boolean = false
+    forceDesktop: Boolean = false,
 ) {
     val vm = viewModel { RelayViewModel(AppModule.nostrRepository) }
     val currentRelay by vm.currentRelayUrl.collectAsState()
@@ -32,8 +32,8 @@ fun RelaySettingsScreen(
                 RelayInfo("wss://relay.groups.nip29.com"),
                 RelayInfo("wss://groups.0xchat.com"),
                 RelayInfo("wss://groups.hzrd149.com"),
-                RelayInfo("wss://pyramid.fiatjaf.com")
-            )
+                RelayInfo("wss://pyramid.fiatjaf.com"),
+            ),
         )
     }
 
@@ -41,20 +41,22 @@ fun RelaySettingsScreen(
     var showAddDialog by remember { mutableStateOf(false) }
 
     // Per-relay lazy fetch state — initialised from SecureStorage, written back on toggle.
-    val lazyFetchStates = remember(relays) {
-        mutableStateMapOf<String, Boolean>().also { map ->
-            relays.forEach { relay ->
-                map[relay.url] = AppModule.nostrRepository.isGroupFetchLazy(relay.url)
+    val lazyFetchStates =
+        remember(relays) {
+            mutableStateMapOf<String, Boolean>().also { map ->
+                relays.forEach { relay ->
+                    map[relay.url] = AppModule.nostrRepository.isGroupFetchLazy(relay.url)
+                }
             }
         }
-    }
 
     LaunchedEffect(currentRelay) {
-        relays = relays.map { relay ->
-            relay.copy(
-                status = if (relay.url == currentRelay) RelayStatus.CONNECTED else RelayStatus.DISCONNECTED
-            )
-        }
+        relays =
+            relays.map { relay ->
+                relay.copy(
+                    status = if (relay.url == currentRelay) RelayStatus.CONNECTED else RelayStatus.DISCONNECTED,
+                )
+            }
     }
 
     // Add Relay Dialog
@@ -74,7 +76,8 @@ fun RelaySettingsScreen(
                         onValueChange = { newRelayUrl = it },
                         placeholder = { Text("wss://example.com") },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = TextFieldDefaults.colors(
+                        colors =
+                        TextFieldDefaults.colors(
                             focusedTextColor = NostrordColors.TextPrimary,
                             unfocusedTextColor = NostrordColors.TextPrimary,
                             focusedContainerColor = NostrordColors.InputBackground,
@@ -83,8 +86,8 @@ fun RelaySettingsScreen(
                             unfocusedPlaceholderColor = NostrordColors.TextMuted,
                             cursorColor = NostrordColors.Primary,
                             focusedIndicatorColor = NostrordColors.Primary,
-                            unfocusedIndicatorColor = NostrordColors.Divider
-                        )
+                            unfocusedIndicatorColor = NostrordColors.Divider,
+                        ),
                     )
                 }
             },
@@ -97,7 +100,7 @@ fun RelaySettingsScreen(
                             showAddDialog = false
                         }
                     },
-                    enabled = isValidRelayUrl(newRelayUrl)
+                    enabled = isValidRelayUrl(newRelayUrl),
                 ) {
                     Text("Add", color = NostrordColors.Primary)
                 }
@@ -109,7 +112,7 @@ fun RelaySettingsScreen(
                 }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
@@ -131,7 +134,7 @@ fun RelaySettingsScreen(
                 onToggleLazyFetch = { relayUrl, lazy ->
                     lazyFetchStates[relayUrl] = lazy
                     AppModule.nostrRepository.setGroupFetchLazy(relayUrl, lazy)
-                }
+                },
             )
         } else {
             RelaySettingsDesktop(
@@ -147,7 +150,7 @@ fun RelaySettingsScreen(
                 onToggleLazyFetch = { relayUrl, lazy ->
                     lazyFetchStates[relayUrl] = lazy
                     AppModule.nostrRepository.setGroupFetchLazy(relayUrl, lazy)
-                }
+                },
             )
         }
     }

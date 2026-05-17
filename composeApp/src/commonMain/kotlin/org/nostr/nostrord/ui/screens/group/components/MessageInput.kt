@@ -4,6 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -12,50 +18,44 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.outlined.EmojiEmotions
-import org.nostr.nostrord.getPlatform
-import org.nostr.nostrord.ui.components.emoji.EmojiPicker
-import org.nostr.nostrord.network.NostrGroupClient
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.getPlatform
+import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.upload.FileTooLargeException
-import org.nostr.nostrord.network.upload.UnsupportedFileTypeException
 import org.nostr.nostrord.network.upload.MAX_UPLOAD_BYTES
 import org.nostr.nostrord.network.upload.NostrBuildUploader
-import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.upload.PasteMediaEffect
 import org.nostr.nostrord.network.upload.ShareMediaEffect
+import org.nostr.nostrord.network.upload.UnsupportedFileTypeException
+import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.network.upload.rememberClipboardImageReader
+import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.upload.MessageUploadButton
-import org.nostr.nostrord.utils.Result
-import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
-import androidx.compose.ui.text.font.FontFamily
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.formatTimestamp
 
 /**
@@ -89,7 +89,7 @@ fun MessageInput(
     userMetadata: Map<String, UserMetadata> = emptyMap(),
     onCancelReply: () -> Unit = {},
     isSending: Boolean = false,
-    onMediaUploaded: (UploadResult) -> Unit = {}
+    onMediaUploaded: (UploadResult) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val clipboardReader = rememberClipboardImageReader()
@@ -136,8 +136,10 @@ fun MessageInput(
         try {
             val mime = NostrBuildUploader.mimeTypeForFilename(filename)
             val result = NostrBuildUploader.upload(
-                bytes, filename, mime,
-                AppModule.nostrRepository::buildNip98AuthHeader
+                bytes,
+                filename,
+                mime,
+                AppModule.nostrRepository::buildNip98AuthHeader,
             )
             when (result) {
                 is Result.Success -> {
@@ -224,8 +226,11 @@ fun MessageInput(
             ""
         }
         val mentionPart = "@${member.displayName} "
-        val newText = if (afterMention.isEmpty()) "$beforeMention$mentionPart"
-                      else "$beforeMention$mentionPart$afterMention"
+        val newText = if (afterMention.isEmpty()) {
+            "$beforeMention$mentionPart"
+        } else {
+            "$beforeMention$mentionPart$afterMention"
+        }
         val cursorPosition = beforeMention.length + mentionPart.length
         textFieldValue = TextFieldValue(newText, TextRange(cursorPosition))
         onMessageInputChange(newText)
@@ -247,8 +252,11 @@ fun MessageInput(
             ""
         }
         val mentionPart = "%${group.name} "
-        val newText = if (afterMention.isEmpty()) "$beforeMention$mentionPart"
-                      else "$beforeMention$mentionPart$afterMention"
+        val newText = if (afterMention.isEmpty()) {
+            "$beforeMention$mentionPart"
+        } else {
+            "$beforeMention$mentionPart$afterMention"
+        }
         val cursorPosition = beforeMention.length + mentionPart.length
         textFieldValue = TextFieldValue(newText, TextRange(cursorPosition))
         onMessageInputChange(newText)
@@ -266,35 +274,35 @@ fun MessageInput(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(NostrordColors.SurfaceVariant)
-                .padding(horizontal = Spacing.lg, vertical = Spacing.md)
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(
                     modifier = Modifier.weight(1f, fill = false),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = "Your join request is pending admin approval",
                         color = NostrordColors.TextMuted,
-                        style = NostrordTypography.MessageBody
+                        style = NostrordTypography.MessageBody,
                     )
                     if (pendingRequestedAtSeconds != null) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "Requested ${formatTimestamp(pendingRequestedAtSeconds)}",
                             color = NostrordColors.TextMuted,
-                            style = NostrordTypography.Caption
+                            style = NostrordTypography.Caption,
                         )
                     }
                 }
                 Spacer(modifier = Modifier.width(Spacing.sm))
                 TextButton(
                     onClick = onCancelJoinRequest,
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.TextSecondary)
+                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.TextSecondary),
                 ) {
                     Text("Cancel request", style = NostrordTypography.Button)
                 }
@@ -308,22 +316,22 @@ fun MessageInput(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(NostrordColors.SurfaceVariant)
-                .padding(Spacing.lg)
+                .padding(Spacing.lg),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = "Join the group to send messages",
                     color = NostrordColors.TextMuted,
-                    style = NostrordTypography.MessageBody
+                    style = NostrordTypography.MessageBody,
                 )
                 Spacer(modifier = Modifier.width(Spacing.sm))
                 TextButton(
                     onClick = { onJoinGroup(null) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary)
+                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary),
                 ) {
                     Text("Join Now", style = NostrordTypography.Button)
                 }
@@ -333,382 +341,391 @@ fun MessageInput(
         val textFieldInteractionSource = remember { MutableInteractionSource() }
 
         Column(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             if (replyingToMessage != null) {
                 ReplyingToBar(
                     message = replyingToMessage,
                     metadata = replyingToMetadata,
                     userMetadata = userMetadata,
-                    onCancelReply = onCancelReply
+                    onCancelReply = onCancelReply,
                 )
             }
 
             Box(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(NostrordColors.SurfaceVariant)
-                    .padding(horizontal = Spacing.lg, vertical = Spacing.md),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                MessageUploadButton(
-                    onUploadComplete = { uploadResult ->
-                        val url = uploadResult.url
-                        val current = textFieldValue.text
-                        val separator = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
-                        val newText = current + separator + url
-                        textFieldValue = TextFieldValue(newText, TextRange(newText.length))
-                        onMessageInputChange(newText)
-                        onMediaUploaded(uploadResult)
-                    }
-                )
-
-                TextField(
-                    value = textFieldValue,
-                    onValueChange = { handleTextFieldValueChange(it) },
-                    interactionSource = textFieldInteractionSource,
-                    placeholder = {
-                        Text(
-                            "Message ${groupName ?: selectedChannel}",
-                            style = NostrordTypography.InputPlaceholder,
-                            color = NostrordColors.TextMuted
-                        )
-                    },
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(NostrordShapes.inputShape)
-                        .focusRequester(focusRequester)
-                        .onFocusChanged { focusState ->
-                            if (!focusState.isFocused) {
-                                showMentionPopup = false
-                                showGroupMentionPopup = false
-                            }
-                        }
-                        .onPreviewKeyEvent { event ->
-                            val filteredMembers = getFilteredMembers(groupMembers, mentionQuery)
-                            val filteredGroups = getFilteredGroups(availableGroups, groupMentionQuery)
-                            when {
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.Escape &&
-                                showEmojiPicker -> {
-                                    showEmojiPicker = false
-                                    true
-                                }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.Escape &&
-                                showMentionPopup -> {
+                        .fillMaxWidth()
+                        .background(NostrordColors.SurfaceVariant)
+                        .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    MessageUploadButton(
+                        onUploadComplete = { uploadResult ->
+                            val url = uploadResult.url
+                            val current = textFieldValue.text
+                            val separator = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
+                            val newText = current + separator + url
+                            textFieldValue = TextFieldValue(newText, TextRange(newText.length))
+                            onMessageInputChange(newText)
+                            onMediaUploaded(uploadResult)
+                        },
+                    )
+
+                    TextField(
+                        value = textFieldValue,
+                        onValueChange = { handleTextFieldValueChange(it) },
+                        interactionSource = textFieldInteractionSource,
+                        placeholder = {
+                            Text(
+                                "Message ${groupName ?: selectedChannel}",
+                                style = NostrordTypography.InputPlaceholder,
+                                color = NostrordColors.TextMuted,
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(NostrordShapes.inputShape)
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { focusState ->
+                                if (!focusState.isFocused) {
                                     showMentionPopup = false
-                                    mentionStartIndex = -1
-                                    mentionQuery = ""
-                                    true
-                                }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.Escape &&
-                                showGroupMentionPopup -> {
                                     showGroupMentionPopup = false
-                                    groupMentionStartIndex = -1
-                                    groupMentionQuery = ""
-                                    true
                                 }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.DirectionUp &&
-                                showMentionPopup &&
-                                filteredMembers.isNotEmpty() -> {
-                                    mentionSelectedIndex = (mentionSelectedIndex - 1).coerceAtLeast(0)
-                                    true
-                                }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.DirectionDown &&
-                                showMentionPopup &&
-                                filteredMembers.isNotEmpty() -> {
-                                    mentionSelectedIndex = (mentionSelectedIndex + 1).coerceAtMost(filteredMembers.size - 1)
-                                    true
-                                }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.DirectionUp &&
-                                showGroupMentionPopup &&
-                                filteredGroups.isNotEmpty() -> {
-                                    groupMentionSelectedIndex = (groupMentionSelectedIndex - 1).coerceAtLeast(0)
-                                    true
-                                }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.DirectionDown &&
-                                showGroupMentionPopup &&
-                                filteredGroups.isNotEmpty() -> {
-                                    groupMentionSelectedIndex = (groupMentionSelectedIndex + 1).coerceAtMost(filteredGroups.size - 1)
-                                    true
-                                }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.V &&
-                                event.isCtrlPressed &&
-                                !isUploadingPaste -> {
-                                    val hasMedia = runCatching { clipboardReader.hasImage() }.getOrDefault(false)
-                                    if (hasMedia) {
-                                        isUploadingPaste = true
-                                        scope.launch {
-                                            val image = try {
-                                                clipboardReader.read()
-                                            } catch (e: FileTooLargeException) {
-                                                isUploadingPaste = false
-                                                pasteError = e.message
-                                                return@launch
-                                            } catch (e: UnsupportedFileTypeException) {
-                                                isUploadingPaste = false
-                                                pasteError = e.message
-                                                return@launch
-                                            }
-                                            if (image == null) { isUploadingPaste = false; return@launch }
-                                            handlePastedMedia(image.first, image.second)
-                                        }
+                            }
+                            .onPreviewKeyEvent { event ->
+                                val filteredMembers = getFilteredMembers(groupMembers, mentionQuery)
+                                val filteredGroups = getFilteredGroups(availableGroups, groupMentionQuery)
+                                when {
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Escape &&
+                                        showEmojiPicker -> {
+                                        showEmojiPicker = false
                                         true
-                                    } else {
-                                        false
                                     }
-                                }
-                                // Shift+Enter: manually insert newline at cursor (Discord-style)
-                                // Returning false here is unreliable in Compose Desktop — insert explicitly.
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.Enter &&
-                                event.isShiftPressed -> {
-                                    val sel = textFieldValue.selection
-                                    val text = textFieldValue.text
-                                    val newText = text.substring(0, sel.start) + "\n" + text.substring(sel.end)
-                                    val newValue = TextFieldValue(newText, TextRange(sel.start + 1))
-                                    textFieldValue = newValue
-                                    onMessageInputChange(newText)
-                                    updateMentionState(newValue)
-                                    updateGroupMentionState(newValue)
-                                    true
-                                }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.Enter &&
-                                !event.isShiftPressed -> {
-                                    if (showMentionPopup && filteredMembers.isNotEmpty()) {
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Escape &&
+                                        showMentionPopup -> {
+                                        showMentionPopup = false
+                                        mentionStartIndex = -1
+                                        mentionQuery = ""
+                                        true
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Escape &&
+                                        showGroupMentionPopup -> {
+                                        showGroupMentionPopup = false
+                                        groupMentionStartIndex = -1
+                                        groupMentionQuery = ""
+                                        true
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.DirectionUp &&
+                                        showMentionPopup &&
+                                        filteredMembers.isNotEmpty() -> {
+                                        mentionSelectedIndex = (mentionSelectedIndex - 1).coerceAtLeast(0)
+                                        true
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.DirectionDown &&
+                                        showMentionPopup &&
+                                        filteredMembers.isNotEmpty() -> {
+                                        mentionSelectedIndex = (mentionSelectedIndex + 1).coerceAtMost(filteredMembers.size - 1)
+                                        true
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.DirectionUp &&
+                                        showGroupMentionPopup &&
+                                        filteredGroups.isNotEmpty() -> {
+                                        groupMentionSelectedIndex = (groupMentionSelectedIndex - 1).coerceAtLeast(0)
+                                        true
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.DirectionDown &&
+                                        showGroupMentionPopup &&
+                                        filteredGroups.isNotEmpty() -> {
+                                        groupMentionSelectedIndex = (groupMentionSelectedIndex + 1).coerceAtMost(filteredGroups.size - 1)
+                                        true
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.V &&
+                                        event.isCtrlPressed &&
+                                        !isUploadingPaste -> {
+                                        val hasMedia = runCatching { clipboardReader.hasImage() }.getOrDefault(false)
+                                        if (hasMedia) {
+                                            isUploadingPaste = true
+                                            scope.launch {
+                                                val image = try {
+                                                    clipboardReader.read()
+                                                } catch (e: FileTooLargeException) {
+                                                    isUploadingPaste = false
+                                                    pasteError = e.message
+                                                    return@launch
+                                                } catch (e: UnsupportedFileTypeException) {
+                                                    isUploadingPaste = false
+                                                    pasteError = e.message
+                                                    return@launch
+                                                }
+                                                if (image == null) {
+                                                    isUploadingPaste = false
+                                                    return@launch
+                                                }
+                                                handlePastedMedia(image.first, image.second)
+                                            }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    // Shift+Enter: manually insert newline at cursor (Discord-style)
+                                    // Returning false here is unreliable in Compose Desktop — insert explicitly.
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Enter &&
+                                        event.isShiftPressed -> {
+                                        val sel = textFieldValue.selection
+                                        val text = textFieldValue.text
+                                        val newText = text.substring(0, sel.start) + "\n" + text.substring(sel.end)
+                                        val newValue = TextFieldValue(newText, TextRange(sel.start + 1))
+                                        textFieldValue = newValue
+                                        onMessageInputChange(newText)
+                                        updateMentionState(newValue)
+                                        updateGroupMentionState(newValue)
+                                        true
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Enter &&
+                                        !event.isShiftPressed -> {
+                                        if (showMentionPopup && filteredMembers.isNotEmpty()) {
+                                            val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
+                                            if (selectedMember != null) handleMemberSelect(selectedMember)
+                                            true
+                                        } else if (showGroupMentionPopup && filteredGroups.isNotEmpty()) {
+                                            val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
+                                            if (selectedGroup != null) handleGroupSelect(selectedGroup)
+                                            true
+                                        } else if (textFieldValue.text.isNotBlank()) {
+                                            showEmojiPicker = false
+                                            onSendMessage()
+                                            true
+                                        } else {
+                                            true
+                                        }
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Tab &&
+                                        showMentionPopup &&
+                                        filteredMembers.isNotEmpty() -> {
                                         val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
                                         if (selectedMember != null) handleMemberSelect(selectedMember)
                                         true
-                                    } else if (showGroupMentionPopup && filteredGroups.isNotEmpty()) {
+                                    }
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Tab &&
+                                        showGroupMentionPopup &&
+                                        filteredGroups.isNotEmpty() -> {
                                         val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
                                         if (selectedGroup != null) handleGroupSelect(selectedGroup)
                                         true
-                                    } else if (textFieldValue.text.isNotBlank()) {
-                                        showEmojiPicker = false
-                                        onSendMessage()
-                                        true
-                                    } else {
-                                        true
                                     }
+                                    else -> false
                                 }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.Tab &&
-                                showMentionPopup &&
-                                filteredMembers.isNotEmpty() -> {
-                                    val selectedMember = filteredMembers.getOrNull(mentionSelectedIndex)
-                                    if (selectedMember != null) handleMemberSelect(selectedMember)
-                                    true
-                                }
-                                event.type == KeyEventType.KeyDown &&
-                                event.key == Key.Tab &&
-                                showGroupMentionPopup &&
-                                filteredGroups.isNotEmpty() -> {
-                                    val selectedGroup = filteredGroups.getOrNull(groupMentionSelectedIndex)
-                                    if (selectedGroup != null) handleGroupSelect(selectedGroup)
-                                    true
-                                }
-                                else -> false
-                            }
-                        },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = NostrordColors.InputBackground,
-                        unfocusedContainerColor = NostrordColors.InputBackground,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        cursorColor = Color.White,
-                        selectionColors = TextSelectionColors(
-                            handleColor = Color.White,
-                            backgroundColor = Color.White.copy(alpha = 0.3f)
+                            },
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = NostrordColors.InputBackground,
+                            unfocusedContainerColor = NostrordColors.InputBackground,
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            cursorColor = Color.White,
+                            selectionColors = TextSelectionColors(
+                                handleColor = Color.White,
+                                backgroundColor = Color.White.copy(alpha = 0.3f),
+                            ),
+                            focusedPlaceholderColor = NostrordColors.TextMuted,
+                            unfocusedPlaceholderColor = NostrordColors.TextMuted,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
                         ),
-                        focusedPlaceholderColor = NostrordColors.TextMuted,
-                        unfocusedPlaceholderColor = NostrordColors.TextMuted,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    ),
-                    textStyle = NostrordTypography.Input,
-                    shape = NostrordShapes.inputShape,
-                    singleLine = false,
-                    maxLines = 4,
-                    visualTransformation = MentionVisualTransformation(
-                        mentionedNames = mentions.keys,
-                        mentionColor = NostrordColors.MentionText,
-                        emojiFontFamily = rememberEmojiFontFamily(),
-                        groupMentionedNames = groupMentions.keys
+                        textStyle = NostrordTypography.Input,
+                        shape = NostrordShapes.inputShape,
+                        singleLine = false,
+                        maxLines = 4,
+                        visualTransformation = MentionVisualTransformation(
+                            mentionedNames = mentions.keys,
+                            mentionColor = NostrordColors.MentionText,
+                            emojiFontFamily = rememberEmojiFontFamily(),
+                            groupMentionedNames = groupMentions.keys,
+                        ),
                     )
-                )
 
-                if (showEmojiButton) {
+                    if (showEmojiButton) {
+                        IconButton(
+                            onClick = {
+                                showEmojiPicker = !showEmojiPicker
+                                if (showEmojiPicker) showMentionPopup = false
+                            },
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.EmojiEmotions,
+                                contentDescription = "Emoji picker",
+                                tint = if (showEmojiPicker) {
+                                    NostrordColors.Primary
+                                } else {
+                                    NostrordColors.TextMuted
+                                },
+                                modifier = Modifier.size(Spacing.iconMd),
+                            )
+                        }
+                    }
+
                     IconButton(
                         onClick = {
-                            showEmojiPicker = !showEmojiPicker
-                            if (showEmojiPicker) showMentionPopup = false
+                            if (textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste) {
+                                showEmojiPicker = false
+                                onSendMessage()
+                            }
                         },
-                        modifier = Modifier.size(40.dp)
+                        enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
+                        modifier = Modifier.size(40.dp),
                     ) {
-                        Icon(
-                            Icons.Outlined.EmojiEmotions,
-                            contentDescription = "Emoji picker",
-                            tint = if (showEmojiPicker) NostrordColors.Primary
-                                   else NostrordColors.TextMuted,
-                            modifier = Modifier.size(Spacing.iconMd)
-                        )
-                    }
-                }
-
-                IconButton(
-                    onClick = {
-                        if (textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste) {
-                            showEmojiPicker = false
-                            onSendMessage()
+                        if (isSending || isUploadingPaste) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(Spacing.iconMd),
+                                color = NostrordColors.Primary,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send message",
+                                tint = if (textFieldValue.text.isNotBlank()) {
+                                    NostrordColors.Primary
+                                } else {
+                                    NostrordColors.TextMuted
+                                },
+                                modifier = Modifier.size(Spacing.iconMd),
+                            )
                         }
-                    },
-                    enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    if (isSending || isUploadingPaste) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(Spacing.iconMd),
-                            color = NostrordColors.Primary,
-                            strokeWidth = 2.dp
+                    }
+                }
+
+                if (showMentionPopup && groupMembers.isNotEmpty()) {
+                    val density = LocalDensity.current
+                    val filteredCount = getFilteredMembers(groupMembers, mentionQuery).size
+                    val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
+                    val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
+                    val offsetXPx = with(density) { Spacing.lg.roundToPx() }
+
+                    Popup(alignment = Alignment.Center, onDismissRequest = { showMentionPopup = false }) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Transparent)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { showMentionPopup = false },
+                                ),
                         )
-                    } else {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send message",
-                            tint = if (textFieldValue.text.isNotBlank()) NostrordColors.Primary
-                                   else NostrordColors.TextMuted,
-                            modifier = Modifier.size(Spacing.iconMd)
+                    }
+
+                    Popup(
+                        alignment = Alignment.TopStart,
+                        offset = IntOffset(x = offsetXPx, y = -popupHeightPx),
+                        onDismissRequest = { showMentionPopup = false },
+                        properties = PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = true),
+                    ) {
+                        MentionPopup(
+                            members = groupMembers,
+                            query = mentionQuery,
+                            selectedIndex = mentionSelectedIndex,
+                            onMemberSelect = { handleMemberSelect(it) },
                         )
                     }
                 }
-            }
 
-            if (showMentionPopup && groupMembers.isNotEmpty()) {
-                val density = LocalDensity.current
-                val filteredCount = getFilteredMembers(groupMembers, mentionQuery).size
-                val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
-                val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
-                val offsetXPx = with(density) { Spacing.lg.roundToPx() }
+                if (showGroupMentionPopup && availableGroups.isNotEmpty()) {
+                    val density = LocalDensity.current
+                    val filteredCount = getFilteredGroups(availableGroups, groupMentionQuery).size
+                    val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
+                    val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
+                    val offsetXPx = with(density) { Spacing.lg.roundToPx() }
 
-                Popup(alignment = Alignment.Center, onDismissRequest = { showMentionPopup = false }) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Transparent)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { showMentionPopup = false }
-                            )
-                    )
+                    Popup(alignment = Alignment.Center, onDismissRequest = { showGroupMentionPopup = false }) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Transparent)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = { showGroupMentionPopup = false },
+                                ),
+                        )
+                    }
+
+                    Popup(
+                        alignment = Alignment.TopStart,
+                        offset = IntOffset(x = offsetXPx, y = -popupHeightPx),
+                        onDismissRequest = { showGroupMentionPopup = false },
+                        properties = PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = true),
+                    ) {
+                        GroupMentionPopup(
+                            groups = availableGroups,
+                            query = groupMentionQuery,
+                            selectedIndex = groupMentionSelectedIndex,
+                            onGroupSelect = { handleGroupSelect(it) },
+                        )
+                    }
                 }
 
-                Popup(
-                    alignment = Alignment.TopStart,
-                    offset = IntOffset(x = offsetXPx, y = -popupHeightPx),
-                    onDismissRequest = { showMentionPopup = false },
-                    properties = PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = true)
-                ) {
-                    MentionPopup(
-                        members = groupMembers,
-                        query = mentionQuery,
-                        selectedIndex = mentionSelectedIndex,
-                        onMemberSelect = { handleMemberSelect(it) }
-                    )
-                }
-            }
-
-            if (showGroupMentionPopup && availableGroups.isNotEmpty()) {
-                val density = LocalDensity.current
-                val filteredCount = getFilteredGroups(availableGroups, groupMentionQuery).size
-                val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
-                val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
-                val offsetXPx = with(density) { Spacing.lg.roundToPx() }
-
-                Popup(alignment = Alignment.Center, onDismissRequest = { showGroupMentionPopup = false }) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Transparent)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = { showGroupMentionPopup = false }
-                            )
-                    )
-                }
-
-                Popup(
-                    alignment = Alignment.TopStart,
-                    offset = IntOffset(x = offsetXPx, y = -popupHeightPx),
-                    onDismissRequest = { showGroupMentionPopup = false },
-                    properties = PopupProperties(focusable = false, dismissOnClickOutside = false, dismissOnBackPress = true)
-                ) {
-                    GroupMentionPopup(
-                        groups = availableGroups,
-                        query = groupMentionQuery,
-                        selectedIndex = groupMentionSelectedIndex,
-                        onGroupSelect = { handleGroupSelect(it) }
-                    )
-                }
-            }
-
-            if (showEmojiPicker) {
-                Popup(
-                    alignment = Alignment.Center,
-                    onDismissRequest = {
-                        showEmojiPicker = false
-                        focusRequester.requestFocus()
-                    },
-                    properties = PopupProperties(
-                        focusable = true,
-                        dismissOnClickOutside = false,
-                        dismissOnBackPress = true
-                    )
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = {
+                if (showEmojiPicker) {
+                    Popup(
+                        alignment = Alignment.Center,
+                        onDismissRequest = {
+                            showEmojiPicker = false
+                            focusRequester.requestFocus()
+                        },
+                        properties = PopupProperties(
+                            focusable = true,
+                            dismissOnClickOutside = false,
+                            dismissOnBackPress = true,
+                        ),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {
+                                        showEmojiPicker = false
+                                        focusRequester.requestFocus()
+                                    },
+                                ),
+                        ) {
+                            EmojiPicker(
+                                onEmojiSelect = { emoji ->
+                                    val text = textFieldValue.text
+                                    val cursor = textFieldValue.selection.start
+                                    val newText = text.substring(0, cursor) + emoji + text.substring(cursor)
+                                    val newCursor = cursor + emoji.length
+                                    textFieldValue = TextFieldValue(newText, TextRange(newCursor))
+                                    onMessageInputChange(newText)
+                                },
+                                onDismiss = {
                                     showEmojiPicker = false
                                     focusRequester.requestFocus()
-                                }
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = Spacing.lg, bottom = 56.dp),
                             )
-                    ) {
-                        EmojiPicker(
-                            onEmojiSelect = { emoji ->
-                                val text = textFieldValue.text
-                                val cursor = textFieldValue.selection.start
-                                val newText = text.substring(0, cursor) + emoji + text.substring(cursor)
-                                val newCursor = cursor + emoji.length
-                                textFieldValue = TextFieldValue(newText, TextRange(newCursor))
-                                onMessageInputChange(newText)
-                            },
-                            onDismiss = {
-                                showEmojiPicker = false
-                                focusRequester.requestFocus()
-                            },
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(end = Spacing.lg, bottom = 56.dp)
-                        )
+                        }
                     }
                 }
-            }
             }
         }
 
@@ -719,7 +736,7 @@ fun MessageInput(
                     scope.launch { handlePastedMedia(bytes, filename) }
                 }
             },
-            onError = { pasteError = it }
+            onError = { pasteError = it },
         )
 
         ShareMediaEffect(
@@ -729,7 +746,7 @@ fun MessageInput(
                     scope.launch { handlePastedMedia(bytes, filename) }
                 }
             },
-            onError = { pasteError = it }
+            onError = { pasteError = it },
         )
 
         pasteError?.let { error ->
@@ -739,7 +756,7 @@ fun MessageInput(
                 text = { Text(error) },
                 confirmButton = {
                     TextButton(onClick = { pasteError = null }) { Text("OK") }
-                }
+                },
             )
         }
     }
@@ -750,7 +767,7 @@ private fun ReplyingToBar(
     message: NostrGroupClient.NostrMessage,
     metadata: UserMetadata?,
     userMetadata: Map<String, UserMetadata>,
-    onCancelReply: () -> Unit
+    onCancelReply: () -> Unit,
 ) {
     val authorName = metadata?.displayName
         ?: metadata?.name
@@ -775,7 +792,7 @@ private fun ReplyingToBar(
             .fillMaxWidth()
             .background(NostrordColors.Surface)
             .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
@@ -783,8 +800,8 @@ private fun ReplyingToBar(
                 .height(24.dp)
                 .background(
                     color = NostrordColors.Primary,
-                    shape = RoundedCornerShape(1.5.dp)
-                )
+                    shape = RoundedCornerShape(1.5.dp),
+                ),
         )
 
         Spacer(modifier = Modifier.width(Spacing.sm))
@@ -793,25 +810,25 @@ private fun ReplyingToBar(
             Text(
                 text = "Replying to $authorName",
                 color = NostrordColors.Primary,
-                style = NostrordTypography.Caption
+                style = NostrordTypography.Caption,
             )
             Text(
                 text = processedContent.take(50) + if (processedContent.length > 50) "..." else "",
                 color = NostrordColors.TextSecondary,
                 style = NostrordTypography.Caption,
-                maxLines = 1
+                maxLines = 1,
             )
         }
 
         IconButton(
             onClick = onCancelReply,
-            modifier = Modifier.size(32.dp)
+            modifier = Modifier.size(32.dp),
         ) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Cancel reply",
                 tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
         }
     }
@@ -839,14 +856,14 @@ private val emojiRegex = Regex(
         "\uD83D\uDE80-\uD83D\uDEFF" +
         "\uFE0E\uFE0F" +
         "\u20E3" +
-        "]+"
+        "]+",
 )
 
 private class MentionVisualTransformation(
     private val mentionedNames: Set<String>,
     private val mentionColor: Color,
     private val emojiFontFamily: FontFamily? = null,
-    private val groupMentionedNames: Set<String> = emptySet()
+    private val groupMentionedNames: Set<String> = emptySet(),
 ) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
         val builder = AnnotatedString.Builder(text)
@@ -870,7 +887,7 @@ private class MentionVisualTransformation(
                 builder.addStyle(
                     SpanStyle(fontFamily = emojiFontFamily),
                     match.range.first,
-                    match.range.last + 1
+                    match.range.last + 1,
                 )
             }
         }

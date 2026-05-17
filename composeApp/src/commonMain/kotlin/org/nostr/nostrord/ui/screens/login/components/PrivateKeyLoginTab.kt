@@ -50,25 +50,32 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         isLoading = true
         errorMessage = null
         val input = privateKey.trim()
-        val hex = if (input.startsWith("nsec1")) {
-            (Nip19.decode(input) as? Nip19.Entity.Nsec)?.privkey
-        } else input
+        val hex =
+            if (input.startsWith("nsec1")) {
+                (Nip19.decode(input) as? Nip19.Entity.Nsec)?.privkey
+            } else {
+                input
+            }
         if (hex == null) {
             errorMessage = "Invalid private key or login failed"
             isLoading = false
             return
         }
-        val keyPair = try {
-            KeyPair.fromPrivateKeyHex(hex)
-        } catch (e: Exception) {
-            errorMessage = "Invalid private key or login failed"
-            isLoading = false
-            return
-        }
+        val keyPair =
+            try {
+                KeyPair.fromPrivateKeyHex(hex)
+            } catch (e: Exception) {
+                errorMessage = "Invalid private key or login failed"
+                isLoading = false
+                return
+            }
         vm.loginWithPrivateKey(hex, keyPair.publicKeyHex) { result ->
             isLoading = false
-            if (result.isSuccess) onLoginSuccess()
-            else errorMessage = "Invalid private key or login failed"
+            if (result.isSuccess) {
+                onLoginSuccess()
+            } else {
+                errorMessage = "Invalid private key or login failed"
+            }
         }
     }
 
@@ -76,11 +83,14 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         // Input field with icon
         OutlinedTextField(
             value = privateKey,
-            onValueChange = { privateKey = it; errorMessage = null },
+            onValueChange = {
+                privateKey = it
+                errorMessage = null
+            },
             placeholder = {
                 Text(
                     "Enter your private key (hex or nsec)",
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
             },
             singleLine = true,
@@ -90,7 +100,7 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                 Icon(
                     imageVector = Icons.Default.VpnKey,
                     contentDescription = null,
-                    tint = NostrordColors.TextMuted
+                    tint = NostrordColors.TextMuted,
                 )
             },
             trailingIcon = {
@@ -98,25 +108,27 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                     Icon(
                         imageVector = if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                         contentDescription = if (showKey) "Hide key" else "Show key",
-                        tint = NostrordColors.TextMuted
+                        tint = NostrordColors.TextMuted,
                     )
                 }
             },
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(
+            keyboardOptions =
+            KeyboardOptions(
                 keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done
+                imeAction = ImeAction.Done,
             ),
             keyboardActions = KeyboardActions(onDone = { if (privateKey.isNotBlank()) login() }),
             shape = NostrordShapes.inputShape,
-            colors = OutlinedTextFieldDefaults.colors(
+            colors =
+            OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = NostrordColors.Primary,
                 unfocusedBorderColor = NostrordColors.SurfaceVariant,
                 cursorColor = NostrordColors.Primary,
                 focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground
+                unfocusedContainerColor = NostrordColors.InputBackground,
             ),
-            enabled = !isLoading
+            enabled = !isLoading,
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -124,29 +136,31 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         // Login button
         Button(
             onClick = { login() },
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .height(48.dp),
             enabled = privateKey.isNotBlank() && !isLoading,
             shape = NostrordShapes.buttonShape,
-            colors = ButtonDefaults.buttonColors(
+            colors =
+            ButtonDefaults.buttonColors(
                 containerColor = NostrordColors.Primary,
                 contentColor = Color.White,
                 disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
-                disabledContentColor = Color.White.copy(alpha = 0.7f)
-            )
+                disabledContentColor = Color.White.copy(alpha = 0.7f),
+            ),
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
                     color = Color.White,
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
                 )
             } else {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Login,
                     contentDescription = null,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Login", fontWeight = FontWeight.SemiBold)
@@ -155,24 +169,25 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
 
         // Divider
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .padding(vertical = 20.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             HorizontalDivider(
                 modifier = Modifier.weight(1f),
-                color = NostrordColors.Divider
+                color = NostrordColors.Divider,
             )
             Text(
                 text = "or",
                 modifier = Modifier.padding(horizontal = 16.dp),
                 color = NostrordColors.TextMuted,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
             )
             HorizontalDivider(
                 modifier = Modifier.weight(1f),
-                color = NostrordColors.Divider
+                color = NostrordColors.Divider,
             )
         }
 
@@ -187,26 +202,34 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                 val keyPair = KeyPair.fromPrivateKeyHex(newPrivateKey)
                 vm.loginWithPrivateKey(newPrivateKey, keyPair.publicKeyHex) { result ->
                     isLoading = false
-                    if (result.isSuccess) onLoginSuccess()
-                    else errorMessage = "Failed to generate key"
+                    if (result.isSuccess) {
+                        onLoginSuccess()
+                    } else {
+                        errorMessage = "Failed to generate key"
+                    }
                 }
             },
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .height(48.dp),
             enabled = !isLoading,
             shape = NostrordShapes.buttonShape,
-            colors = ButtonDefaults.outlinedButtonColors(
-                contentColor = NostrordColors.Success
+            colors =
+            ButtonDefaults.outlinedButtonColors(
+                contentColor = NostrordColors.Success,
             ),
-            border = ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
-                brush = androidx.compose.ui.graphics.SolidColor(NostrordColors.Success.copy(alpha = 0.5f))
-            )
+            border =
+            ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
+                brush =
+                androidx.compose.ui.graphics
+                    .SolidColor(NostrordColors.Success.copy(alpha = 0.5f)),
+            ),
         ) {
             Icon(
                 imageVector = Icons.Default.AutoAwesome,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text("Generate New Identity", fontWeight = FontWeight.SemiBold)
@@ -222,13 +245,13 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = NostrordShapes.shapeSmall,
-                color = NostrordColors.Error.copy(alpha = 0.1f)
+                color = NostrordColors.Error.copy(alpha = 0.1f),
             ) {
                 Text(
                     text = it,
                     color = NostrordColors.Error,
                     modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }

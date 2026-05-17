@@ -5,12 +5,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
-import androidx.compose.runtime.collectAsState
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.utils.normalizeRelayUrl
@@ -23,7 +22,7 @@ fun HomeScreen(
     onCreateGroupClick: () -> Unit = {},
     onOpenDrawer: () -> Unit = {},
     forceDesktop: Boolean = false,
-    initiallyManaging: Boolean = false
+    initiallyManaging: Boolean = false,
 ) {
     val vm = viewModel { HomeViewModel(AppModule.nostrRepository) }
 
@@ -39,68 +38,84 @@ fun HomeScreen(
 
     val displayRelayUrl = relayUrl ?: currentRelayUrl
     val relayMeta: Nip11RelayInfo? = relayMetadata[displayRelayUrl]
-    val groups = remember(displayRelayUrl, groupsByRelay) {
-        groupsByRelay[displayRelayUrl] ?: emptyList()
-    }
+    val groups =
+        remember(displayRelayUrl, groupsByRelay) {
+            groupsByRelay[displayRelayUrl] ?: emptyList()
+        }
 
     // Use relay-specific joined groups so the filter matches the sidebar for the same relay.
     // Normalize the lookup key — joinedGroupsByRelay keys are always normalized but
     // displayRelayUrl may arrive un-normalized from a deep link or navigation argument.
-    val joinedGroupIds = remember(displayRelayUrl, joinedGroupsByRelay) {
-        val key = displayRelayUrl.normalizeRelayUrl()
-        joinedGroupsByRelay[key] ?: emptySet()
-    }
-
-    val offlineGroups = remember(joinedGroupIds, groups) {
-        joinedGroupIds.map { id ->
-            groups.find { it.id == id } ?: org.nostr.nostrord.network.GroupMetadata(
-                id = id, name = null, about = null, picture = null, isPublic = false, isOpen = false
-            )
+    val joinedGroupIds =
+        remember(displayRelayUrl, joinedGroupsByRelay) {
+            val key = displayRelayUrl.normalizeRelayUrl()
+            joinedGroupsByRelay[key] ?: emptySet()
         }
-    }
+
+    val offlineGroups =
+        remember(joinedGroupIds, groups) {
+            joinedGroupIds.map { id ->
+                groups.find { it.id == id } ?: org.nostr.nostrord.network.GroupMetadata(
+                    id = id,
+                    name = null,
+                    about = null,
+                    picture = null,
+                    isPublic = false,
+                    isOpen = false,
+                )
+            }
+        }
 
     var searchQuery by remember(displayRelayUrl) { mutableStateOf("") }
     var activeFilter by remember(displayRelayUrl) { mutableStateOf(GroupFilter.All) }
     var isManagingRelay by remember(displayRelayUrl) { mutableStateOf(false) }
 
-    val orphanedIds = remember(displayRelayUrl, orphanedJoinedByRelay) {
-        orphanedJoinedByRelay[displayRelayUrl] ?: emptySet()
-    }
+    val orphanedIds =
+        remember(displayRelayUrl, orphanedJoinedByRelay) {
+            orphanedJoinedByRelay[displayRelayUrl] ?: emptySet()
+        }
 
-    val filteredGroups = remember(groups, searchQuery, activeFilter, joinedGroupIds, orphanedIds) {
-        val base = groups
-            .filter { group ->
-                when (activeFilter) {
-                    GroupFilter.All -> true
-                    GroupFilter.Joined -> group.id in joinedGroupIds
-                }
+    val filteredGroups =
+        remember(groups, searchQuery, activeFilter, joinedGroupIds, orphanedIds) {
+            val base =
+                groups
+                    .filter { group ->
+                        when (activeFilter) {
+                            GroupFilter.All -> true
+                            GroupFilter.Joined -> group.id in joinedGroupIds
+                        }
+                    }.filter { group ->
+                        if (searchQuery.isBlank()) {
+                            true
+                        } else {
+                            group.name?.contains(searchQuery, ignoreCase = true) == true ||
+                                group.id.contains(searchQuery, ignoreCase = true)
+                        }
+                    }
+            // In the Joined tab, surface orphan pins (kind:10009 ids without a
+            // kind:39000) as stub cards so the user can see the count matches
+            // reality. Sidebar ghost rows let them forget.
+            if (activeFilter == GroupFilter.Joined && orphanedIds.isNotEmpty()) {
+                val knownIds = base.map { it.id }.toSet()
+                val stubs =
+                    orphanedIds
+                        .filter { it !in knownIds }
+                        .filter { searchQuery.isBlank() || it.contains(searchQuery, ignoreCase = true) }
+                        .map { id ->
+                            org.nostr.nostrord.network.GroupMetadata(
+                                id = id,
+                                name = null,
+                                about = "Deleted or unavailable on this relay",
+                                picture = null,
+                                isPublic = false,
+                                isOpen = false,
+                            )
+                        }
+                base + stubs
+            } else {
+                base
             }
-            .filter { group ->
-                if (searchQuery.isBlank()) true
-                else group.name?.contains(searchQuery, ignoreCase = true) == true ||
-                     group.id.contains(searchQuery, ignoreCase = true)
-            }
-        // In the Joined tab, surface orphan pins (kind:10009 ids without a
-        // kind:39000) as stub cards so the user can see the count matches
-        // reality. Sidebar ghost rows let them forget.
-        if (activeFilter == GroupFilter.Joined && orphanedIds.isNotEmpty()) {
-            val knownIds = base.map { it.id }.toSet()
-            val stubs = orphanedIds
-                .filter { it !in knownIds }
-                .filter { searchQuery.isBlank() || it.contains(searchQuery, ignoreCase = true) }
-                .map { id ->
-                    org.nostr.nostrord.network.GroupMetadata(
-                        id = id,
-                        name = null,
-                        about = "Deleted or unavailable on this relay",
-                        picture = null,
-                        isPublic = false,
-                        isOpen = false
-                    )
-                }
-            base + stubs
-        } else base
-    }
+        }
 
     LaunchedEffect(Unit) {
         vm.connect()
@@ -114,13 +129,16 @@ fun HomeScreen(
         val restrictionMessage = restrictedRelays[displayRelayUrl]
         // hasError covers relay-level restrictions only; generic failures show via ConnectionStatusBanner
         val hasError = restrictionMessage != null
-        val isLoading = displayRelayUrl in loadingRelays ||
+        val isLoading =
+            displayRelayUrl in loadingRelays ||
                 displayRelayUrl.isBlank() ||
                 connectionState !is ConnectionManager.ConnectionState.Connected
-        val isRelaySaved = remember(displayRelayUrl, kind10009Relays) {
-            displayRelayUrl.isNotBlank() && displayRelayUrl in kind10009Relays
-        }
-        val isReachabilityError = connectionState is ConnectionManager.ConnectionState.Error ||
+        val isRelaySaved =
+            remember(displayRelayUrl, kind10009Relays) {
+                displayRelayUrl.isNotBlank() && displayRelayUrl in kind10009Relays
+            }
+        val isReachabilityError =
+            connectionState is ConnectionManager.ConnectionState.Error ||
                 connectionState is ConnectionManager.ConnectionState.Reconnecting
 
         val onRemoveRelayConfirmed: () -> Unit = {
@@ -157,7 +175,7 @@ fun HomeScreen(
                 isOffline = isManagingRelay,
                 isActuallyOffline = isReachabilityError,
                 offlineGroups = offlineGroups,
-                onForgetGroup = { vm.forgetGroup(it, displayRelayUrl) }
+                onForgetGroup = { vm.forgetGroup(it, displayRelayUrl) },
             )
         } else {
             HomeScreenDesktop(
@@ -187,7 +205,7 @@ fun HomeScreen(
                 isOffline = isManagingRelay,
                 isActuallyOffline = isReachabilityError,
                 offlineGroups = offlineGroups,
-                onForgetGroup = { vm.forgetGroup(it, displayRelayUrl) }
+                onForgetGroup = { vm.forgetGroup(it, displayRelayUrl) },
             )
         }
     }

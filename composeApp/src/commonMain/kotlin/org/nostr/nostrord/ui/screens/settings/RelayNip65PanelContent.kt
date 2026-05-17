@@ -32,7 +32,7 @@ import org.nostr.nostrord.utils.toRelayUrl
 fun RelayNip65PanelContent(
     currentRelays: List<Nip65Relay>,
     usingDefaults: Boolean = false,
-    onPublish: suspend (List<Nip65Relay>) -> Result<Unit>
+    onPublish: suspend (List<Nip65Relay>) -> Result<Unit>,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -50,31 +50,36 @@ fun RelayNip65PanelContent(
     var saveError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(showSuccess) {
-        if (showSuccess) { kotlinx.coroutines.delay(2500); showSuccess = false }
+        if (showSuccess) {
+            kotlinx.coroutines.delay(2500)
+            showSuccess = false
+        }
     }
     LaunchedEffect(saveError) {
-        if (saveError != null) { kotlinx.coroutines.delay(3500); saveError = null }
+        if (saveError != null) {
+            kotlinx.coroutines.delay(3500)
+            saveError = null
+        }
     }
 
-    val hasNoRead  = relays.none { it.read }
+    val hasNoRead = relays.none { it.read }
     val hasNoWrite = relays.none { it.write }
 
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
-
         // Info card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
             Text(
                 text = "NIP-65 relay list (kind 10002) is where other clients find your profile " +
-                        "and your joined groups list (kind 10009). " +
-                        "Write relays are where you publish; read relays are for cross-network discoverability. " +
-                        "Group messages are separate — they live on each group's relay.",
+                    "and your joined groups list (kind 10009). " +
+                    "Write relays are where you publish; read relays are for cross-network discoverability. " +
+                    "Group messages are separate — they live on each group's relay.",
                 color = NostrordColors.TextSecondary,
                 fontSize = 13.sp,
-                modifier = Modifier.padding(Spacing.lg)
+                modifier = Modifier.padding(Spacing.lg),
             )
         }
 
@@ -84,32 +89,32 @@ fun RelayNip65PanelContent(
                 modifier = Modifier.fillMaxWidth(),
                 shape = NostrordShapes.cardShape,
                 colors = CardDefaults.cardColors(
-                    containerColor = NostrordColors.WarningOrange.copy(alpha = 0.12f)
-                )
+                    containerColor = NostrordColors.WarningOrange.copy(alpha = 0.12f),
+                ),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(Spacing.lg),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.md),
-                    verticalAlignment = Alignment.Top
+                    verticalAlignment = Alignment.Top,
                 ) {
                     Icon(
                         Icons.Default.Warning,
                         contentDescription = null,
                         tint = NostrordColors.WarningOrange,
-                        modifier = Modifier.size(18.dp).padding(top = 2.dp)
+                        modifier = Modifier.size(18.dp).padding(top = 2.dp),
                     )
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             text = "Using default relays",
                             color = NostrordColors.WarningOrange,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
                         )
                         Text(
                             text = "No relay list (kind 10002) was found for this account. " +
-                                    "Publish your relay list so others can find your profile and groups.",
+                                "Publish your relay list so others can find your profile and groups.",
                             color = NostrordColors.WarningOrange,
-                            fontSize = 13.sp
+                            fontSize = 13.sp,
                         )
                     }
                 }
@@ -120,16 +125,16 @@ fun RelayNip65PanelContent(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
-                verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 Text(
                     text = "YOUR RELAYS",
                     style = NostrordTypography.SectionHeader,
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
 
                 Spacer(Modifier.height(Spacing.sm))
@@ -138,7 +143,7 @@ fun RelayNip65PanelContent(
                     Text(
                         text = "No relays configured. Add at least one read relay and one write relay.",
                         color = NostrordColors.TextMuted,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
                     )
                 } else {
                     relays.forEachIndexed { index, relay ->
@@ -156,7 +161,7 @@ fun RelayNip65PanelContent(
                             },
                             onDelete = {
                                 relays = relays.toMutableList().also { it.removeAt(index) }
-                            }
+                            },
                         )
                         if (index < relays.lastIndex) {
                             HorizontalDivider(color = NostrordColors.Divider)
@@ -172,7 +177,7 @@ fun RelayNip65PanelContent(
                 Text(
                     text = "ADD RELAY",
                     style = NostrordTypography.SectionHeader,
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
                 Spacer(Modifier.height(Spacing.sm))
 
@@ -189,41 +194,41 @@ fun RelayNip65PanelContent(
                         unfocusedContainerColor = NostrordColors.InputBackground,
                         cursorColor = NostrordColors.Primary,
                         focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                        unfocusedTextColor = Color.White,
                     ),
-                    shape = NostrordShapes.shapeSmall
+                    shape = NostrordShapes.shapeSmall,
                 )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xl)
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xl),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                     ) {
                         Checkbox(
                             checked = newRead,
                             onCheckedChange = { newRead = it },
                             colors = CheckboxDefaults.colors(
                                 checkedColor = NostrordColors.Primary,
-                                uncheckedColor = NostrordColors.TextMuted
-                            )
+                                uncheckedColor = NostrordColors.TextMuted,
+                            ),
                         )
                         Text("Read", color = NostrordColors.TextSecondary, fontSize = 14.sp)
                     }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                     ) {
                         Checkbox(
                             checked = newWrite,
                             onCheckedChange = { newWrite = it },
                             colors = CheckboxDefaults.colors(
                                 checkedColor = NostrordColors.Primary,
-                                uncheckedColor = NostrordColors.TextMuted
-                            )
+                                uncheckedColor = NostrordColors.TextMuted,
+                            ),
                         )
                         Text("Write", color = NostrordColors.TextSecondary, fontSize = 14.sp)
                     }
@@ -241,13 +246,13 @@ fun RelayNip65PanelContent(
                             newWrite = true
                         },
                         enabled = canAdd,
-                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                     ) {
                         Icon(
                             Icons.Default.Add,
                             contentDescription = null,
                             tint = addTint,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(16.dp),
                         )
                         Spacer(Modifier.width(4.dp))
                         Text("Add", color = addTint, style = NostrordTypography.Button)
@@ -261,10 +266,10 @@ fun RelayNip65PanelContent(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.WarningOrange.copy(alpha = 0.15f))
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.WarningOrange.copy(alpha = 0.15f)),
             ) {
                 Column(modifier = Modifier.padding(Spacing.lg), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (hasNoRead)  Text("⚠ No read relay — cross-network discoverability will be limited.", color = NostrordColors.WarningOrange, fontSize = 13.sp)
+                    if (hasNoRead) Text("⚠ No read relay — cross-network discoverability will be limited.", color = NostrordColors.WarningOrange, fontSize = 13.sp)
                     if (hasNoWrite) Text("⚠ No write relay — your profile and joined groups list won't be discoverable.", color = NostrordColors.WarningOrange, fontSize = 13.sp)
                 }
             }
@@ -281,18 +286,18 @@ fun RelayNip65PanelContent(
                         isSaving = false
                         when (result) {
                             is Result.Success -> showSuccess = true
-                            is Result.Error   -> saveError = result.error.message ?: "Failed to publish"
+                            is Result.Error -> saveError = result.error.message ?: "Failed to publish"
                         }
                     }
                 },
                 enabled = !isSaving,
-                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
             ) {
                 if (isSaving) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         color = NostrordColors.Primary,
-                        strokeWidth = 2.dp
+                        strokeWidth = 2.dp,
                     )
                 } else {
                     Text("Save & Publish", color = NostrordColors.Primary, style = NostrordTypography.Button)
@@ -305,12 +310,12 @@ fun RelayNip65PanelContent(
             showSuccess -> StatusCard(
                 icon = Icons.Default.Check,
                 message = "Relay list published",
-                color = NostrordColors.Success
+                color = NostrordColors.Success,
             )
             saveError != null -> StatusCard(
                 icon = Icons.Default.Error,
                 message = saveError!!,
-                color = NostrordColors.Error
+                color = NostrordColors.Error,
             )
         }
     }
@@ -321,30 +326,30 @@ private fun RelayRow(
     relay: Nip65Relay,
     onReadToggle: () -> Unit,
     onWriteToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Text(
             text = relay.url,
             color = NostrordColors.TextPrimary,
             fontSize = 13.sp,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
         RelayChip(label = "R", active = relay.read, onClick = onReadToggle)
         RelayChip(label = "W", active = relay.write, onClick = onWriteToggle)
         IconButton(
             onClick = onDelete,
-            modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand)
+            modifier = Modifier.size(28.dp).pointerHoverIcon(PointerIcon.Hand),
         ) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Remove relay",
                 tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(14.dp),
             )
         }
     }
@@ -358,14 +363,14 @@ private fun RelayChip(label: String, active: Boolean, onClick: () -> Unit) {
         onClick = onClick,
         shape = RoundedCornerShape(4.dp),
         color = bg,
-        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
     ) {
         Text(
             text = label,
             color = textColor,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
         )
     }
 }
@@ -375,7 +380,7 @@ private fun StatusCard(icon: androidx.compose.ui.graphics.vector.ImageVector, me
     Card(
         colors = CardDefaults.cardColors(containerColor = color),
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))

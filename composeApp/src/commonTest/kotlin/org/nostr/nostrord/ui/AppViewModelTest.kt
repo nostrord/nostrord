@@ -16,7 +16,6 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppViewModelTest {
-
     private val testDispatcher = StandardTestDispatcher()
 
     @BeforeTest
@@ -32,7 +31,7 @@ class AppViewModelTest {
     @Test
     fun `isInitialized starts false`() = runTest {
         val fake = FakeNostrRepository()
-        fake.initializeAction = {}  // don't flip to true
+        fake.initializeAction = {} // don't flip to true
         val vm = AppViewModel(fake)
         assertFalse(vm.isInitialized.value)
     }

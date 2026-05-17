@@ -21,25 +21,27 @@ import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.utils.normalizeForSearch
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.normalizeForSearch
 
 /**
  * Get filtered members based on query for mention popup.
  * Used by MessageInput to know the count for keyboard navigation.
  */
-fun getFilteredMembers(members: List<MemberInfo>, query: String): List<MemberInfo> {
-    return if (query.isEmpty()) {
-        members.take(8)
-    } else {
-        val normalizedQuery = query.normalizeForSearch()
-        members.filter { member ->
+fun getFilteredMembers(
+    members: List<MemberInfo>,
+    query: String,
+): List<MemberInfo> = if (query.isEmpty()) {
+    members.take(8)
+} else {
+    val normalizedQuery = query.normalizeForSearch()
+    members
+        .filter { member ->
             member.displayName.normalizeForSearch().contains(normalizedQuery) ||
-            member.pubkey.contains(query, ignoreCase = true)
+                member.pubkey.contains(query, ignoreCase = true)
         }.take(8)
-    }
 }
 
 @Composable
@@ -48,7 +50,7 @@ fun MentionPopup(
     query: String,
     selectedIndex: Int = 0,
     onMemberSelect: (MemberInfo) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val filteredMembers = getFilteredMembers(members, query)
 
@@ -60,42 +62,44 @@ fun MentionPopup(
     val safeSelectedIndex = selectedIndex.coerceIn(0, filteredMembers.size - 1)
 
     Surface(
-        modifier = modifier
+        modifier =
+        modifier
             .width(300.dp)
             .heightIn(max = 320.dp),
         shape = NostrordShapes.menuShape,
         color = NostrordColors.Surface,
         shadowElevation = 16.dp,
-        tonalElevation = 0.dp
+        tonalElevation = 0.dp,
     ) {
         Column {
             // Header - uppercase section
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = Spacing.inputPadding, vertical = Spacing.sm)
+                    .padding(horizontal = Spacing.inputPadding, vertical = Spacing.sm),
             ) {
                 Text(
                     text = "MEMBERS",
                     style = NostrordTypography.SectionHeader,
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
             }
 
             HorizontalDivider(
                 color = NostrordColors.BackgroundDark,
-                thickness = Spacing.dividerThickness
+                thickness = Spacing.dividerThickness,
             )
 
             // Members list
             LazyColumn(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 itemsIndexed(filteredMembers) { index, member ->
                     MentionItem(
                         member = member,
                         isSelected = index == safeSelectedIndex,
-                        onClick = { onMemberSelect(member) }
+                        onClick = { onMemberSelect(member) },
                     )
                 }
             }
@@ -107,61 +111,62 @@ fun MentionPopup(
 private fun MentionItem(
     member: MemberInfo,
     isSelected: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
 
     // Keyboard selection (isSelected) takes precedence, hover provides secondary highlight
-    val backgroundColor = when {
-        isPressed -> NostrordColors.SurfaceVariant
-        isSelected -> NostrordColors.Primary.copy(alpha = 0.2f) // Distinct selection color
-        isHovered -> NostrordColors.HoverBackground
-        else -> Color.Transparent
-    }
+    val backgroundColor =
+        when {
+            isPressed -> NostrordColors.SurfaceVariant
+            isSelected -> NostrordColors.Primary.copy(alpha = 0.2f) // Distinct selection color
+            isHovered -> NostrordColors.HoverBackground
+            else -> Color.Transparent
+        }
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .hoverable(interactionSource = interactionSource)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
-            )
-            .pointerHoverIcon(PointerIcon.Hand)
+                onClick = onClick,
+            ).pointerHoverIcon(PointerIcon.Hand)
             .background(backgroundColor)
             .padding(horizontal = Spacing.inputPadding, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Avatar
         ProfileAvatar(
             imageUrl = member.picture,
             displayName = member.displayName,
             pubkey = member.pubkey,
-            size = Spacing.avatarSizeSmall
+            size = Spacing.avatarSizeSmall,
         )
 
         Spacer(modifier = Modifier.width(Spacing.inputPadding))
 
         // Name and pubkey
         Column(
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         ) {
             Text(
                 text = member.displayName,
                 style = NostrordTypography.MemberName,
                 color = NostrordColors.TextContent,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
 
             Text(
                 text = member.pubkey.take(8) + "..." + member.pubkey.takeLast(4),
                 style = NostrordTypography.Tiny,
                 color = NostrordColors.TextMuted,
-                maxLines = 1
+                maxLines = 1,
             )
         }
     }

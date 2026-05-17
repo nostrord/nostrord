@@ -6,8 +6,9 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.utils.toKotlinResult
 
-class EditProfileViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
-
+class EditProfileViewModel(
+    private val repo: NostrRepositoryApi,
+) : ViewModel() {
     val userMetadata = repo.userMetadata
 
     fun getPublicKey() = repo.getPublicKey()
@@ -21,7 +22,7 @@ class EditProfileViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
         nip05: String?,
         lud16: String?,
         website: String?,
-        onResult: (kotlin.Result<Unit>) -> Unit
+        onResult: (kotlin.Result<Unit>) -> Unit,
     ) {
         viewModelScope.launch {
             onResult(repo.updateProfileMetadata(displayName, name, about, picture, banner, nip05, lud16, website).toKotlinResult())

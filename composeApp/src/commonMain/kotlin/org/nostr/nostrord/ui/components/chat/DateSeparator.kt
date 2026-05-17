@@ -13,27 +13,28 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 @Composable
 fun DateSeparator(date: String) {
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         HorizontalDivider(
             modifier = Modifier.fillMaxWidth(),
             color = NostrordColors.Divider,
-            thickness = 1.dp
+            thickness = 1.dp,
         )
         Surface(
             color = NostrordColors.Background,
             shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.padding(horizontal = 16.dp)
+            modifier = Modifier.padding(horizontal = 16.dp),
         ) {
             Text(
                 text = date,
                 color = NostrordColors.TextMuted,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
             )
         }
     }

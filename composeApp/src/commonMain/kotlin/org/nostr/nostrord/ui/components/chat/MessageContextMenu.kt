@@ -63,12 +63,19 @@ import org.nostr.nostrord.utils.supportsNativeShare
  */
 sealed class MessageContextAction {
     data object AddReaction : MessageContextAction()
+
     data object Reply : MessageContextAction()
+
     data object CopyText : MessageContextAction()
+
     data object CopyMessageLink : MessageContextAction()
+
     data object ShareMessageLink : MessageContextAction()
+
     data object CopyEventJson : MessageContextAction()
+
     data object PinMessage : MessageContextAction()
+
     data object DeleteMessage : MessageContextAction()
 }
 
@@ -93,7 +100,7 @@ fun MessageContextMenu(
     onAction: (MessageContextAction) -> Unit,
     isAuthor: Boolean = false,
     isAdmin: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     // Only render Popup when visible to avoid layout participation
     if (visible) {
@@ -101,37 +108,40 @@ fun MessageContextMenu(
             alignment = Alignment.TopEnd,
             offset = IntOffset(x = -8, y = 0),
             onDismissRequest = onDismiss,
-            properties = PopupProperties(
+            properties =
+            PopupProperties(
                 // focusable = true allows clicking outside to dismiss
                 // but must be careful not to steal focus from selection
                 focusable = true,
                 // Don't dismiss on back press automatically - let onDismissRequest handle it
                 dismissOnBackPress = true,
-                dismissOnClickOutside = true
-            )
+                dismissOnClickOutside = true,
+            ),
         ) {
             // DisableSelection prevents the menu itself from participating in text selection
             DisableSelection {
                 // Animated content inside the popup
                 AnimatedVisibility(
                     visible = true, // Always visible when popup is shown
-                    enter = fadeIn(animationSpec = tween(NostrordAnimation.popupEnter)) +
-                            scaleIn(
-                                animationSpec = tween(NostrordAnimation.popupEnter),
-                                initialScale = 0.9f,
-                                transformOrigin = TransformOrigin(1f, 0f)
-                            ),
-                    exit = fadeOut(animationSpec = tween(NostrordAnimation.popupExit)) +
-                            scaleOut(
-                                animationSpec = tween(NostrordAnimation.popupExit),
-                                transformOrigin = TransformOrigin(1f, 0f)
-                            )
+                    enter =
+                    fadeIn(animationSpec = tween(NostrordAnimation.popupEnter)) +
+                        scaleIn(
+                            animationSpec = tween(NostrordAnimation.popupEnter),
+                            initialScale = 0.9f,
+                            transformOrigin = TransformOrigin(1f, 0f),
+                        ),
+                    exit =
+                    fadeOut(animationSpec = tween(NostrordAnimation.popupExit)) +
+                        scaleOut(
+                            animationSpec = tween(NostrordAnimation.popupExit),
+                            transformOrigin = TransformOrigin(1f, 0f),
+                        ),
                 ) {
                     ContextMenuContent(
                         onAction = onAction,
                         onDismiss = onDismiss,
                         isAuthor = isAuthor,
-                        isAdmin = isAdmin
+                        isAdmin = isAdmin,
                     )
                 }
             }
@@ -147,24 +157,24 @@ private fun ContextMenuContent(
     onAction: (MessageContextAction) -> Unit,
     onDismiss: () -> Unit,
     isAuthor: Boolean,
-    isAdmin: Boolean
+    isAdmin: Boolean,
 ) {
     Column(
-        modifier = Modifier
+        modifier =
+        Modifier
             .width(Spacing.channelSidebarWidth * 0.75f) // ~180dp
             .shadow(
                 elevation = 8.dp,
                 shape = NostrordShapes.menuShape,
                 ambientColor = Color.Black.copy(alpha = 0.3f),
-                spotColor = Color.Black.copy(alpha = 0.3f)
-            )
-            .clip(NostrordShapes.menuShape)
+                spotColor = Color.Black.copy(alpha = 0.3f),
+            ).clip(NostrordShapes.menuShape)
             .background(NostrordColors.Surface)
             .padding(vertical = Spacing.xs)
             // Consume pointer events to prevent them from reaching underlying content
             .pointerInput(Unit) {
                 detectTapGestures { /* consume */ }
-            }
+            },
     ) {
         // Add Reaction
         ContextMenuItem(
@@ -173,7 +183,7 @@ private fun ContextMenuContent(
             onClick = {
                 onAction(MessageContextAction.AddReaction)
                 onDismiss()
-            }
+            },
         )
 
         // Reply
@@ -183,7 +193,7 @@ private fun ContextMenuContent(
             onClick = {
                 onAction(MessageContextAction.Reply)
                 onDismiss()
-            }
+            },
         )
 
         ContextMenuDivider()
@@ -195,7 +205,7 @@ private fun ContextMenuContent(
             onClick = {
                 onAction(MessageContextAction.CopyText)
                 onDismiss()
-            }
+            },
         )
 
         if (!supportsNativeShare) {
@@ -205,7 +215,7 @@ private fun ContextMenuContent(
                 onClick = {
                     onAction(MessageContextAction.CopyMessageLink)
                     onDismiss()
-                }
+                },
             )
         }
 
@@ -216,7 +226,7 @@ private fun ContextMenuContent(
                 onClick = {
                     onAction(MessageContextAction.ShareMessageLink)
                     onDismiss()
-                }
+                },
             )
         }
 
@@ -227,7 +237,7 @@ private fun ContextMenuContent(
             onClick = {
                 onAction(MessageContextAction.CopyEventJson)
                 onDismiss()
-            }
+            },
         )
 
         // Pin Message (admin only)
@@ -240,7 +250,7 @@ private fun ContextMenuContent(
                 onClick = {
                     onAction(MessageContextAction.PinMessage)
                     onDismiss()
-                }
+                },
             )
         }
 
@@ -255,7 +265,7 @@ private fun ContextMenuContent(
                     onAction(MessageContextAction.DeleteMessage)
                     onDismiss()
                 },
-                isDestructive = true
+                isDestructive = true,
             )
         }
     }
@@ -269,25 +279,28 @@ private fun ContextMenuItem(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
-    isDestructive: Boolean = false
+    isDestructive: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
-    val textColor = when {
-        isDestructive -> NostrordColors.Error
-        else -> NostrordColors.TextContent
-    }
+    val textColor =
+        when {
+            isDestructive -> NostrordColors.Error
+            else -> NostrordColors.TextContent
+        }
 
-    val iconColor = when {
-        isDestructive -> NostrordColors.Error
-        else -> NostrordColors.TextSecondary
-    }
+    val iconColor =
+        when {
+            isDestructive -> NostrordColors.Error
+            else -> NostrordColors.TextSecondary
+        }
 
     val backgroundColor = if (isHovered) NostrordColors.HoverBackground else Color.Transparent
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .height(Spacing.channelItemHeight + Spacing.xs) // 36dp
             .background(backgroundColor)
@@ -295,13 +308,13 @@ private fun ContextMenuItem(
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
             .padding(horizontal = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = iconColor,
-            modifier = Modifier.size(Spacing.iconMd - Spacing.xs) // 20dp
+            modifier = Modifier.size(Spacing.iconMd - Spacing.xs), // 20dp
         )
 
         Spacer(modifier = Modifier.width(Spacing.sm))
@@ -309,7 +322,7 @@ private fun ContextMenuItem(
         Text(
             text = label,
             style = NostrordTypography.MenuItem,
-            color = textColor
+            color = textColor,
         )
     }
 }
@@ -322,6 +335,6 @@ private fun ContextMenuDivider() {
     HorizontalDivider(
         modifier = Modifier.padding(vertical = Spacing.xs),
         thickness = Spacing.dividerThickness,
-        color = NostrordColors.Divider
+        color = NostrordColors.Divider,
     )
 }

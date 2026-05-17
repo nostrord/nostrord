@@ -31,5 +31,5 @@ expect fun AnimatedImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.FillWidth,
     onClick: () -> Unit = {},
-    onError: () -> Unit = {}
+    onError: () -> Unit = {},
 )

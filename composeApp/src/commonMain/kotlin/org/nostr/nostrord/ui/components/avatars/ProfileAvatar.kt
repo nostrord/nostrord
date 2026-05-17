@@ -24,7 +24,7 @@ fun ProfileAvatar(
     displayName: String,
     pubkey: String,
     size: Dp = 40.dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalPlatformContext.current
     // Memoize computed values to prevent recalculation on every recomposition
@@ -43,25 +43,28 @@ fun ProfileAvatar(
 
             if (imageState !is AsyncImagePainter.State.Error) {
                 // Memoize image request to prevent rebuilding on every recomposition
-                val imageRequest = remember(imageUrl, sizeInPx, context) {
-                    ImageRequest.Builder(context)
-                        .data(imageUrl)
-                        .crossfade(true)
-                        .size(Size(sizeInPx, sizeInPx))
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .build()
-                }
+                val imageRequest =
+                    remember(imageUrl, sizeInPx, context) {
+                        ImageRequest
+                            .Builder(context)
+                            .data(imageUrl)
+                            .crossfade(true)
+                            .size(Size(sizeInPx, sizeInPx))
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build()
+                    }
 
                 AsyncImage(
                     model = imageRequest,
                     contentDescription = "$displayName's avatar",
                     contentScale = ContentScale.Crop,
                     filterQuality = FilterQuality.High,
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(size)
                         .clip(CircleShape),
-                    onState = { imageState = it }
+                    onState = { imageState = it },
                 )
             }
         }

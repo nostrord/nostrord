@@ -11,7 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,7 +37,6 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
 
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateGroupModal(
@@ -46,7 +44,7 @@ fun CreateGroupModal(
     userRelays: Set<String> = emptySet(),
     parentGroupId: String? = null,
     onDismiss: () -> Unit,
-    onGroupCreated: (groupId: String, groupName: String) -> Unit
+    onGroupCreated: (groupId: String, groupName: String) -> Unit,
 ) {
     val isSubgroup = parentGroupId != null
     val scope = rememberCoroutineScope()
@@ -62,16 +60,17 @@ fun CreateGroupModal(
     var creatingJob by remember { mutableStateOf<Job?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    val relayOptions = remember(currentRelayUrl, userRelays) {
-        val list = userRelays.toMutableList()
-        if (currentRelayUrl.isNotBlank() && currentRelayUrl !in list) {
-            list.add(0, currentRelayUrl)
-        } else if (currentRelayUrl.isNotBlank()) {
-            list.remove(currentRelayUrl)
-            list.add(0, currentRelayUrl)
+    val relayOptions =
+        remember(currentRelayUrl, userRelays) {
+            val list = userRelays.toMutableList()
+            if (currentRelayUrl.isNotBlank() && currentRelayUrl !in list) {
+                list.add(0, currentRelayUrl)
+            } else if (currentRelayUrl.isNotBlank()) {
+                list.remove(currentRelayUrl)
+                list.add(0, currentRelayUrl)
+            }
+            list.filter { it.isNotBlank() }.distinct()
         }
-        list.filter { it.isNotBlank() }.distinct()
-    }
     var selectedRelay by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
     var relayDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -88,57 +87,61 @@ fun CreateGroupModal(
             if (isCreating) cancelCreation()
             onDismiss()
         },
-        properties = DialogProperties(
+        properties =
+        DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = !isCreating,
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.7f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null
+                    indication = null,
                 ) { if (!isCreating) onDismiss() }
                 .safeDrawingPadding(),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Card(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .widthIn(max = 480.dp)
                     .fillMaxWidth(0.9f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
+                        indication = null,
                     ) { /* consume click */ },
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
             ) {
                 Column(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .verticalScroll(rememberScrollState())
-                        .padding(Spacing.xxl)
+                        .padding(Spacing.xxl),
                 ) {
                     // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
+                        verticalAlignment = Alignment.Top,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = if (isSubgroup) "Create Subgroup" else "Create a Group",
                                 style = NostrordTypography.ServerHeader,
                                 color = NostrordColors.TextPrimary,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
                             )
                             Spacer(modifier = Modifier.height(Spacing.xs))
                             Text(
                                 text = "Give your new group a name and description. You can always change these later.",
                                 style = NostrordTypography.Caption,
-                                color = NostrordColors.TextSecondary
+                                color = NostrordColors.TextSecondary,
                             )
                         }
                         Spacer(modifier = Modifier.width(Spacing.sm))
@@ -147,16 +150,17 @@ fun CreateGroupModal(
                                 if (isCreating) cancelCreation()
                                 onDismiss()
                             },
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .pointerHoverIcon(PointerIcon.Hand)
+                                .pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
                                 tint = NostrordColors.TextSecondary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
@@ -168,18 +172,21 @@ fun CreateGroupModal(
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { name = it; errorMessage = null },
+                        onValueChange = {
+                            name = it
+                            errorMessage = null
+                        },
                         placeholder = {
                             Text(
                                 "#example",
                                 color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody
+                                style = NostrordTypography.MessageBody,
                             )
                         },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
@@ -189,24 +196,31 @@ fun CreateGroupModal(
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     OutlinedTextField(
                         value = customGroupId,
-                        onValueChange = { customGroupId = it.lowercase().filter { c -> c.isLetterOrDigit() || c == '-' || c == '_' }; errorMessage = null },
+                        onValueChange = {
+                            customGroupId =
+                                it.lowercase().filter { c ->
+                                    c.isLetterOrDigit() || c == '-' || c == '_'
+                                }
+                            errorMessage =
+                                null
+                        },
                         placeholder = {
                             Text(
                                 "my-group",
                                 color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody
+                                style = NostrordTypography.MessageBody,
                             )
                         },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     Text(
                         text = "Leave empty for a random ID. The relay may override your choice.",
                         style = NostrordTypography.Caption,
-                        color = NostrordColors.TextMuted
+                        color = NostrordColors.TextMuted,
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
@@ -216,7 +230,7 @@ fun CreateGroupModal(
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     ExposedDropdownMenuBox(
                         expanded = relayDropdownExpanded,
-                        onExpandedChange = { if (!isCreating) relayDropdownExpanded = it }
+                        onExpandedChange = { if (!isCreating) relayDropdownExpanded = it },
                     ) {
                         OutlinedTextField(
                             value = selectedRelay.removePrefix("wss://"),
@@ -225,34 +239,37 @@ fun CreateGroupModal(
                             trailingIcon = {
                                 ExposedDropdownMenuDefaults.TrailingIcon(expanded = relayDropdownExpanded)
                             },
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .fillMaxWidth()
                                 .menuAnchor(MenuAnchorType.PrimaryNotEditable),
                             colors = fieldColors(),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(8.dp),
                         )
                         ExposedDropdownMenu(
                             expanded = relayDropdownExpanded,
                             onDismissRequest = { relayDropdownExpanded = false },
-                            containerColor = NostrordColors.SurfaceVariant
+                            containerColor = NostrordColors.SurfaceVariant,
                         ) {
                             relayOptions.forEach { relay ->
                                 DropdownMenuItem(
                                     text = {
                                         Text(
                                             relay.removePrefix("wss://"),
-                                            color = if (relay == selectedRelay)
+                                            color =
+                                            if (relay == selectedRelay) {
                                                 NostrordColors.Primary
-                                            else
-                                                NostrordColors.TextPrimary,
-                                            style = NostrordTypography.MessageBody
+                                            } else {
+                                                NostrordColors.TextPrimary
+                                            },
+                                            style = NostrordTypography.MessageBody,
                                         )
                                     },
                                     onClick = {
                                         selectedRelay = relay
                                         errorMessage = null
                                         relayDropdownExpanded = false
-                                    }
+                                    },
                                 )
                             }
                         }
@@ -263,21 +280,22 @@ fun CreateGroupModal(
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                     ) {
                         Text(
                             text = "Some relays require creating groups via their website.",
                             style = NostrordTypography.Caption,
-                            color = NostrordColors.TextMuted
+                            color = NostrordColors.TextMuted,
                         )
                         Text(
                             text = "Open →",
                             style = NostrordTypography.Caption,
                             color = NostrordColors.Primary,
                             textDecoration = TextDecoration.Underline,
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .pointerHoverIcon(PointerIcon.Hand)
-                                .clickable { uriHandler.openUri(relayWebUrl) }
+                                .clickable { uriHandler.openUri(relayWebUrl) },
                         )
                     }
 
@@ -293,14 +311,14 @@ fun CreateGroupModal(
                             Text(
                                 "What is this group about?",
                                 color = NostrordColors.TextMuted,
-                                style = NostrordTypography.MessageBody
+                                style = NostrordTypography.MessageBody,
                             )
                         },
                         minLines = 3,
                         maxLines = 5,
                         modifier = Modifier.fillMaxWidth(),
                         colors = fieldColors(),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.lg))
@@ -310,7 +328,7 @@ fun CreateGroupModal(
                         value = picture,
                         onValueChange = { picture = it },
                         placeholder = "https://example.com/image.jpg",
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.xxl))
@@ -319,7 +337,7 @@ fun CreateGroupModal(
                     Text(
                         text = "ACCESS SETTINGS",
                         style = NostrordTypography.SectionHeader,
-                        color = NostrordColors.TextMuted
+                        color = NostrordColors.TextMuted,
                     )
                     Spacer(modifier = Modifier.height(Spacing.sm))
 
@@ -328,7 +346,7 @@ fun CreateGroupModal(
                         label = "Private",
                         description = "Only members can read group messages",
                         checked = isPrivate,
-                        onCheckedChange = { isPrivate = it }
+                        onCheckedChange = { isPrivate = it },
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.xs))
@@ -338,7 +356,7 @@ fun CreateGroupModal(
                         label = "Closed",
                         description = "Join requests are ignored (invite-only)",
                         checked = isClosed,
-                        onCheckedChange = { isClosed = it }
+                        onCheckedChange = { isClosed = it },
                     )
 
                     // Error message
@@ -346,20 +364,21 @@ fun CreateGroupModal(
                         Spacer(modifier = Modifier.height(Spacing.md))
                         Row(
                             verticalAlignment = Alignment.Top,
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                         ) {
                             Text(
                                 text = errorMessage!!,
                                 style = NostrordTypography.Caption,
                                 color = NostrordColors.Error,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
                             )
                             // If the error is a restriction, offer a link
-                            val showLink = errorMessage!!.contains("not allowed", ignoreCase = true) ||
-                                errorMessage!!.contains("restricted", ignoreCase = true) ||
-                                errorMessage!!.contains("authorization", ignoreCase = true) ||
-                                errorMessage!!.contains("auth-required", ignoreCase = true) ||
-                                errorMessage!!.contains("blocked", ignoreCase = true)
+                            val showLink =
+                                errorMessage!!.contains("not allowed", ignoreCase = true) ||
+                                    errorMessage!!.contains("restricted", ignoreCase = true) ||
+                                    errorMessage!!.contains("authorization", ignoreCase = true) ||
+                                    errorMessage!!.contains("auth-required", ignoreCase = true) ||
+                                    errorMessage!!.contains("blocked", ignoreCase = true)
                             if (showLink) {
                                 Spacer(modifier = Modifier.width(Spacing.xs))
                                 Text(
@@ -367,9 +386,10 @@ fun CreateGroupModal(
                                     style = NostrordTypography.Caption,
                                     color = NostrordColors.Error,
                                     textDecoration = TextDecoration.Underline,
-                                    modifier = Modifier
+                                    modifier =
+                                    Modifier
                                         .pointerHoverIcon(PointerIcon.Hand)
-                                        .clickable { uriHandler.openUri(relayWebUrl) }
+                                        .clickable { uriHandler.openUri(relayWebUrl) },
                                 )
                             }
                         }
@@ -381,17 +401,17 @@ fun CreateGroupModal(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.End),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         TextButton(
                             onClick = {
                                 cancelCreation()
                                 onDismiss()
-                            }
+                            },
                         ) {
                             Text(
                                 "Cancel",
-                                color = if (isCreating) NostrordColors.Error else NostrordColors.TextSecondary
+                                color = if (isCreating) NostrordColors.Error else NostrordColors.TextSecondary,
                             )
                         }
                         Button(
@@ -402,61 +422,64 @@ fun CreateGroupModal(
                                 }
                                 errorMessage = null
                                 isCreating = true
-                                creatingJob = scope.launch {
-                                    try {
-                                        val result = if (parentGroupId != null) {
-                                            AppModule.nostrRepository.createSubgroup(
-                                                parentGroupId = parentGroupId,
-                                                name = name.trim(),
-                                                about = about.trim().ifBlank { null },
-                                                relayUrl = selectedRelay,
-                                                isPrivate = isPrivate,
-                                                isClosed = isClosed,
-                                                picture = picture.trim().ifBlank { null },
-                                                customGroupId = customGroupId.trim().ifBlank { null }
-                                            )
-                                        } else {
-                                            AppModule.nostrRepository.createGroup(
-                                                name = name.trim(),
-                                                about = about.trim().ifBlank { null },
-                                                relayUrl = selectedRelay,
-                                                isPrivate = isPrivate,
-                                                isClosed = isClosed,
-                                                picture = picture.trim().ifBlank { null },
-                                                customGroupId = customGroupId.trim().ifBlank { null }
-                                            )
-                                        }
-                                        isCreating = false
-                                        creatingJob = null
-                                        when (result) {
-                                            is Result.Success -> onGroupCreated(result.data, name.trim())
-                                            is Result.Error -> {
-                                                val raw = result.error.cause?.message ?: result.error.message
-                                                errorMessage = friendlyError(raw)
+                                creatingJob =
+                                    scope.launch {
+                                        try {
+                                            val result =
+                                                if (parentGroupId != null) {
+                                                    AppModule.nostrRepository.createSubgroup(
+                                                        parentGroupId = parentGroupId,
+                                                        name = name.trim(),
+                                                        about = about.trim().ifBlank { null },
+                                                        relayUrl = selectedRelay,
+                                                        isPrivate = isPrivate,
+                                                        isClosed = isClosed,
+                                                        picture = picture.trim().ifBlank { null },
+                                                        customGroupId = customGroupId.trim().ifBlank { null },
+                                                    )
+                                                } else {
+                                                    AppModule.nostrRepository.createGroup(
+                                                        name = name.trim(),
+                                                        about = about.trim().ifBlank { null },
+                                                        relayUrl = selectedRelay,
+                                                        isPrivate = isPrivate,
+                                                        isClosed = isClosed,
+                                                        picture = picture.trim().ifBlank { null },
+                                                        customGroupId = customGroupId.trim().ifBlank { null },
+                                                    )
+                                                }
+                                            isCreating = false
+                                            creatingJob = null
+                                            when (result) {
+                                                is Result.Success -> onGroupCreated(result.data, name.trim())
+                                                is Result.Error -> {
+                                                    val raw = result.error.cause?.message ?: result.error.message
+                                                    errorMessage = friendlyError(raw)
+                                                }
                                             }
+                                        } catch (_: CancellationException) {
+                                            // user cancelled — no error shown
+                                            isCreating = false
+                                            creatingJob = null
                                         }
-                                    } catch (_: CancellationException) {
-                                        // user cancelled — no error shown
-                                        isCreating = false
-                                        creatingJob = null
                                     }
-                                }
                             },
                             enabled = !isCreating && name.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(
+                            colors =
+                            ButtonDefaults.buttonColors(
                                 containerColor = NostrordColors.Primary,
                                 contentColor = Color.White,
                                 disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
-                                disabledContentColor = Color.White.copy(alpha = 0.5f)
+                                disabledContentColor = Color.White.copy(alpha = 0.5f),
                             ),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             if (isCreating) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(16.dp),
                                     color = Color.White,
-                                    strokeWidth = 2.dp
+                                    strokeWidth = 2.dp,
                                 )
                                 Spacer(modifier = Modifier.width(Spacing.sm))
                             }
@@ -475,17 +498,16 @@ private fun friendlyError(raw: String?): String = when {
     raw.contains("blocked:", ignoreCase = true) ->
         "Group creation on this relay must be done via the relay's website."
     raw.contains("auth-required", ignoreCase = true) ||
-    raw.contains("not allowed", ignoreCase = true) ||
-    raw.contains("restricted", ignoreCase = true) ->
+        raw.contains("not allowed", ignoreCase = true) ||
+        raw.contains("restricted", ignoreCase = true) ->
         "This relay requires authorization to create groups."
     raw.contains("did not respond", ignoreCase = true) ||
-    raw.contains("timeout", ignoreCase = true) ->
+        raw.contains("timeout", ignoreCase = true) ->
         "Relay did not respond. Try again."
     raw.contains("Not connected", ignoreCase = true) ->
         "Not connected to relay. Try again."
     else -> raw
 }
-
 
 @Composable
 private fun FieldLabel(text: String) {
@@ -493,7 +515,7 @@ private fun FieldLabel(text: String) {
         text = text,
         style = NostrordTypography.Caption,
         color = NostrordColors.TextSecondary,
-        fontWeight = FontWeight.Medium
+        fontWeight = FontWeight.Medium,
     )
 }
 
@@ -503,25 +525,26 @@ private fun AccessToggleRow(
     label: String,
     description: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .background(NostrordColors.SurfaceVariant, RoundedCornerShape(8.dp))
             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
             Spacer(modifier = Modifier.width(Spacing.sm))
             Column {
@@ -529,25 +552,26 @@ private fun AccessToggleRow(
                     text = label,
                     style = NostrordTypography.Caption,
                     color = NostrordColors.TextPrimary,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
                 )
                 Text(
                     text = description,
                     style = NostrordTypography.Caption,
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
             }
         }
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
+            colors =
+            SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = NostrordColors.Primary,
                 uncheckedThumbColor = NostrordColors.TextMuted,
-                uncheckedTrackColor = NostrordColors.InputBackground
+                uncheckedTrackColor = NostrordColors.InputBackground,
             ),
-            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
         )
     }
 }
@@ -565,5 +589,5 @@ private fun fieldColors() = OutlinedTextFieldDefaults.colors(
     focusedPlaceholderColor = NostrordColors.TextMuted,
     unfocusedPlaceholderColor = NostrordColors.TextMuted,
     focusedTrailingIconColor = NostrordColors.TextSecondary,
-    unfocusedTrailingIconColor = NostrordColors.TextMuted
+    unfocusedTrailingIconColor = NostrordColors.TextMuted,
 )

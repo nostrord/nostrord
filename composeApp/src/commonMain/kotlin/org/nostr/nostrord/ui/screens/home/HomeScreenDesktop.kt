@@ -3,14 +3,6 @@ package org.nostr.nostrord.ui.screens.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.ui.layout.ContentScale
-import coil3.compose.AsyncImage
-import coil3.compose.AsyncImagePainter
-import coil3.compose.LocalPlatformContext
-import org.nostr.nostrord.nostr.Nip11RelayInfo
-import org.nostr.nostrord.nostr.isValidIconUrl
-import org.nostr.nostrord.ui.util.buildRelayIconRequest
-import org.nostr.nostrord.ui.util.relayFallbackPainter
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -37,42 +29,50 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
-import org.nostr.nostrord.utils.rememberClipboardWriter
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
+import coil3.compose.LocalPlatformContext
+import kotlinx.coroutines.delay
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.Screen
-import org.nostr.nostrord.ui.components.loading.RestrictedRelayState
 import org.nostr.nostrord.ui.components.loading.GroupCardSkeleton
+import org.nostr.nostrord.ui.components.loading.RestrictedRelayState
 import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.home.components.PickGroupCard
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.util.buildRelayIconRequest
 import org.nostr.nostrord.ui.util.buildShareRelayLink
 import org.nostr.nostrord.ui.util.generateColorFromString
+import org.nostr.nostrord.ui.util.relayFallbackPainter
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 enum class GroupFilter { All, Joined }
 
@@ -105,7 +105,7 @@ fun HomeScreenDesktop(
     onForgetGroup: (String) -> Unit = {},
     isReachabilityError: Boolean = false,
     connectionState: org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState =
-        org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState.Disconnected
+        org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState.Disconnected,
 ) {
     if (isOffline) {
         ManageRelayContent(
@@ -118,36 +118,40 @@ fun HomeScreenDesktop(
             isOffline = isActuallyOffline,
             isRelaySaved = isRelaySaved,
             onDismiss = onDismissManagement,
-            dismissAtBottom = true
+            dismissAtBottom = true,
         )
         return
     }
 
     Column(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxSize()
-            .background(NostrordColors.Background)
+            .background(NostrordColors.Background),
     ) {
         // pick-group-header: centered relay icon + title + description
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
-                .background(NostrordColors.Background)
+                .background(NostrordColors.Background),
         ) {
             Column(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth()
                     .padding(top = 32.dp, start = 24.dp, end = 24.dp, bottom = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                val relayLabel = relayMeta?.name?.takeIf { it.isNotBlank() }
-                    ?: relayShortLabel(currentRelayUrl)
+                val relayLabel =
+                    relayMeta?.name?.takeIf { it.isNotBlank() }
+                        ?: relayShortLabel(currentRelayUrl)
 
                 RelayHeaderIcon(
                     relayUrl = currentRelayUrl,
                     iconUrl = relayMeta?.icon,
                     label = relayLabel,
-                    size = 64.dp
+                    size = 64.dp,
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -156,7 +160,7 @@ fun HomeScreenDesktop(
                     text = relayLabel,
                     color = NostrordColors.TextPrimary,
                     fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
 
                 Spacer(modifier = Modifier.height(4.dp))
@@ -164,9 +168,8 @@ fun HomeScreenDesktop(
                 Text(
                     text = "Choose a group to join and start chatting.",
                     color = NostrordColors.TextMuted,
-                    fontSize = 14.sp
+                    fontSize = 14.sp,
                 )
-
             }
 
             // Relay options — position:absolute; top:8px; right:8px.
@@ -177,7 +180,7 @@ fun HomeScreenDesktop(
                 isRelaySaved = isRelaySaved,
                 onAddRelay = onAddRelay,
                 onRemoveRelay = onRemoveRelay,
-                modifier = Modifier.align(Alignment.TopEnd)
+                modifier = Modifier.align(Alignment.TopEnd),
             )
         }
 
@@ -185,7 +188,7 @@ fun HomeScreenDesktop(
             connectionState = connectionState,
             onRetry = onRetry,
             onManageRelay = onRemoveRelay,
-            modifier = Modifier.padding(horizontal = 24.dp)
+            modifier = Modifier.padding(horizontal = 24.dp),
         )
 
         // Scrollable content area
@@ -202,7 +205,7 @@ fun HomeScreenDesktop(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(6) { GroupCardSkeleton() }
                     }
@@ -214,7 +217,7 @@ fun HomeScreenDesktop(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         // Filter bar
                         item(span = { GridItemSpan(maxLineSpan) }) {
@@ -222,7 +225,7 @@ fun HomeScreenDesktop(
                                 activeFilter = activeFilter,
                                 onFilterChange = onFilterChange,
                                 allCount = groupCount,
-                                joinedCount = joinedGroups.size
+                                joinedCount = joinedGroups.size,
                             )
                         }
 
@@ -230,7 +233,7 @@ fun HomeScreenDesktop(
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             PickGroupSearch(
                                 query = searchQuery,
-                                onQueryChange = onSearchChange
+                                onQueryChange = onSearchChange,
                             )
                         }
 
@@ -238,13 +241,17 @@ fun HomeScreenDesktop(
                             item(span = { GridItemSpan(maxLineSpan) }) {
                                 Box(
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                                    contentAlignment = Alignment.Center
+                                    contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
-                                        text = if (searchQuery.isNotBlank()) "No groups match \"$searchQuery\""
-                                               else "No groups found",
+                                        text =
+                                        if (searchQuery.isNotBlank()) {
+                                            "No groups match \"$searchQuery\""
+                                        } else {
+                                            "No groups found"
+                                        },
                                         color = NostrordColors.TextMuted,
-                                        fontSize = 14.sp
+                                        fontSize = 14.sp,
                                     )
                                 }
                             }
@@ -253,7 +260,7 @@ fun HomeScreenDesktop(
                                 PickGroupCard(
                                     group = group,
                                     isJoined = group.id in joinedGroups,
-                                    onClick = { onNavigate(Screen.Group(group.id, group.name)) }
+                                    onClick = { onNavigate(Screen.Group(group.id, group.name)) },
                                 )
                             }
                         }
@@ -261,7 +268,7 @@ fun HomeScreenDesktop(
 
                     VerticalScrollbarWrapper(
                         gridState = gridState,
-                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
                     )
                 }
             }
@@ -274,70 +281,83 @@ private fun FilterBar(
     activeFilter: GroupFilter,
     onFilterChange: (GroupFilter) -> Unit,
     allCount: Int = 0,
-    joinedCount: Int = 0
+    joinedCount: Int = 0,
 ) {
-    val filters = listOf(
-        GroupFilter.All to if (allCount > 0) "All ($allCount)" else "All",
-        GroupFilter.Joined to if (joinedCount > 0) "Joined ($joinedCount)" else "Joined"
-    )
+    val filters =
+        listOf(
+            GroupFilter.All to if (allCount > 0) "All ($allCount)" else "All",
+            GroupFilter.Joined to if (joinedCount > 0) "Joined ($joinedCount)" else "Joined",
+        )
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .padding(top = 8.dp, bottom = 2.dp)
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         filters.forEach { (filter, label) ->
             FilterChip(
                 label = label,
                 isActive = activeFilter == filter,
-                onClick = { onFilterChange(filter) }
+                onClick = { onFilterChange(filter) },
             )
         }
     }
 }
 
 @Composable
-private fun FilterChip(label: String, isActive: Boolean, onClick: () -> Unit) {
+private fun FilterChip(
+    label: String,
+    isActive: Boolean,
+    onClick: () -> Unit,
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
-    val bg = when {
-        isActive -> NostrordColors.Primary
-        isHovered -> NostrordColors.SurfaceVariant
-        else -> NostrordColors.BackgroundDark
-    }
-    val textColor = when {
-        isActive -> Color.White
-        isHovered -> NostrordColors.TextSecondary
-        else -> NostrordColors.TextMuted
-    }
+    val bg =
+        when {
+            isActive -> NostrordColors.Primary
+            isHovered -> NostrordColors.SurfaceVariant
+            else -> NostrordColors.BackgroundDark
+        }
+    val textColor =
+        when {
+            isActive -> Color.White
+            isHovered -> NostrordColors.TextSecondary
+            else -> NostrordColors.TextMuted
+        }
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .clip(RoundedCornerShape(4.dp))
             .background(bg)
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(horizontal = 12.dp, vertical = 5.dp)
+            .padding(horizontal = 12.dp, vertical = 5.dp),
     ) {
         Text(
             text = label,
             color = textColor,
             fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }
 
 @Composable
-private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
+private fun PickGroupSearch(
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
     val focusRequester = remember { FocusRequester() }
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .padding(bottom = 4.dp)
             .clip(RoundedCornerShape(4.dp))
@@ -345,64 +365,68 @@ private fun PickGroupSearch(query: String, onQueryChange: (String) -> Unit) {
             .height(40.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = null
+                indication = null,
             ) { focusRequester.requestFocus() }
             .padding(horizontal = 12.dp),
-        contentAlignment = Alignment.CenterStart
+        contentAlignment = Alignment.CenterStart,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Icon(
                 imageVector = Icons.Filled.Search,
                 contentDescription = null,
                 tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(14.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
             Box(
                 modifier = Modifier.weight(1f),
-                contentAlignment = Alignment.CenterStart
+                contentAlignment = Alignment.CenterStart,
             ) {
                 if (query.isEmpty()) {
                     Text(
                         text = "Search groups...",
                         color = NostrordColors.TextMuted,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
                     )
                 }
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
                     singleLine = true,
-                    textStyle = TextStyle(
+                    textStyle =
+                    TextStyle(
                         color = NostrordColors.TextPrimary,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
                     ),
                     cursorBrush = SolidColor(NostrordColors.Primary),
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
                         .onPreviewKeyEvent { event ->
                             if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && query.isNotEmpty()) {
                                 onQueryChange("")
                                 true
-                            } else false
-                        }
+                            } else {
+                                false
+                            }
+                        },
                 )
             }
             if (query.isNotEmpty()) {
                 Spacer(modifier = Modifier.width(4.dp))
                 IconButton(
                     onClick = { onQueryChange("") },
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Clear,
                         contentDescription = "Clear search",
                         tint = NostrordColors.TextMuted,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(14.dp),
                     )
                 }
             }
@@ -416,7 +440,7 @@ internal fun RelayOptionsMenu(
     isRelaySaved: Boolean,
     onAddRelay: () -> Unit,
     onRemoveRelay: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val copyToClipboard = rememberClipboardWriter()
     var expanded by remember { mutableStateOf(false) }
@@ -438,7 +462,7 @@ internal fun RelayOptionsMenu(
                     androidx.compose.material3.Text(
                         "Add",
                         color = NostrordColors.Primary,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             },
@@ -446,7 +470,7 @@ internal fun RelayOptionsMenu(
                 androidx.compose.material3.TextButton(onClick = { confirmAdd = false }) {
                     androidx.compose.material3.Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
@@ -456,7 +480,7 @@ internal fun RelayOptionsMenu(
                 Icon(
                     Icons.Default.Settings,
                     contentDescription = "Remove relay from your list",
-                    tint = NostrordColors.TextMuted
+                    tint = NostrordColors.TextMuted,
                 )
             }
         } else {
@@ -464,7 +488,7 @@ internal fun RelayOptionsMenu(
                 Icon(
                     Icons.Default.Add,
                     contentDescription = "Add relay to your list",
-                    tint = NostrordColors.Primary
+                    tint = NostrordColors.Primary,
                 )
             }
         }
@@ -472,13 +496,13 @@ internal fun RelayOptionsMenu(
             Icon(
                 Icons.Default.MoreVert,
                 contentDescription = "Relay options",
-                tint = NostrordColors.TextMuted
+                tint = NostrordColors.TextMuted,
             )
         }
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            containerColor = NostrordColors.Surface
+            containerColor = NostrordColors.Surface,
         ) {
             DropdownMenuItem(
                 text = {
@@ -490,7 +514,7 @@ internal fun RelayOptionsMenu(
                 onClick = {
                     copyToClipboard(relayUrl)
                     expanded = false
-                }
+                },
             )
             DropdownMenuItem(
                 text = {
@@ -499,7 +523,7 @@ internal fun RelayOptionsMenu(
                             Icons.Default.Share,
                             contentDescription = null,
                             tint = NostrordColors.TextSecondary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(18.dp),
                         )
                         Text("Share", color = NostrordColors.TextPrimary, fontSize = 14.sp)
                     }
@@ -507,7 +531,7 @@ internal fun RelayOptionsMenu(
                 onClick = {
                     copyToClipboard(buildShareRelayLink(relayUrl))
                     expanded = false
-                }
+                },
             )
         }
     }
@@ -518,7 +542,7 @@ internal fun RelayHeaderIcon(
     relayUrl: String,
     iconUrl: String?,
     label: String,
-    size: androidx.compose.ui.unit.Dp
+    size: androidx.compose.ui.unit.Dp,
 ) {
     val context = LocalPlatformContext.current
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
@@ -536,11 +560,12 @@ internal fun RelayHeaderIcon(
     }
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(RoundedCornerShape(14.dp))
             .background(if (imageLoaded && hasIcon) NostrordColors.BackgroundDark else generateColorFromString(relayUrl)),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         // Base layer: fallback shown until image overlays it
         if (fallbackPainter != null) {
@@ -548,14 +573,14 @@ internal fun RelayHeaderIcon(
                 painter = fallbackPainter,
                 contentDescription = label,
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
             )
         } else if (!imageLoaded) {
             Text(
                 text = label.take(1).uppercase(),
                 color = Color.White,
                 fontSize = 28.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
         if (hasIcon) {
@@ -577,7 +602,7 @@ internal fun RelayHeaderIcon(
                             }
                             else -> {}
                         }
-                    }
+                    },
                 )
             }
         }

@@ -8,4 +8,7 @@ import androidx.compose.runtime.Composable
  * On other platforms, this is a no-op.
  */
 @Composable
-expect fun PlatformBackHandler(enabled: Boolean, onBack: () -> Unit)
+expect fun PlatformBackHandler(
+    enabled: Boolean,
+    onBack: () -> Unit,
+)

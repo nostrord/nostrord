@@ -24,39 +24,41 @@ object AndroidNetworkMonitorInit {
 
 actual fun createNetworkMonitorFlow(): Flow<NetworkEvent> {
     val context = AndroidNetworkMonitorInit.appContext ?: return emptyFlow()
-    val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        ?: return emptyFlow()
+    val cm =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return emptyFlow()
 
     return callbackFlow {
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            private var lastNetworkId: Long? = null
+        val callback =
+            object : ConnectivityManager.NetworkCallback() {
+                private var lastNetworkId: Long? = null
 
-            override fun onAvailable(network: Network) {
-                val currentId = network.toString().hashCode().toLong()
-                if (lastNetworkId != null && lastNetworkId != currentId) {
-                    trySend(NetworkEvent.CHANGED)
-                } else {
-                    trySend(NetworkEvent.CONNECTED)
-                }
-                lastNetworkId = currentId
-            }
-
-            override fun onLost(network: Network) {
-                trySend(NetworkEvent.DISCONNECTED)
-                lastNetworkId = null
-            }
-
-            override fun onCapabilitiesChanged(
-                network: Network,
-                capabilities: NetworkCapabilities
-            ) {
-                val currentId = network.toString().hashCode().toLong()
-                if (lastNetworkId != null && lastNetworkId != currentId) {
-                    trySend(NetworkEvent.CHANGED)
+                override fun onAvailable(network: Network) {
+                    val currentId = network.toString().hashCode().toLong()
+                    if (lastNetworkId != null && lastNetworkId != currentId) {
+                        trySend(NetworkEvent.CHANGED)
+                    } else {
+                        trySend(NetworkEvent.CONNECTED)
+                    }
                     lastNetworkId = currentId
                 }
+
+                override fun onLost(network: Network) {
+                    trySend(NetworkEvent.DISCONNECTED)
+                    lastNetworkId = null
+                }
+
+                override fun onCapabilitiesChanged(
+                    network: Network,
+                    capabilities: NetworkCapabilities,
+                ) {
+                    val currentId = network.toString().hashCode().toLong()
+                    if (lastNetworkId != null && lastNetworkId != currentId) {
+                        trySend(NetworkEvent.CHANGED)
+                        lastNetworkId = currentId
+                    }
+                }
             }
-        }
 
         cm.registerDefaultNetworkCallback(callback)
         awaitClose { cm.unregisterNetworkCallback(callback) }

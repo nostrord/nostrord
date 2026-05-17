@@ -43,26 +43,28 @@ actual fun PlatformVideoPlayer(
     thumbnailUrl: String?,
     aspectRatio: Float,
     onFallbackClick: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     val context = LocalContext.current
     var isFullscreen by remember { mutableStateOf(false) }
 
-    val exoPlayer = remember(url) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(url))
-            prepare()
-            playWhenReady = false
+    val exoPlayer =
+        remember(url) {
+            ExoPlayer.Builder(context).build().apply {
+                setMediaItem(MediaItem.fromUri(url))
+                prepare()
+                playWhenReady = false
+            }
         }
-    }
 
     DisposableEffect(url) {
         onDispose { exoPlayer.release() }
     }
 
-    val fullscreenClickListener = PlayerView.FullscreenButtonClickListener { _ ->
-        isFullscreen = true
-    }
+    val fullscreenClickListener =
+        PlayerView.FullscreenButtonClickListener { _ ->
+            isFullscreen = true
+        }
 
     AndroidView(
         factory = { ctx ->
@@ -91,17 +93,18 @@ actual fun PlatformVideoPlayer(
                 playerView.setFullscreenButtonClickListener(fullscreenClickListener)
             }
         },
-        modifier = modifier
+        modifier =
+        modifier
             .widthIn(max = 400.dp)
             .aspectRatio(aspectRatio, matchHeightConstraintsFirst = false)
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black)
+            .background(Color.Black),
     )
 
     if (isFullscreen) {
         FullscreenVideoDialog(
             exoPlayer = exoPlayer,
-            onDismiss = { isFullscreen = false }
+            onDismiss = { isFullscreen = false },
         )
     }
 }
@@ -110,7 +113,7 @@ actual fun PlatformVideoPlayer(
 @Composable
 private fun FullscreenVideoDialog(
     exoPlayer: ExoPlayer,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -120,9 +123,10 @@ private fun FullscreenVideoDialog(
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
         val window = activity?.window
-        val insetsController = window?.let {
-            WindowCompat.getInsetsController(it, it.decorView)
-        }
+        val insetsController =
+            window?.let {
+                WindowCompat.getInsetsController(it, it.decorView)
+            }
         insetsController?.apply {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -137,12 +141,13 @@ private fun FullscreenVideoDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
+        properties =
+        DialogProperties(
             usePlatformDefaultWidth = false,
             dismissOnBackPress = true,
             dismissOnClickOutside = false,
-            decorFitsSystemWindows = false
-        )
+            decorFitsSystemWindows = false,
+        ),
     ) {
         val dialogView = LocalView.current
         SideEffect {
@@ -153,7 +158,7 @@ private fun FullscreenVideoDialog(
                     or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                     or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                     or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            )
+                )
         }
 
         AndroidView(
@@ -164,10 +169,11 @@ private fun FullscreenVideoDialog(
                     setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                     setBackgroundColor(android.graphics.Color.BLACK)
                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    layoutParams = FrameLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
+                    layoutParams =
+                        FrameLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
                     setShowPreviousButton(false)
                     setShowNextButton(false)
                     controllerShowTimeoutMs = 3000
@@ -179,9 +185,10 @@ private fun FullscreenVideoDialog(
             update = { playerView ->
                 playerView.player = exoPlayer
             },
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(Color.Black),
         )
     }
 }

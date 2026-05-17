@@ -35,7 +35,7 @@ sealed class ChatItem {
         val action: String,
         val createdAt: Long,
         val id: String,
-        val additionalUsers: List<String> = emptyList() // Additional pubkeys for grouped events
+        val additionalUsers: List<String> = emptyList(), // Additional pubkeys for grouped events
     ) : ChatItem() {
         val totalUsers: Int get() = 1 + additionalUsers.size
         val isGrouped: Boolean get() = additionalUsers.isNotEmpty()
@@ -51,7 +51,7 @@ sealed class ChatItem {
     data class Message(
         val message: NostrGroupClient.NostrMessage,
         val isFirstInGroup: Boolean = true,
-        val isLastInGroup: Boolean = true
+        val isLastInGroup: Boolean = true,
     ) : ChatItem()
 
     /**
@@ -61,11 +61,11 @@ sealed class ChatItem {
     @Immutable
     data class ZapEvent(
         val id: String,
-        val senderPubkey: String,    // Who sent the zap
+        val senderPubkey: String, // Who sent the zap
         val recipientPubkey: String, // Who received the zap
-        val amount: Long,            // Amount in sats
-        val content: String,         // Emoji or message
-        val createdAt: Long
+        val amount: Long, // Amount in sats
+        val content: String, // Emoji or message
+        val createdAt: Long,
     ) : ChatItem()
 }
 
@@ -77,7 +77,7 @@ sealed class ChatItem {
 fun buildChatItems(
     messages: List<NostrGroupClient.NostrMessage>,
     lastReadTimestamp: Long? = null,
-    currentUserPubkey: String? = null
+    currentUserPubkey: String? = null,
 ): List<ChatItem> {
     val items = mutableListOf<ChatItem>()
     var lastDate: String? = null
@@ -158,11 +158,13 @@ fun buildChatItems(
                 val isLastInGroup = nextMessage == null || isNextDifferentDate ||
                     isNextDifferentAuthor || isNextOutsideWindow || isNextSystemEvent
 
-                items.add(ChatItem.Message(
-                    message = message,
-                    isFirstInGroup = isFirstInGroup,
-                    isLastInGroup = isLastInGroup
-                ))
+                items.add(
+                    ChatItem.Message(
+                        message = message,
+                        isFirstInGroup = isFirstInGroup,
+                        isLastInGroup = isLastInGroup,
+                    ),
+                )
 
                 lastMessagePubkey = message.pubkey
                 lastMessageTime = message.createdAt
@@ -183,14 +185,16 @@ fun buildChatItems(
                     ?.getOrNull(1)
                     ?: message.pubkey // Fallback to sender if no recipient
 
-                items.add(ChatItem.ZapEvent(
-                    id = message.id,
-                    senderPubkey = message.pubkey,
-                    recipientPubkey = recipientPubkey,
-                    amount = amountSats,
-                    content = message.content,
-                    createdAt = message.createdAt
-                ))
+                items.add(
+                    ChatItem.ZapEvent(
+                        id = message.id,
+                        senderPubkey = message.pubkey,
+                        recipientPubkey = recipientPubkey,
+                        amount = amountSats,
+                        content = message.content,
+                        createdAt = message.createdAt,
+                    ),
+                )
 
                 // Reset message grouping after zap event
                 lastMessagePubkey = null
@@ -224,7 +228,7 @@ fun buildChatItems(
                             pubkey = targetPubkey,
                             action = action,
                             createdAt = message.createdAt,
-                            id = message.id
+                            id = message.id,
                         )
                     }
 
@@ -256,7 +260,7 @@ fun buildChatItems(
                             pubkey = targetPubkey,
                             action = action,
                             createdAt = message.createdAt,
-                            id = message.id
+                            id = message.id,
                         )
                     }
 
@@ -282,7 +286,7 @@ fun buildChatItems(
                         pubkey = message.pubkey,
                         action = action,
                         createdAt = message.createdAt,
-                        id = message.id
+                        id = message.id,
                     )
                 }
 
@@ -308,7 +312,7 @@ fun buildChatItems(
                         pubkey = message.pubkey,
                         action = action,
                         createdAt = message.createdAt,
-                        id = message.id
+                        id = message.id,
                     )
                 }
 

@@ -22,12 +22,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.coroutines.await
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.yield
-import org.jetbrains.skia.Bitmap as SkiaBitmap
 import org.jetbrains.skia.ColorAlphaType
 import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.ImageInfo
@@ -35,6 +33,8 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.ByteBoundedImageCache
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.getImageUrl
+import kotlin.js.ExperimentalWasmJsInterop
+import org.jetbrains.skia.Bitmap as SkiaBitmap
 
 /**
  * Process-level LRU cache for decoded static image bitmaps, bounded at 80 MB.
@@ -53,7 +53,10 @@ private val fetchPermits = Semaphore(5)
 // ---- WasmJS interop via @JsFun ----
 
 @JsFun("(url, timeoutMs) => fetch(url, { signal: AbortSignal.timeout(timeoutMs) })")
-private external fun jsFetchWithTimeout(url: String, timeoutMs: Int): kotlin.js.Promise<JsAny>
+private external fun jsFetchWithTimeout(
+    url: String,
+    timeoutMs: Int,
+): kotlin.js.Promise<JsAny>
 
 @JsFun("(response) => response.ok")
 private external fun responseOk(response: JsAny): Boolean
@@ -62,7 +65,10 @@ private external fun responseOk(response: JsAny): Boolean
 private external fun responseToBlob(response: JsAny): kotlin.js.Promise<JsAny>
 
 @JsFun("(blob, maxW) => createImageBitmap(blob, { resizeWidth: maxW, resizeQuality: 'medium' })")
-private external fun jsCreateImageBitmapCapped(blob: JsAny, maxW: Int): kotlin.js.Promise<JsAny>
+private external fun jsCreateImageBitmapCapped(
+    blob: JsAny,
+    maxW: Int,
+): kotlin.js.Promise<JsAny>
 
 @JsFun("(bitmap) => bitmap.width | 0")
 private external fun bitmapWidth(bitmap: JsAny): Int
@@ -71,22 +77,35 @@ private external fun bitmapWidth(bitmap: JsAny): Int
 private external fun bitmapHeight(bitmap: JsAny): Int
 
 @JsFun("(width, height) => new OffscreenCanvas(width, height)")
-private external fun createOffscreenCanvas(width: Int, height: Int): JsAny
+private external fun createOffscreenCanvas(
+    width: Int,
+    height: Int,
+): JsAny
 
 @JsFun("(canvas) => canvas.getContext('2d')")
 private external fun getContext2d(canvas: JsAny): JsAny
 
 @JsFun("(ctx, bitmap) => { ctx.drawImage(bitmap, 0, 0); }")
-private external fun drawImageOnContext(ctx: JsAny, bitmap: JsAny)
+private external fun drawImageOnContext(
+    ctx: JsAny,
+    bitmap: JsAny,
+)
 
 @JsFun("(ctx, width, height) => ctx.getImageData(0, 0, width, height)")
-private external fun getImageData(ctx: JsAny, width: Int, height: Int): JsAny
+private external fun getImageData(
+    ctx: JsAny,
+    width: Int,
+    height: Int,
+): JsAny
 
 @JsFun("(imageData) => imageData.data.length | 0")
 private external fun imageDataLength(imageData: JsAny): Int
 
 @JsFun("(imageData, i) => imageData.data[i] | 0")
-private external fun imageDataByte(imageData: JsAny, i: Int): Int
+private external fun imageDataByte(
+    imageData: JsAny,
+    i: Int,
+): Int
 
 /**
  * Copies pixel bytes from a JS ImageData object into a Kotlin ByteArray.
@@ -121,8 +140,9 @@ private suspend fun loadStaticImageBitmap(url: String): ImageBitmap? {
 
         // Try optimized URL first, fall back to original on failure
         val optimizedUrl = getImageUrl(url)
-        val result = fetchAndDecode(optimizedUrl)
-            ?: if (optimizedUrl != url) fetchAndDecode(url) else null
+        val result =
+            fetchAndDecode(optimizedUrl)
+                ?: if (optimizedUrl != url) fetchAndDecode(url) else null
 
         if (result != null) {
             staticImageCache.put(url, result)
@@ -180,7 +200,7 @@ actual fun StaticImage(
     modifier: Modifier,
     contentScale: ContentScale,
     onClick: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     val alreadyFailed = failedUrls.get(url) == true
     var bitmap by remember(url) { mutableStateOf(staticImageCache.get(url)) }
@@ -209,16 +229,17 @@ actual fun StaticImage(
         }
         bitmap == null -> {
             Box(
-                modifier = baseModifier
+                modifier =
+                baseModifier
                     .widthIn(min = 200.dp)
                     .heightIn(min = 100.dp)
                     .background(NostrordColors.Surface),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(28.dp),
                     color = NostrordColors.TextMuted,
-                    strokeWidth = 2.5.dp
+                    strokeWidth = 2.5.dp,
                 )
             }
         }
@@ -227,7 +248,7 @@ actual fun StaticImage(
                 bitmap = bitmap!!,
                 contentDescription = "Image",
                 contentScale = contentScale,
-                modifier = baseModifier
+                modifier = baseModifier,
             )
         }
     }

@@ -17,7 +17,6 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
-
     private val testDispatcher = StandardTestDispatcher()
 
     @BeforeTest

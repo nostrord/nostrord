@@ -8,7 +8,6 @@ import org.nostr.nostrord.utils.epochMillis
  * Queryable via [getStats] and [getSummary] for debugging.
  */
 class ConnectionStats {
-
     data class RelayStats(
         var connectCount: Int = 0,
         var disconnectCount: Int = 0,
@@ -20,14 +19,13 @@ class ConnectionStats {
         var eventsReceived: Long = 0,
         var eventsDeduplicated: Long = 0,
         var failureCount: Int = 0,
-        var stateConflicts: Int = 0
+        var stateConflicts: Int = 0,
     )
 
     private val stats = mutableMapOf<String, RelayStats>()
     private val connectStartTimes = mutableMapOf<String, Long>()
 
-    private fun statsFor(relayUrl: String): RelayStats =
-        stats.getOrPut(relayUrl) { RelayStats() }
+    private fun statsFor(relayUrl: String): RelayStats = stats.getOrPut(relayUrl) { RelayStats() }
 
     fun onConnecting(relayUrl: String) {
         connectStartTimes[relayUrl] = epochMillis()

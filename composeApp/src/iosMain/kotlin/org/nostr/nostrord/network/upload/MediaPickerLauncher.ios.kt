@@ -3,7 +3,9 @@ package org.nostr.nostrord.network.upload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 
-actual class MediaPickerLauncher(private val doLaunch: () -> Unit) {
+actual class MediaPickerLauncher(
+    private val doLaunch: () -> Unit,
+) {
     actual fun launch() = doLaunch()
 }
 
@@ -13,7 +15,5 @@ actual fun rememberMediaPickerLauncher(
     accept: MediaAccept,
     onPickStart: () -> Unit,
     onError: (String) -> Unit,
-    onFilePicked: (ByteArray, String) -> Unit
-): MediaPickerLauncher {
-    return remember { MediaPickerLauncher { } }
-}
+    onFilePicked: (ByteArray, String) -> Unit,
+): MediaPickerLauncher = remember { MediaPickerLauncher { } }

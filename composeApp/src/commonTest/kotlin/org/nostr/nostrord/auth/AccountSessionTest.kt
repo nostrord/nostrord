@@ -14,7 +14,6 @@ import kotlin.test.assertTrue
  * Unit tests for [AccountSession] lifecycle: cancel propagation to scope and signer.
  */
 class AccountSessionTest {
-
     private fun makeSession(pubkey: String = "a".repeat(64)): AccountSession {
         val signer = FakeDisposableSigner(pubkey)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
@@ -63,18 +62,24 @@ class AccountSessionTest {
     }
 }
 
-private class FakeDisposableSigner(override val pubkey: String) : NostrSigner {
+private class FakeDisposableSigner(
+    override val pubkey: String,
+) : NostrSigner {
     var disposed = false
     var disposeCount = 0
 
     override suspend fun signEvent(event: Event): Event = event
+
     override fun dispose() {
         disposed = true
         disposeCount++
     }
 }
 
-private class ThrowingDisposeSigner(override val pubkey: String) : NostrSigner {
+private class ThrowingDisposeSigner(
+    override val pubkey: String,
+) : NostrSigner {
     override suspend fun signEvent(event: Event): Event = error("stub")
+
     override fun dispose() = throw RuntimeException("signer dispose failed")
 }

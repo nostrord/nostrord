@@ -1,16 +1,19 @@
 package org.nostr.nostrord.ui.navigation
 
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import org.nostr.nostrord.ui.Screen
 
 /**
  * A navigation entry storing both the screen and the relay that was active.
  */
-data class NavEntry(val screen: Screen, val relayUrl: String)
+data class NavEntry(
+    val screen: Screen,
+    val relayUrl: String,
+)
 
 /**
  * Browser-like navigation history with back/forward support.
@@ -19,8 +22,10 @@ data class NavEntry(val screen: Screen, val relayUrl: String)
  * and a cursor pointing to the current position. Navigating to a new screen
  * truncates any forward history. The history is capped at [MAX_HISTORY_SIZE] entries.
  */
-class NavigationHistory(initialScreen: Screen, initialRelayUrl: String = "") {
-
+class NavigationHistory(
+    initialScreen: Screen,
+    initialRelayUrl: String = "",
+) {
     companion object {
         private const val MAX_HISTORY_SIZE = 50
     }
@@ -42,7 +47,10 @@ class NavigationHistory(initialScreen: Screen, initialRelayUrl: String = "") {
      * Navigate to a new screen. Truncates forward history and appends.
      * Skips if [screen] and [relayUrl] are the same as the current entry.
      */
-    fun navigate(screen: Screen, relayUrl: String = "") {
+    fun navigate(
+        screen: Screen,
+        relayUrl: String = "",
+    ) {
         val current = history[cursorIndex]
         if (screen == current.screen && relayUrl == current.relayUrl) return
 

@@ -1,7 +1,6 @@
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.layout.*
-import org.nostr.nostrord.utils.toRelayUrl
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -9,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.toRelayUrl
 
 /**
  * Modal for joining a group by pasting an invite link.
@@ -19,7 +19,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 @Composable
 fun JoinGroupModal(
     onJoin: (relayUrl: String, groupId: String, inviteCode: String?) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var linkInput by remember { mutableStateOf("") }
     var parseError by remember { mutableStateOf<String?>(null) }
@@ -32,11 +32,15 @@ fun JoinGroupModal(
         if (queryStart < 0) return null
 
         val query = trimmed.substring(queryStart + 1)
-        val params = query.split("&").associate { param ->
-            val idx = param.indexOf("=")
-            if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1)
-            else param to ""
-        }
+        val params =
+            query.split("&").associate { param ->
+                val idx = param.indexOf("=")
+                if (idx >= 0) {
+                    param.substring(0, idx) to param.substring(idx + 1)
+                } else {
+                    param to ""
+                }
+            }
 
         val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
         val group = params["group"]?.takeIf { it.isNotBlank() } ?: return null
@@ -53,7 +57,7 @@ fun JoinGroupModal(
             Text(
                 "Join Group",
                 color = Color.White,
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
             )
         },
         text = {
@@ -61,7 +65,7 @@ fun JoinGroupModal(
                 Text(
                     "Paste an invite link to join a group.",
                     color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
                 )
 
                 OutlinedTextField(
@@ -74,7 +78,7 @@ fun JoinGroupModal(
                         Text(
                             "https://nostrord.com/open/?relay=...&group=...",
                             color = NostrordColors.TextMuted,
-                            style = MaterialTheme.typography.bodySmall
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     },
                     label = { Text("Invite Link", color = NostrordColors.TextSecondary) },
@@ -82,14 +86,14 @@ fun JoinGroupModal(
                     modifier = Modifier.fillMaxWidth(),
                     colors = outlinedFieldColors(),
                     textStyle = MaterialTheme.typography.bodyMedium,
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(8.dp),
                 )
 
                 if (parseError != null) {
                     Text(
                         parseError!!,
                         color = NostrordColors.Error,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
@@ -105,13 +109,14 @@ fun JoinGroupModal(
                     onJoin(parsed.first, parsed.second, parsed.third)
                 },
                 enabled = linkInput.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(
+                colors =
+                ButtonDefaults.buttonColors(
                     containerColor = NostrordColors.Primary,
                     contentColor = Color.White,
                     disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.3f),
-                    disabledContentColor = Color.White.copy(alpha = 0.5f)
+                    disabledContentColor = Color.White.copy(alpha = 0.5f),
                 ),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
             ) {
                 Text("Join")
             }
@@ -120,7 +125,7 @@ fun JoinGroupModal(
             TextButton(onClick = onDismiss) {
                 Text("Cancel", color = NostrordColors.TextSecondary)
             }
-        }
+        },
     )
 }
 
@@ -132,5 +137,5 @@ private fun outlinedFieldColors() = OutlinedTextFieldDefaults.colors(
     unfocusedBorderColor = NostrordColors.SurfaceVariant,
     cursorColor = NostrordColors.Primary,
     focusedLabelColor = NostrordColors.Primary,
-    unfocusedLabelColor = NostrordColors.TextSecondary
+    unfocusedLabelColor = NostrordColors.TextSecondary,
 )

@@ -5,8 +5,13 @@ package org.nostr.nostrord.utils
  * Provides type-safe error handling without exceptions.
  */
 sealed class Result<out T> {
-    data class Success<T>(val data: T) : Result<T>()
-    data class Error<T>(val error: AppError) : Result<T>()
+    data class Success<T>(
+        val data: T,
+    ) : Result<T>()
+
+    data class Error<T>(
+        val error: AppError,
+    ) : Result<T>()
 
     val isSuccess: Boolean get() = this is Success
     val isError: Boolean get() = this is Error
@@ -43,40 +48,40 @@ sealed class Result<out T> {
  */
 sealed class AppError(
     open val message: String,
-    open val cause: Throwable? = null
+    open val cause: Throwable? = null,
 ) {
     /** Network-related errors */
     sealed class Network(
         override val message: String,
-        override val cause: Throwable? = null
+        override val cause: Throwable? = null,
     ) : AppError(message, cause) {
         data class ConnectionFailed(
             val relayUrl: String,
-            override val cause: Throwable? = null
+            override val cause: Throwable? = null,
         ) : Network("Failed to connect to relay: $relayUrl", cause)
 
         data class Timeout(
             val operation: String,
-            override val cause: Throwable? = null
+            override val cause: Throwable? = null,
         ) : Network("Operation timed out: $operation", cause)
 
         data class Disconnected(
-            val relayUrl: String
+            val relayUrl: String,
         ) : Network("Disconnected from relay: $relayUrl")
     }
 
     /** Authentication errors */
     sealed class Auth(
         override val message: String,
-        override val cause: Throwable? = null
+        override val cause: Throwable? = null,
     ) : AppError(message, cause) {
         data class SigningFailed(
-            override val cause: Throwable? = null
+            override val cause: Throwable? = null,
         ) : Auth("Failed to sign event", cause)
 
         data class BunkerError(
             override val message: String,
-            override val cause: Throwable? = null
+            override val cause: Throwable? = null,
         ) : Auth(message, cause)
 
         data object NotAuthenticated : Auth("User not authenticated")
@@ -85,41 +90,41 @@ sealed class AppError(
     /** Group operation errors */
     sealed class Group(
         override val message: String,
-        override val cause: Throwable? = null
+        override val cause: Throwable? = null,
     ) : AppError(message, cause) {
         data class JoinFailed(
             val groupId: String,
-            override val cause: Throwable? = null
+            override val cause: Throwable? = null,
         ) : Group("Failed to join group: $groupId", cause)
 
         data class LeaveFailed(
             val groupId: String,
-            override val cause: Throwable? = null
+            override val cause: Throwable? = null,
         ) : Group("Failed to leave group: $groupId", cause)
 
         data class SendFailed(
             val groupId: String,
-            override val cause: Throwable? = null
+            override val cause: Throwable? = null,
         ) : Group("Failed to send message to group: $groupId", cause)
 
         data class MessageRejected(
             val groupId: String,
-            val reason: String
+            val reason: String,
         ) : Group("Message rejected by relay: $reason (group: $groupId)")
 
         data class SendTimeout(
-            val groupId: String
+            val groupId: String,
         ) : Group("Timed out waiting for relay confirmation (group: $groupId)")
 
         data class CreateFailed(
-            override val cause: Throwable? = null
+            override val cause: Throwable? = null,
         ) : Group("Failed to create group", cause)
     }
 
     /** Generic/unknown errors */
     data class Unknown(
         override val message: String,
-        override val cause: Throwable? = null
+        override val cause: Throwable? = null,
     ) : AppError(message, cause)
 }
 
@@ -134,21 +139,17 @@ fun <T> Result<T>.toKotlinResult(): kotlin.Result<T> = when (this) {
 /**
  * Execute a block and wrap the result in Result.Success or Result.Error
  */
-inline fun <T> runCatching(block: () -> T): Result<T> {
-    return try {
-        Result.Success(block())
-    } catch (e: Throwable) {
-        Result.Error(AppError.Unknown(e.message ?: "Unknown error", e))
-    }
+inline fun <T> runCatching(block: () -> T): Result<T> = try {
+    Result.Success(block())
+} catch (e: Throwable) {
+    Result.Error(AppError.Unknown(e.message ?: "Unknown error", e))
 }
 
 /**
  * Execute a suspending block and wrap the result in Result.Success or Result.Error
  */
-suspend inline fun <T> runCatchingSuspend(block: () -> T): Result<T> {
-    return try {
-        Result.Success(block())
-    } catch (e: Throwable) {
-        Result.Error(AppError.Unknown(e.message ?: "Unknown error", e))
-    }
+suspend inline fun <T> runCatchingSuspend(block: () -> T): Result<T> = try {
+    Result.Success(block())
+} catch (e: Throwable) {
+    Result.Error(AppError.Unknown(e.message ?: "Unknown error", e))
 }

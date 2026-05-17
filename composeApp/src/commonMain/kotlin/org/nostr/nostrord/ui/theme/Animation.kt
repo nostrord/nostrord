@@ -91,12 +91,12 @@ object NostrordAnimation {
     /** Standard transition */
     fun <T> standardSpec() = tween<T>(
         durationMillis = standard,
-        easing = standardEasing
+        easing = standardEasing,
     )
 
     /** Indicator position change */
     fun <T> indicatorSpec() = tween<T>(
         durationMillis = standard,
-        easing = emphasizedEasing
+        easing = emphasizedEasing,
     )
 }

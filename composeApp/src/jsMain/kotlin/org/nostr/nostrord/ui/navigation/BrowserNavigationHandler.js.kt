@@ -10,16 +10,19 @@ import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.browser.window
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.utils.toRelayUrl
-import org.w3c.dom.PopStateEvent
 
-private fun buildUrlQuery(relayUrl: String, screen: Screen): String {
+private fun buildUrlQuery(
+    relayUrl: String,
+    screen: Screen,
+): String {
     // Notifications is cross-relay — keep it out of the relay namespace so the
     // URL stays meaningful (and refresh-stable) even with no relay context.
     if (screen is Screen.Notifications) return "?view=notifications"
     if (relayUrl.isBlank()) return window.location.pathname
-    val relay = relayUrl
-        .removePrefix("wss://")
-        .removePrefix("ws://")
+    val relay =
+        relayUrl
+            .removePrefix("wss://")
+            .removePrefix("ws://")
     return when (screen) {
         is Screen.Group -> "?relay=$relay&group=${screen.groupId}"
         else -> "?relay=$relay"
@@ -37,11 +40,15 @@ private data class UrlParams(
 )
 
 private fun parseUrlQuery(search: String): UrlParams {
-    val params = search.removePrefix("?").split("&").associate { param ->
-        val idx = param.indexOf("=")
-        if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1)
-        else param to ""
-    }
+    val params =
+        search.removePrefix("?").split("&").associate { param ->
+            val idx = param.indexOf("=")
+            if (idx >= 0) {
+                param.substring(0, idx) to param.substring(idx + 1)
+            } else {
+                param to ""
+            }
+        }
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: ""
     val relayUrl = relay.toRelayUrl()
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
@@ -54,7 +61,7 @@ private fun parseUrlQuery(search: String): UrlParams {
 actual fun BrowserNavigationHandler(
     currentScreen: Screen,
     selectedRelayUrl: String,
-    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?, viewNotifications: Boolean) -> Unit
+    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?, viewNotifications: Boolean) -> Unit,
 ) {
     val currentOnUrlNavigation by rememberUpdatedState(onUrlNavigation)
 

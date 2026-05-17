@@ -7,11 +7,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-private fun jsSupported(): Boolean =
-    js("typeof Notification !== 'undefined'").unsafeCast<Boolean>()
+private fun jsSupported(): Boolean = js("typeof Notification !== 'undefined'").unsafeCast<Boolean>()
 
-private fun jsGetPermission(): String =
-    js("Notification.permission").unsafeCast<String>()
+private fun jsGetPermission(): String = js("Notification.permission").unsafeCast<String>()
 
 private fun jsRequestPermission(cb: (String) -> Unit) {
     val promise = js("Notification.requestPermission()")
@@ -32,7 +30,7 @@ private fun jsObservePermissionChanges(cb: (String) -> Unit) {
                 }).catch(function() {});
             }
         } catch (e) {}
-        """
+        """,
     )
 }
 
@@ -57,7 +55,9 @@ private fun jsShowNotification(
 }
 
 private fun jsCloseNotification(handle: dynamic) {
-    try { handle.close() } catch (_: Throwable) {}
+    try {
+        handle.close()
+    } catch (_: Throwable) {}
 }
 
 actual class NotificationService actual constructor() {

@@ -19,7 +19,7 @@ import org.nostr.nostrord.utils.epochMillis
 class MetadataManager(
     private val connectionManager: ConnectionManager,
     private val outboxManager: OutboxManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
 ) {
     /** Set by NostrRepository so batchFetch can reconnect bootstrap relays when all are offline. */
     var messageHandler: ((String, NostrGroupClient) -> Unit)? = null
@@ -29,12 +29,16 @@ class MetadataManager(
     companion object {
         const val MAX_METADATA_CACHE_SIZE = 500
         const val MAX_EVENTS_CACHE_SIZE = 500
+
         /** Metadata older than this is considered stale and will be re-fetched. */
         const val STALE_THRESHOLD_MS = 30 * 60 * 1000L
+
         /** Number of retry attempts before giving up on a metadata fetch. */
         const val MAX_FETCH_ATTEMPTS = 3
+
         /** Max authors per REQ filter — keeps relay filter sizes reasonable. */
         const val BATCH_SIZE = 50
+
         /** Coalesce window for metadata StateFlow emissions (ms). */
         const val METADATA_FLUSH_DELAY_MS = 100L
     }
@@ -57,17 +61,19 @@ class MetadataManager(
     fun requestUserMetadata(
         pubkeys: Set<String>,
         messageHandler: (String, NostrGroupClient) -> Unit,
-        forceStale: Boolean = false
+        forceStale: Boolean = false,
     ) {
         if (pubkeys.isEmpty()) return
 
         scope.launch {
-            val toFetch = inFlightMutex.withLock {
-                pubkeys.filter { pk ->
-                    pk !in inFlightPubkeys &&
-                        (metadataFetchedAt.get(pk) == null || (forceStale && isStale(pk)))
-                }.also { inFlightPubkeys.addAll(it) }
-            }
+            val toFetch =
+                inFlightMutex.withLock {
+                    pubkeys
+                        .filter { pk ->
+                            pk !in inFlightPubkeys &&
+                                (metadataFetchedAt.get(pk) == null || (forceStale && isStale(pk)))
+                        }.also { inFlightPubkeys.addAll(it) }
+                }
             if (toFetch.isEmpty()) return@launch
 
             try {
@@ -86,30 +92,38 @@ class MetadataManager(
         // Source the active account's relay list from OutboxManager (in-memory,
         // pubkey-scoped) instead of SecureStorage. The on-disk slot used to be
         // global and would leak another account's relays into this filter.
-        val nip29Relays = outboxManager.kind10009Relays.value +
-            connectionManager.currentRelayUrl.value
+        val nip29Relays =
+            outboxManager.kind10009Relays.value +
+                connectionManager.currentRelayUrl.value
 
-        val candidates = outboxManager.bootstrapRelays
-            .filter { it !in nip29Relays }
+        val candidates =
+            outboxManager.bootstrapRelays
+                .filter { it !in nip29Relays }
 
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
-            val missing = pubkeys.filter { pk ->
-                val fetchedAt = metadataFetchedAt.get(pk)
-                fetchedAt == null || fetchedAt < fetchStartedAt
-            }
+            val missing =
+                pubkeys.filter { pk ->
+                    val fetchedAt = metadataFetchedAt.get(pk)
+                    fetchedAt == null || fetchedAt < fetchStartedAt
+                }
             if (missing.isEmpty()) return
 
-            var sent = candidates.count { relayUrl ->
-                try {
-                    val client = connectionManager.getClientForRelay(relayUrl)
-                    if (client != null && client.isConnected()) {
-                        missing.chunked(BATCH_SIZE).forEach { chunk ->
-                            client.requestMetadata(chunk)
+            var sent =
+                candidates.count { relayUrl ->
+                    try {
+                        val client = connectionManager.getClientForRelay(relayUrl)
+                        if (client != null && client.isConnected()) {
+                            missing.chunked(BATCH_SIZE).forEach { chunk ->
+                                client.requestMetadata(chunk)
+                            }
+                            true
+                        } else {
+                            false
                         }
-                        true
-                    } else false
-                } catch (_: Exception) { false }
-            }
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
 
             // All bootstrap relays offline — try to reconnect one.
             if (sent == 0) {
@@ -125,17 +139,19 @@ class MetadataManager(
                                 sent = 1
                                 break
                             }
-                        } catch (_: Exception) {}
+                        } catch (_: Exception) {
+                        }
                     }
                 }
             }
 
             if (sent > 0) {
                 delay(if (attempt == 0) 2_000L else 3_500L)
-                val allFresh = pubkeys.all { pk ->
-                    val at = metadataFetchedAt.get(pk)
-                    at != null && at >= fetchStartedAt
-                }
+                val allFresh =
+                    pubkeys.all { pk ->
+                        val at = metadataFetchedAt.get(pk)
+                        at != null && at >= fetchStartedAt
+                    }
                 if (allFresh) return
             } else if (attempt < MAX_FETCH_ATTEMPTS - 1) {
                 delay(if (attempt == 0) 2_000L else 4_000L)
@@ -147,35 +163,48 @@ class MetadataManager(
         eventId: String,
         relayHints: List<String> = emptyList(),
         author: String? = null,
-        messageHandler: (String, NostrGroupClient) -> Unit
+        messageHandler: (String, NostrGroupClient) -> Unit,
     ) {
         // Skip if already cached or already in-flight
         if (_cachedEvents.value.containsKey(eventId)) return
-        val shouldFetch = inFlightEventsMutex.withLock {
-            if (inFlightEvents.contains(eventId)) false
-            else { inFlightEvents.add(eventId); true }
-        }
+        val shouldFetch =
+            inFlightEventsMutex.withLock {
+                if (inFlightEvents.contains(eventId)) {
+                    false
+                } else {
+                    inFlightEvents.add(eventId)
+                    true
+                }
+            }
         if (!shouldFetch) return
 
         try {
             // Use outbox model for relay selection
-            val relaysToTry = outboxManager.selectConnectedOutboxRelays(
-                authors = if (author != null) listOf(author) else emptyList(),
-                explicitRelays = relayHints
-            )
+            val relaysToTry =
+                outboxManager.selectConnectedOutboxRelays(
+                    authors = if (author != null) listOf(author) else emptyList(),
+                    explicitRelays = relayHints,
+                )
 
             // All relays in relaysToTry are already connected (pre-filtered).
-            var sent = relaysToTry.count { relayUrl ->
-                try {
-                    connectionManager.getClientForRelay(relayUrl)!!.requestEventById(eventId)
-                    true
-                } catch (_: Exception) { false }
-            }
+            var sent =
+                relaysToTry.count { relayUrl ->
+                    try {
+                        connectionManager.getClientForRelay(relayUrl)!!.requestEventById(eventId)
+                        true
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
 
             // Always also try primary NIP-29 relay — it hosts the events being quoted.
             val primary = connectionManager.getPrimaryClient()
             if (primary != null && primary.isConnected()) {
-                try { primary.requestEventById(eventId); sent++ } catch (_: Exception) {}
+                try {
+                    primary.requestEventById(eventId)
+                    sent++
+                } catch (_: Exception) {
+                }
             }
         } finally {
             // Remove after a delay to allow the response to arrive and be cached.
@@ -192,38 +221,51 @@ class MetadataManager(
         pubkey: String,
         identifier: String,
         relayHints: List<String> = emptyList(),
-        messageHandler: (String, NostrGroupClient) -> Unit
+        messageHandler: (String, NostrGroupClient) -> Unit,
     ) {
         // Create composite key for caching
         val addressKey = "$kind:$pubkey:$identifier"
 
         // Skip if already cached or already in-flight
         if (_cachedEvents.value.containsKey(addressKey)) return
-        val shouldFetch = inFlightEventsMutex.withLock {
-            if (inFlightEvents.contains(addressKey)) false
-            else { inFlightEvents.add(addressKey); true }
-        }
+        val shouldFetch =
+            inFlightEventsMutex.withLock {
+                if (inFlightEvents.contains(addressKey)) {
+                    false
+                } else {
+                    inFlightEvents.add(addressKey)
+                    true
+                }
+            }
         if (!shouldFetch) return
 
         try {
             // Use outbox model for relay selection
-            val relaysToTry = outboxManager.selectConnectedOutboxRelays(
-                authors = listOf(pubkey),
-                explicitRelays = relayHints
-            )
+            val relaysToTry =
+                outboxManager.selectConnectedOutboxRelays(
+                    authors = listOf(pubkey),
+                    explicitRelays = relayHints,
+                )
 
             // All relays in relaysToTry are already connected (pre-filtered).
-            var sent = relaysToTry.count { relayUrl ->
-                try {
-                    connectionManager.getClientForRelay(relayUrl)!!.requestAddressableEvent(kind, pubkey, identifier)
-                    true
-                } catch (_: Exception) { false }
-            }
+            var sent =
+                relaysToTry.count { relayUrl ->
+                    try {
+                        connectionManager.getClientForRelay(relayUrl)!!.requestAddressableEvent(kind, pubkey, identifier)
+                        true
+                    } catch (_: Exception) {
+                        false
+                    }
+                }
 
             // Always also try primary NIP-29 relay — it hosts the addressable events.
             val primary = connectionManager.getPrimaryClient()
             if (primary != null && primary.isConnected()) {
-                try { primary.requestAddressableEvent(kind, pubkey, identifier); sent++ } catch (_: Exception) {}
+                try {
+                    primary.requestAddressableEvent(kind, pubkey, identifier)
+                    sent++
+                } catch (_: Exception) {
+                }
             }
         } finally {
             scope.launch {
@@ -235,7 +277,10 @@ class MetadataManager(
 
     private var metadataFlushJob: Job? = null
 
-    fun handleMetadataEvent(pubkey: String, metadata: UserMetadata) {
+    fun handleMetadataEvent(
+        pubkey: String,
+        metadata: UserMetadata,
+    ) {
         metadataCache.put(pubkey, metadata)
         metadataFetchedAt.put(pubkey, epochMillis())
         scheduleMetadataFlush()
@@ -243,10 +288,11 @@ class MetadataManager(
 
     private fun scheduleMetadataFlush() {
         metadataFlushJob?.cancel()
-        metadataFlushJob = scope.launch {
-            delay(METADATA_FLUSH_DELAY_MS)
-            _userMetadata.value = metadataCache.toMap()
-        }
+        metadataFlushJob =
+            scope.launch {
+                delay(METADATA_FLUSH_DELAY_MS)
+                _userMetadata.value = metadataCache.toMap()
+            }
     }
 
     private fun flushMetadataNow() {
@@ -254,7 +300,10 @@ class MetadataManager(
         _userMetadata.value = metadataCache.toMap()
     }
 
-    fun updateLocalMetadata(pubkey: String, metadata: UserMetadata) {
+    fun updateLocalMetadata(
+        pubkey: String,
+        metadata: UserMetadata,
+    ) {
         metadataCache.put(pubkey, metadata)
         flushMetadataNow()
     }
@@ -274,18 +323,20 @@ class MetadataManager(
             val content = eventJson["content"]?.jsonPrimitive?.content ?: ""
             val createdAt = eventJson["created_at"]?.jsonPrimitive?.long ?: 0L
             val kind = eventJson["kind"]?.jsonPrimitive?.int ?: 1
-            val tags = eventJson["tags"]?.jsonArray?.map { tagArray ->
-                tagArray.jsonArray.map { it.jsonPrimitive.content }
-            } ?: emptyList()
+            val tags =
+                eventJson["tags"]?.jsonArray?.map { tagArray ->
+                    tagArray.jsonArray.map { it.jsonPrimitive.content }
+                } ?: emptyList()
 
-            val cachedEvent = CachedEvent(
-                id = eventId,
-                pubkey = pubkey,
-                kind = kind,
-                content = content,
-                createdAt = createdAt,
-                tags = tags
-            )
+            val cachedEvent =
+                CachedEvent(
+                    id = eventId,
+                    pubkey = pubkey,
+                    kind = kind,
+                    content = content,
+                    createdAt = createdAt,
+                    tags = tags,
+                )
 
             eventsCache.put(eventId, cachedEvent)
             _cachedEvents.value = eventsCache.toMap()
@@ -302,22 +353,24 @@ class MetadataManager(
             val content = eventJson["content"]?.jsonPrimitive?.content ?: ""
             val createdAt = eventJson["created_at"]?.jsonPrimitive?.long ?: 0L
             val kind = eventJson["kind"]?.jsonPrimitive?.int ?: 1
-            val tags = eventJson["tags"]?.jsonArray?.map { tagArray ->
-                tagArray.jsonArray.map { it.jsonPrimitive.content }
-            } ?: emptyList()
+            val tags =
+                eventJson["tags"]?.jsonArray?.map { tagArray ->
+                    tagArray.jsonArray.map { it.jsonPrimitive.content }
+                } ?: emptyList()
 
             val identifier = tags.find { it.firstOrNull() == "d" }?.getOrNull(1) ?: ""
             val addressKey = "$kind:$pubkey:$identifier"
             eventsCache.get(addressKey)?.let { return it }
 
-            val cachedEvent = CachedEvent(
-                id = eventId,
-                pubkey = pubkey,
-                kind = kind,
-                content = content,
-                createdAt = createdAt,
-                tags = tags
-            )
+            val cachedEvent =
+                CachedEvent(
+                    id = eventId,
+                    pubkey = pubkey,
+                    kind = kind,
+                    content = content,
+                    createdAt = createdAt,
+                    tags = tags,
+                )
 
             eventsCache.put(eventId, cachedEvent)
             eventsCache.put(addressKey, cachedEvent)

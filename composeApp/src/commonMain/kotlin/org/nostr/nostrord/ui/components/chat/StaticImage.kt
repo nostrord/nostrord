@@ -25,5 +25,5 @@ expect fun StaticImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Fit,
     onClick: () -> Unit = {},
-    onError: () -> Unit = {}
+    onError: () -> Unit = {},
 )

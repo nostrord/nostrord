@@ -21,13 +21,12 @@ import org.nostr.nostrord.utils.epochMillis
  * Persistence is lazy (written periodically, never on every event).
  */
 class LiveCursorStore {
-
     companion object {
         /** Overlap subtracted from cursor on reconnect — covers clock skew and late deliveries. */
         const val RECONNECT_OVERLAP_S = 30L
 
         /** How far back to subscribe when a group has no cursor yet. */
-        const val INITIAL_WINDOW_S = 3_600L   // 1 hour
+        const val INITIAL_WINDOW_S = 3_600L // 1 hour
 
         /** Hard cap: never ask for events older than this to avoid overwhelming relays. */
         const val MAX_SINCE_AGE_S = 24 * 3_600L
@@ -43,7 +42,11 @@ class LiveCursorStore {
      * Record that [eventTimestamp] (Unix seconds) was the most recent event seen
      * for [groupId] on [relayUrl].  Only advances forward — never overwrites a newer cursor.
      */
-    suspend fun update(relayUrl: String, groupId: String, eventTimestamp: Long) {
+    suspend fun update(
+        relayUrl: String,
+        groupId: String,
+        eventTimestamp: Long,
+    ) {
         mutex.withLock {
             val relay = cursors.getOrPut(relayUrl) { mutableMapOf() }
             val current = relay[groupId] ?: 0L
@@ -61,7 +64,10 @@ class LiveCursorStore {
      * the disconnect are not missed due to clock skew.  The [EventDeduplicator] removes
      * any genuine duplicates that come back through the overlap window.
      */
-    suspend fun getSince(relayUrl: String, groupId: String): Long {
+    suspend fun getSince(
+        relayUrl: String,
+        groupId: String,
+    ): Long {
         val nowSeconds = epochMillis() / 1000
         val cursor = mutex.withLock { cursors[relayUrl]?.get(groupId) }
         return if (cursor != null && cursor > 0L) {
@@ -78,7 +84,10 @@ class LiveCursorStore {
      * Used for the multiplexed subscription: the mux REQ uses the oldest cursor so no
      * group misses events after a reconnect.  Groups with no cursor use [INITIAL_WINDOW_S].
      */
-    suspend fun getMinSince(relayUrl: String, groupIds: List<String>): Long {
+    suspend fun getMinSince(
+        relayUrl: String,
+        groupIds: List<String>,
+    ): Long {
         if (groupIds.isEmpty()) return epochMillis() / 1000 - INITIAL_WINDOW_S
         return groupIds.minOf { getSince(relayUrl, it) }
     }
@@ -95,7 +104,8 @@ class LiveCursorStore {
         try {
             val encoded = json.encodeToString(snapshot)
             withContext(Dispatchers.Default) { SecureStorage.saveLiveCursors(relayUrl, encoded) }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     /** Persist cursors for every relay currently in memory. */
@@ -122,7 +132,8 @@ class LiveCursorStore {
                     }
                 }
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     /** Load cursors for all given relay URLs. Call once on startup after relay list is known. */
@@ -135,11 +146,12 @@ class LiveCursorStore {
      * Call on logout so a different account starts with no stale cursors.
      */
     suspend fun clear() {
-        val relayUrls = mutex.withLock {
-            val keys = cursors.keys.toList()
-            cursors.clear()
-            keys
-        }
+        val relayUrls =
+            mutex.withLock {
+                val keys = cursors.keys.toList()
+                cursors.clear()
+                keys
+            }
         withContext(Dispatchers.Default) { relayUrls.forEach { SecureStorage.clearLiveCursors(it) } }
     }
 }

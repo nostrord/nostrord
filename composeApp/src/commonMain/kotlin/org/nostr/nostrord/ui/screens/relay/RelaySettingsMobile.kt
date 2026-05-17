@@ -32,7 +32,7 @@ fun RelaySettingsMobile(
     onAddRelay: () -> Unit,
     onDeleteRelay: ((String) -> Unit)? = null,
     lazyFetchStates: Map<String, Boolean> = emptyMap(),
-    onToggleLazyFetch: ((String, Boolean) -> Unit)? = null
+    onToggleLazyFetch: ((String, Boolean) -> Unit)? = null,
 ) {
     Scaffold(
         topBar = {
@@ -41,17 +41,18 @@ fun RelaySettingsMobile(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         // Header icon
                         Box(
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
                                 .background(NostrordColors.Primary.copy(alpha = 0.2f)),
-                            contentAlignment = Alignment.Center
+                            contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Public,
                                 contentDescription = null,
                                 tint = NostrordColors.Primary,
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(18.dp),
                             )
                         }
 
@@ -62,30 +63,32 @@ fun RelaySettingsMobile(
                                 text = "Relay Settings",
                                 color = Color.White,
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
                             )
                             Text(
                                 text = "Manage NIP-29 relays",
                                 color = NostrordColors.TextSecondary,
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
                             )
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = NostrordColors.BackgroundDark
-                )
+                colors =
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = NostrordColors.BackgroundDark,
+                ),
             )
         },
-        containerColor = NostrordColors.Background
+        containerColor = NostrordColors.Background,
     ) { paddingValues ->
         LazyColumn(
             state = listState,
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // Section header
             item {
@@ -93,7 +96,7 @@ fun RelaySettingsMobile(
                     text = "${relays.size} relay${if (relays.size != 1) "s" else ""} configured",
                     color = NostrordColors.TextMuted,
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    modifier = Modifier.padding(bottom = 4.dp),
                 )
             }
 
@@ -104,7 +107,7 @@ fun RelaySettingsMobile(
                     onSelectRelay = { onSelectRelay(relay.url) },
                     onDeleteRelay = onDeleteRelay?.let { cb -> { cb(relay.url) } },
                     isLazyFetch = lazyFetchStates[relay.url] ?: false,
-                    onToggleLazyFetch = onToggleLazyFetch?.let { cb -> { v -> cb(relay.url, v) } }
+                    onToggleLazyFetch = onToggleLazyFetch?.let { cb -> { v -> cb(relay.url, v) } },
                 )
             }
 

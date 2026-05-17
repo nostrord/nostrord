@@ -22,7 +22,7 @@ import kotlinx.coroutines.launch
  */
 class MetadataRateLimiter(
     val requestsPerSecond: Int = DEFAULT_REQUESTS_PER_SECOND,
-    scope: CoroutineScope
+    scope: CoroutineScope,
 ) {
     companion object {
         const val DEFAULT_REQUESTS_PER_SECOND = 5

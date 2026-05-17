@@ -11,14 +11,12 @@ import androidx.compose.ui.input.pointer.pointerInput
  * Desktop implementation: Detects right-click via secondary button press
  */
 @OptIn(ExperimentalComposeUiApi::class)
-actual fun rightClickContextMenuModifier(onRightClick: () -> Unit): Modifier {
-    return Modifier.pointerInput(Unit) {
-        awaitEachGesture {
-            val event = awaitPointerEvent()
-            // Check if secondary (right) mouse button is pressed
-            if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
-                onRightClick()
-            }
+actual fun rightClickContextMenuModifier(onRightClick: () -> Unit): Modifier = Modifier.pointerInput(Unit) {
+    awaitEachGesture {
+        val event = awaitPointerEvent()
+        // Check if secondary (right) mouse button is pressed
+        if (event.type == PointerEventType.Press && event.buttons.isSecondaryPressed) {
+            onRightClick()
         }
     }
 }

@@ -4,16 +4,16 @@ package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.WebElementView
-import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.browser.document
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLImageElement
+import kotlin.js.ExperimentalWasmJsInterop
 
 /**
  * WasmJS: renders emoji as a native HTML <img> so the browser animates GIF/WebP.
@@ -27,7 +27,7 @@ actual fun EmojiImage(
     contentDescription: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     // Hide HTML overlay when a modal/dialog is open (same as AnimatedImage)
     if (LocalAnimatedImageHidden.current) {
@@ -67,6 +67,6 @@ actual fun EmojiImage(
             }
             img.style.setProperty("pointer-events", "none")
             (img.parentElement as? HTMLElement)?.style?.setProperty("pointer-events", "none")
-        }
+        },
     )
 }

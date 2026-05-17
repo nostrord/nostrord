@@ -19,7 +19,6 @@ class AccountManager(
     private val authManager: AuthManager,
     private val sessionFactory: AccountSessionFactory,
 ) {
-
     /**
      * Add a new local-key account WITHOUT switching to it.
      *
@@ -27,20 +26,25 @@ class AccountManager(
      * (re-adding the same nsec is a no-op the UI can surface as "already
      * added; switch to it?").
      */
-    fun addLocalAccount(privateKeyHex: String, label: String? = null): Result<Account> {
+    fun addLocalAccount(
+        privateKeyHex: String,
+        label: String? = null,
+    ): Result<Account> {
         return try {
             val pubkey = KeyPair.fromPrivateKeyHex(privateKeyHex).publicKeyHex
             if (accountStore.get(pubkey) != null) {
                 return Result.failure(IllegalStateException("Account already exists for this key"))
             }
             SecureStorage.savePrivateKeyFor(pubkey, privateKeyHex)
-            val account = Account(
-                pubkey = pubkey,
-                label = label?.takeIf { it.isNotBlank() }
-                    ?: "Account ${accountStore.accounts.value.size + 1}",
-                authMethod = AuthMethod.LOCAL,
-                addedAt = epochMillis(),
-            )
+            val account =
+                Account(
+                    pubkey = pubkey,
+                    label =
+                    label?.takeIf { it.isNotBlank() }
+                        ?: "Account ${accountStore.accounts.value.size + 1}",
+                    authMethod = AuthMethod.LOCAL,
+                    addedAt = epochMillis(),
+                )
             accountStore.upsert(account)
             Result.success(account)
         } catch (e: Exception) {
@@ -60,8 +64,9 @@ class AccountManager(
      * fail with "already connected", which trips the bunker reconnect logout.
      */
     suspend fun switchAccount(accountId: String): Result<Unit> {
-        val target = accountStore.get(accountId)
-            ?: return Result.failure(IllegalArgumentException("No such account: $accountId"))
+        val target =
+            accountStore.get(accountId)
+                ?: return Result.failure(IllegalArgumentException("No such account: $accountId"))
 
         if (accountStore.activeId.value == accountId) return Result.success(Unit)
 
@@ -74,8 +79,9 @@ class AccountManager(
         // Phase 2: wrap AuthManager's now-loaded credentials in an AccountSession.
         // The signer reuses the same KeyPair / Nip46Client instance AuthManager
         // owns, so there is exactly one active credential per account.
-        val newSession = sessionFactory.build(target, authManager)
-            ?: return Result.failure(IllegalStateException("Could not build session for $accountId"))
+        val newSession =
+            sessionFactory.build(target, authManager)
+                ?: return Result.failure(IllegalStateException("Could not build session for $accountId"))
 
         // Phase 3: atomic swap — old session's scope and signer are cancelled here.
         ActiveAccountManager.activate(newSession)
@@ -107,11 +113,14 @@ class AccountManager(
         // added first. Iterate so a single broken fallback (bunker offline,
         // credentials wiped) does not drop the user to the login screen when
         // other valid accounts still exist.
-        val candidates = if (wasActive) {
-            accountStore.accounts.value
-                .filter { it.id != accountId }
-                .sortedByDescending { it.addedAt }
-        } else emptyList()
+        val candidates =
+            if (wasActive) {
+                accountStore.accounts.value
+                    .filter { it.id != accountId }
+                    .sortedByDescending { it.addedAt }
+            } else {
+                emptyList()
+            }
 
         // Wipe secrets and pending signed work; these would let someone act as
         // this account if left behind. Public/reconstituible state (relay list,
@@ -126,9 +135,10 @@ class AccountManager(
 
         if (!wasActive) return accountStore.active
 
-        val winner = pickFirstSuccess(candidates) { candidate ->
-            switchAccount(candidate.id).isSuccess
-        }
+        val winner =
+            pickFirstSuccess(candidates) { candidate ->
+                switchAccount(candidate.id).isSuccess
+            }
         if (winner != null) return winner
 
         authManager.logout()

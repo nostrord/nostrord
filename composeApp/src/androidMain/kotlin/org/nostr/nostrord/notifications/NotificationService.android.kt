@@ -15,7 +15,10 @@ actual class NotificationService actual constructor() {
     actual val notificationClicks: SharedFlow<NotificationClick> = _clicks.asSharedFlow()
 
     actual fun isSupported(): Boolean = false
+
     actual fun requestPermission() {}
+
     actual fun notify(request: NotificationRequest) {}
+
     actual fun cancelAllPending() {}
 }

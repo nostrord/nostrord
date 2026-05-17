@@ -1,6 +1,5 @@
 package org.nostr.nostrord.ui.components.chat
 
-import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
 
 /**
@@ -47,7 +46,6 @@ import org.nostr.nostrord.nostr.Nip27
  * - Custom emojis: "Hello :wave:" with emoji tag → renders inline image
  */
 object MessageContentParser {
-
     // ============================================================================
     // PARSE CACHE — avoids re-running 8 regex passes for the same content
     // ============================================================================
@@ -56,7 +54,9 @@ object MessageContentParser {
 
     // LRU cache: key = "content\0emojiMapHash", value = parsed parts.
     // KMP-compatible: uses custom LruCache instead of java.util.LinkedHashMap.
-    private val parseCache = org.nostr.nostrord.utils.LruCache<String, List<ParsedPart>>(CACHE_MAX_SIZE)
+    private val parseCache =
+        org.nostr.nostrord.utils
+            .LruCache<String, List<ParsedPart>>(CACHE_MAX_SIZE)
 
     // ============================================================================
     // PUBLIC API
@@ -67,54 +67,92 @@ object MessageContentParser {
      */
     sealed class ParsedPart {
         /** Plain text segment (may contain whitespace, newlines, etc.) */
-        data class Text(val content: String) : ParsedPart()
+        data class Text(
+            val content: String,
+        ) : ParsedPart()
 
         /** URL that should be rendered as a clickable link */
-        data class Link(val url: String) : ParsedPart()
+        data class Link(
+            val url: String,
+        ) : ParsedPart()
 
         /** URL that points to an image (for inline preview) */
-        data class Image(val url: String) : ParsedPart()
+        data class Image(
+            val url: String,
+        ) : ParsedPart()
 
         /** Nostr mention (npub, note, nevent, etc.) */
-        data class Mention(val reference: Nip27.NostrReference) : ParsedPart()
+        data class Mention(
+            val reference: Nip27.NostrReference,
+        ) : ParsedPart()
 
         /** Custom emoji (NIP-30) - rendered as inline image */
-        data class CustomEmoji(val shortcode: String, val imageUrl: String) : ParsedPart()
+        data class CustomEmoji(
+            val shortcode: String,
+            val imageUrl: String,
+        ) : ParsedPart()
 
         // Text formatting (inline)
+
         /** Bold text (*text*) */
-        data class Bold(val content: String) : ParsedPart()
+        data class Bold(
+            val content: String,
+        ) : ParsedPart()
 
         /** Italic text (_text_) */
-        data class Italic(val content: String) : ParsedPart()
+        data class Italic(
+            val content: String,
+        ) : ParsedPart()
 
         /** Monospace/code text (`code`) */
-        data class Monospace(val content: String) : ParsedPart()
+        data class Monospace(
+            val content: String,
+        ) : ParsedPart()
 
         // Code blocks (block-level)
+
         /** Fenced code block (```language\ncode```) */
-        data class CodeBlock(val code: String, val language: String?) : ParsedPart()
+        data class CodeBlock(
+            val code: String,
+            val language: String?,
+        ) : ParsedPart()
 
         // Hashtags (inline)
+
         /** Hashtag (#tag) */
-        data class Hashtag(val tag: String) : ParsedPart()
+        data class Hashtag(
+            val tag: String,
+        ) : ParsedPart()
 
         // Media (block-level)
+
         /** Video URL (YouTube or direct video file) */
-        data class Video(val url: String, val videoId: String? = null) : ParsedPart()
+        data class Video(
+            val url: String,
+            val videoId: String? = null,
+        ) : ParsedPart()
 
         /** Audio URL (mp3, wav, etc.) */
-        data class Audio(val url: String) : ParsedPart()
+        data class Audio(
+            val url: String,
+        ) : ParsedPart()
 
         // Nostr-specific types (block-level)
+
         /** WebSocket relay URL (ws://, wss://) */
-        data class Relay(val url: String) : ParsedPart()
+        data class Relay(
+            val url: String,
+        ) : ParsedPart()
 
         /** Cashu ecash token (cashuA... or cashuB...) */
-        data class Cashu(val token: String) : ParsedPart()
+        data class Cashu(
+            val token: String,
+        ) : ParsedPart()
 
         /** Cashu payment request (creqA...) */
-        data class CashuRequest(val request: String) : ParsedPart()
+        data class CashuRequest(
+            val request: String,
+        ) : ParsedPart()
     }
 
     /**
@@ -128,7 +166,10 @@ object MessageContentParser {
      * @param emojiMap Map of shortcode to image URL from NIP-30 emoji tags
      * @return List of parsed parts in order, preserving original text positions
      */
-    fun parse(content: String, emojiMap: Map<String, String> = emptyMap()): List<ParsedPart> {
+    fun parse(
+        content: String,
+        emojiMap: Map<String, String> = emptyMap(),
+    ): List<ParsedPart> {
         if (content.isEmpty()) return emptyList()
 
         // Check cache first — avoids 8 regex passes for previously seen messages
@@ -160,16 +201,25 @@ object MessageContentParser {
         val formattingMatches = findFormatting(contentWithPlaceholders, coveredByUrlsRelaysCashuMentions)
 
         // Step 6: Find hashtags in non-covered regions
-        val coveredByUrlsRelaysCashuMentionsFormatting = (urlMatches + relayMatches + cashuMatches + nostrMatches + formattingMatches).map { it.range }
+        val coveredByUrlsRelaysCashuMentionsFormatting =
+            (urlMatches + relayMatches + cashuMatches + nostrMatches + formattingMatches).map {
+                it.range
+            }
         val hashtagMatches = findHashtags(contentWithPlaceholders, coveredByUrlsRelaysCashuMentionsFormatting)
 
         // Step 7: Find custom emojis in remaining regions
-        val allCoveredRanges = (urlMatches + relayMatches + cashuMatches + nostrMatches + formattingMatches + hashtagMatches).map { it.range }
+        val allCoveredRanges =
+            (urlMatches + relayMatches + cashuMatches + nostrMatches + formattingMatches + hashtagMatches).map {
+                it.range
+            }
         val emojiMatches = findCustomEmojis(contentWithPlaceholders, emojiMap, allCoveredRanges)
 
         // Step 8: Combine all matches (including code blocks) and sort by position
-        val allMatches = (codeBlockMatches + urlMatches + relayMatches + cashuMatches + nostrMatches + formattingMatches + hashtagMatches + emojiMatches)
-            .sortedBy { it.range.first }
+        val allMatches =
+            (
+                codeBlockMatches + urlMatches + relayMatches + cashuMatches + nostrMatches + formattingMatches + hashtagMatches +
+                    emojiMatches
+                ).sortedBy { it.range.first }
 
         // Step 9: Build parts list with text between matches, cache, and return
         val result = buildParts(content, allMatches)
@@ -196,8 +246,7 @@ object MessageContentParser {
             .filter { tag ->
                 // Basic structure validation
                 tag.size >= 3 && tag[0] == "emoji"
-            }
-            .mapNotNull { tag ->
+            }.mapNotNull { tag ->
                 val shortcode = tag[1]
                 val url = tag[2]
 
@@ -208,8 +257,7 @@ object MessageContentParser {
                 if (!isValidEmojiUrl(url)) return@mapNotNull null
 
                 shortcode to url
-            }
-            .toMap()
+            }.toMap()
     }
 
     /**
@@ -313,18 +361,20 @@ object MessageContentParser {
      * We use a permissive pattern and then clean up, rather than trying to
      * capture the exact URL boundary in regex (which is error-prone).
      */
-    private val urlRegex = Regex(
-        """https?://[^\s<>"]+""",
-        RegexOption.IGNORE_CASE
-    )
+    private val urlRegex =
+        Regex(
+            """https?://[^\s<>"]+""",
+            RegexOption.IGNORE_CASE,
+        )
 
     /**
      * WebSocket relay URL regex (ws:// or wss://)
      */
-    private val relayUrlRegex = Regex(
-        """wss?://[^\s<>"]+""",
-        RegexOption.IGNORE_CASE
-    )
+    private val relayUrlRegex =
+        Regex(
+            """wss?://[^\s<>"]+""",
+            RegexOption.IGNORE_CASE,
+        )
 
     // ============================================================================
     // CASHU TOKEN PARSING
@@ -334,19 +384,21 @@ object MessageContentParser {
      * Cashu ecash token regex (cashuA... or cashuB...)
      * Tokens are base64url encoded, starting with cashuA or cashuB
      */
-    private val cashuTokenRegex = Regex(
-        """cashu[AB][A-Za-z0-9_-]+""",
-        RegexOption.IGNORE_CASE
-    )
+    private val cashuTokenRegex =
+        Regex(
+            """cashu[AB][A-Za-z0-9_-]+""",
+            RegexOption.IGNORE_CASE,
+        )
 
     /**
      * Cashu payment request regex (creqA...)
      * Requests are base64url encoded, starting with creqA
      */
-    private val cashuRequestRegex = Regex(
-        """creq[A-Za-z0-9_-]+""",
-        RegexOption.IGNORE_CASE
-    )
+    private val cashuRequestRegex =
+        Regex(
+            """creq[A-Za-z0-9_-]+""",
+            RegexOption.IGNORE_CASE,
+        )
 
     /**
      * Characters that should not end a URL (trailing punctuation).
@@ -359,26 +411,29 @@ object MessageContentParser {
      * Enhanced to detect images, videos, and audio URLs.
      */
     private fun findUrls(content: String): List<ParsedMatch> {
-        return urlRegex.findAll(content).mapNotNull { match ->
-            val cleanedUrl = cleanUrl(match.value)
-            if (cleanedUrl.length < 10) return@mapNotNull null // "https://x" minimum
+        return urlRegex
+            .findAll(content)
+            .mapNotNull { match ->
+                val cleanedUrl = cleanUrl(match.value)
+                if (cleanedUrl.length < 10) return@mapNotNull null // "https://x" minimum
 
-            // Calculate the actual range after cleaning
-            val trimmedFromEnd = match.value.length - cleanedUrl.length
-            val actualRange = match.range.first..(match.range.last - trimmedFromEnd)
+                // Calculate the actual range after cleaning
+                val trimmedFromEnd = match.value.length - cleanedUrl.length
+                val actualRange = match.range.first..(match.range.last - trimmedFromEnd)
 
-            // Check media types — video/audio by extension first (so .mp4 on
-            // nostr.build isn't misclassified as an image by the host check).
-            val (isVideo, videoId) = checkVideoUrl(cleanedUrl)
-            val part = when {
-                isVideo -> ParsedPart.Video(cleanedUrl, videoId)
-                isAudioUrl(cleanedUrl) -> ParsedPart.Audio(cleanedUrl)
-                isImageUrl(cleanedUrl) -> ParsedPart.Image(cleanedUrl)
-                else -> ParsedPart.Link(cleanedUrl)
-            }
+                // Check media types — video/audio by extension first (so .mp4 on
+                // nostr.build isn't misclassified as an image by the host check).
+                val (isVideo, videoId) = checkVideoUrl(cleanedUrl)
+                val part =
+                    when {
+                        isVideo -> ParsedPart.Video(cleanedUrl, videoId)
+                        isAudioUrl(cleanedUrl) -> ParsedPart.Audio(cleanedUrl)
+                        isImageUrl(cleanedUrl) -> ParsedPart.Image(cleanedUrl)
+                        else -> ParsedPart.Link(cleanedUrl)
+                    }
 
-            ParsedMatch(actualRange, part)
-        }.toList()
+                ParsedMatch(actualRange, part)
+            }.toList()
     }
 
     /**
@@ -429,7 +484,11 @@ object MessageContentParser {
     /**
      * Strip unbalanced trailing closing brackets.
      */
-    private fun stripUnbalancedTrailing(url: String, open: Char, close: Char): String {
+    private fun stripUnbalancedTrailing(
+        url: String,
+        open: Char,
+        close: Char,
+    ): String {
         if (!url.endsWith(close)) return url
 
         val openCount = url.count { it == open }
@@ -452,7 +511,9 @@ object MessageContentParser {
         val lowercase = url.lowercase()
 
         // Hosts known to be unreliable — always show as clickable link
-        if (org.nostr.nostrord.utils.isBlockedImageHost(url)) {
+        if (org.nostr.nostrord.utils
+                .isBlockedImageHost(url)
+        ) {
             return false
         }
 
@@ -464,17 +525,20 @@ object MessageContentParser {
         }
 
         // Check known image hosting domains
-        val imageHosts = listOf(
-            "imgur.com", "i.imgur.com",
-            "i.redd.it",
-            "pbs.twimg.com",
-            "media.tenor.com",
-            "giphy.com", "media.giphy.com",
-            "nostr.build",
-            "void.cat",
-            "imgproxy",
-            "primal.b-cdn.net"
-        )
+        val imageHosts =
+            listOf(
+                "imgur.com",
+                "i.imgur.com",
+                "i.redd.it",
+                "pbs.twimg.com",
+                "media.tenor.com",
+                "giphy.com",
+                "media.giphy.com",
+                "nostr.build",
+                "void.cat",
+                "imgproxy",
+                "primal.b-cdn.net",
+            )
         if (imageHosts.any { lowercase.contains(it) }) {
             return true
         }
@@ -491,7 +555,10 @@ object MessageContentParser {
      *
      * This is critical: a reference like npub1... inside a URL is NOT a mention.
      */
-    private fun findNostrReferences(content: String, urlMatches: List<ParsedMatch>): List<ParsedMatch> {
+    private fun findNostrReferences(
+        content: String,
+        urlMatches: List<ParsedMatch>,
+    ): List<ParsedMatch> {
         // Build a set of character positions covered by URLs
         val coveredPositions = mutableSetOf<Int>()
         for (match in urlMatches) {
@@ -535,7 +602,7 @@ object MessageContentParser {
     private fun findCustomEmojis(
         content: String,
         emojiMap: Map<String, String>,
-        coveredRanges: List<IntRange>
+        coveredRanges: List<IntRange>,
     ): List<ParsedMatch> {
         if (emojiMap.isEmpty()) return emptyList()
 
@@ -547,18 +614,20 @@ object MessageContentParser {
             }
         }
 
-        return emojiShortcodeRegex.findAll(content).mapNotNull { match ->
-            val shortcode = match.groupValues[1]
-            val imageUrl = emojiMap[shortcode] ?: return@mapNotNull null
+        return emojiShortcodeRegex
+            .findAll(content)
+            .mapNotNull { match ->
+                val shortcode = match.groupValues[1]
+                val imageUrl = emojiMap[shortcode] ?: return@mapNotNull null
 
-            // Check if this range overlaps with already covered regions
-            val overlaps = match.range.any { it in coveredPositions }
-            if (overlaps) {
-                null
-            } else {
-                ParsedMatch(match.range, ParsedPart.CustomEmoji(shortcode, imageUrl))
-            }
-        }.toList()
+                // Check if this range overlaps with already covered regions
+                val overlaps = match.range.any { it in coveredPositions }
+                if (overlaps) {
+                    null
+                } else {
+                    ParsedMatch(match.range, ParsedPart.CustomEmoji(shortcode, imageUrl))
+                }
+            }.toList()
     }
 
     // ============================================================================
@@ -642,7 +711,10 @@ object MessageContentParser {
     /**
      * Find text formatting (bold, italic, monospace) in non-covered regions.
      */
-    private fun findFormatting(content: String, coveredRanges: List<IntRange>): List<ParsedMatch> {
+    private fun findFormatting(
+        content: String,
+        coveredRanges: List<IntRange>,
+    ): List<ParsedMatch> {
         val coveredPositions = buildCoveredPositions(coveredRanges)
         val matches = mutableListOf<ParsedMatch>()
 
@@ -657,9 +729,10 @@ object MessageContentParser {
         monospaceRegex.findAll(content).forEach { match ->
             if (!match.range.any { it in coveredPositions }) {
                 // Check for overlaps with already found matches
-                val overlapsWithExisting = matches.any { existing ->
-                    match.range.first <= existing.range.last && match.range.last >= existing.range.first
-                }
+                val overlapsWithExisting =
+                    matches.any { existing ->
+                        match.range.first <= existing.range.last && match.range.last >= existing.range.first
+                    }
                 if (!overlapsWithExisting) {
                     matches.add(ParsedMatch(match.range, ParsedPart.Monospace(match.groupValues[1])))
                 }
@@ -669,9 +742,10 @@ object MessageContentParser {
         // Find italic _text_
         italicRegex.findAll(content).forEach { match ->
             if (!match.range.any { it in coveredPositions }) {
-                val overlapsWithExisting = matches.any { existing ->
-                    match.range.first <= existing.range.last && match.range.last >= existing.range.first
-                }
+                val overlapsWithExisting =
+                    matches.any { existing ->
+                        match.range.first <= existing.range.last && match.range.last >= existing.range.first
+                    }
                 if (!overlapsWithExisting) {
                     matches.add(ParsedMatch(match.range, ParsedPart.Italic(match.groupValues[1])))
                 }
@@ -694,7 +768,10 @@ object MessageContentParser {
     /**
      * Find hashtags in non-covered regions.
      */
-    private fun findHashtags(content: String, coveredRanges: List<IntRange>): List<ParsedMatch> {
+    private fun findHashtags(
+        content: String,
+        coveredRanges: List<IntRange>,
+    ): List<ParsedMatch> {
         val coveredPositions = buildCoveredPositions(coveredRanges)
         val matches = mutableListOf<ParsedMatch>()
 
@@ -737,10 +814,11 @@ object MessageContentParser {
      * - Embed: youtube.com/embed/VIDEO_ID
      * Case-insensitive for domain, preserves case for video ID
      */
-    private val youtubeRegex = Regex(
-        """(?:youtube\.com/(?:watch\?v=|shorts/|live/|embed/)|youtu\.be/)([\w-]{11})""",
-        RegexOption.IGNORE_CASE
-    )
+    private val youtubeRegex =
+        Regex(
+            """(?:youtube\.com/(?:watch\?v=|shorts/|live/|embed/)|youtu\.be/)([\w-]{11})""",
+            RegexOption.IGNORE_CASE,
+        )
 
     /**
      * Check if a URL points to a video file or YouTube.
@@ -782,25 +860,30 @@ object MessageContentParser {
     /**
      * Find WebSocket relay URLs (ws://, wss://) in non-covered regions.
      */
-    private fun findRelayUrls(content: String, coveredRanges: List<IntRange>): List<ParsedMatch> {
+    private fun findRelayUrls(
+        content: String,
+        coveredRanges: List<IntRange>,
+    ): List<ParsedMatch> {
         val coveredPositions = buildCoveredPositions(coveredRanges)
 
-        return relayUrlRegex.findAll(content).mapNotNull { match ->
-            // Check if this range overlaps with already covered regions
-            val overlaps = match.range.any { it in coveredPositions }
-            if (overlaps) {
-                null
-            } else {
-                val cleanedUrl = cleanUrl(match.value)
-                if (cleanedUrl.length < 6) return@mapNotNull null // "ws://x" minimum
+        return relayUrlRegex
+            .findAll(content)
+            .mapNotNull { match ->
+                // Check if this range overlaps with already covered regions
+                val overlaps = match.range.any { it in coveredPositions }
+                if (overlaps) {
+                    null
+                } else {
+                    val cleanedUrl = cleanUrl(match.value)
+                    if (cleanedUrl.length < 6) return@mapNotNull null // "ws://x" minimum
 
-                // Calculate the actual range after cleaning
-                val trimmedFromEnd = match.value.length - cleanedUrl.length
-                val actualRange = match.range.first..(match.range.last - trimmedFromEnd)
+                    // Calculate the actual range after cleaning
+                    val trimmedFromEnd = match.value.length - cleanedUrl.length
+                    val actualRange = match.range.first..(match.range.last - trimmedFromEnd)
 
-                ParsedMatch(actualRange, ParsedPart.Relay(cleanedUrl))
-            }
-        }.toList()
+                    ParsedMatch(actualRange, ParsedPart.Relay(cleanedUrl))
+                }
+            }.toList()
     }
 
     // ============================================================================
@@ -810,7 +893,10 @@ object MessageContentParser {
     /**
      * Find Cashu tokens (cashuA, cashuB) and requests (creqA) in non-covered regions.
      */
-    private fun findCashuTokens(content: String, coveredRanges: List<IntRange>): List<ParsedMatch> {
+    private fun findCashuTokens(
+        content: String,
+        coveredRanges: List<IntRange>,
+    ): List<ParsedMatch> {
         val coveredPositions = buildCoveredPositions(coveredRanges)
         val matches = mutableListOf<ParsedMatch>()
 
@@ -824,9 +910,10 @@ object MessageContentParser {
         // Find Cashu requests (creqA)
         cashuRequestRegex.findAll(content).forEach { match ->
             if (!match.range.any { it in coveredPositions }) {
-                val overlapsWithExisting = matches.any { existing ->
-                    match.range.first <= existing.range.last && match.range.last >= existing.range.first
-                }
+                val overlapsWithExisting =
+                    matches.any { existing ->
+                        match.range.first <= existing.range.last && match.range.last >= existing.range.first
+                    }
                 if (!overlapsWithExisting) {
                     matches.add(ParsedMatch(match.range, ParsedPart.CashuRequest(match.value)))
                 }
@@ -862,7 +949,7 @@ object MessageContentParser {
      */
     private data class ParsedMatch(
         val range: IntRange,
-        val part: ParsedPart
+        val part: ParsedPart,
     )
 
     /**
@@ -871,7 +958,10 @@ object MessageContentParser {
      * IMPORTANT: We preserve ALL text, including whitespace-only segments.
      * This is critical for proper rendering and text selection.
      */
-    private fun buildParts(content: String, matches: List<ParsedMatch>): List<ParsedPart> {
+    private fun buildParts(
+        content: String,
+        matches: List<ParsedMatch>,
+    ): List<ParsedPart> {
         if (matches.isEmpty()) {
             return if (content.isNotEmpty()) listOf(ParsedPart.Text(content)) else emptyList()
         }

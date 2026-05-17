@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import javafx.scene.media.Media
-import javafx.scene.media.MediaPlayer as JfxMediaPlayer
 import javafx.util.Duration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import javafx.scene.media.MediaPlayer as JfxMediaPlayer
 
 actual class AudioPlayer actual constructor() {
     private var jfxPlayer: JfxMediaPlayer? = null
@@ -38,23 +38,24 @@ actual class AudioPlayer actual constructor() {
             currentUrl = url
             try {
                 val media = Media(url)
-                jfxPlayer = JfxMediaPlayer(media).apply {
-                    setOnReady {
-                        _durationMs.value = totalDuration.toMillis().toLong()
-                        play()
-                        _isPlaying.value = true
-                        startPositionTracking()
+                jfxPlayer =
+                    JfxMediaPlayer(media).apply {
+                        setOnReady {
+                            _durationMs.value = totalDuration.toMillis().toLong()
+                            play()
+                            _isPlaying.value = true
+                            startPositionTracking()
+                        }
+                        setOnEndOfMedia {
+                            _isPlaying.value = false
+                            _currentPositionMs.value = _durationMs.value
+                            positionJob?.cancel()
+                        }
+                        setOnError {
+                            _isPlaying.value = false
+                            positionJob?.cancel()
+                        }
                     }
-                    setOnEndOfMedia {
-                        _isPlaying.value = false
-                        _currentPositionMs.value = _durationMs.value
-                        positionJob?.cancel()
-                    }
-                    setOnError {
-                        _isPlaying.value = false
-                        positionJob?.cancel()
-                    }
-                }
             } catch (_: Throwable) {
                 _isPlaying.value = false
                 currentUrl = null
@@ -99,16 +100,18 @@ actual class AudioPlayer actual constructor() {
 
     private fun startPositionTracking() {
         positionJob?.cancel()
-        positionJob = scope.launch {
-            while (isActive) {
-                jfxPlayer?.let { mp ->
-                    try {
-                        _currentPositionMs.value = mp.currentTime.toMillis().toLong()
-                    } catch (_: Throwable) {}
+        positionJob =
+            scope.launch {
+                while (isActive) {
+                    jfxPlayer?.let { mp ->
+                        try {
+                            _currentPositionMs.value = mp.currentTime.toMillis().toLong()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    delay(250)
                 }
-                delay(250)
             }
-        }
     }
 }
 

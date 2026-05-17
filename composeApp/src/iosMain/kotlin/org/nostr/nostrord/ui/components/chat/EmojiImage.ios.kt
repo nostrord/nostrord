@@ -17,16 +17,18 @@ actual fun EmojiImage(
     contentDescription: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
-    val imageRequest = ImageRequest.Builder(context)
-        .data(getImageUrl(url))
-        .crossfade(false)
-        .memoryCachePolicy(CachePolicy.ENABLED)
-        .diskCachePolicy(CachePolicy.ENABLED)
-        .size(Size(44, 44))
-        .build()
+    val imageRequest =
+        ImageRequest
+            .Builder(context)
+            .data(getImageUrl(url))
+            .crossfade(false)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .size(Size(44, 44))
+            .build()
 
     AsyncImage(
         model = imageRequest,
@@ -37,6 +39,6 @@ actual fun EmojiImage(
             if (state is AsyncImagePainter.State.Error) {
                 onError()
             }
-        }
+        },
     )
 }

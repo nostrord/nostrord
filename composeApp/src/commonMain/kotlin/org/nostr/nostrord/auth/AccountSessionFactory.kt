@@ -24,8 +24,9 @@ import org.nostr.nostrord.nostr.Nip07
  *   of [appScope] (SupervisorJob) so platform lifecycle cancellation propagates
  *   correctly while individual session cancellations remain isolated.
  */
-class AccountSessionFactory(private val appScope: CoroutineScope) {
-
+class AccountSessionFactory(
+    private val appScope: CoroutineScope,
+) {
     /**
      * Wrap [account]'s currently loaded credentials (in [authManager]) into a
      * fresh [AccountSession]. Returns null if the relevant credentials are not
@@ -35,11 +36,15 @@ class AccountSessionFactory(private val appScope: CoroutineScope) {
      * credentials for [account] — typically by calling [AuthManager.useAccount]
      * or a login method just before this.
      */
-    fun build(account: Account, authManager: AuthManager): AccountSession? {
+    fun build(
+        account: Account,
+        authManager: AuthManager,
+    ): AccountSession? {
         val signer = buildSigner(account, authManager) ?: return null
-        val sessionScope = CoroutineScope(
-            SupervisorJob(appScope.coroutineContext[Job]) + Dispatchers.Default
-        )
+        val sessionScope =
+            CoroutineScope(
+                SupervisorJob(appScope.coroutineContext[Job]) + Dispatchers.Default,
+            )
         return AccountSession(
             accountId = AccountId(account.id),
             pubkey = account.pubkey,
@@ -49,12 +54,15 @@ class AccountSessionFactory(private val appScope: CoroutineScope) {
         )
     }
 
-    private fun buildSigner(account: Account, authManager: AuthManager): NostrSigner? =
-        when (account.authMethod) {
-            AuthMethod.LOCAL -> authManager.activeKeyPair()?.let { NostrSigner.Local(it) }
-            AuthMethod.BUNKER -> authManager.activeNip46Client()?.let {
+    private fun buildSigner(
+        account: Account,
+        authManager: AuthManager,
+    ): NostrSigner? = when (account.authMethod) {
+        AuthMethod.LOCAL -> authManager.activeKeyPair()?.let { NostrSigner.Local(it) }
+        AuthMethod.BUNKER ->
+            authManager.activeNip46Client()?.let {
                 NostrSigner.Bunker(nip46Client = it, pubkey = account.pubkey)
             }
-            AuthMethod.NIP07 -> if (Nip07.isAvailable()) NostrSigner.Nip07Extension(account.pubkey) else null
-        }
+        AuthMethod.NIP07 -> if (Nip07.isAvailable()) NostrSigner.Nip07Extension(account.pubkey) else null
+    }
 }

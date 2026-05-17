@@ -183,14 +183,15 @@ object NostrordColors {
     // ============================================
 
     /** Palette for generating avatar colors from strings */
-    val AvatarColors = listOf(
-        Color(0xFF5865F2), // Blurple
-        Color(0xFF57F287), // Green
-        Color(0xFFFEE75C), // Yellow
-        Color(0xFFEB459E), // Fuchsia
-        Color(0xFFED4245), // Red
-        Color(0xFF9B59B6), // Purple
-        Color(0xFF3498DB), // Blue
-        Color(0xFFE67E22)  // Orange
-    )
+    val AvatarColors =
+        listOf(
+            Color(0xFF5865F2), // Blurple
+            Color(0xFF57F287), // Green
+            Color(0xFFFEE75C), // Yellow
+            Color(0xFFEB459E), // Fuchsia
+            Color(0xFFED4245), // Red
+            Color(0xFF9B59B6), // Purple
+            Color(0xFF3498DB), // Blue
+            Color(0xFFE67E22), // Orange
+        )
 }

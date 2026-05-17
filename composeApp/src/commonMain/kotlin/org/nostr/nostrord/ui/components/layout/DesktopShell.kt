@@ -3,13 +3,11 @@ package org.nostr.nostrord.ui.components.layout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
@@ -56,7 +54,7 @@ fun DesktopShell(
     onNotificationsClick: () -> Unit = {},
     isNotificationsActive: Boolean = false,
     hideGroupsSidebar: Boolean = false,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     // Sidebar-scoped state — changes here only recompose the sidebar columns,
     // not the content area or the parent AuthenticatedApp.
@@ -82,31 +80,35 @@ fun DesktopShell(
     val isRelayConnected = connectionState is ConnectionManager.ConnectionState.Connected
     val sidebarScope = rememberCoroutineScope()
 
-    val groupsForRelay = remember(activeRelayUrl, groupsByRelay) {
-        groupsByRelay[activeRelayUrl] ?: emptyList()
-    }
-    val joinedGroupIds = remember(activeRelayUrl, joinedGroupsByRelay) {
-        joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
-    }
-    val orphanedJoinedIds = remember(activeRelayUrl, orphanedJoinedByRelay) {
-        orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
-    }
-
+    val groupsForRelay =
+        remember(activeRelayUrl, groupsByRelay) {
+            groupsByRelay[activeRelayUrl] ?: emptyList()
+        }
+    val joinedGroupIds =
+        remember(activeRelayUrl, joinedGroupsByRelay) {
+            joinedGroupsByRelay[activeRelayUrl] ?: emptySet()
+        }
+    val orphanedJoinedIds =
+        remember(activeRelayUrl, orphanedJoinedByRelay) {
+            orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
+        }
 
     // Reactive pubkey: re-derives on account switch so the rail avatar updates.
     val activeSession by ActiveAccountManager.session.collectAsState()
     val pubKey = activeSession?.pubkey
-    val currentUserMetadata = remember(pubKey, userMetadata) {
-        pubKey?.let { userMetadata[it] }
-    }
+    val currentUserMetadata =
+        remember(pubKey, userMetadata) {
+            pubKey?.let { userMetadata[it] }
+        }
 
     val notificationEntries by AppModule.notificationHistoryStore.entries.collectAsState()
     val notificationCount = remember(notificationEntries) { notificationEntries.count { !it.read } }
 
     BoxWithConstraints(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxSize()
-            .background(NostrordColors.BackgroundDark)
+            .background(NostrordColors.BackgroundDark),
     ) {
         val sidebarWidth = Spacing.channelSidebarWidth
 
@@ -135,45 +137,48 @@ fun DesktopShell(
             // Column 2: Groups Nav Sidebar (200dp on tablet, 240dp on desktop).
             // Hidden when the active screen is global (e.g. Notifications) so the
             // content area can span the full remaining width.
-            if (!hideGroupsSidebar) Box(modifier = Modifier.width(sidebarWidth)) {
-                GroupsNavSidebar(
-                    relayUrl = activeRelayUrl,
-                    groups = groupsForRelay,
-                    joinedGroupIds = joinedGroupIds,
-                    activeGroupId = activeGroupId,
-                    unreadCounts = unreadCounts,
-                    lastMessageAt = lastMessageAt,
-                    relayName = relayMetadata[activeRelayUrl]?.name,
-                    isLoading = isGroupsLoading,
-                    childrenByParent = childrenByParent,
-                    unverifiedChildren = unverifiedChildren,
-                    onGroupClick = onGroupClick,
-                    onCreateGroupClick = onCreateGroupClick,
-                    onJoinGroupClick = onJoinGroupClick,
-                    onAddRelay = onAddRelayFromSidebar,
-                    onRelayTitleClick = onRelayTitleClick,
-                    orphanedJoinedIds = orphanedJoinedIds,
-                    onForgetOrphan = { groupId ->
-                        sidebarScope.launch {
-                            AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
-                        }
-                    },
-                    isGroupFetchLazy = AppModule.nostrRepository.isGroupFetchLazy(activeRelayUrl),
-                    hasFullGroupListBeenFetched = activeRelayUrl in fullGroupListFetchedRelays,
-                    onRequestFullGroupList = {
-                        sidebarScope.launch {
-                            AppModule.nostrRepository.requestFullGroupListForRelay(activeRelayUrl)
-                        }
-                    },
-                    isRelayConnected = isRelayConnected
-                )
+            if (!hideGroupsSidebar) {
+                Box(modifier = Modifier.width(sidebarWidth)) {
+                    GroupsNavSidebar(
+                        relayUrl = activeRelayUrl,
+                        groups = groupsForRelay,
+                        joinedGroupIds = joinedGroupIds,
+                        activeGroupId = activeGroupId,
+                        unreadCounts = unreadCounts,
+                        lastMessageAt = lastMessageAt,
+                        relayName = relayMetadata[activeRelayUrl]?.name,
+                        isLoading = isGroupsLoading,
+                        childrenByParent = childrenByParent,
+                        unverifiedChildren = unverifiedChildren,
+                        onGroupClick = onGroupClick,
+                        onCreateGroupClick = onCreateGroupClick,
+                        onJoinGroupClick = onJoinGroupClick,
+                        onAddRelay = onAddRelayFromSidebar,
+                        onRelayTitleClick = onRelayTitleClick,
+                        orphanedJoinedIds = orphanedJoinedIds,
+                        onForgetOrphan = { groupId ->
+                            sidebarScope.launch {
+                                AppModule.nostrRepository.forgetGroup(groupId, activeRelayUrl)
+                            }
+                        },
+                        isGroupFetchLazy = AppModule.nostrRepository.isGroupFetchLazy(activeRelayUrl),
+                        hasFullGroupListBeenFetched = activeRelayUrl in fullGroupListFetchedRelays,
+                        onRequestFullGroupList = {
+                            sidebarScope.launch {
+                                AppModule.nostrRepository.requestFullGroupListForRelay(activeRelayUrl)
+                            }
+                        },
+                        isRelayConnected = isRelayConnected,
+                    )
+                }
             }
 
             // Column 3: Content (flex)
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxHeight()
-                    .weight(1f)
+                    .weight(1f),
             ) {
                 content()
             }
@@ -189,23 +194,25 @@ fun DesktopShell(
 fun ShellContent(
     memberSidebar: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     Row(modifier = modifier.fillMaxSize()) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .background(NostrordColors.Background)
+                .background(NostrordColors.Background),
         ) {
             content()
         }
 
         if (memberSidebar != null) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .width(Spacing.memberSidebarWidth)
-                    .fillMaxHeight()
+                    .fillMaxHeight(),
             ) {
                 memberSidebar()
             }

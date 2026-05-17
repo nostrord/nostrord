@@ -13,7 +13,7 @@ import androidx.compose.ui.Modifier
 @Composable
 expect fun VerticalScrollbarWrapper(
     listState: LazyListState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 )
 
 /**
@@ -22,7 +22,7 @@ expect fun VerticalScrollbarWrapper(
 @Composable
 expect fun VerticalScrollbarWrapper(
     scrollState: ScrollState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 )
 
 /**
@@ -31,5 +31,5 @@ expect fun VerticalScrollbarWrapper(
 @Composable
 expect fun VerticalScrollbarWrapper(
     gridState: LazyGridState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 )

@@ -10,9 +10,8 @@ import org.nostr.nostrord.utils.Result
 
 class GroupViewModel(
     private val repo: NostrRepositoryApi,
-    val groupId: String
+    val groupId: String,
 ) : ViewModel() {
-
     val messages = repo.messages
     val connectionState = repo.connectionState
     val joinedGroups = repo.joinedGroups
@@ -44,9 +43,17 @@ class GroupViewModel(
     private val _reactionError = MutableStateFlow<String?>(null)
     val reactionError: StateFlow<String?> = _reactionError
 
-    fun clearSendError() { _sendError.value = null }
-    fun clearDeleteMessageError() { _deleteMessageError.value = null }
-    fun clearReactionError() { _reactionError.value = null }
+    fun clearSendError() {
+        _sendError.value = null
+    }
+
+    fun clearDeleteMessageError() {
+        _deleteMessageError.value = null
+    }
+
+    fun clearReactionError() {
+        _reactionError.value = null
+    }
 
     fun getPublicKey() = repo.getPublicKey()
 
@@ -54,7 +61,13 @@ class GroupViewModel(
         viewModelScope.launch { repo.requestGroupMessages(groupId, channel) }
     }
 
-    fun sendMessage(content: String, channel: String?, mentions: Map<String, String>, replyToId: String?, extraTags: List<List<String>> = emptyList()) {
+    fun sendMessage(
+        content: String,
+        channel: String?,
+        mentions: Map<String, String>,
+        replyToId: String?,
+        extraTags: List<List<String>> = emptyList(),
+    ) {
         _isSending.value = true
         _sendError.value = null
         viewModelScope.launch {
@@ -62,20 +75,21 @@ class GroupViewModel(
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
                     val cleaned = raw.removePrefix("blocked: ").removePrefix("error: ")
-                    val friendly = when {
-                        cleaned.contains("unknown member", ignoreCase = true) ->
-                            "Your join request is pending admin approval. You cannot send messages until approved."
-                        cleaned.contains("Channel was cancelled", ignoreCase = true) ||
-                        cleaned.contains("not connected", ignoreCase = true) ||
-                        cleaned.contains("Disconnected", ignoreCase = true) -> {
-                            repo.triggerReconnect()
-                            "Connection lost. Reconnecting..."
+                    val friendly =
+                        when {
+                            cleaned.contains("unknown member", ignoreCase = true) ->
+                                "Your join request is pending admin approval. You cannot send messages until approved."
+                            cleaned.contains("Channel was cancelled", ignoreCase = true) ||
+                                cleaned.contains("not connected", ignoreCase = true) ||
+                                cleaned.contains("Disconnected", ignoreCase = true) -> {
+                                repo.triggerReconnect()
+                                "Connection lost. Reconnecting..."
+                            }
+                            cleaned.contains("timed out", ignoreCase = true) ||
+                                cleaned.contains("timeout", ignoreCase = true) ->
+                                "Message send timed out. It will be retried automatically."
+                            else -> cleaned.replaceFirstChar { it.uppercaseChar() }
                         }
-                        cleaned.contains("timed out", ignoreCase = true) ||
-                        cleaned.contains("timeout", ignoreCase = true) ->
-                            "Message send timed out. It will be retried automatically."
-                        else -> cleaned.replaceFirstChar { it.uppercaseChar() }
-                    }
                     _sendError.value = friendly
                 }
                 is Result.Success -> {}
@@ -95,9 +109,7 @@ class GroupViewModel(
         }
     }
 
-    fun deleteGroup(
-        onResult: (Result<Unit>) -> Unit
-    ) {
+    fun deleteGroup(onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
             onResult(repo.deleteGroup(groupId))
         }
@@ -105,20 +117,27 @@ class GroupViewModel(
 
     fun updateTopology(
         parent: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
-        onDone: (Result<Unit>) -> Unit = {}
+        onDone: (Result<Unit>) -> Unit = {},
     ) {
         viewModelScope.launch {
             onDone(repo.updateGroupTopology(groupId, parent))
         }
     }
 
-    fun sendReaction(targetEventId: String, targetPubkey: String, emoji: String) {
+    fun sendReaction(
+        targetEventId: String,
+        targetPubkey: String,
+        emoji: String,
+    ) {
         viewModelScope.launch {
             when (val result = repo.sendReaction(groupId, targetEventId, targetPubkey, emoji)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
-                    val friendly = raw.removePrefix("blocked: ").removePrefix("error: ")
-                        .replaceFirstChar { it.uppercaseChar() }
+                    val friendly =
+                        raw
+                            .removePrefix("blocked: ")
+                            .removePrefix("error: ")
+                            .replaceFirstChar { it.uppercaseChar() }
                     _reactionError.value = friendly
                 }
                 is Result.Success -> Unit
@@ -128,15 +147,24 @@ class GroupViewModel(
 
     private val _moderationError = MutableStateFlow<String?>(null)
     val moderationError: StateFlow<String?> = _moderationError
-    fun clearModerationError() { _moderationError.value = null }
 
-    fun addUser(targetPubkey: String, roles: List<String> = emptyList()) {
+    fun clearModerationError() {
+        _moderationError.value = null
+    }
+
+    fun addUser(
+        targetPubkey: String,
+        roles: List<String> = emptyList(),
+    ) {
         viewModelScope.launch {
             when (val result = repo.addUser(groupId, targetPubkey, roles)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
-                    _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
-                        .replaceFirstChar { it.uppercaseChar() }
+                    _moderationError.value =
+                        raw
+                            .removePrefix("blocked: ")
+                            .removePrefix("error: ")
+                            .replaceFirstChar { it.uppercaseChar() }
                 }
                 is Result.Success -> Unit
             }
@@ -148,8 +176,11 @@ class GroupViewModel(
             when (val result = repo.removeUser(groupId, targetPubkey)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
-                    _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
-                        .replaceFirstChar { it.uppercaseChar() }
+                    _moderationError.value =
+                        raw
+                            .removePrefix("blocked: ")
+                            .removePrefix("error: ")
+                            .replaceFirstChar { it.uppercaseChar() }
                 }
                 is Result.Success -> Unit
             }
@@ -174,8 +205,11 @@ class GroupViewModel(
             when (val result = repo.rejectJoinRequest(groupId, joinRequestEventId)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
-                    _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
-                        .replaceFirstChar { it.uppercaseChar() }
+                    _moderationError.value =
+                        raw
+                            .removePrefix("blocked: ")
+                            .removePrefix("error: ")
+                            .replaceFirstChar { it.uppercaseChar() }
                 }
                 is Result.Success -> Unit
             }
@@ -188,12 +222,14 @@ class GroupViewModel(
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
                     val cleaned = raw.removePrefix("blocked: ").removePrefix("error: ")
-                    val friendly = when {
-                        cleaned.contains("kind 9009 not allowed", ignoreCase = true) ||
-                        cleaned.contains("not allowed", ignoreCase = true) && cleaned.contains("9009") ->
-                            "This relay does not support invite codes."
-                        else -> cleaned.replaceFirstChar { it.uppercaseChar() }
-                    }
+                    val friendly =
+                        when {
+                            cleaned.contains("kind 9009 not allowed", ignoreCase = true) ||
+                                cleaned.contains("not allowed", ignoreCase = true) &&
+                                cleaned.contains("9009") ->
+                                "This relay does not support invite codes."
+                            else -> cleaned.replaceFirstChar { it.uppercaseChar() }
+                        }
                     _moderationError.value = friendly
                 }
                 is Result.Success -> onSuccess(result.data)
@@ -206,8 +242,11 @@ class GroupViewModel(
             when (val result = repo.revokeInviteCode(groupId, eventId)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
-                    _moderationError.value = raw.removePrefix("blocked: ").removePrefix("error: ")
-                        .replaceFirstChar { it.uppercaseChar() }
+                    _moderationError.value =
+                        raw
+                            .removePrefix("blocked: ")
+                            .removePrefix("error: ")
+                            .replaceFirstChar { it.uppercaseChar() }
                 }
                 is Result.Success -> Unit
             }
@@ -219,8 +258,11 @@ class GroupViewModel(
             when (val result = repo.deleteMessage(groupId, messageId)) {
                 is Result.Error -> {
                     val raw = result.error.cause?.message ?: result.error.toString()
-                    val friendly = raw.removePrefix("blocked: ").removePrefix("error: ")
-                        .replaceFirstChar { it.uppercaseChar() }
+                    val friendly =
+                        raw
+                            .removePrefix("blocked: ")
+                            .removePrefix("error: ")
+                            .replaceFirstChar { it.uppercaseChar() }
                     _deleteMessageError.value = friendly
                 }
                 is Result.Success -> Unit

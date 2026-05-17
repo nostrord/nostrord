@@ -3,9 +3,9 @@ package org.nostr.nostrord.ui.theme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.font.FontFamily
-import org.jetbrains.compose.resources.Font
 import nostrord.composeapp.generated.resources.NotoColorEmoji
 import nostrord.composeapp.generated.resources.Res
+import org.jetbrains.compose.resources.Font
 
 /**
  * Application font configuration for Compose Web Canvas rendering.

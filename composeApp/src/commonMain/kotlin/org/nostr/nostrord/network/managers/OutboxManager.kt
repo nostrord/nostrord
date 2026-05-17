@@ -13,7 +13,6 @@ import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
-import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.loadKind10009Timestamp
@@ -23,6 +22,7 @@ import org.nostr.nostrord.storage.saveRelayListFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
  * Manages NIP-65 Outbox model operations.
@@ -31,7 +31,7 @@ import org.nostr.nostrord.utils.epochMillis
 class OutboxManager(
     private val connectionManager: ConnectionManager,
     private val relayListManager: RelayListManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
 ) {
     companion object {
         /** How long to wait after the first kind:10009 event for slower relays to respond with newer versions. */
@@ -60,10 +60,11 @@ class OutboxManager(
 
     /** Recalculate implicit relays = allRelayGroups keys NOT in explicit "r" tags. */
     private fun refreshGroupTagRelays() {
-        _groupTagRelays.value = allRelayGroups.keys
-            .map { it.normalizeRelayUrl() }
-            .filter { it.isNotBlank() && it !in _kind10009Relays.value }
-            .toSet()
+        _groupTagRelays.value =
+            allRelayGroups.keys
+                .map { it.normalizeRelayUrl() }
+                .filter { it.isNotBlank() && it !in _kind10009Relays.value }
+                .toSet()
     }
 
     /**
@@ -76,11 +77,16 @@ class OutboxManager(
      * set so a freshly added account never inherits another account's relays.
      */
     fun seedFromCache(pubKey: String) {
-        val saved = if (pubKey.isBlank()) emptySet()
-        else SecureStorage.loadRelayListFor(pubKey)
-            .map { it.normalizeRelayUrl() }
-            .filter { it.isNotBlank() }
-            .toSet()
+        val saved =
+            if (pubKey.isBlank()) {
+                emptySet()
+            } else {
+                SecureStorage
+                    .loadRelayListFor(pubKey)
+                    .map { it.normalizeRelayUrl() }
+                    .filter { it.isNotBlank() }
+                    .toSet()
+            }
         _kind10009Relays.value = saved
         // Timestamp is pubkey-scoped (see initialize()). seedFromCache may run
         // before login so we don't always know the pubkey yet — just start at
@@ -91,7 +97,7 @@ class OutboxManager(
     fun initialize(
         pubKey: String,
         messageHandler: (String, NostrGroupClient) -> Unit,
-        onDiscoveryComplete: (() -> Unit)? = null
+        onDiscoveryComplete: (() -> Unit)? = null,
     ) {
         // Rehydrate the freshness floor for THIS account. Without pubkey scoping,
         // a previous account's high timestamp would bleed in and reject the new
@@ -102,7 +108,10 @@ class OutboxManager(
             coroutineScope {
                 bootstrapRelays.forEach { url ->
                     launch {
-                        try { connectionManager.getOrConnectRelay(url, messageHandler) } catch (_: Exception) {}
+                        try {
+                            connectionManager.getOrConnectRelay(url, messageHandler)
+                        } catch (_: Exception) {
+                        }
                     }
                 }
             }
@@ -115,13 +124,17 @@ class OutboxManager(
         }
     }
 
-    private suspend fun loadUserRelayList(pubKey: String, messageHandler: (String, NostrGroupClient) -> Unit) {
+    private suspend fun loadUserRelayList(
+        pubKey: String,
+        messageHandler: (String, NostrGroupClient) -> Unit,
+    ) {
         try {
             val relays = getRelayList(pubKey)
             if (relays.isNotEmpty()) {
                 relayListManager.setMyRelayList(pubKey, relays)
             }
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     /**
@@ -133,7 +146,7 @@ class OutboxManager(
      */
     suspend fun loadJoinedGroupsFromNostr(
         pubKey: String,
-        messageHandler: (String, NostrGroupClient) -> Unit
+        messageHandler: (String, NostrGroupClient) -> Unit,
     ): Set<String> {
         val relaysToQuery = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
 
@@ -143,15 +156,18 @@ class OutboxManager(
         val subId = "joined-groups-${epochMillis()}"
         kind10009SubId = subId
 
-        val reqMessage = buildJsonArray {
-            add("REQ")
-            add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(10009) }
-                putJsonArray("authors") { add(pubKey) }
-                put("limit", 1)
-            })
-        }.toString()
+        val reqMessage =
+            buildJsonArray {
+                add("REQ")
+                add(subId)
+                add(
+                    buildJsonObject {
+                        putJsonArray("kinds") { add(10009) }
+                        putJsonArray("authors") { add(pubKey) }
+                        put("limit", 1)
+                    },
+                )
+            }.toString()
 
         val connectedClients = mutableListOf<NostrGroupClient>()
         for (relayUrl in relaysToQuery) {
@@ -161,7 +177,8 @@ class OutboxManager(
                     client.send(reqMessage)
                     connectedClients.add(client)
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         }
 
         if (connectedClients.isNotEmpty()) {
@@ -179,12 +196,16 @@ class OutboxManager(
                 delay(DISCOVERY_SETTLE_MS)
             }
 
-            val closeMsg = buildJsonArray {
-                add("CLOSE")
-                add(subId)
-            }.toString()
+            val closeMsg =
+                buildJsonArray {
+                    add("CLOSE")
+                    add(subId)
+                }.toString()
             connectedClients.forEach { client ->
-                try { client.send(closeMsg) } catch (_: Exception) {}
+                try {
+                    client.send(closeMsg)
+                } catch (_: Exception) {
+                }
             }
         }
 
@@ -198,39 +219,41 @@ class OutboxManager(
         joinedGroupsByRelay: Map<String, Set<String>>,
         nip29Relays: List<String>,
         signEvent: suspend (Event) -> Event,
-        messageHandler: (String, NostrGroupClient) -> Unit
+        messageHandler: (String, NostrGroupClient) -> Unit,
     ): Result<Unit> {
         return try {
-            val tags = groupsMutex.withLock {
-                // Normalize and deduplicate relay URLs before publishing
-                val normalizedGroups = mutableMapOf<String, MutableSet<String>>()
-                joinedGroupsByRelay.filterValues { it.isNotEmpty() }.forEach { (relayUrl, groupIds) ->
-                    val normalized = relayUrl.normalizeRelayUrl()
-                    normalizedGroups.getOrPut(normalized) { mutableSetOf() }.addAll(groupIds)
-                }
-                allRelayGroups = normalizedGroups.mapValues { it.value.toSet() }
-
-                val tagsList = mutableListOf<List<String>>()
-                allRelayGroups.forEach { (relayUrl, groupIds) ->
-                    groupIds.forEach { groupId ->
-                        tagsList.add(listOf("group", groupId, relayUrl))
+            val tags =
+                groupsMutex.withLock {
+                    // Normalize and deduplicate relay URLs before publishing
+                    val normalizedGroups = mutableMapOf<String, MutableSet<String>>()
+                    joinedGroupsByRelay.filterValues { it.isNotEmpty() }.forEach { (relayUrl, groupIds) ->
+                        val normalized = relayUrl.normalizeRelayUrl()
+                        normalizedGroups.getOrPut(normalized) { mutableSetOf() }.addAll(groupIds)
                     }
-                }
-                val distinctRelays = nip29Relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.distinct()
-                distinctRelays.forEach { relayUrl ->
-                    tagsList.add(listOf("r", relayUrl))
+                    allRelayGroups = normalizedGroups.mapValues { it.value.toSet() }
+
+                    val tagsList = mutableListOf<List<String>>()
+                    allRelayGroups.forEach { (relayUrl, groupIds) ->
+                        groupIds.forEach { groupId ->
+                            tagsList.add(listOf("group", groupId, relayUrl))
+                        }
+                    }
+                    val distinctRelays = nip29Relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.distinct()
+                    distinctRelays.forEach { relayUrl ->
+                        tagsList.add(listOf("r", relayUrl))
+                    }
+
+                    tagsList
                 }
 
-                tagsList
-            }
-
-            val event = Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 10009,
-                tags = tags,
-                content = ""
-            )
+            val event =
+                Event(
+                    pubkey = pubKey,
+                    createdAt = epochMillis() / 1000,
+                    kind = 10009,
+                    tags = tags,
+                    content = "",
+                )
 
             val signedEvent = signEvent(event)
 
@@ -243,21 +266,29 @@ class OutboxManager(
             refreshGroupTagRelays()
             val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
 
-            val message = buildJsonArray {
-                add("EVENT")
-                add(signedEvent.toJsonObject())
-            }.toString()
+            val message =
+                buildJsonArray {
+                    add("EVENT")
+                    add(signedEvent.toJsonObject())
+                }.toString()
 
             val targets = (relayListManager.selectPublishRelays() + bootstrapRelays).distinct()
-            val published = targets.mapNotNull { relayUrl ->
-                connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
-            }
-            val clients = if (published.isEmpty()) {
-                listOfNotNull(connectionManager.getPrimaryClient())
-            } else published
+            val published =
+                targets.mapNotNull { relayUrl ->
+                    connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                }
+            val clients =
+                if (published.isEmpty()) {
+                    listOfNotNull(connectionManager.getPrimaryClient())
+                } else {
+                    published
+                }
             clients.forEach { client ->
                 scope.launch {
-                    try { client.sendAndAwaitOk(message, eventId) } catch (_: Exception) {}
+                    try {
+                        client.sendAndAwaitOk(message, eventId)
+                    } catch (_: Exception) {
+                    }
                 }
             }
 
@@ -274,7 +305,7 @@ class OutboxManager(
         onGroupsUpdated: (Set<String>) -> Unit,
         onRelaysRestored: suspend (List<String>) -> Unit = {},
         onRelayGroupsUpdated: (Map<String, Set<String>>) -> Unit = {},
-        messageHandler: (String, NostrGroupClient) -> Unit = { _, _ -> }
+        messageHandler: (String, NostrGroupClient) -> Unit = { _, _ -> },
     ) {
         // Author guard: relays may deliver kind:10009 events for the *previous*
         // account if a subscription stayed open across an account switch. The
@@ -306,7 +337,12 @@ class OutboxManager(
                     newRelayGroups.getOrPut(relayUrl) { mutableSetOf() }.add(groupId)
                 }
                 "r" -> {
-                    val relayUrl = tagArray.getOrNull(1)?.jsonPrimitive?.content?.normalizeRelayUrl() ?: return@forEach
+                    val relayUrl =
+                        tagArray
+                            .getOrNull(1)
+                            ?.jsonPrimitive
+                            ?.content
+                            ?.normalizeRelayUrl() ?: return@forEach
                     if (relayUrl.isNotBlank()) explicitNip29Relays.add(relayUrl)
                 }
             }
@@ -356,7 +392,10 @@ class OutboxManager(
         }
     }
 
-    fun handleKind10002Event(event: JsonObject, currentUserPubkey: String?) {
+    fun handleKind10002Event(
+        event: JsonObject,
+        currentUserPubkey: String?,
+    ) {
         val eventPubkey = event["pubkey"]?.jsonPrimitive?.content
         val isCurrentUser = eventPubkey == currentUserPubkey
         val eventCreatedAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
@@ -370,11 +409,12 @@ class OutboxManager(
                 val relayUrl = tagArray[1].jsonPrimitive.content
                 val marker = tagArray.getOrNull(2)?.jsonPrimitive?.content
 
-                val relay = when (marker) {
-                    "read" -> Nip65Relay(relayUrl, read = true, write = false)
-                    "write" -> Nip65Relay(relayUrl, read = false, write = true)
-                    else -> Nip65Relay(relayUrl, read = true, write = true)
-                }
+                val relay =
+                    when (marker) {
+                        "read" -> Nip65Relay(relayUrl, read = true, write = false)
+                        "write" -> Nip65Relay(relayUrl, read = false, write = true)
+                        else -> Nip65Relay(relayUrl, read = true, write = true)
+                    }
                 relays.add(relay)
             }
         }
@@ -394,20 +434,20 @@ class OutboxManager(
         }
     }
 
-    suspend fun getRelayList(pubkey: String): List<Nip65Relay> {
-        return relayListManager.getRelayList(pubkey)
-    }
+    suspend fun getRelayList(pubkey: String): List<Nip65Relay> = relayListManager.getRelayList(pubkey)
 
-    fun getCachedRelayList(pubkey: String): List<Nip65Relay> {
-        return relayListManager.getCachedRelayList(pubkey)
-    }
+    fun getCachedRelayList(pubkey: String): List<Nip65Relay> = relayListManager.getCachedRelayList(pubkey)
 
-    fun requestRelayLists(pubkeys: Set<String>, messageHandler: (String, NostrGroupClient) -> Unit) {
+    fun requestRelayLists(
+        pubkeys: Set<String>,
+        messageHandler: (String, NostrGroupClient) -> Unit,
+    ) {
         pubkeys.forEach { pubkey ->
             scope.launch {
                 try {
                     relayListManager.getRelayList(pubkey)
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -416,7 +456,7 @@ class OutboxManager(
         authors: List<String> = emptyList(),
         taggedPubkeys: List<String> = emptyList(),
         explicitRelays: List<String> = emptyList(),
-        currentNip29Relay: String? = null
+        currentNip29Relay: String? = null,
     ): List<String> {
         val relays = mutableListOf<String>()
 
@@ -481,18 +521,19 @@ class OutboxManager(
         authors: List<String> = emptyList(),
         taggedPubkeys: List<String> = emptyList(),
         explicitRelays: List<String> = emptyList(),
-        currentNip29Relay: String? = null
-    ): List<String> {
-        return selectOutboxRelays(authors, taggedPubkeys, explicitRelays, currentNip29Relay)
-            .filter { url ->
-                val client = connectionManager.getClientForRelay(url)
-                client != null && client.isConnected()
-            }
-    }
+        currentNip29Relay: String? = null,
+    ): List<String> = selectOutboxRelays(authors, taggedPubkeys, explicitRelays, currentNip29Relay)
+        .filter { url ->
+            val client = connectionManager.getClientForRelay(url)
+            client != null && client.isConnected()
+        }
 
     fun getWriteRelays(): List<String> = relayListManager.selectPublishRelays()
 
-    fun updateMyRelayList(pubkey: String, relays: List<Nip65Relay>) {
+    fun updateMyRelayList(
+        pubkey: String,
+        relays: List<Nip65Relay>,
+    ) {
         relayListManager.setMyRelayList(pubkey, relays)
     }
 
@@ -512,9 +553,7 @@ class OutboxManager(
         refreshGroupTagRelays()
     }
 
-    suspend fun hasJoinedGroupsData(): Boolean {
-        return groupsMutex.withLock { allRelayGroups.isNotEmpty() }
-    }
+    suspend fun hasJoinedGroupsData(): Boolean = groupsMutex.withLock { allRelayGroups.isNotEmpty() }
 
     fun resetKind10009State() {
         kind10009Received = false

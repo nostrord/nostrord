@@ -13,7 +13,6 @@ import org.nostr.nostrord.ui.screens.home.HomeViewModel
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -27,7 +26,6 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelOfflineRelayTest {
-
     private val testDispatcher = StandardTestDispatcher()
 
     @BeforeTest
@@ -48,9 +46,10 @@ class HomeViewModelOfflineRelayTest {
     fun `forgetGroup calls repo forgetGroup with correct args`() = runTest {
         val fake = FakeNostrRepository()
         fake._currentRelayUrl.value = "wss://offline.relay/"
-        fake._joinedGroupsByRelay.value = mapOf(
-            "wss://offline.relay/" to setOf("group-1", "group-2")
-        )
+        fake._joinedGroupsByRelay.value =
+            mapOf(
+                "wss://offline.relay/" to setOf("group-1", "group-2"),
+            )
         val vm = HomeViewModel(fake)
 
         vm.forgetGroup("group-1", "wss://offline.relay/")
@@ -58,7 +57,7 @@ class HomeViewModelOfflineRelayTest {
 
         assertTrue(
             fake.calls.contains("forgetGroup:group-1:wss://offline.relay/"),
-            "Expected forgetGroup call in call log, got: ${fake.calls}"
+            "Expected forgetGroup call in call log, got: ${fake.calls}",
         )
     }
 
@@ -66,9 +65,10 @@ class HomeViewModelOfflineRelayTest {
     fun `forgetGroup removes group from joinedGroupsByRelay`() = runTest {
         val fake = FakeNostrRepository()
         fake._currentRelayUrl.value = "wss://offline.relay/"
-        fake._joinedGroupsByRelay.value = mapOf(
-            "wss://offline.relay/" to setOf("group-1", "group-2")
-        )
+        fake._joinedGroupsByRelay.value =
+            mapOf(
+                "wss://offline.relay/" to setOf("group-1", "group-2"),
+            )
         val vm = HomeViewModel(fake)
 
         vm.forgetGroup("group-1", "wss://offline.relay/")
@@ -83,9 +83,10 @@ class HomeViewModelOfflineRelayTest {
     fun `forgetGroup on last group leaves relay with empty set`() = runTest {
         val fake = FakeNostrRepository()
         fake._currentRelayUrl.value = "wss://offline.relay/"
-        fake._joinedGroupsByRelay.value = mapOf(
-            "wss://offline.relay/" to setOf("only-group")
-        )
+        fake._joinedGroupsByRelay.value =
+            mapOf(
+                "wss://offline.relay/" to setOf("only-group"),
+            )
         val vm = HomeViewModel(fake)
 
         vm.forgetGroup("only-group", "wss://offline.relay/")
@@ -103,9 +104,10 @@ class HomeViewModelOfflineRelayTest {
     fun `removeRelay calls repo removeRelay`() = runTest {
         val fake = FakeNostrRepository()
         fake._currentRelayUrl.value = "wss://offline.relay/"
-        fake._joinedGroupsByRelay.value = mapOf(
-            "wss://offline.relay/" to setOf("group-1")
-        )
+        fake._joinedGroupsByRelay.value =
+            mapOf(
+                "wss://offline.relay/" to setOf("group-1"),
+            )
         val vm = HomeViewModel(fake)
 
         vm.removeRelay("wss://offline.relay/")
@@ -113,7 +115,7 @@ class HomeViewModelOfflineRelayTest {
 
         assertTrue(
             fake.calls.any { it.startsWith("removeRelay:") },
-            "Expected removeRelay call in call log, got: ${fake.calls}"
+            "Expected removeRelay call in call log, got: ${fake.calls}",
         )
     }
 
@@ -121,10 +123,11 @@ class HomeViewModelOfflineRelayTest {
     fun `removeRelay clears relay from joinedGroupsByRelay`() = runTest {
         val fake = FakeNostrRepository()
         fake._currentRelayUrl.value = "wss://offline.relay/"
-        fake._joinedGroupsByRelay.value = mapOf(
-            "wss://offline.relay/" to setOf("group-1", "group-2"),
-            "wss://other.relay/" to setOf("group-3")
-        )
+        fake._joinedGroupsByRelay.value =
+            mapOf(
+                "wss://offline.relay/" to setOf("group-1", "group-2"),
+                "wss://other.relay/" to setOf("group-3"),
+            )
         val vm = HomeViewModel(fake)
 
         vm.removeRelay("wss://offline.relay/")
@@ -132,7 +135,7 @@ class HomeViewModelOfflineRelayTest {
 
         assertFalse(
             vm.joinedGroupsByRelay.value.containsKey("wss://offline.relay/"),
-            "Removed relay should not appear in joinedGroupsByRelay"
+            "Removed relay should not appear in joinedGroupsByRelay",
         )
         // Other relay untouched
         assertTrue(vm.joinedGroupsByRelay.value.containsKey("wss://other.relay/"))
@@ -147,15 +150,17 @@ class HomeViewModelOfflineRelayTest {
     fun `isOffline is true when relay errors with joined groups`() = runTest {
         val fake = FakeNostrRepository()
         fake._connectionState.value = ConnectionManager.ConnectionState.Error("Connection refused")
-        fake._joinedGroupsByRelay.value = mapOf(
-            "wss://offline.relay/" to setOf("group-1")
-        )
+        fake._joinedGroupsByRelay.value =
+            mapOf(
+                "wss://offline.relay/" to setOf("group-1"),
+            )
         val vm = HomeViewModel(fake)
 
         val connectionState = vm.connectionState.value
-        val isReachabilityError = connectionState is ConnectionManager.ConnectionState.Error ||
+        val isReachabilityError =
+            connectionState is ConnectionManager.ConnectionState.Error ||
                 connectionState is ConnectionManager.ConnectionState.Reconnecting
-        val isOffline = isReachabilityError  // no groups requirement
+        val isOffline = isReachabilityError // no groups requirement
 
         assertTrue(isReachabilityError, "Should detect error state")
         assertTrue(isOffline, "isOffline should be true when relay is unreachable")
@@ -169,7 +174,8 @@ class HomeViewModelOfflineRelayTest {
         val vm = HomeViewModel(fake)
 
         val connectionState = vm.connectionState.value
-        val isReachabilityError = connectionState is ConnectionManager.ConnectionState.Error ||
+        val isReachabilityError =
+            connectionState is ConnectionManager.ConnectionState.Error ||
                 connectionState is ConnectionManager.ConnectionState.Reconnecting
         val isOffline = isReachabilityError
 
@@ -181,13 +187,15 @@ class HomeViewModelOfflineRelayTest {
     fun `isOffline is false when relay is connected despite having groups`() = runTest {
         val fake = FakeNostrRepository()
         fake._connectionState.value = ConnectionManager.ConnectionState.Connected
-        fake._joinedGroupsByRelay.value = mapOf(
-            "wss://relay.example.com/" to setOf("group-1")
-        )
+        fake._joinedGroupsByRelay.value =
+            mapOf(
+                "wss://relay.example.com/" to setOf("group-1"),
+            )
         val vm = HomeViewModel(fake)
 
         val connectionState = vm.connectionState.value
-        val isReachabilityError = connectionState is ConnectionManager.ConnectionState.Error ||
+        val isReachabilityError =
+            connectionState is ConnectionManager.ConnectionState.Error ||
                 connectionState is ConnectionManager.ConnectionState.Reconnecting
         val isOffline = isReachabilityError
 
@@ -204,7 +212,8 @@ class HomeViewModelOfflineRelayTest {
         val vm = HomeViewModel(fake)
 
         val connectionState = vm.connectionState.value
-        val isReachabilityError = connectionState is ConnectionManager.ConnectionState.Error ||
+        val isReachabilityError =
+            connectionState is ConnectionManager.ConnectionState.Error ||
                 connectionState is ConnectionManager.ConnectionState.Reconnecting
         val isOffline = isReachabilityError
 

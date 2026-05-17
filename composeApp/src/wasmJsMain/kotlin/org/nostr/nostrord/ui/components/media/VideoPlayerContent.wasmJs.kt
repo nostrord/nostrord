@@ -30,16 +30,17 @@ actual fun PlatformVideoPlayer(
     thumbnailUrl: String?,
     aspectRatio: Float,
     onFallbackClick: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     val isHidden = LocalAnimatedImageHidden.current
 
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .widthIn(max = 400.dp)
             .aspectRatio(aspectRatio, matchHeightConstraintsFirst = false)
             .clip(RoundedCornerShape(VIDEO_BORDER_RADIUS_PX.dp))
-            .background(NostrordColors.SurfaceVariant)
+            .background(NostrordColors.SurfaceVariant),
     ) {
         WebElementView(
             factory = {
@@ -56,7 +57,8 @@ actual fun PlatformVideoPlayer(
                     style.display = "block"
                 }
             },
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .aspectRatio(aspectRatio, matchHeightConstraintsFirst = false),
             update = { element ->
@@ -67,7 +69,7 @@ actual fun PlatformVideoPlayer(
                 video.style.visibility = if (isHidden) "hidden" else "visible"
                 (video.parentElement as? org.w3c.dom.HTMLElement)?.style?.visibility =
                     if (isHidden) "hidden" else "visible"
-            }
+            },
         )
     }
 }

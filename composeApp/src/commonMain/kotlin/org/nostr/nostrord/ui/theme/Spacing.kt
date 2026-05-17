@@ -13,7 +13,6 @@ import androidx.compose.ui.unit.dp
  * If a design requires non-standard spacing, it's probably wrong.
  */
 object Spacing {
-
     // ============================================
     // BASE SCALE (4dp increments)
     // ============================================

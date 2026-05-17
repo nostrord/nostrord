@@ -15,7 +15,7 @@ import org.nostr.nostrord.utils.epochMillis
  */
 class SessionManager(
     private val authManager: AuthManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
 ) {
     // Tracks relay URLs for which an AUTH challenge is already being processed,
     // to prevent double-signing when the relay sends a second challenge because
@@ -31,16 +31,12 @@ class SessionManager(
     /**
      * Restore session from storage
      */
-    suspend fun restoreSession(): Boolean {
-        return authManager.restoreSession()
-    }
+    suspend fun restoreSession(): Boolean = authManager.restoreSession()
 
     /**
      * Login with NIP-46 bunker URL
      */
-    suspend fun loginWithBunker(bunkerUrl: String): String {
-        return authManager.loginWithBunker(bunkerUrl)
-    }
+    suspend fun loginWithBunker(bunkerUrl: String): String = authManager.loginWithBunker(bunkerUrl)
 
     /**
      * Login with private key
@@ -80,19 +76,15 @@ class SessionManager(
     /**
      * Create a nostrconnect:// session for QR code login
      */
-    suspend fun createNostrConnectSession(relays: List<String> = authManager.defaultNostrConnectRelays): Pair<String, Nip46Client> {
-        return authManager.createNostrConnectSession(relays)
-    }
+    suspend fun createNostrConnectSession(relays: List<String> = authManager.defaultNostrConnectRelays): Pair<String, Nip46Client> = authManager.createNostrConnectSession(relays)
 
     /**
      * Complete the nostrconnect:// QR code login
      */
     suspend fun completeNostrConnectLogin(
         client: Nip46Client,
-        relays: List<String> = authManager.defaultNostrConnectRelays
-    ): String {
-        return authManager.completeNostrConnectLogin(client, relays)
-    }
+        relays: List<String> = authManager.defaultNostrConnectRelays,
+    ): String = authManager.completeNostrConnectLogin(client, relays)
 
     /**
      * Forget bunker connection
@@ -124,16 +116,12 @@ class SessionManager(
     /**
      * Ensure bunker is connected
      */
-    suspend fun ensureBunkerConnected(): Boolean {
-        return authManager.ensureBunkerConnected()
-    }
+    suspend fun ensureBunkerConnected(): Boolean = authManager.ensureBunkerConnected()
 
     /**
      * Sign an event
      */
-    suspend fun signEvent(event: Event): Event {
-        return authManager.signEvent(event)
-    }
+    suspend fun signEvent(event: Event): Event = authManager.signEvent(event)
 
     /**
      * Handle NIP-42 AUTH challenge from relay.
@@ -152,10 +140,13 @@ class SessionManager(
      */
     suspend fun handleAuthChallenge(client: NostrGroupClient, challenge: String): Boolean {
         val relayUrl = client.getRelayUrl()
-        if (!client.isConnected()) return false  // race-condition loser: already disconnected
-        if (!authInProgress.add(relayUrl)) return false  // already in progress for this relay
+        if (!client.isConnected()) return false // race-condition loser: already disconnected
+        if (!authInProgress.add(relayUrl)) return false // already in progress for this relay
 
-        val pubKey = getPublicKey() ?: run { authInProgress.remove(relayUrl); return false }
+        val pubKey = getPublicKey() ?: run {
+            authInProgress.remove(relayUrl)
+            return false
+        }
 
         return try {
             val authEvent = Event(
@@ -164,9 +155,9 @@ class SessionManager(
                 kind = 22242,
                 tags = listOf(
                     listOf("relay", relayUrl),
-                    listOf("challenge", challenge)
+                    listOf("challenge", challenge),
                 ),
-                content = ""
+                content = "",
             )
 
             val signedEvent = signEvent(authEvent)
@@ -189,5 +180,4 @@ class SessionManager(
             authInProgress.remove(relayUrl)
         }
     }
-
 }

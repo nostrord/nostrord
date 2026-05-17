@@ -15,17 +15,18 @@ fun AvatarPlaceholder(
     displayName: String,
     pubkey: String,
     modifier: Modifier = Modifier,
-    size: Dp = 40.dp
+    size: Dp = 40.dp,
 ) {
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .clip(CircleShape),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Jdenticon(
             value = pubkey,
             size = size,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }

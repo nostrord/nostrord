@@ -4,6 +4,5 @@ data class ChatMessage(
     val author: String,
     val text: String,
     val channel: String,
-    val timestamp: Long
+    val timestamp: Long,
 )
-

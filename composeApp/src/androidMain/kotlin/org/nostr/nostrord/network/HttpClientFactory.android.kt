@@ -6,8 +6,8 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.serialization.kotlinx.json.*
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.serialization.json.Json
+import kotlin.time.Duration.Companion.seconds
 
 actual fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
     engine {
@@ -28,10 +28,12 @@ actual fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
         pingInterval = 20.seconds
     }
     install(ContentNegotiation) {
-        json(Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-        })
+        json(
+            Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+            },
+        )
     }
 }
 

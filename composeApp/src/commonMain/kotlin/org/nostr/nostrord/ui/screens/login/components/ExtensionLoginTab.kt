@@ -24,27 +24,27 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Icon(
             imageVector = Icons.Default.Extension,
             contentDescription = null,
             modifier = Modifier.size(48.dp),
-            tint = NostrordColors.Primary
+            tint = NostrordColors.Primary,
         )
 
         Text(
             text = "Browser Extension Login",
             style = MaterialTheme.typography.titleMedium,
             color = Color.White,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
 
         Text(
             text = "Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostore.",
             style = MaterialTheme.typography.bodySmall,
             color = NostrordColors.TextMuted,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
 
         if (errorMessage != null) {
@@ -52,7 +52,7 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
                 text = errorMessage!!,
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
             )
         }
 
@@ -62,18 +62,21 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
                 errorMessage = null
                 vm.loginWithNip07Extension { result ->
                     isLoading = false
-                    if (result.isSuccess) onLoginSuccess()
-                    else errorMessage = result.exceptionOrNull()?.message ?: "Failed to connect to extension"
+                    if (result.isSuccess) {
+                        onLoginSuccess()
+                    } else {
+                        errorMessage = result.exceptionOrNull()?.message ?: "Failed to connect to extension"
+                    }
                 }
             },
             enabled = !isLoading,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(16.dp),
                     color = Color.White,
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
             }

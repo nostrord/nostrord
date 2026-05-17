@@ -23,11 +23,9 @@ actual object Crypto {
         return secp256k1.pubKeyCompress(pub)
     }
 
-    actual fun getPublicKeyXOnly(privateKey: ByteArray): ByteArray =
-        getPublicKey(privateKey).copyOfRange(1, 33)
+    actual fun getPublicKeyXOnly(privateKey: ByteArray): ByteArray = getPublicKey(privateKey).copyOfRange(1, 33)
 
-    actual fun getPublicKeyHex(privateKey: ByteArray): String =
-        getPublicKeyXOnly(privateKey).toHexString()
+    actual fun getPublicKeyHex(privateKey: ByteArray): String = getPublicKeyXOnly(privateKey).toHexString()
 
     private fun ensureEvenYSecretKey(privateKey: ByteArray): ByteArray {
         val compressed = getPublicKey(privateKey)
@@ -36,28 +34,36 @@ actual object Crypto {
             val d = BigInteger(1, privateKey)
             val dPrime = n.subtract(d).mod(n)
             dPrime.toFixedLengthByteArray(32)
-        } else privateKey
+        } else {
+            privateKey
+        }
     }
 
-    actual fun signMessage(privateKey: ByteArray, messageHash: ByteArray): ByteArray {
+    actual fun signMessage(
+        privateKey: ByteArray,
+        messageHash: ByteArray,
+    ): ByteArray {
         val secret = ensureEvenYSecretKey(privateKey)
         return secp256k1.signSchnorr(messageHash, secret, null)
     }
 
-    actual fun verifySignature(signature: ByteArray, messageHash: ByteArray, publicKey: ByteArray): Boolean {
-        val xOnly = when (publicKey.size) {
-            32 -> publicKey
-            33 -> publicKey.copyOfRange(1, 33)
-            else -> throw IllegalArgumentException("Public key must be 32 or 33 bytes")
-        }
+    actual fun verifySignature(
+        signature: ByteArray,
+        messageHash: ByteArray,
+        publicKey: ByteArray,
+    ): Boolean {
+        val xOnly =
+            when (publicKey.size) {
+                32 -> publicKey
+                33 -> publicKey.copyOfRange(1, 33)
+                else -> throw IllegalArgumentException("Public key must be 32 or 33 bytes")
+            }
         return secp256k1.verifySchnorr(signature, messageHash, xOnly)
     }
 
-    actual fun sha256(data: ByteArray): ByteArray =
-        MessageDigest.getInstance("SHA-256").digest(data)
+    actual fun sha256(data: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(data)
 
-    actual fun sha256(data: String): ByteArray =
-        sha256(data.toByteArray())
+    actual fun sha256(data: String): ByteArray = sha256(data.toByteArray())
 }
 
 fun BigInteger.toFixedLengthByteArray(length: Int): ByteArray {

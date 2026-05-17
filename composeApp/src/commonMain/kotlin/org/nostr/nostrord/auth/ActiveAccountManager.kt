@@ -22,7 +22,6 @@ import kotlin.concurrent.Volatile
  * is zeroed at the same instant its scope is cancelled.
  */
 object ActiveAccountManager {
-
     @Volatile private var tokenCounter: Long = 0L
 
     // Mutex guards session swaps. Callers (AccountManager.switchAccount,
@@ -49,7 +48,7 @@ object ActiveAccountManager {
      */
     suspend fun activate(newSession: AccountSession) = mutex.withLock {
         val previous = _session.value
-        if (previous === newSession) return@withLock  // same object, no-op
+        if (previous === newSession) return@withLock // same object, no-op
         _session.value = newSession
         previous?.cancel()
     }

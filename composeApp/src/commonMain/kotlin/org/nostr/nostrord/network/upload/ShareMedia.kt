@@ -5,5 +5,5 @@ import androidx.compose.runtime.Composable
 @Composable
 expect fun ShareMediaEffect(
     onMediaPasted: (ByteArray, String) -> Unit,
-    onError: (String) -> Unit = {}
+    onError: (String) -> Unit = {},
 )

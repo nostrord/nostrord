@@ -12,8 +12,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import org.nostr.nostrord.nostr.Nip11RelayInfo
-import org.nostr.nostrord.nostr.nip11RelayInfoMapSerializer
 import org.nostr.nostrord.nostr.fetchNip11RelayInfo
+import org.nostr.nostrord.nostr.nip11RelayInfoMapSerializer
 import org.nostr.nostrord.storage.SecureStorage
 
 /**
@@ -32,8 +32,9 @@ import org.nostr.nostrord.storage.SecureStorage
  * All mutations to [succeeded] and [inProgress] are serialised through [mutex] so concurrent
  * [fetch] calls from multiple coroutines on [Dispatchers.Default] cannot produce duplicates.
  */
-class RelayMetadataManager(private val scope: CoroutineScope) {
-
+class RelayMetadataManager(
+    private val scope: CoroutineScope,
+) {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _relayMetadata = MutableStateFlow<Map<String, Nip11RelayInfo>>(emptyMap())
@@ -41,6 +42,7 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
 
     // URLs that resolved successfully — never re-fetch these
     private val succeeded = mutableSetOf<String>()
+
     // URLs currently being fetched — prevents duplicate concurrent requests
     private val inProgress = mutableSetOf<String>()
 
@@ -52,6 +54,7 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
         // transient startup failures (network not ready, slow server) always get resolved,
         // but bounded so a permanently unreachable relay doesn't spin forever.
         private const val MAX_RETRIES = 10
+
         // Base backoff for the first retry; doubles each time, capped at BACKOFF_CAP_MS.
         private const val BACKOFF_BASE_MS = 10_000L
         private const val BACKOFF_CAP_MS = 5 * 60_000L // 5 minutes
@@ -82,23 +85,27 @@ class RelayMetadataManager(private val scope: CoroutineScope) {
     fun fetch(relayUrl: String) {
         scope.launch {
             // Check under lock: skip if already succeeded or in-flight
-            val shouldFetch = mutex.withLock {
-                when {
-                    succeeded.contains(relayUrl) -> false
-                    inProgress.contains(relayUrl) -> false
-                    else -> {
-                        inProgress.add(relayUrl)
-                        true
+            val shouldFetch =
+                mutex.withLock {
+                    when {
+                        succeeded.contains(relayUrl) -> false
+                        inProgress.contains(relayUrl) -> false
+                        else -> {
+                            inProgress.add(relayUrl)
+                            true
+                        }
                     }
                 }
-            }
             if (!shouldFetch) return@launch
 
             fetchWithRetry(relayUrl, attempt = 1)
         }
     }
 
-    private fun fetchWithRetry(relayUrl: String, attempt: Int) {
+    private fun fetchWithRetry(
+        relayUrl: String,
+        attempt: Int,
+    ) {
         scope.launch {
             // nextAttemptLaunched tracks whether this coroutine passes inProgress
             // responsibility to the next retry coroutine. If this coroutine is cancelled

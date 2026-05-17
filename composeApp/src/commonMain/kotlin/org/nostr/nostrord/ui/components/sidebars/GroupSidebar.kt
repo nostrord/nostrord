@@ -42,31 +42,33 @@ fun GroupSidebar(
     selectedId: String,
     onSelect: (String) -> Unit,
     unreadChannels: Set<String> = emptySet(),
-    unreadCounts: Map<String, Int> = emptyMap()
+    unreadCounts: Map<String, Int> = emptyMap(),
 ) {
     val channels = listOf("general")
 
     Column(
-        modifier = Modifier
+        modifier =
+        Modifier
             .width(Spacing.channelSidebarWidth)
             .fillMaxHeight()
-            .background(NostrordColors.Surface)
+            .background(NostrordColors.Surface),
     ) {
         // Group header
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .height(Spacing.headerHeight)
                 .background(NostrordColors.BackgroundDark)
                 .padding(horizontal = Spacing.lg),
-            contentAlignment = Alignment.CenterStart
+            contentAlignment = Alignment.CenterStart,
         ) {
             Text(
                 text = groupName ?: "Unknown Group",
                 style = NostrordTypography.ServerHeader,
                 color = Color.White,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
 
@@ -75,9 +77,10 @@ fun GroupSidebar(
 
             LazyColumn(
                 state = listState,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
-                    .padding(top = Spacing.md, start = Spacing.sm, end = Spacing.sm)
+                    .padding(top = Spacing.md, start = Spacing.sm, end = Spacing.sm),
             ) {
                 item {
                     SectionHeader(title = "CHANNELS")
@@ -89,14 +92,14 @@ fun GroupSidebar(
                         isSelected = selectedId == channel,
                         hasUnread = unreadChannels.contains(channel),
                         unreadCount = unreadCounts[channel] ?: 0,
-                        onClick = { onSelect(channel) }
+                        onClick = { onSelect(channel) },
                     )
                 }
             }
 
             VerticalScrollbarWrapper(
                 listState = listState,
-                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
             )
         }
     }
@@ -108,18 +111,19 @@ fun GroupSidebar(
 @Composable
 private fun SectionHeader(title: String) {
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .padding(
                 horizontal = Spacing.sm,
-                vertical = Spacing.xs
+                vertical = Spacing.xs,
             ),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = title.uppercase(),
             style = NostrordTypography.SectionHeader,
-            color = NostrordColors.TextMuted
+            color = NostrordColors.TextMuted,
         )
     }
 }
@@ -139,32 +143,36 @@ private fun ChannelItem(
     isSelected: Boolean,
     hasUnread: Boolean = false,
     unreadCount: Int = 0,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     // Determine colors based on state
-    val backgroundColor = when {
-        isSelected -> NostrordColors.SurfaceVariant
-        isHovered -> NostrordColors.HoverBackground
-        else -> Color.Transparent
-    }
+    val backgroundColor =
+        when {
+            isSelected -> NostrordColors.SurfaceVariant
+            isHovered -> NostrordColors.HoverBackground
+            else -> Color.Transparent
+        }
 
-    val textColor = when {
-        isSelected -> NostrordColors.ChannelActive
-        hasUnread -> NostrordColors.ChannelUnread
-        isHovered -> NostrordColors.ChannelHover
-        else -> NostrordColors.ChannelInactive
-    }
+    val textColor =
+        when {
+            isSelected -> NostrordColors.ChannelActive
+            hasUnread -> NostrordColors.ChannelUnread
+            isHovered -> NostrordColors.ChannelHover
+            else -> NostrordColors.ChannelInactive
+        }
 
-    val textStyle = when {
-        hasUnread && !isSelected -> NostrordTypography.ChannelNameUnread
-        else -> NostrordTypography.ChannelName
-    }
+    val textStyle =
+        when {
+            hasUnread && !isSelected -> NostrordTypography.ChannelNameUnread
+            else -> NostrordTypography.ChannelName
+        }
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .height(Spacing.channelItemHeight)
             .clip(NostrordShapes.channelItemShape)
@@ -173,13 +181,13 @@ private fun ChannelItem(
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
             .padding(horizontal = Spacing.channelItemPaddingH),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Hash symbol
         Text(
             text = "#",
             style = NostrordTypography.ChannelHash,
-            color = textColor
+            color = textColor,
         )
 
         Spacer(modifier = Modifier.width(Spacing.xs))
@@ -191,7 +199,7 @@ private fun ChannelItem(
             color = textColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
 
         // Unread badge
@@ -209,18 +217,19 @@ private fun UnreadBadge(count: Int) {
     val displayCount = if (count > 99) "99+" else count.toString()
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .defaultMinSize(minWidth = Spacing.badgeSize)
             .height(Spacing.badgeSize)
             .clip(CircleShape)
             .background(NostrordColors.Error)
             .padding(horizontal = Spacing.xs),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = displayCount,
             style = NostrordTypography.Badge,
-            color = Color.White
+            color = Color.White,
         )
     }
 }

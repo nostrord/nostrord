@@ -20,7 +20,6 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LoginViewModelTest {
-
     private val testDispatcher = StandardTestDispatcher()
 
     @BeforeTest

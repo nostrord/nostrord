@@ -32,35 +32,38 @@ fun RelaySettingsDesktop(
     onAddRelay: () -> Unit,
     onDeleteRelay: ((String) -> Unit)? = null,
     lazyFetchStates: Map<String, Boolean> = emptyMap(),
-    onToggleLazyFetch: ((String, Boolean) -> Unit)? = null
+    onToggleLazyFetch: ((String, Boolean) -> Unit)? = null,
 ) {
     Column(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxSize()
-            .background(NostrordColors.Background)
+            .background(NostrordColors.Background),
     ) {
         // Header
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .height(56.dp)
                 .background(NostrordColors.BackgroundDark)
                 .padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Header icon
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(36.dp)
                     .clip(CircleShape)
                     .background(NostrordColors.Primary.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Default.Public,
                     contentDescription = null,
                     tint = NostrordColors.Primary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
             }
 
@@ -71,12 +74,12 @@ fun RelaySettingsDesktop(
                     text = "Relay Settings",
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
                 Text(
                     text = "Manage your NIP-29 group relays",
                     color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }
@@ -84,19 +87,21 @@ fun RelaySettingsDesktop(
         // Content with centered max-width container
         Box(
             modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.TopCenter
+            contentAlignment = Alignment.TopCenter,
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .widthIn(max = 800.dp)
-                    .fillMaxHeight()
+                    .fillMaxHeight(),
             ) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .fillMaxSize()
                         .padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     // Section header
                     item {
@@ -105,13 +110,13 @@ fun RelaySettingsDesktop(
                                 text = "Connected Relays",
                                 color = NostrordColors.TextSecondary,
                                 style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "${relays.size} relay${if (relays.size != 1) "s" else ""} configured",
                                 color = NostrordColors.TextMuted,
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
                             )
                         }
                     }
@@ -123,7 +128,7 @@ fun RelaySettingsDesktop(
                             onSelectRelay = { onSelectRelay(relay.url) },
                             onDeleteRelay = onDeleteRelay?.let { cb -> { cb(relay.url) } },
                             isLazyFetch = lazyFetchStates[relay.url] ?: false,
-                            onToggleLazyFetch = onToggleLazyFetch?.let { cb -> { v -> cb(relay.url, v) } }
+                            onToggleLazyFetch = onToggleLazyFetch?.let { cb -> { v -> cb(relay.url, v) } },
                         )
                     }
 
@@ -140,7 +145,7 @@ fun RelaySettingsDesktop(
 
                 VerticalScrollbarWrapper(
                     listState = listState,
-                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
                 )
             }
         }

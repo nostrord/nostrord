@@ -14,7 +14,6 @@ import org.nostr.nostrord.ui.Screen
  * but BEFORE any navigation UI is rendered.
  */
 object StartupResolver {
-
     /**
      * External launch context that overrides persisted state.
      * Set by platform code before App() is called.
@@ -44,12 +43,13 @@ object StartupResolver {
      * Read by NostrRepository.initialize() to merge into relay list before connecting.
      */
     val deepLinkRelayUrl: String?
-        get() = when (val ctx = externalLaunchContext) {
-            is ExternalLaunchContext.OpenGroup -> ctx.relayUrl
-            is ExternalLaunchContext.OpenRelay -> ctx.relayUrl
-            is ExternalLaunchContext.OpenNotifications -> ctx.relayUrl
-            else -> null
-        }
+        get() =
+            when (val ctx = externalLaunchContext) {
+                is ExternalLaunchContext.OpenGroup -> ctx.relayUrl
+                is ExternalLaunchContext.OpenRelay -> ctx.relayUrl
+                is ExternalLaunchContext.OpenNotifications -> ctx.relayUrl
+                else -> null
+            }
 
     /**
      * Resolves the initial screen for an authenticated user.
@@ -67,20 +67,23 @@ object StartupResolver {
         if (external != null) {
             clearExternalLaunchContext() // Consume it
             return when (external) {
-                is ExternalLaunchContext.OpenGroup -> ResolvedScreen(
-                    screen = Screen.Group(external.groupId, external.groupName),
-                    relayUrl = external.relayUrl,
-                    inviteCode = external.inviteCode,
-                    messageId = external.messageId
-                )
-                is ExternalLaunchContext.OpenRelay -> ResolvedScreen(
-                    screen = Screen.Home,
-                    relayUrl = external.relayUrl
-                )
-                is ExternalLaunchContext.OpenNotifications -> ResolvedScreen(
-                    screen = Screen.Notifications,
-                    relayUrl = external.relayUrl
-                )
+                is ExternalLaunchContext.OpenGroup ->
+                    ResolvedScreen(
+                        screen = Screen.Group(external.groupId, external.groupName),
+                        relayUrl = external.relayUrl,
+                        inviteCode = external.inviteCode,
+                        messageId = external.messageId,
+                    )
+                is ExternalLaunchContext.OpenRelay ->
+                    ResolvedScreen(
+                        screen = Screen.Home,
+                        relayUrl = external.relayUrl,
+                    )
+                is ExternalLaunchContext.OpenNotifications ->
+                    ResolvedScreen(
+                        screen = Screen.Notifications,
+                        relayUrl = external.relayUrl,
+                    )
                 is ExternalLaunchContext.OpenHome -> ResolvedScreen(screen = Screen.Home)
             }
         }
@@ -115,7 +118,10 @@ object StartupResolver {
      * @param isLoggedIn Whether the user is authenticated
      * @return The resolved startup state
      */
-    fun resolve(isInitialized: Boolean, isLoggedIn: Boolean): AppStartState {
+    fun resolve(
+        isInitialized: Boolean,
+        isLoggedIn: Boolean,
+    ): AppStartState {
         // Not yet initialized - must wait
         if (!isInitialized) {
             return AppStartState.Initializing
@@ -132,7 +138,7 @@ object StartupResolver {
             // Edge case: logged in but no pubkey (shouldn't happen, but handle gracefully)
             return AppStartState.Authenticated(
                 initialScreen = Screen.Home,
-                restoredFromPersistence = false
+                restoredFromPersistence = false,
             )
         }
 
@@ -142,7 +148,7 @@ object StartupResolver {
             restoredFromPersistence = resolved.restoredFromPersistence,
             deepLinkRelayUrl = resolved.relayUrl,
             deepLinkInviteCode = resolved.inviteCode,
-            deepLinkMessageId = resolved.messageId
+            deepLinkMessageId = resolved.messageId,
         )
     }
 }
@@ -155,7 +161,7 @@ data class ResolvedScreen(
     val restoredFromPersistence: Boolean = false,
     val relayUrl: String? = null,
     val inviteCode: String? = null,
-    val messageId: String? = null
+    val messageId: String? = null,
 )
 
 sealed class ExternalLaunchContext {
@@ -164,9 +170,16 @@ sealed class ExternalLaunchContext {
         val groupName: String?,
         val relayUrl: String? = null,
         val inviteCode: String? = null,
-        val messageId: String? = null
+        val messageId: String? = null,
     ) : ExternalLaunchContext()
-    data class OpenRelay(val relayUrl: String) : ExternalLaunchContext()
-    data class OpenNotifications(val relayUrl: String? = null) : ExternalLaunchContext()
+
+    data class OpenRelay(
+        val relayUrl: String,
+    ) : ExternalLaunchContext()
+
+    data class OpenNotifications(
+        val relayUrl: String? = null,
+    ) : ExternalLaunchContext()
+
     data object OpenHome : ExternalLaunchContext()
 }

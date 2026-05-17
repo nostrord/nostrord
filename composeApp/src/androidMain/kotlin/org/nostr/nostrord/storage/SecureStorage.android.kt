@@ -26,57 +26,60 @@ actual object SecureStorage {
     private const val LIVE_CURSORS_PREFIX = "live_cursors_"
 
     private lateinit var prefs: SharedPreferences
-    
+
     fun initialize(context: Context) {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        
-        prefs = EncryptedSharedPreferences.create(
-            context,
-            PREFS_NAME,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+        val masterKey =
+            MasterKey
+                .Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
+        prefs =
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
     }
-    
+
     private fun ensureInitialized() {
         if (!::prefs.isInitialized) {
             throw IllegalStateException("SecureStorage not initialized. Call initialize(context) first.")
         }
     }
-    
+
     actual fun savePrivateKey(privateKeyHex: String) {
         ensureInitialized()
         prefs.edit().putString(PRIVATE_KEY_PREF, privateKeyHex).apply()
     }
-    
+
     actual fun getPrivateKey(): String? {
         ensureInitialized()
         return prefs.getString(PRIVATE_KEY_PREF, null)
     }
-    
+
     actual fun hasPrivateKey(): Boolean {
         ensureInitialized()
         return prefs.contains(PRIVATE_KEY_PREF)
     }
-    
+
     actual fun clearPrivateKey() {
         ensureInitialized()
         prefs.edit().remove(PRIVATE_KEY_PREF).apply()
     }
-    
+
     actual fun saveCurrentRelayUrl(relayUrl: String) {
         ensureInitialized()
         prefs.edit().putString(CURRENT_RELAY_URL, relayUrl).apply()
     }
-    
+
     actual fun getCurrentRelayUrl(): String? {
         ensureInitialized()
         return prefs.getString(CURRENT_RELAY_URL, null)
     }
-    
+
     actual fun clearCurrentRelayUrl() {
         ensureInitialized()
         prefs.edit().remove(CURRENT_RELAY_URL).apply()
@@ -93,14 +96,21 @@ actual object SecureStorage {
         return if (raw.isBlank()) emptyList() else raw.split(",").filter { it.isNotBlank() }
     }
 
-    actual fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>) {
+    actual fun saveJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+        groupIds: Set<String>,
+    ) {
         ensureInitialized()
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = Json.encodeToString(groupIds.toList())
         prefs.edit().putString(key, json).apply()
     }
 
-    actual fun getJoinedGroupsForRelay(pubkey: String, relayUrl: String): Set<String> {
+    actual fun getJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+    ): Set<String> {
         ensureInitialized()
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = prefs.getString(key, null) ?: return emptySet()
@@ -111,7 +121,10 @@ actual object SecureStorage {
         }
     }
 
-    actual fun clearJoinedGroupsForRelay(pubkey: String, relayUrl: String) {
+    actual fun clearJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+    ) {
         ensureInitialized()
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         prefs.edit().remove(key).apply()
@@ -129,44 +142,44 @@ actual object SecureStorage {
         } catch (e: Exception) {
         }
     }
-    
+
     // NIP-46 Bunker URL support
     actual fun saveBunkerUrl(bunkerUrl: String) {
         ensureInitialized()
         prefs.edit().putString(BUNKER_URL_PREF, bunkerUrl).apply()
     }
-    
+
     actual fun getBunkerUrl(): String? {
         ensureInitialized()
         return prefs.getString(BUNKER_URL_PREF, null)
     }
-    
+
     actual fun hasBunkerUrl(): Boolean {
         ensureInitialized()
         return prefs.contains(BUNKER_URL_PREF)
     }
-    
+
     actual fun clearBunkerUrl() {
         ensureInitialized()
         prefs.edit().remove(BUNKER_URL_PREF).apply()
     }
-    
+
     // NIP-46 Bunker User Pubkey support
     actual fun saveBunkerUserPubkey(pubkey: String) {
         ensureInitialized()
         prefs.edit().putString(BUNKER_USER_PUBKEY_PREF, pubkey).apply()
     }
-    
+
     actual fun getBunkerUserPubkey(): String? {
         ensureInitialized()
         return prefs.getString(BUNKER_USER_PUBKEY_PREF, null)
     }
-    
+
     actual fun clearBunkerUserPubkey() {
         ensureInitialized()
         prefs.edit().remove(BUNKER_USER_PUBKEY_PREF).apply()
     }
-    
+
     // NIP-46 Bunker Client Private Key (for session persistence)
     actual fun saveBunkerClientPrivateKey(privateKey: String) {
         ensureInitialized()
@@ -185,7 +198,9 @@ actual object SecureStorage {
 
     // NIP-07 Browser Extension (not used on Android, but required by expect)
     actual fun saveNip07UserPubkey(pubkey: String) {}
+
     actual fun getNip07UserPubkey(): String? = null
+
     actual fun clearNip07UserPubkey() {}
 
     actual fun clearAll() {
@@ -194,20 +209,30 @@ actual object SecureStorage {
     }
 
     // Last read timestamp tracking
-    actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
+    actual fun saveLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+        timestamp: Long,
+    ) {
         ensureInitialized()
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         prefs.edit().putLong(key, timestamp).apply()
     }
 
-    actual fun getLastReadTimestamp(pubkey: String, groupId: String): Long? {
+    actual fun getLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+    ): Long? {
         ensureInitialized()
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         val value = prefs.getLong(key, -1L)
         return if (value == -1L) null else value
     }
 
-    actual fun clearLastReadTimestamp(pubkey: String, groupId: String) {
+    actual fun clearLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+    ) {
         ensureInitialized()
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         prefs.edit().remove(key).apply()
@@ -227,7 +252,11 @@ actual object SecureStorage {
     }
 
     // Last viewed group persistence
-    actual fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?) {
+    actual fun saveLastViewedGroup(
+        pubkey: String,
+        groupId: String,
+        groupName: String?,
+    ) {
         ensureInitialized()
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
         // Store as "groupId|groupName" (groupName can be empty)
@@ -253,19 +282,29 @@ actual object SecureStorage {
     }
 
     // Message persistence
-    actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
+    actual fun saveMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+        messagesJson: String,
+    ) {
         ensureInitialized()
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         prefs.edit().putString(key, messagesJson).apply()
     }
 
-    actual fun getMessagesForGroup(pubkey: String, groupId: String): String? {
+    actual fun getMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+    ): String? {
         ensureInitialized()
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         return prefs.getString(key, null)
     }
 
-    actual fun clearMessagesForGroup(pubkey: String, groupId: String) {
+    actual fun clearMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+    ) {
         ensureInitialized()
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         prefs.edit().remove(key).apply()
@@ -286,7 +325,10 @@ actual object SecureStorage {
     }
 
     // Pending events persistence
-    actual fun savePendingEvents(pubkey: String, eventsJson: String) {
+    actual fun savePendingEvents(
+        pubkey: String,
+        eventsJson: String,
+    ) {
         ensureInitialized()
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         prefs.edit().putString(key, eventsJson).apply()
@@ -305,7 +347,10 @@ actual object SecureStorage {
     }
 
     // Group metadata cache
-    actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
+    actual fun saveGroupsForRelay(
+        relayUrl: String,
+        groupsJson: String,
+    ) {
         ensureInitialized()
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         prefs.edit().putString(key, groupsJson).apply()
@@ -323,13 +368,20 @@ actual object SecureStorage {
         prefs.edit().remove(key).apply()
     }
 
-    actual fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String) {
+    actual fun saveJoinedGroupMetadata(
+        pubkey: String,
+        relayUrl: String,
+        groupsJson: String,
+    ) {
         ensureInitialized()
         val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         prefs.edit().putString(key, groupsJson).apply()
     }
 
-    actual fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String? {
+    actual fun getJoinedGroupMetadata(
+        pubkey: String,
+        relayUrl: String,
+    ): String? {
         ensureInitialized()
         val key = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         return prefs.getString(key, null)
@@ -340,9 +392,12 @@ actual object SecureStorage {
         val accountPrefix = JOINED_GROUP_META_PREFIX + pubkey.hashCode() + "_"
         try {
             val editor = prefs.edit()
-            prefs.all.keys.filter { it.startsWith(accountPrefix) }.forEach { editor.remove(it) }
+            prefs.all.keys
+                .filter { it.startsWith(accountPrefix) }
+                .forEach { editor.remove(it) }
             editor.apply()
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
 
     actual fun saveRelayMetadata(json: String) {
@@ -355,7 +410,10 @@ actual object SecureStorage {
         return prefs.getString(RELAY_METADATA_KEY, null)
     }
 
-    actual fun saveLiveCursors(relayUrl: String, json: String) {
+    actual fun saveLiveCursors(
+        relayUrl: String,
+        json: String,
+    ) {
         ensureInitialized()
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         prefs.edit().putString(key, json).apply()
@@ -373,27 +431,42 @@ actual object SecureStorage {
         prefs.edit().remove(key).apply()
     }
 
-    actual fun saveBooleanPref(key: String, value: Boolean) {
+    actual fun saveBooleanPref(
+        key: String,
+        value: Boolean,
+    ) {
         ensureInitialized()
         prefs.edit().putBoolean(key, value).apply()
     }
 
-    actual fun getBooleanPref(key: String, default: Boolean): Boolean {
+    actual fun getBooleanPref(
+        key: String,
+        default: Boolean,
+    ): Boolean {
         ensureInitialized()
         return prefs.getBoolean(key, default)
     }
 
-    actual fun saveStringPref(key: String, value: String) {
+    actual fun saveStringPref(
+        key: String,
+        value: String,
+    ) {
         ensureInitialized()
         prefs.edit().putString(key, value).apply()
     }
 
-    actual fun getStringPref(key: String, default: String): String {
+    actual fun getStringPref(
+        key: String,
+        default: String,
+    ): String {
         ensureInitialized()
         return prefs.getString(key, default) ?: default
     }
 
-    actual fun saveSensitive(key: String, value: String) {
+    actual fun saveSensitive(
+        key: String,
+        value: String,
+    ) {
         ensureInitialized()
         prefs.edit().putString(key, value).apply()
     }

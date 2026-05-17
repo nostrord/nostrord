@@ -30,9 +30,17 @@ import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 
 sealed class GridItem {
-    data class Header(val title: String) : GridItem()
-    data class EmojiCell(val entry: EmojiEntry) : GridItem()
-    data class RecentCell(val emojiString: String) : GridItem()
+    data class Header(
+        val title: String,
+    ) : GridItem()
+
+    data class EmojiCell(
+        val entry: EmojiEntry,
+    ) : GridItem()
+
+    data class RecentCell(
+        val emojiString: String,
+    ) : GridItem()
 }
 
 @Composable
@@ -40,12 +48,12 @@ fun EmojiPickerGrid(
     items: List<GridItem>,
     onEmojiSelect: (String) -> Unit,
     gridState: LazyGridState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(8),
         state = gridState,
-        modifier = modifier
+        modifier = modifier,
     ) {
         items(
             count = items.size,
@@ -61,7 +69,7 @@ fun EmojiPickerGrid(
                     is GridItem.Header -> GridItemSpan(maxLineSpan)
                     else -> GridItemSpan(1)
                 }
-            }
+            },
         ) { index ->
             when (val item = items[index]) {
                 is GridItem.Header -> {
@@ -69,9 +77,10 @@ fun EmojiPickerGrid(
                         text = item.title.uppercase(),
                         style = NostrordTypography.SectionHeader,
                         color = NostrordColors.TextMuted,
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = Spacing.sm, vertical = Spacing.xs)
+                            .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
                     )
                 }
                 is GridItem.EmojiCell -> {
@@ -80,7 +89,7 @@ fun EmojiPickerGrid(
                         onClick = {
                             onEmojiSelect(item.entry.emoji)
                             RecentEmojiStore.recordUsage(item.entry.emoji)
-                        }
+                        },
                     )
                 }
                 is GridItem.RecentCell -> {
@@ -89,7 +98,7 @@ fun EmojiPickerGrid(
                         onClick = {
                             onEmojiSelect(item.emojiString)
                             RecentEmojiStore.recordUsage(item.emojiString)
-                        }
+                        },
                     )
                 }
             }
@@ -100,7 +109,7 @@ fun EmojiPickerGrid(
 @Composable
 private fun EmojiGridCell(
     emojiString: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -108,17 +117,18 @@ private fun EmojiGridCell(
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(40.dp)
             .clip(NostrordShapes.shapeSmall)
             .hoverable(interactionSource)
             .background(if (isHovered) NostrordColors.HoverBackground else NostrordColors.Surface)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
     ) {
         Text(
             text = emojiString,
             fontSize = 24.sp,
-            fontFamily = emojiFontFamily
+            fontFamily = emojiFontFamily,
         )
     }
 }

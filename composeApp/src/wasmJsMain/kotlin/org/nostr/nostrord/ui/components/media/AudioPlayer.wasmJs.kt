@@ -5,7 +5,6 @@ package org.nostr.nostrord.ui.components.media
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
-import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -14,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.js.ExperimentalWasmJsInterop
 
 // JS interop functions for HTML5 Audio
 @JsFun("(url) => { const a = new Audio(url); a.preload = 'metadata'; return a; }")
@@ -32,16 +32,25 @@ private external fun jsGetDuration(audio: JsAny): Double
 private external fun jsGetCurrentTime(audio: JsAny): Double
 
 @JsFun("(audio, time) => { audio.currentTime = time; }")
-private external fun jsSetCurrentTime(audio: JsAny, time: Double)
+private external fun jsSetCurrentTime(
+    audio: JsAny,
+    time: Double,
+)
 
 @JsFun("(audio) => !audio.paused")
 private external fun jsIsPlaying(audio: JsAny): Boolean
 
 @JsFun("(audio, callback) => { audio.onloadedmetadata = () => callback(); }")
-private external fun jsOnLoadedMetadata(audio: JsAny, callback: () -> Unit)
+private external fun jsOnLoadedMetadata(
+    audio: JsAny,
+    callback: () -> Unit,
+)
 
 @JsFun("(audio, callback) => { audio.onended = () => callback(); }")
-private external fun jsOnEnded(audio: JsAny, callback: () -> Unit)
+private external fun jsOnEnded(
+    audio: JsAny,
+    callback: () -> Unit,
+)
 
 actual class AudioPlayer actual constructor() {
     private var audio: JsAny? = null
@@ -121,18 +130,19 @@ actual class AudioPlayer actual constructor() {
 
     private fun startPositionTracking() {
         positionJob?.cancel()
-        positionJob = scope.launch {
-            while (isActive) {
-                audio?.let { a ->
-                    _currentPositionMs.value = (jsGetCurrentTime(a) * 1000).toLong()
-                    val dur = jsGetDuration(a)
-                    if (!dur.isNaN() && dur.isFinite() && dur > 0) {
-                        _durationMs.value = (dur * 1000).toLong()
+        positionJob =
+            scope.launch {
+                while (isActive) {
+                    audio?.let { a ->
+                        _currentPositionMs.value = (jsGetCurrentTime(a) * 1000).toLong()
+                        val dur = jsGetDuration(a)
+                        if (!dur.isNaN() && dur.isFinite() && dur > 0) {
+                            _durationMs.value = (dur * 1000).toLong()
+                        }
                     }
+                    delay(250)
                 }
-                delay(250)
             }
-        }
     }
 }
 

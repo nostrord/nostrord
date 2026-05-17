@@ -6,7 +6,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class EventDeduplicatorSyncTest {
-
     // ============================================================================
     // Basic deduplication
     // ============================================================================

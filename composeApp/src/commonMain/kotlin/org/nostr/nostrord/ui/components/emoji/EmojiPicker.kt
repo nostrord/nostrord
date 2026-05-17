@@ -40,27 +40,29 @@ private val EMOJI_GROUPS = EmojiGroup.entries.filter { it != EmojiGroup.RECENT }
 fun EmojiPicker(
     onEmojiSelect: (String) -> Unit,
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val gridState = rememberLazyGridState()
     val scope = rememberCoroutineScope()
 
     // Build categorized emoji list from embedded data
-    val categorizedEmojis: Map<EmojiGroup, List<EmojiEntry>> = remember {
-        EmojiData.byGroup
-    }
+    val categorizedEmojis: Map<EmojiGroup, List<EmojiEntry>> =
+        remember {
+            EmojiData.byGroup
+        }
 
     // Rebuild items when recents change or search query changes
     val gridItems by remember {
         derivedStateOf {
             if (searchQuery.isNotBlank()) {
                 val query = searchQuery.lowercase()
-                val filtered = EMOJI_GROUPS.flatMap { group ->
-                    (categorizedEmojis[group] ?: emptyList()).filter { entry ->
-                        entry.name.lowercase().contains(query)
+                val filtered =
+                    EMOJI_GROUPS.flatMap { group ->
+                        (categorizedEmojis[group] ?: emptyList()).filter { entry ->
+                            entry.name.lowercase().contains(query)
+                        }
                     }
-                }
                 filtered.map<EmojiEntry, GridItem> { GridItem.EmojiCell(it) }
             } else {
                 buildList {
@@ -106,22 +108,23 @@ fun EmojiPicker(
     }
 
     // Compute header indices for category scrolling
-    val headerIndices: Map<EmojiGroup, Int> = remember(gridItems) {
-        val map = mutableMapOf<EmojiGroup, Int>()
-        gridItems.forEachIndexed { index, item ->
-            if (item is GridItem.Header) {
-                val group = EmojiGroup.entries.find { it.label == item.title }
-                if (group != null) map[group] = index
+    val headerIndices: Map<EmojiGroup, Int> =
+        remember(gridItems) {
+            val map = mutableMapOf<EmojiGroup, Int>()
+            gridItems.forEachIndexed { index, item ->
+                if (item is GridItem.Header) {
+                    val group = EmojiGroup.entries.find { it.label == item.title }
+                    if (group != null) map[group] = index
+                }
             }
+            map
         }
-        map
-    }
 
     Surface(
         shape = NostrordShapes.shapeMedium,
         color = NostrordColors.Surface,
         shadowElevation = 16.dp,
-        modifier = modifier.width(PICKER_WIDTH).height(PICKER_HEIGHT)
+        modifier = modifier.width(PICKER_WIDTH).height(PICKER_HEIGHT),
     ) {
         Column {
             // Search bar
@@ -132,7 +135,7 @@ fun EmojiPicker(
                     Text(
                         "Search emoji",
                         style = NostrordTypography.InputPlaceholder,
-                        color = NostrordColors.TextMuted
+                        color = NostrordColors.TextMuted,
                     )
                 },
                 leadingIcon = {
@@ -140,23 +143,25 @@ fun EmojiPicker(
                         Icons.Outlined.Search,
                         contentDescription = null,
                         tint = NostrordColors.TextMuted,
-                        modifier = Modifier.size(Spacing.iconMd)
+                        modifier = Modifier.size(Spacing.iconMd),
                     )
                 },
                 singleLine = true,
                 textStyle = NostrordTypography.Input,
-                colors = TextFieldDefaults.colors(
+                colors =
+                TextFieldDefaults.colors(
                     focusedContainerColor = NostrordColors.InputBackground,
                     unfocusedContainerColor = NostrordColors.InputBackground,
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     cursorColor = NostrordColors.Primary,
                     focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
+                    unfocusedIndicatorColor = Color.Transparent,
                 ),
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth()
-                    .padding(Spacing.sm)
+                    .padding(Spacing.sm),
             )
 
             // Category tabs
@@ -167,7 +172,7 @@ fun EmojiPicker(
                         val targetIndex = headerIndices[group] ?: return@EmojiCategoryBar
                         scope.launch { gridState.animateScrollToItem(targetIndex) }
                     },
-                    modifier = Modifier.padding(horizontal = Spacing.xs)
+                    modifier = Modifier.padding(horizontal = Spacing.xs),
                 )
                 HorizontalDivider(color = NostrordColors.BackgroundDark)
             }
@@ -177,7 +182,7 @@ fun EmojiPicker(
                 items = gridItems,
                 onEmojiSelect = onEmojiSelect,
                 gridState = gridState,
-                modifier = Modifier.weight(1f).padding(horizontal = Spacing.xs)
+                modifier = Modifier.weight(1f).padding(horizontal = Spacing.xs),
             )
         }
     }

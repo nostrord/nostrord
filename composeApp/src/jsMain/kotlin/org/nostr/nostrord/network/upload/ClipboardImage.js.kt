@@ -12,6 +12,7 @@ import org.w3c.files.FileReader
 
 actual class ClipboardImageReader {
     actual fun hasImage(): Boolean = false
+
     actual suspend fun read(): Pair<ByteArray, String>? = null
 }
 
@@ -19,7 +20,10 @@ actual class ClipboardImageReader {
 actual fun rememberClipboardImageReader(): ClipboardImageReader = remember { ClipboardImageReader() }
 
 @Composable
-actual fun PasteMediaEffect(onMediaPasted: (ByteArray, String) -> Unit, onError: (String) -> Unit) {
+actual fun PasteMediaEffect(
+    onMediaPasted: (ByteArray, String) -> Unit,
+    onError: (String) -> Unit,
+) {
     val currentCallback = rememberUpdatedState(onMediaPasted)
     val currentOnError = rememberUpdatedState(onError)
     DisposableEffect(Unit) {
@@ -47,9 +51,10 @@ actual fun PasteMediaEffect(onMediaPasted: (ByteArray, String) -> Unit, onError:
                     runCatching {
                         val buffer = reader.result as ArrayBuffer
                         val int8 = Int8Array(buffer)
-                        val bytes = ByteArray(int8.length).also { arr ->
-                            for (j in arr.indices) arr[j] = int8.asDynamic()[j]
-                        }
+                        val bytes =
+                            ByteArray(int8.length).also { arr ->
+                                for (j in arr.indices) arr[j] = int8.asDynamic()[j]
+                            }
                         val ext = type.substringAfterLast('/')
                         val name = jsFile.asDynamic().name as? String ?: "clipboard.$ext"
                         currentCallback.value(bytes, name)

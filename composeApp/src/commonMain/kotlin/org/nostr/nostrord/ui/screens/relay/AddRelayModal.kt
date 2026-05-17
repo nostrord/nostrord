@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,30 +32,32 @@ import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
+import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.isValidIconUrl
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.utils.isValidRelayUrl
-import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.ui.util.buildRelayIconRequest
 import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.ui.util.relayFallbackPainter
+import org.nostr.nostrord.utils.isValidRelayUrl
+import org.nostr.nostrord.utils.toRelayUrl
 
 private data class SuggestedRelay(
     val url: String,
     val name: String,
-    val description: String
+    val description: String,
 )
 
-private val suggestedRelays = listOf(
-    SuggestedRelay("wss://groups.fiatjaf.com", "groups.fiatjaf.com", "A test relay for NIP-29 groups"),
-    SuggestedRelay("wss://groups.0xchat.com", "0xchat Groups relay", "NIP-29 relay powering 0xchat group messaging"),
-    SuggestedRelay("wss://relay.groups.nip29.com", "relay.groups.nip29.com", "Public NIP-29 groups relay"),
-    SuggestedRelay("wss://groups.hzrd149.com", "groups.hzrd149.com", "NIP-29 group relay"),
-    SuggestedRelay("wss://pyramid.fiatjaf.com", "pyramid.fiatjaf.com", "NIP-29 relay"),
-    SuggestedRelay("wss://chat.wisp.talk", "chat.wisp.talk", "NIP-29 relay")
-)
+private val suggestedRelays =
+    listOf(
+        SuggestedRelay("wss://groups.fiatjaf.com", "groups.fiatjaf.com", "A test relay for NIP-29 groups"),
+        SuggestedRelay("wss://groups.0xchat.com", "0xchat Groups relay", "NIP-29 relay powering 0xchat group messaging"),
+        SuggestedRelay("wss://relay.groups.nip29.com", "relay.groups.nip29.com", "Public NIP-29 groups relay"),
+        SuggestedRelay("wss://groups.hzrd149.com", "groups.hzrd149.com", "NIP-29 group relay"),
+        SuggestedRelay("wss://pyramid.fiatjaf.com", "pyramid.fiatjaf.com", "NIP-29 relay"),
+        SuggestedRelay("wss://chat.wisp.talk", "chat.wisp.talk", "NIP-29 relay"),
+    )
 
 @Composable
 fun AddRelayModal(
@@ -68,29 +69,31 @@ fun AddRelayModal(
     val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // Backdrop — dismiss on click. Stays full-screen (covers system bars).
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.7f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = onDismiss
-                    )
+                        onClick = onDismiss,
+                    ),
             )
 
             // Modal container — constrained to safe area so the keyboard / status bar
             // never overlap it. Wrapped in a Box that handles centering after insets.
             Box(
                 modifier = Modifier.fillMaxSize().safeDrawingPadding(),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Column(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .widthIn(max = 480.dp)
                         .fillMaxWidth(fraction = 0.92f)
                         .heightIn(max = 560.dp)
@@ -99,105 +102,109 @@ fun AddRelayModal(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = {}
-                        )
+                            onClick = {},
+                        ),
                 ) {
-                var activeTab by remember { mutableIntStateOf(initialTab) }
+                    var activeTab by remember { mutableIntStateOf(initialTab) }
 
-                // Header
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 20.dp, end = 12.dp, top = 20.dp, bottom = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Add a Relay",
-                            color = Color.White,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "Pick a popular relay or enter a custom URL to connect.",
-                            color = NostrordColors.TextMuted,
-                            fontSize = 13.sp
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable(onClick = onDismiss)
-                            .pointerHoverIcon(PointerIcon.Hand),
-                        contentAlignment = Alignment.Center
+                    // Header
+                    Row(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, end = 12.dp, top = 20.dp, bottom = 16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = NostrordColors.TextMuted,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Add a Relay",
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Pick a popular relay or enter a custom URL to connect.",
+                                color = NostrordColors.TextMuted,
+                                fontSize = 13.sp,
+                            )
+                        }
+                        Box(
+                            modifier =
+                            Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable(onClick = onDismiss)
+                                .pointerHoverIcon(PointerIcon.Hand),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = NostrordColors.TextMuted,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
-                }
 
-                // Tab bar using Material3 TabRow for correct underline behavior
-                TabRow(
-                    selectedTabIndex = activeTab,
-                    containerColor = Color.Transparent,
-                    contentColor = NostrordColors.Primary,
-                    divider = {
-                        HorizontalDivider(color = NostrordColors.SurfaceVariant)
-                    }
-                ) {
-                    Tab(
-                        selected = activeTab == 0,
-                        onClick = { activeTab = 0 },
-                        selectedContentColor = Color.White,
-                        unselectedContentColor = NostrordColors.TextMuted
+                    // Tab bar using Material3 TabRow for correct underline behavior
+                    TabRow(
+                        selectedTabIndex = activeTab,
+                        containerColor = Color.Transparent,
+                        contentColor = NostrordColors.Primary,
+                        divider = {
+                            HorizontalDivider(color = NostrordColors.SurfaceVariant)
+                        },
                     ) {
-                        Text(
-                            text = "Suggested",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(vertical = 12.dp)
-                        )
+                        Tab(
+                            selected = activeTab == 0,
+                            onClick = { activeTab = 0 },
+                            selectedContentColor = Color.White,
+                            unselectedContentColor = NostrordColors.TextMuted,
+                        ) {
+                            Text(
+                                text = "Suggested",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 12.dp),
+                            )
+                        }
+                        Tab(
+                            selected = activeTab == 1,
+                            onClick = { activeTab = 1 },
+                            selectedContentColor = Color.White,
+                            unselectedContentColor = NostrordColors.TextMuted,
+                        ) {
+                            Text(
+                                text = "Custom URL",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(vertical = 12.dp),
+                            )
+                        }
                     }
-                    Tab(
-                        selected = activeTab == 1,
-                        onClick = { activeTab = 1 },
-                        selectedContentColor = Color.White,
-                        unselectedContentColor = NostrordColors.TextMuted
-                    ) {
-                        Text(
-                            text = "Custom URL",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(vertical = 12.dp)
-                        )
-                    }
-                }
 
-                // Tab content — weight(1f) ensures LazyColumn is constrained inside the modal
-                Box(modifier = Modifier.weight(1f)) {
-                    when (activeTab) {
-                        0 -> SuggestedTab(
-                            connectedRelays = connectedRelays,
-                            relayMetadata = relayMetadata,
-                            onSelect = { url ->
-                                onSwitchRelay(url)
-                            }
-                        )
-                        else -> CustomUrlTab(
-                            onAdd = { url ->
-                                onSwitchRelay(url)
-                            },
-                            onCancel = onDismiss
-                        )
+                    // Tab content — weight(1f) ensures LazyColumn is constrained inside the modal
+                    Box(modifier = Modifier.weight(1f)) {
+                        when (activeTab) {
+                            0 ->
+                                SuggestedTab(
+                                    connectedRelays = connectedRelays,
+                                    relayMetadata = relayMetadata,
+                                    onSelect = { url ->
+                                        onSwitchRelay(url)
+                                    },
+                                )
+                            else ->
+                                CustomUrlTab(
+                                    onAdd = { url ->
+                                        onSwitchRelay(url)
+                                    },
+                                    onCancel = onDismiss,
+                                )
+                        }
                     }
-                }
                 }
             }
         }
@@ -208,7 +215,7 @@ fun AddRelayModal(
 private fun SuggestedTab(
     connectedRelays: Set<String>,
     relayMetadata: Map<String, Nip11RelayInfo>,
-    onSelect: (String) -> Unit
+    onSelect: (String) -> Unit,
 ) {
     // Kick off NIP-11 fetches for all suggested relays the first time this tab renders.
     // These relays may not be in the user's relay list yet, so their metadata won't have
@@ -222,7 +229,7 @@ private fun SuggestedTab(
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(suggestedRelays, key = { it.url }) { relay ->
             val meta = relayMetadata[relay.url]
@@ -236,7 +243,7 @@ private fun SuggestedTab(
                 description = description,
                 iconUrl = meta?.icon,
                 isConnected = isConnected,
-                onAdd = { onSelect(relay.url) }
+                onAdd = { onSelect(relay.url) },
             )
         }
     }
@@ -249,21 +256,22 @@ private fun SuggestedRelayCard(
     description: String,
     iconUrl: String?,
     isConnected: Boolean,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
     val canAdd = !isConnected
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(if (isHovered && canAdd) NostrordColors.SurfaceVariant else NostrordColors.BackgroundDark)
             .hoverable(interactionSource)
             .then(if (canAdd) Modifier.clickable(onClick = onAdd).pointerHoverIcon(PointerIcon.Hand) else Modifier)
             .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         RelayCardIcon(url = url, name = name, iconUrl = iconUrl, size = 44.dp)
 
@@ -276,14 +284,14 @@ private fun SuggestedRelayCard(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = url,
                 color = NostrordColors.TextMuted,
                 fontSize = 11.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             if (description.isNotBlank()) {
                 Spacer(Modifier.height(2.dp))
@@ -292,7 +300,7 @@ private fun SuggestedRelayCard(
                     color = NostrordColors.TextMuted,
                     fontSize = 12.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -303,25 +311,31 @@ private fun SuggestedRelayCard(
         val btnLabel = if (isConnected) "Added" else "Add"
 
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .clip(RoundedCornerShape(4.dp))
                 .background(btnBg)
                 .then(if (canAdd) Modifier.clickable(onClick = onAdd).pointerHoverIcon(PointerIcon.Hand) else Modifier)
                 .padding(horizontal = 16.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = btnLabel,
                 color = if (isConnected) NostrordColors.TextMuted else Color.White,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
 }
 
 @Composable
-private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: androidx.compose.ui.unit.Dp) {
+private fun RelayCardIcon(
+    url: String,
+    name: String,
+    iconUrl: String?,
+    size: androidx.compose.ui.unit.Dp,
+) {
     val context = LocalPlatformContext.current
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(url) else null
     val hasIcon = isValidIconUrl(iconUrl)
@@ -338,11 +352,12 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
     }
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(RoundedCornerShape(8.dp))
             .background(if (imageLoaded && hasIcon) NostrordColors.BackgroundDark else generateColorFromString(url)),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         // Base layer: fallback shown until image overlays it
         if (fallbackPainter != null) {
@@ -350,14 +365,14 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
                 painter = fallbackPainter,
                 contentDescription = name,
                 modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
             )
         } else if (!imageLoaded) {
             Text(
                 text = name.take(1).uppercase(),
                 color = Color.White,
                 fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
         if (hasIcon) {
@@ -379,7 +394,7 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
                             }
                             else -> {}
                         }
-                    }
+                    },
                 )
             }
         }
@@ -387,39 +402,44 @@ private fun RelayCardIcon(url: String, name: String, iconUrl: String?, size: and
 }
 
 @Composable
-private fun CustomUrlTab(onAdd: (String) -> Unit, onCancel: () -> Unit) {
+private fun CustomUrlTab(
+    onAdd: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
     var relayUrl by remember { mutableStateOf("") }
     val isValid = isValidRelayUrl(relayUrl.toRelayUrl())
 
     Column(modifier = Modifier.fillMaxSize()) {
         // Form
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .weight(1f)
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
             Text(
                 text = "RELAY URL",
                 color = NostrordColors.TextMuted,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.02.sp
+                letterSpacing = 0.02.sp,
             )
             Spacer(Modifier.height(6.dp))
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(4.dp))
                     .background(NostrordColors.BackgroundDark)
                     .height(40.dp)
                     .padding(horizontal = 12.dp),
-                contentAlignment = Alignment.CenterStart
+                contentAlignment = Alignment.CenterStart,
             ) {
                 if (relayUrl.isEmpty()) {
                     Text(
                         text = "relay.example.com",
                         color = NostrordColors.TextMuted,
-                        fontSize = 13.sp
+                        fontSize = 13.sp,
                     )
                 }
                 BasicTextField(
@@ -428,37 +448,45 @@ private fun CustomUrlTab(onAdd: (String) -> Unit, onCancel: () -> Unit) {
                     singleLine = true,
                     textStyle = TextStyle(color = Color.White, fontSize = 13.sp),
                     cursorBrush = SolidColor(NostrordColors.Primary),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
 
         // Footer
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .background(NostrordColors.BackgroundDark)
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = onCancel) {
                 Text(text = "Cancel", color = NostrordColors.TextMuted, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.width(8.dp))
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .clip(RoundedCornerShape(4.dp))
                     .background(if (isValid) NostrordColors.Primary else NostrordColors.SurfaceVariant)
-                    .then(if (isValid) Modifier.clickable { onAdd(relayUrl.trim().toRelayUrl()) }
-                        .pointerHoverIcon(PointerIcon.Hand) else Modifier)
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .then(
+                        if (isValid) {
+                            Modifier
+                                .clickable { onAdd(relayUrl.trim().toRelayUrl()) }
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        } else {
+                            Modifier
+                        },
+                    ).padding(horizontal = 20.dp, vertical = 8.dp),
             ) {
                 Text(
                     text = "Add Relay",
                     color = if (isValid) Color.White else NostrordColors.TextMuted,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         }

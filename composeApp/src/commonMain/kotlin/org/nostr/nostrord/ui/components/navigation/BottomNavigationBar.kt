@@ -36,29 +36,29 @@ enum class BottomNavItem(
     val label: String,
     val selectedIcon: ImageVector,
     val unselectedIcon: ImageVector,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
 ) {
     Explore(
         label = "Explore",
         selectedIcon = Icons.Filled.Explore,
-        unselectedIcon = Icons.Outlined.Explore
+        unselectedIcon = Icons.Outlined.Explore,
     ),
     Groups(
         label = "Groups",
         selectedIcon = Icons.Filled.Groups,
-        unselectedIcon = Icons.Outlined.Groups
+        unselectedIcon = Icons.Outlined.Groups,
     ),
     Notifications(
         label = "Alerts",
         selectedIcon = Icons.Filled.Notifications,
         unselectedIcon = Icons.Outlined.Notifications,
-        enabled = false // Future feature
+        enabled = false, // Future feature
     ),
     Profile(
         label = "You",
         selectedIcon = Icons.Filled.Person,
-        unselectedIcon = Icons.Outlined.Person
-    )
+        unselectedIcon = Icons.Outlined.Person,
+    ),
 }
 
 /**
@@ -76,13 +76,13 @@ fun BottomNavigationBar(
     unreadGroupCount: Int = 0,
     userAvatarUrl: String? = null,
     userDisplayName: String? = null,
-    userPubkey: String? = null
+    userPubkey: String? = null,
 ) {
     NavigationBar(
         modifier = modifier,
         containerColor = NostrordColors.BackgroundDark,
         contentColor = Color.White,
-        tonalElevation = 0.dp
+        tonalElevation = 0.dp,
     ) {
         BottomNavItem.entries.forEach { item ->
             val isSelected = selectedItem == item
@@ -106,16 +106,16 @@ fun BottomNavigationBar(
                                 item == BottomNavItem.Groups && unreadGroupCount > 0 -> {
                                     Badge(
                                         containerColor = NostrordColors.Error,
-                                        contentColor = Color.White
+                                        contentColor = Color.White,
                                     ) {
                                         Text(
                                             text = if (unreadGroupCount > 99) "99+" else unreadGroupCount.toString(),
-                                            style = MaterialTheme.typography.labelSmall
+                                            style = MaterialTheme.typography.labelSmall,
                                         )
                                     }
                                 }
                             }
-                        }
+                        },
                     ) {
                         if (item == BottomNavItem.Profile && userPubkey != null) {
                             // Show user avatar for Profile tab
@@ -124,19 +124,20 @@ fun BottomNavigationBar(
                                 displayName = userDisplayName ?: "Profile",
                                 pubkey = userPubkey,
                                 size = Spacing.iconMd,
-                                modifier = if (isSelected) {
+                                modifier =
+                                if (isSelected) {
                                     Modifier
                                         .clip(CircleShape)
                                         .border(2.dp, NostrordColors.Primary, CircleShape)
                                 } else {
                                     Modifier
-                                }
+                                },
                             )
                         } else {
                             Icon(
                                 imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
                                 contentDescription = item.label,
-                                modifier = Modifier.size(Spacing.iconMd)
+                                modifier = Modifier.size(Spacing.iconMd),
                             )
                         }
                     }
@@ -144,17 +145,18 @@ fun BottomNavigationBar(
                 label = {
                     Text(
                         text = item.label,
-                        style = MaterialTheme.typography.labelSmall
+                        style = MaterialTheme.typography.labelSmall,
                     )
                 },
-                colors = NavigationBarItemDefaults.colors(
+                colors =
+                NavigationBarItemDefaults.colors(
                     selectedIconColor = NostrordColors.Primary,
                     selectedTextColor = NostrordColors.Primary,
                     unselectedIconColor = if (item.enabled) NostrordColors.TextSecondary else NostrordColors.TextMuted,
                     unselectedTextColor = if (item.enabled) NostrordColors.TextSecondary else NostrordColors.TextMuted,
-                    indicatorColor = NostrordColors.Primary.copy(alpha = 0.1f)
+                    indicatorColor = NostrordColors.Primary.copy(alpha = 0.1f),
                 ),
-                enabled = item.enabled
+                enabled = item.enabled,
             )
         }
     }

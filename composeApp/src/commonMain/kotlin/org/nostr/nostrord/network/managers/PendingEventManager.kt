@@ -9,7 +9,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
-import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.PublishResult
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.epochMillis
@@ -25,7 +24,7 @@ data class PendingEvent(
     val createdAt: Long = epochMillis(),
     val retryCount: Int = 0,
     val maxRetries: Int = 3,
-    val lastError: String? = null
+    val lastError: String? = null,
 ) {
     val canRetry: Boolean get() = retryCount < maxRetries
 }
@@ -35,9 +34,17 @@ data class PendingEvent(
  */
 sealed class PendingEventStatus {
     data object Queued : PendingEventStatus()
+
     data object Sending : PendingEventStatus()
-    data class Sent(val result: PublishResult) : PendingEventStatus()
-    data class Failed(val reason: String, val canRetry: Boolean) : PendingEventStatus()
+
+    data class Sent(
+        val result: PublishResult,
+    ) : PendingEventStatus()
+
+    data class Failed(
+        val reason: String,
+        val canRetry: Boolean,
+    ) : PendingEventStatus()
 }
 
 /**
@@ -52,7 +59,7 @@ sealed class PendingEventStatus {
  */
 class PendingEventManager(
     private val connectionManager: ConnectionManager,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
 ) {
     companion object {
         const val MAX_QUEUE_SIZE = 100
@@ -96,7 +103,7 @@ class PendingEventManager(
     suspend fun queueEvent(
         eventJson: String,
         eventId: String,
-        groupId: String
+        groupId: String,
     ): Boolean {
         return mutex.withLock {
             val current = _pendingEvents.value
@@ -116,12 +123,13 @@ class PendingEventManager(
                 }
             }
 
-            val pendingEvent = PendingEvent(
-                id = "pending_${epochMillis()}_$eventId",
-                eventJson = eventJson,
-                eventId = eventId,
-                groupId = groupId
-            )
+            val pendingEvent =
+                PendingEvent(
+                    id = "pending_${epochMillis()}_$eventId",
+                    eventJson = eventJson,
+                    eventId = eventId,
+                    groupId = groupId,
+                )
 
             _pendingEvents.value = _pendingEvents.value + pendingEvent
             _eventStatuses.value = _eventStatuses.value + (pendingEvent.id to PendingEventStatus.Queued)
@@ -156,10 +164,13 @@ class PendingEventManager(
             for (event in events) {
                 if (!event.canRetry) {
                     // Mark as permanently failed
-                    updateStatus(event.id, PendingEventStatus.Failed(
-                        reason = event.lastError ?: "Max retries exceeded",
-                        canRetry = false
-                    ))
+                    updateStatus(
+                        event.id,
+                        PendingEventStatus.Failed(
+                            reason = event.lastError ?: "Max retries exceeded",
+                            canRetry = false,
+                        ),
+                    )
                     continue
                 }
 
@@ -183,19 +194,23 @@ class PendingEventManager(
                     }
                     is PublishResult.Rejected -> {
                         // Don't retry rejected events - relay explicitly refused
-                        updateStatus(event.id, PendingEventStatus.Failed(
-                            reason = result.reason,
-                            canRetry = false
-                        ))
+                        updateStatus(
+                            event.id,
+                            PendingEventStatus.Failed(
+                                reason = result.reason,
+                                canRetry = false,
+                            ),
+                        )
                         removeEvent(event.id)
                     }
                     is PublishResult.Timeout, is PublishResult.Error -> {
                         // Increment retry count
-                        val errorMsg = when (result) {
-                            is PublishResult.Timeout -> "Timeout"
-                            is PublishResult.Error -> result.exception.message ?: "Unknown error"
-                            else -> "Unknown error"
-                        }
+                        val errorMsg =
+                            when (result) {
+                                is PublishResult.Timeout -> "Timeout"
+                                is PublishResult.Error -> result.exception.message ?: "Unknown error"
+                                else -> "Unknown error"
+                            }
                         incrementRetryCount(event.id, errorMsg)
                     }
                 }
@@ -224,18 +239,22 @@ class PendingEventManager(
                 removeEvent(event.id)
             }
             is PublishResult.Rejected -> {
-                updateStatus(event.id, PendingEventStatus.Failed(
-                    reason = result.reason,
-                    canRetry = false
-                ))
+                updateStatus(
+                    event.id,
+                    PendingEventStatus.Failed(
+                        reason = result.reason,
+                        canRetry = false,
+                    ),
+                )
                 removeEvent(event.id)
             }
             is PublishResult.Timeout, is PublishResult.Error -> {
-                val errorMsg = when (result) {
-                    is PublishResult.Timeout -> "Timeout"
-                    is PublishResult.Error -> result.exception.message ?: "Unknown error"
-                    else -> "Unknown error"
-                }
+                val errorMsg =
+                    when (result) {
+                        is PublishResult.Timeout -> "Timeout"
+                        is PublishResult.Error -> result.exception.message ?: "Unknown error"
+                        else -> "Unknown error"
+                    }
                 incrementRetryCount(event.id, errorMsg)
             }
         }
@@ -246,16 +265,12 @@ class PendingEventManager(
     /**
      * Get count of pending events for a specific group.
      */
-    fun getPendingCountForGroup(groupId: String): Int {
-        return _pendingEvents.value.count { it.groupId == groupId }
-    }
+    fun getPendingCountForGroup(groupId: String): Int = _pendingEvents.value.count { it.groupId == groupId }
 
     /**
      * Get all pending events for a specific group.
      */
-    fun getPendingEventsForGroup(groupId: String): List<PendingEvent> {
-        return _pendingEvents.value.filter { it.groupId == groupId }
-    }
+    fun getPendingEventsForGroup(groupId: String): List<PendingEvent> = _pendingEvents.value.filter { it.groupId == groupId }
 
     /**
      * Clear all pending events (e.g., on logout).
@@ -277,30 +292,38 @@ class PendingEventManager(
         }
     }
 
-    private suspend fun updateStatus(pendingId: String, status: PendingEventStatus) {
+    private suspend fun updateStatus(
+        pendingId: String,
+        status: PendingEventStatus,
+    ) {
         mutex.withLock {
             _eventStatuses.value = _eventStatuses.value + (pendingId to status)
         }
     }
 
-    private suspend fun incrementRetryCount(pendingId: String, errorMsg: String) {
+    private suspend fun incrementRetryCount(
+        pendingId: String,
+        errorMsg: String,
+    ) {
         mutex.withLock {
             val current = _pendingEvents.value
             val event = current.find { it.id == pendingId } ?: return@withLock
 
-            val updated = event.copy(
-                retryCount = event.retryCount + 1,
-                lastError = errorMsg
-            )
+            val updated =
+                event.copy(
+                    retryCount = event.retryCount + 1,
+                    lastError = errorMsg,
+                )
 
             _pendingEvents.value = current.map { if (it.id == pendingId) updated else it }
 
             // Update status
-            val status = if (updated.canRetry) {
-                PendingEventStatus.Failed(reason = errorMsg, canRetry = true)
-            } else {
-                PendingEventStatus.Failed(reason = "Max retries exceeded: $errorMsg", canRetry = false)
-            }
+            val status =
+                if (updated.canRetry) {
+                    PendingEventStatus.Failed(reason = errorMsg, canRetry = true)
+                } else {
+                    PendingEventStatus.Failed(reason = "Max retries exceeded: $errorMsg", canRetry = false)
+                }
             _eventStatuses.value = _eventStatuses.value + (pendingId to status)
         }
     }
@@ -324,23 +347,24 @@ class PendingEventManager(
 
         try {
             val eventsArray = json.parseToJsonElement(eventsJson).jsonArray
-            val events = eventsArray.mapNotNull { element ->
-                try {
-                    val obj = element.jsonObject
-                    PendingEvent(
-                        id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        eventJson = obj["eventJson"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        eventId = obj["eventId"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        groupId = obj["groupId"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: epochMillis(),
-                        retryCount = obj["retryCount"]?.jsonPrimitive?.int ?: 0,
-                        maxRetries = obj["maxRetries"]?.jsonPrimitive?.int ?: 3,
-                        lastError = obj["lastError"]?.jsonPrimitive?.contentOrNull
-                    )
-                } catch (e: Exception) {
-                    null
+            val events =
+                eventsArray.mapNotNull { element ->
+                    try {
+                        val obj = element.jsonObject
+                        PendingEvent(
+                            id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                            eventJson = obj["eventJson"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                            eventId = obj["eventId"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                            groupId = obj["groupId"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                            createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: epochMillis(),
+                            retryCount = obj["retryCount"]?.jsonPrimitive?.int ?: 0,
+                            maxRetries = obj["maxRetries"]?.jsonPrimitive?.int ?: 3,
+                            lastError = obj["lastError"]?.jsonPrimitive?.contentOrNull,
+                        )
+                    } catch (e: Exception) {
+                        null
+                    }
                 }
-            }
 
             if (events.isNotEmpty()) {
                 _pendingEvents.value = events
@@ -366,20 +390,23 @@ class PendingEventManager(
         }
 
         try {
-            val eventsJson = buildJsonArray {
-                events.forEach { event ->
-                    add(buildJsonObject {
-                        put("id", event.id)
-                        put("eventJson", event.eventJson)
-                        put("eventId", event.eventId)
-                        put("groupId", event.groupId)
-                        put("createdAt", event.createdAt)
-                        put("retryCount", event.retryCount)
-                        put("maxRetries", event.maxRetries)
-                        event.lastError?.let { put("lastError", it) }
-                    })
-                }
-            }.toString()
+            val eventsJson =
+                buildJsonArray {
+                    events.forEach { event ->
+                        add(
+                            buildJsonObject {
+                                put("id", event.id)
+                                put("eventJson", event.eventJson)
+                                put("eventId", event.eventId)
+                                put("groupId", event.groupId)
+                                put("createdAt", event.createdAt)
+                                put("retryCount", event.retryCount)
+                                put("maxRetries", event.maxRetries)
+                                event.lastError?.let { put("lastError", it) }
+                            },
+                        )
+                    }
+                }.toString()
 
             SecureStorage.savePendingEvents(pubkey, eventsJson)
         } catch (e: Exception) {
