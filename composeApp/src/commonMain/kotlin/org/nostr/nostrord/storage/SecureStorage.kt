@@ -8,12 +8,30 @@ import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.toHexString
 
 // 128-bit (32 hex) SHA-256 prefix of the pubkey. Used as the storage subkey
-// for all per-account slots. Replaces the original `pubkey.hashCode()` form
-// (32-bit, collision-prone — see fix(auth): commit) and a brief literal-pubkey
-// form which exceeded java.util.prefs.Preferences' 80-char key limit on JVM.
-// 128 bits keeps second-preimage astronomically out of reach (~2^128).
+// for all per-account slots: hashCode is 32-bit (collision-feasible) and the
+// full pubkey hex exceeds java.util.prefs.Preferences' 80-char key limit on
+// JVM. Cached because callers hit it on every per-account read/write — race
+// on insert is harmless since the function is deterministic.
+private val pubkeyDigestCache = mutableMapOf<String, String>()
 private fun pubkeyDigest(pubkey: String): String =
-    Crypto.sha256(pubkey).toHexString().take(32)
+    pubkeyDigestCache.getOrPut(pubkey) {
+        Crypto.sha256(pubkey).toHexString().take(32)
+    }
+
+/**
+ * One-shot read-time migration: returns the value from [newKey] if present,
+ * otherwise promotes the value from [legacyKey] (writes it under [newKey]
+ * and clears the legacy slot). Returns null when both are empty.
+ */
+private fun SecureStorage.migrateStringSlot(newKey: String, legacyKey: String): String? {
+    val current = getStringPref(newKey, "")
+    if (current.isNotBlank()) return current
+    val legacy = getStringPref(legacyKey, "")
+    if (legacy.isBlank()) return null
+    saveStringPref(newKey, legacy)
+    saveStringPref(legacyKey, "")
+    return legacy
+}
 
 expect object SecureStorage {
     fun savePrivateKey(privateKeyHex: String)
@@ -162,14 +180,11 @@ fun SecureStorage.saveLastGroupForRelay(
 
 fun SecureStorage.getLastGroupForRelay(pubkey: String, relayUrl: String): Pair<String, String?>? {
     if (pubkey.isBlank() || relayUrl.isBlank()) return null
-    val raw = getStringPref(lastGroupForRelayKey(pubkey, relayUrl), "")
-    if (raw.isNotBlank()) return decodeLastGroupValue(raw)
-    // One-shot migration from legacy hashCode-based key.
-    val legacy = getStringPref(legacyLastGroupForRelayKey(pubkey, relayUrl), "")
-    if (legacy.isBlank()) return null
-    saveStringPref(lastGroupForRelayKey(pubkey, relayUrl), legacy)
-    saveStringPref(legacyLastGroupForRelayKey(pubkey, relayUrl), "")
-    return decodeLastGroupValue(legacy)
+    val raw = migrateStringSlot(
+        lastGroupForRelayKey(pubkey, relayUrl),
+        legacyLastGroupForRelayKey(pubkey, relayUrl),
+    ) ?: return null
+    return decodeLastGroupValue(raw)
 }
 
 fun SecureStorage.clearLastGroupForRelay(pubkey: String, relayUrl: String) {
@@ -225,14 +240,8 @@ fun SecureStorage.saveKind10009Timestamp(pubkey: String, timestamp: Long) {
 }
 
 fun SecureStorage.loadKind10009Timestamp(pubkey: String): Long {
-    val current = getStringPref(kind10009TimestampKey(pubkey), "").toLongOrNull()
-    if (current != null) return current
-    val legacy = getStringPref(legacyKind10009TimestampKey(pubkey), "0").toLongOrNull() ?: 0L
-    if (legacy > 0L) {
-        saveStringPref(kind10009TimestampKey(pubkey), legacy.toString())
-        saveStringPref(legacyKind10009TimestampKey(pubkey), "")
-    }
-    return legacy
+    val raw = migrateStringSlot(kind10009TimestampKey(pubkey), legacyKind10009TimestampKey(pubkey))
+    return raw?.toLongOrNull() ?: 0L
 }
 
 // Legacy global key — kept for one-shot migration on first run after the upgrade.
@@ -373,16 +382,8 @@ fun SecureStorage.getRestrictedGroupsForRelay(
     nowSeconds: Long
 ): Map<String, String> {
     val key = restrictedGroupsKey(pubkey, relayUrl)
-    var raw = getStringPref(key, "")
-    if (raw.isBlank()) {
-        // One-shot migration from legacy hashCode-based key.
-        val legacyKey = legacyRestrictedGroupsKey(pubkey, relayUrl)
-        val legacyRaw = getStringPref(legacyKey, "")
-        if (legacyRaw.isBlank()) return emptyMap()
-        saveStringPref(key, legacyRaw)
-        saveStringPref(legacyKey, "")
-        raw = legacyRaw
-    }
+    val raw = migrateStringSlot(key, legacyRestrictedGroupsKey(pubkey, relayUrl))
+        ?: return emptyMap()
     val parsed: Map<String, RestrictedGroupEntry> = try {
         Json.decodeFromString(raw)
     } catch (_: Exception) {
@@ -450,15 +451,8 @@ private fun legacyUnreadEntriesKey(pubkey: String): String =
     "unread_entries_${pubkey.hashCode()}"
 
 internal fun SecureStorage.getUnreadEntries(pubkey: String): Map<String, UnreadEntry> {
-    var raw = getStringPref(unreadEntriesKey(pubkey), "")
-    if (raw.isBlank()) {
-        // One-shot migration from legacy hashCode-based key.
-        val legacyRaw = getStringPref(legacyUnreadEntriesKey(pubkey), "")
-        if (legacyRaw.isBlank()) return emptyMap()
-        saveStringPref(unreadEntriesKey(pubkey), legacyRaw)
-        saveStringPref(legacyUnreadEntriesKey(pubkey), "")
-        raw = legacyRaw
-    }
+    val raw = migrateStringSlot(unreadEntriesKey(pubkey), legacyUnreadEntriesKey(pubkey))
+        ?: return emptyMap()
     return try {
         Json.decodeFromString(raw)
     } catch (_: Exception) {
@@ -483,15 +477,8 @@ private fun legacyNotificationHistoryKey(pubkey: String): String =
 fun SecureStorage.getPersistedNotifications(
     pubkey: String
 ): List<org.nostr.nostrord.notifications.NotificationEntry> {
-    var raw = getStringPref(notificationHistoryKey(pubkey), "")
-    if (raw.isBlank()) {
-        // One-shot migration from legacy hashCode-based key.
-        val legacyRaw = getStringPref(legacyNotificationHistoryKey(pubkey), "")
-        if (legacyRaw.isBlank()) return emptyList()
-        saveStringPref(notificationHistoryKey(pubkey), legacyRaw)
-        saveStringPref(legacyNotificationHistoryKey(pubkey), "")
-        raw = legacyRaw
-    }
+    val raw = migrateStringSlot(notificationHistoryKey(pubkey), legacyNotificationHistoryKey(pubkey))
+        ?: return emptyList()
     return try {
         Json.decodeFromString(raw)
     } catch (_: Exception) {
@@ -528,14 +515,8 @@ fun SecureStorage.saveLastActiveAt(pubkey: String, unixSeconds: Long) {
 
 fun SecureStorage.getLastActiveAt(pubkey: String): Long {
     if (pubkey.isBlank()) return 0L
-    val current = getStringPref(lastActiveAtKey(pubkey), "").toLongOrNull()
-    if (current != null) return current
-    val legacy = getStringPref(legacyHashLastActiveAtKey(pubkey), "0").toLongOrNull() ?: 0L
-    if (legacy > 0L) {
-        saveStringPref(lastActiveAtKey(pubkey), legacy.toString())
-        saveStringPref(legacyHashLastActiveAtKey(pubkey), "")
-    }
-    return legacy
+    val raw = migrateStringSlot(lastActiveAtKey(pubkey), legacyHashLastActiveAtKey(pubkey))
+    return raw?.toLongOrNull() ?: 0L
 }
 
 fun SecureStorage.clearLastActiveAt(pubkey: String) {
@@ -549,10 +530,6 @@ fun SecureStorage.clearLastActiveAt(pubkey: String) {
 // Legacy single-slot variants remain as a transient "active session" pointer;
 // the one-shot legacy → per-account migration lives in StartupResolver.
 
-// Storage subkey uses a 128-bit SHA-256 digest of the pubkey, not its
-// String.hashCode(). The hashCode space is only 32 bits; second-preimage on
-// 64-char hex is ~2^32 keygens and would let a colliding pubkey overwrite
-// or read another account's credentials.
 private fun privKeyForAccountKey(pubkey: String) = "priv_key_${pubkeyDigest(pubkey)}"
 private fun bunkerUrlForAccountKey(pubkey: String) = "bunker_url_${pubkeyDigest(pubkey)}"
 private fun bunkerClientPrivForAccountKey(pubkey: String) = "bunker_client_priv_${pubkeyDigest(pubkey)}"

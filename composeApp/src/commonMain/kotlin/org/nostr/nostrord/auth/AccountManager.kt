@@ -5,7 +5,6 @@ import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearAllCredentialsForAccount
-import org.nostr.nostrord.storage.clearRelayListFor
 import org.nostr.nostrord.storage.savePrivateKeyFor
 import org.nostr.nostrord.utils.epochMillis
 

@@ -13,25 +13,13 @@ import org.nostr.nostrord.utils.epochSeconds
 /**
  * Isolated runtime context for a single active Nostr account.
  *
- * Created by [AccountSessionFactory] and activated atomically by
- * [ActiveAccountManager.activate]. Every account switch:
- *  1. Creates a fresh [AccountSession] with its own [scope] and [signer].
- *  2. Calls [ActiveAccountManager.activate] which atomically installs the new
- *     session and immediately cancels the previous one.
- *  3. Cancelling a session cancels [scope] — stopping all coroutines that were
- *     processing relay events, subscriptions, or message pipelines for the
- *     previous account — and calls [signer].dispose() to zero key material.
- *
- * ## Isolation guarantees
- *
- * - Key material: [signer].dispose() zeroes the private key or disconnects the
- *   remote signer. No other session can call [signer].signEvent() after disposal.
- * - Coroutines: all jobs launched on [scope] receive CancellationException
- *   instantly when [cancel] is called.
- * - Session token: [sessionToken] is a monotonically increasing counter.
- *   Managers that launch coroutines on appScope should capture the token at
- *   launch time and check it before writing to StateFlows, preventing stale
- *   relay events from appearing after an account switch.
+ * Created by [AccountSessionFactory] and atomically installed by
+ * [ActiveAccountManager.activate], which cancels the previous session.
+ * On [cancel] the [scope] is cancelled (stopping all per-account jobs)
+ * and [signer].dispose() runs (zeroing key material). [sessionToken] is
+ * a monotonically increasing counter — long-running coroutines on the
+ * app scope must capture it at launch time and check it before writing
+ * to StateFlows, so stale relay events don't bleed into the new session.
  */
 class AccountSession(
     val accountId: AccountId,

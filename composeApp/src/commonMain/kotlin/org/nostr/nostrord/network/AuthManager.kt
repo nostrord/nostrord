@@ -357,10 +357,8 @@ class AuthManager(
      * state. On success, [accountStore] is set to active.
      */
     suspend fun useAccount(account: Account): Boolean {
-        // PHASE 1 — build new credentials WITHOUT touching the current session.
-        // For BUNKER this opens the new client's WebSockets; a failure here
-        // leaves the existing session intact so the user is not stranded on
-        // the login screen.
+        // Build new credentials before touching the current session — a
+        // BUNKER connect failure here leaves the existing session intact.
         val prepared: PreparedAccount = when (account.authMethod) {
             AuthMethod.LOCAL -> {
                 val priv = SecureStorage.getPrivateKeyFor(account.pubkey)
@@ -392,7 +390,6 @@ class AuthManager(
             }
         }
 
-        // PHASE 2 — credentials validated, tear down the current session.
         nip46Client?.disconnect()
         nip46Client = null
         isBunkerLogin = false
@@ -402,7 +399,6 @@ class AuthManager(
         zeroAndClearKeyPair()
         _isBunkerConnected.value = false
 
-        // PHASE 3 — apply the new credentials.
         when (prepared) {
             is PreparedAccount.Local -> {
                 keyPair = prepared.keyPair
