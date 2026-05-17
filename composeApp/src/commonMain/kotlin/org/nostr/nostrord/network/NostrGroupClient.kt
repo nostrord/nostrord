@@ -1175,7 +1175,13 @@ class NostrGroupClient(
         return subId
     }
 
-    fun parseUserMetadata(message: String): Pair<String, UserMetadata>? {
+    data class ParsedUserMetadata(
+        val pubkey: String,
+        val metadata: UserMetadata,
+        val createdAt: Long,
+    )
+
+    fun parseUserMetadata(message: String): ParsedUserMetadata? {
         return try {
             val arr = json.parseToJsonElement(message).jsonArray
             if (arr.size < 3 || arr[0].jsonPrimitive.content != "EVENT") return null
@@ -1185,18 +1191,20 @@ class NostrGroupClient(
         }
     }
 
-    fun parseUserMetadata(event: JsonObject): Pair<String, UserMetadata>? {
+    fun parseUserMetadata(event: JsonObject): ParsedUserMetadata? {
         return try {
             if (event["kind"]?.jsonPrimitive?.int != 0) return null
 
             val pubkey = event["pubkey"]?.jsonPrimitive?.content ?: return null
             val content = event["content"]?.jsonPrimitive?.content ?: "{}"
+            val createdAt = event["created_at"]?.jsonPrimitive?.long ?: 0L
 
             val metadata = json.parseToJsonElement(content).jsonObject
 
-            Pair(
-                pubkey,
-                UserMetadata(
+            ParsedUserMetadata(
+                pubkey = pubkey,
+                createdAt = createdAt,
+                metadata = UserMetadata(
                     pubkey = pubkey,
                     name = metadata["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                     displayName = metadata["display_name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },

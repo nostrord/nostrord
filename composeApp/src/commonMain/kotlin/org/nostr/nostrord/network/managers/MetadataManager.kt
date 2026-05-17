@@ -43,9 +43,19 @@ class MetadataManager(
         const val METADATA_FLUSH_DELAY_MS = 100L
     }
 
-    private val metadataCache = LruCache<String, UserMetadata>(MAX_METADATA_CACHE_SIZE)
+    /**
+     * Cached kind:0 entry. [createdAt] is the event's own timestamp (seconds, NIP-01) and
+     * gates stale-echo rejection; [fetchedAt] is the wall-clock time we last received it
+     * and gates the 30-min refresh on incoming messages.
+     */
+    data class CachedMetadata(
+        val metadata: UserMetadata,
+        val createdAt: Long,
+        val fetchedAt: Long,
+    )
+
+    private val metadataCache = LruCache<String, CachedMetadata>(MAX_METADATA_CACHE_SIZE)
     private val eventsCache = LruCache<String, CachedEvent>(MAX_EVENTS_CACHE_SIZE)
-    private val metadataFetchedAt = LruCache<String, Long>(MAX_METADATA_CACHE_SIZE)
 
     private val inFlightPubkeys = mutableSetOf<String>()
     private val inFlightMutex = Mutex()
@@ -71,7 +81,7 @@ class MetadataManager(
                     pubkeys
                         .filter { pk ->
                             pk !in inFlightPubkeys &&
-                                (metadataFetchedAt.get(pk) == null || (forceStale && isStale(pk)))
+                                (metadataCache.get(pk) == null || (forceStale && isStale(pk)))
                         }.also { inFlightPubkeys.addAll(it) }
                 }
             if (toFetch.isEmpty()) return@launch
@@ -103,7 +113,7 @@ class MetadataManager(
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
             val missing =
                 pubkeys.filter { pk ->
-                    val fetchedAt = metadataFetchedAt.get(pk)
+                    val fetchedAt = metadataCache.get(pk)?.fetchedAt
                     fetchedAt == null || fetchedAt < fetchStartedAt
                 }
             if (missing.isEmpty()) return
@@ -149,7 +159,7 @@ class MetadataManager(
                 delay(if (attempt == 0) 2_000L else 3_500L)
                 val allFresh =
                     pubkeys.all { pk ->
-                        val at = metadataFetchedAt.get(pk)
+                        val at = metadataCache.get(pk)?.fetchedAt
                         at != null && at >= fetchStartedAt
                     }
                 if (allFresh) return
@@ -277,13 +287,41 @@ class MetadataManager(
 
     private var metadataFlushJob: Job? = null
 
+    /**
+     * Accepts an incoming kind:0 unless it is a stale or empty echo that would clobber a
+     * better cached entry. Without this guard, idle clients gradually lose all profiles:
+     * relays occasionally re-emit older or empty-content kind:0 events for a pubkey, and
+     * the periodic stale-refresh would accept them blindly.
+     */
     fun handleMetadataEvent(
         pubkey: String,
         metadata: UserMetadata,
+        createdAt: Long,
     ) {
-        metadataCache.put(pubkey, metadata)
-        metadataFetchedAt.put(pubkey, epochMillis())
+        val cached = metadataCache.get(pubkey)
+        if (cached != null) {
+            // Older event: reject — we already have a newer one.
+            if (createdAt < cached.createdAt) return
+            if (createdAt == cached.createdAt) {
+                // Identical echo (same ts, same content): refresh fetchedAt only, no flush.
+                if (metadata == cached.metadata) {
+                    metadataCache.put(pubkey, cached.copy(fetchedAt = epochMillis()))
+                    return
+                }
+                // Same ts, content disagrees: prefer the non-empty one.
+                if (metadata.isEmpty() && !cached.metadata.isEmpty()) return
+            }
+            // createdAt > cached.createdAt falls through and overwrites — a strictly newer
+            // empty event is treated as a deliberate profile wipe and is allowed.
+        }
+        metadataCache.put(pubkey, CachedMetadata(metadata, createdAt, epochMillis()))
         scheduleMetadataFlush()
+    }
+
+    private fun publishMetadataSnapshot() {
+        val snapshot = HashMap<String, UserMetadata>(metadataCache.size())
+        metadataCache.toMap().forEach { (pubkey, cached) -> snapshot[pubkey] = cached.metadata }
+        _userMetadata.value = snapshot
     }
 
     private fun scheduleMetadataFlush() {
@@ -291,22 +329,32 @@ class MetadataManager(
         metadataFlushJob =
             scope.launch {
                 delay(METADATA_FLUSH_DELAY_MS)
-                _userMetadata.value = metadataCache.toMap()
+                publishMetadataSnapshot()
             }
     }
 
     private fun flushMetadataNow() {
         metadataFlushJob?.cancel()
-        _userMetadata.value = metadataCache.toMap()
+        publishMetadataSnapshot()
     }
 
     fun updateLocalMetadata(
         pubkey: String,
         metadata: UserMetadata,
+        createdAt: Long,
     ) {
-        metadataCache.put(pubkey, metadata)
+        metadataCache.put(pubkey, CachedMetadata(metadata, createdAt, epochMillis()))
         flushMetadataNow()
     }
+
+    private fun UserMetadata.isEmpty(): Boolean = name.isNullOrBlank() &&
+        displayName.isNullOrBlank() &&
+        picture.isNullOrBlank() &&
+        about.isNullOrBlank() &&
+        nip05.isNullOrBlank() &&
+        banner.isNullOrBlank() &&
+        lud16.isNullOrBlank() &&
+        website.isNullOrBlank()
 
     fun handleCachedEvent(event: CachedEvent) {
         eventsCache.put(event.id, event)
@@ -384,21 +432,19 @@ class MetadataManager(
     fun hasMetadata(pubkey: String): Boolean = metadataCache.containsKey(pubkey)
 
     fun isStale(pubkey: String): Boolean {
-        if (!metadataCache.containsKey(pubkey)) return true
-        val fetchedAt = metadataFetchedAt.get(pubkey) ?: return true
-        return (epochMillis() - fetchedAt) > STALE_THRESHOLD_MS
+        val cached = metadataCache.get(pubkey) ?: return true
+        return (epochMillis() - cached.fetchedAt) > STALE_THRESHOLD_MS
     }
 
     fun hasCachedEvent(eventId: String): Boolean = eventsCache.containsKey(eventId)
 
-    fun getMetadata(pubkey: String): UserMetadata? = metadataCache.get(pubkey)
+    fun getMetadata(pubkey: String): UserMetadata? = metadataCache.get(pubkey)?.metadata
 
     fun getCachedEvent(eventId: String): CachedEvent? = eventsCache.get(eventId)
 
     fun clear() {
         metadataCache.clear()
         eventsCache.clear()
-        metadataFetchedAt.clear()
         _userMetadata.value = emptyMap()
         _cachedEvents.value = emptyMap()
     }

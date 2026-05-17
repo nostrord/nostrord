@@ -1687,7 +1687,7 @@ class NostrRepository(
                 banner = existing?.banner,
                 rawContentJson = content,
             )
-            metadataManager.updateLocalMetadata(pubKey, updatedMetadata)
+            metadataManager.updateLocalMetadata(pubKey, updatedMetadata, signedEvent.createdAt)
 
             Result.Success(Unit)
         } catch (e: Exception) {
@@ -2147,8 +2147,8 @@ class NostrRepository(
                     }
 
                     0 -> {
-                        val (pubkey, metadata) = client.parseUserMetadata(event) ?: return
-                        metadataManager.handleMetadataEvent(pubkey, metadata)
+                        val parsed = client.parseUserMetadata(event) ?: return
+                        metadataManager.handleMetadataEvent(parsed.pubkey, parsed.metadata, parsed.createdAt)
                     }
 
                     7 -> {
@@ -2279,10 +2279,9 @@ class NostrRepository(
         } catch (_: Exception) {}
 
         // Handle user metadata
-        val userMetadata = client.parseUserMetadata(msg)
-        if (userMetadata != null) {
-            val (pubkey, metadata) = userMetadata
-            metadataManager.handleMetadataEvent(pubkey, metadata)
+        val parsed = client.parseUserMetadata(msg)
+        if (parsed != null) {
+            metadataManager.handleMetadataEvent(parsed.pubkey, parsed.metadata, parsed.createdAt)
         }
     }
 
