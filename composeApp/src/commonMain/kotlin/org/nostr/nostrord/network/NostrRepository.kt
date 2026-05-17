@@ -2062,9 +2062,11 @@ class NostrRepository(
 
                 // Re-open the mux subscription when the relay closes it for non-auth reasons.
                 // pyramid.fiatjaf.com and similar relays drop idle subs without closing the WS.
-                if (!isAuthRequired && !isRestricted &&
+                if (!isAuthRequired &&
+                    !isRestricted &&
                     (
-                        subId.startsWith("mux_chat_") || subId.startsWith("mux_reactions_") ||
+                        subId.startsWith("mux_chat_") ||
+                            subId.startsWith("mux_reactions_") ||
                             subId.startsWith("mux_meta_")
                         )
                 ) {

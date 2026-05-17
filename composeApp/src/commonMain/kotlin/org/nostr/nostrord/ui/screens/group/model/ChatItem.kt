@@ -155,8 +155,11 @@ fun buildChatItems(
                     it.createdAt - message.createdAt > MESSAGE_GROUP_WINDOW_SECONDS
                 } ?: true
                 val isNextSystemEvent = nextMessage?.kind in listOf(9000, 9001, 9021, 9022, 9321)
-                val isLastInGroup = nextMessage == null || isNextDifferentDate ||
-                    isNextDifferentAuthor || isNextOutsideWindow || isNextSystemEvent
+                val isLastInGroup = nextMessage == null ||
+                    isNextDifferentDate ||
+                    isNextDifferentAuthor ||
+                    isNextOutsideWindow ||
+                    isNextSystemEvent
 
                 items.add(
                     ChatItem.Message(
