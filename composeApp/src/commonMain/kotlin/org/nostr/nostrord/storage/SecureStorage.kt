@@ -231,12 +231,13 @@ fun SecureStorage.loadRelayListFor(pubkey: String): List<String> {
     // the first pubkey to read after the rollout adopts the legacy list.
     if (!getBooleanPref(RELAY_LIST_MIGRATION_DONE_KEY, false)) {
         val legacy = loadRelayList()
-        saveBooleanPref(RELAY_LIST_MIGRATION_DONE_KEY, true)
         if (legacy.isNotEmpty()) {
             saveRelayListFor(pubkey, legacy)
             saveRelayList(emptyList())
+            saveBooleanPref(RELAY_LIST_MIGRATION_DONE_KEY, true)
             return legacy
         }
+        saveBooleanPref(RELAY_LIST_MIGRATION_DONE_KEY, true)
     }
     return emptyList()
 }
@@ -265,12 +266,13 @@ fun SecureStorage.getCurrentRelayUrlFor(pubkey: String): String? {
     if (raw.isNotBlank()) return raw
     if (!getBooleanPref(CURRENT_RELAY_URL_MIGRATION_DONE_KEY, false)) {
         val legacy = getCurrentRelayUrl()
-        saveBooleanPref(CURRENT_RELAY_URL_MIGRATION_DONE_KEY, true)
         if (!legacy.isNullOrBlank()) {
             saveCurrentRelayUrlFor(pubkey, legacy)
             clearCurrentRelayUrl()
+            saveBooleanPref(CURRENT_RELAY_URL_MIGRATION_DONE_KEY, true)
             return legacy
         }
+        saveBooleanPref(CURRENT_RELAY_URL_MIGRATION_DONE_KEY, true)
     }
     return null
 }

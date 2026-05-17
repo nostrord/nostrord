@@ -3,6 +3,7 @@ package org.nostr.nostrord.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.nostr.nostrord.nostr.KeyPair
@@ -41,14 +42,11 @@ class AccountStore {
      * Returns the canonical [Account] now stored.
      */
     fun upsert(account: Account): Account {
-        val current = _accounts.value
-        val existing = current.firstOrNull { it.id == account.id }
-        val merged = if (existing == null) {
-            current + account
-        } else {
-            current.map { if (it.id == account.id) account else it }
+        val merged = _accounts.updateAndGet { current ->
+            val existing = current.firstOrNull { it.id == account.id }
+            if (existing == null) current + account
+            else current.map { if (it.id == account.id) account else it }
         }
-        _accounts.value = merged
         persistAccounts(merged)
         return account
     }
@@ -58,10 +56,16 @@ class AccountStore {
      * expected to pick a new active (or log out) afterwards.
      */
     fun remove(id: String) {
-        val current = _accounts.value
-        if (current.none { it.id == id }) return
-        val updated = current.filterNot { it.id == id }
-        _accounts.value = updated
+        var didRemove = false
+        val updated = _accounts.updateAndGet { current ->
+            if (current.none { it.id == id }) {
+                current
+            } else {
+                didRemove = true
+                current.filterNot { it.id == id }
+            }
+        }
+        if (!didRemove) return
         persistAccounts(updated)
         if (_activeId.value == id) {
             _activeId.value = null
@@ -93,7 +97,8 @@ class AccountStore {
     private fun persistAccounts(list: List<Account>) {
         try {
             SecureStorage.saveStringPref(KEY_ACCOUNTS_LIST, json.encodeToString(list))
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            println("[AccountStore] persistAccounts failed: ${e.message}")
         }
     }
 
