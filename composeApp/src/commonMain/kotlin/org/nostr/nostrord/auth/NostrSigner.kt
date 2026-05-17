@@ -150,8 +150,12 @@ private val signedEventJson = Json { ignoreUnknownKeys = true }
 
 internal fun parseSignedEventJson(jsonString: String): Event {
     val obj = signedEventJson.parseToJsonElement(jsonString).jsonObject
+    val id = obj["id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        ?: throw NostrSigner.SigningException("Bunker returned event with missing id")
+    val sig = obj["sig"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        ?: throw NostrSigner.SigningException("Bunker returned unsigned event (missing sig)")
     return Event(
-        id = obj["id"]?.jsonPrimitive?.content,
+        id = id,
         pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: "",
         createdAt = obj["created_at"]?.jsonPrimitive?.long ?: 0L,
         kind = obj["kind"]?.jsonPrimitive?.int ?: 0,
@@ -159,6 +163,6 @@ internal fun parseSignedEventJson(jsonString: String): Event {
             tag.jsonArray.map { it.jsonPrimitive.content }
         } ?: emptyList(),
         content = obj["content"]?.jsonPrimitive?.content ?: "",
-        sig = obj["sig"]?.jsonPrimitive?.content,
+        sig = sig,
     )
 }
