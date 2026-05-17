@@ -23,8 +23,4 @@ enum class AuthMethod {
     LOCAL,
     BUNKER,
     NIP07,
-    /** Watch-only account: pubkey known, signing not possible. */
-    READ_ONLY,
-    /** Ephemeral guest account: key generated in memory, never persisted. */
-    GUEST,
 }

@@ -48,7 +48,7 @@ class AccountTest {
     @Test
     fun `auth method values cover all login paths`() {
         // Guards against accidentally dropping a variant.
-        // LOCAL, BUNKER, NIP07, READ_ONLY, GUEST
-        assertEquals(5, AuthMethod.entries.size)
+        // LOCAL, BUNKER, NIP07
+        assertEquals(3, AuthMethod.entries.size)
     }
 }

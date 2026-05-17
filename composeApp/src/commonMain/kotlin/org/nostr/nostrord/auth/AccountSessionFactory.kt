@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import org.nostr.nostrord.network.AuthManager
-import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
 
 /**
@@ -57,11 +56,5 @@ class AccountSessionFactory(private val appScope: CoroutineScope) {
                 NostrSigner.Bunker(nip46Client = it, pubkey = account.pubkey)
             }
             AuthMethod.NIP07 -> if (Nip07.isAvailable()) NostrSigner.Nip07Extension(account.pubkey) else null
-            AuthMethod.READ_ONLY -> NostrSigner.ReadOnly(account.pubkey)
-            AuthMethod.GUEST -> try {
-                NostrSigner.Guest(KeyPair.generate())
-            } catch (_: Exception) {
-                null
-            }
         }
 }

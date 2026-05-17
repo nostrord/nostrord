@@ -383,11 +383,6 @@ class AuthManager(
                 if (!Nip07.isAvailable()) return false
                 PreparedAccount.Nip07
             }
-            AuthMethod.READ_ONLY, AuthMethod.GUEST -> {
-                // Signing is fully delegated to the AccountSession's NostrSigner.
-                // No inline credential state needed in AuthManager.
-                PreparedAccount.NoInlineCredentials
-            }
         }
 
         nip46Client?.disconnect()
@@ -410,9 +405,6 @@ class AuthManager(
             PreparedAccount.Nip07 -> {
                 isNip07Login = true
                 nip07UserPubkey = account.pubkey
-                _isLoggedIn.value = true
-            }
-            PreparedAccount.NoInlineCredentials -> {
                 _isLoggedIn.value = true
             }
         }
@@ -544,8 +536,6 @@ class AuthManager(
         data class Local(val keyPair: KeyPair) : PreparedAccount()
         data class Bunker(val bunkerUrl: String, val client: Nip46Client) : PreparedAccount()
         object Nip07 : PreparedAccount()
-        /** READ_ONLY or GUEST — signing is delegated entirely to ActiveAccountManager. */
-        object NoInlineCredentials : PreparedAccount()
     }
 
     private suspend fun restoreBunkerSession(bunkerUrl: String, savedUserPubkey: String): Boolean {

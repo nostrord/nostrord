@@ -19,7 +19,7 @@ import kotlin.concurrent.Volatile
  * [dispose] is called immediately to zero key material from memory. After
  * disposal, any [signEvent] call throws [SigningException].
  *
- * Production implementations: [Local], [Bunker], [Nip07Extension], [ReadOnly], [Guest].
+ * Production implementations: [Local], [Bunker], [Nip07Extension].
  * Tests may provide their own implementations.
  */
 interface NostrSigner {
@@ -112,38 +112,6 @@ interface NostrSigner {
         override fun dispose() { disposed = true }
     }
 
-    /**
-     * Watch-only signer for pubkey-only accounts.
-     * Public key is known so profile data and timelines can be fetched, but
-     * any attempt to sign throws [SigningException].
-     */
-    class ReadOnly(override val pubkey: String) : NostrSigner {
-        override suspend fun signEvent(event: Event): Event =
-            throw SigningException("Read-only account cannot sign events (pubkey: $pubkey)")
-
-        override fun dispose() {}
-    }
-
-    /**
-     * Ephemeral guest signer. Key pair is freshly generated in memory and
-     * zeroed on [dispose] — no persistence, no way to recover.
-     */
-    class Guest(keyPair: KeyPair) : NostrSigner {
-        override val pubkey: String = keyPair.publicKeyHex
-
-        @Volatile private var _keyPair: KeyPair? = keyPair
-
-        override suspend fun signEvent(event: Event): Event {
-            val kp = _keyPair
-                ?: throw SigningException("Guest signer has been disposed")
-            return event.sign(kp)
-        }
-
-        override fun dispose() {
-            _keyPair?.privateKey?.fill(0)
-            _keyPair = null
-        }
-    }
 }
 
 private val signedEventJson = Json { ignoreUnknownKeys = true }
