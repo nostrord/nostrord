@@ -680,6 +680,13 @@ class AuthManager(
     }
 
     private suspend fun signWithBunker(event: Event): Event {
+        // Fast-fail when the bunker is known disconnected. Otherwise every
+        // NIP-42 AUTH challenge from a NIP-29 relay piles up a 120s sign
+        // attempt: N relays = N concurrent hung coroutines doing crypto on
+        // the JS main thread, which freezes the browser tab.
+        if (!_isBunkerConnected.value) {
+            throw Exception("Bunker not connected")
+        }
         if (nip46Client == null) {
             val reconnected = reconnectBunker()
             if (!reconnected) {

@@ -92,17 +92,20 @@ object AppModule {
      * Bunker permission revoked / NIP-07 session lost / etc. Try to keep the
      * user inside the app by switching to another signed-in account.
      *
-     * NON-DESTRUCTIVE: the invalidated account stays in the AccountStore with
-     * its credentials intact. [Nip46Client.backgroundConnect] cannot distinguish
-     * an explicit revoke from a transient signer outage (sleeping phone, flaky
-     * relay), so deleting credentials here would force the user to re-pair on
-     * a temporary failure. Worst case: the bunker is genuinely revoked and the
-     * user will see the same Reconnecting / failure cycle next launch — at
-     * which point they can explicitly remove the account from the MeMenu.
+     * If a fallback account activates, the invalidated account stays in the
+     * AccountStore with credentials intact so the user can re-pair later.
+     * If NO fallback works (single-account install, or every other account
+     * also broken), perform a full teardown: close NIP-29 sockets, cancel
+     * in-flight coroutines, clear ActiveAccountManager, wipe the dead
+     * account from the store. Without this the app sits in a zombie state
+     * with isLoggedIn=false but live WebSockets still answering AUTH
+     * challenges and heartbeat-driven sign attempts on a disposed signer,
+     * which froze the browser tab.
      */
     private suspend fun handleSessionInvalidated(invalidatedPubkey: String?) {
         if (invalidatedPubkey.isNullOrBlank()) {
             _systemMessages.emit("Session ended. Please sign in.")
+            fullTeardown()
             return
         }
         val invalidatedLabel = accountStore.get(invalidatedPubkey)?.label
@@ -122,6 +125,18 @@ object AppModule {
         }
 
         _systemMessages.emit("Couldn't reconnect to $invalidatedLabel.")
+        fullTeardown()
+    }
+
+    /**
+     * Close all relay sockets, cancel in-flight coroutines, clear per-account
+     * caches and the ActiveAccountManager session, and wipe the dead account
+     * from the store. Routes the UI to the login screen via the isLoggedIn /
+     * isBunkerVerifying flags that nostrRepository.logout() resets.
+     */
+    private suspend fun fullTeardown() {
+        try { nostrRepository.logout() } catch (_: Throwable) {}
+        try { applyActiveAccountChange(null) } catch (_: Throwable) {}
     }
 
     // Lazy initialization of dependencies
