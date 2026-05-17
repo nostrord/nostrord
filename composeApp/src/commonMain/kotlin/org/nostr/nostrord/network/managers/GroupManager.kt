@@ -2405,6 +2405,16 @@ class GroupManager(
             onApprovalDetected(members.groupId)
         }
 
+        // A confirmed membership contradicts any persisted restricted marker.
+        // The marker can survive 7 days in SecureStorage, so a stale CLOSED
+        // "restricted" from a past auth race would otherwise keep the group
+        // showing the "Private group / invite code" placeholder forever, even
+        // after the relay returned 39002 listing self as a member.
+        if (self != null && self in members.members &&
+            members.groupId in _restrictedGroups.value) {
+            clearGroupRestricted(members.groupId)
+        }
+
         return members.members
     }
 
