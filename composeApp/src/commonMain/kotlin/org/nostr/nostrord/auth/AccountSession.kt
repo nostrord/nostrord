@@ -1,5 +1,6 @@
 package org.nostr.nostrord.auth
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -58,6 +59,8 @@ class AccountSession(
                     delay(HEARTBEAT_INTERVAL_MS)
                     SecureStorage.saveLastActiveAt(pubkey, epochSeconds())
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Throwable) {}
         }
     }
