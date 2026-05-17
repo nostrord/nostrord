@@ -2991,6 +2991,16 @@ class GroupManager(
         roleEventTimestamps.clear()
         pendingApprovalSince.clear()
         recentlyLeftAt.clear()
+        // The mux tracker remembers what was last sent per relay. Without
+        // clearing it on identity swap, refreshMuxSubscriptionsForRelay can
+        // see "no change" and skip the REQ. Private-group 39002 then never
+        // arrives on the new identity's session and the chat is stuck on
+        // "Awaiting admin approval" until the user restarts the app.
+        muxTracker.clearAll()
+        // Same idea for the 2s request cooldown: a recent REQ from the
+        // previous account would otherwise block an equivalent REQ from
+        // the new account during the swap window.
+        recentRequests.clear()
         _activeGroupId = null
         clearForRelaySwitch()
     }
