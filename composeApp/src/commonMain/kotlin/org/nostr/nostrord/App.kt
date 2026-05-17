@@ -681,7 +681,7 @@ private fun AuthenticatedApp(
                     hideGroupsSidebar = currentScreen is Screen.Notifications,
                     modifier = Modifier.weight(1f)
                 ) {
-                    val hideAnimatedImages = showSettings || showCreateGroupModal || showAddRelayModal
+                    val hideAnimatedImages = showSettings || showCreateGroupModal || showAddRelayModal || showMeMenu || showAddAccount
                     CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
                         DesktopContent(
                             currentScreen = currentScreen,
@@ -764,7 +764,7 @@ private fun AuthenticatedApp(
                     }
                 }
             ) {
-                val hideAnimatedImages = drawerState.targetValue == DrawerValue.Open || showCreateGroupModal || showAddRelayModal || showSettings
+                val hideAnimatedImages = drawerState.targetValue == DrawerValue.Open || showCreateGroupModal || showAddRelayModal || showSettings || showMeMenu || showAddAccount
                 CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
                     MobileContent(
                         currentScreen = currentScreen,
