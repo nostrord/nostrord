@@ -59,7 +59,7 @@ fun UserProfileModal(
     metadata: UserMetadata?,
     userMetadata: Map<String, UserMetadata> = emptyMap(),
     onUserClick: ((String) -> Unit)? = null,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val copyToClipboard = rememberClipboardWriter()
     val npub = remember(pubkey) { Nip19.encodeNpub(pubkey) }
@@ -68,38 +68,42 @@ fun UserProfileModal(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
+        properties =
+        DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.7f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null
+                    indication = null,
                 ) { onDismiss() },
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             // Modal card
             Card(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .widthIn(max = 480.dp)
                     .fillMaxWidth(0.9f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
+                        indication = null,
                     ) { /* consume click */ },
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = NostrordColors.Surface
-                )
+                colors =
+                CardDefaults.cardColors(
+                    containerColor = NostrordColors.Surface,
+                ),
             ) {
                 Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState())
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
                 ) {
                     // Banner section
                     UserBannerSection(
@@ -107,15 +111,16 @@ fun UserProfileModal(
                         avatarUrl = metadata?.picture,
                         displayName = displayName,
                         pubkey = pubkey,
-                        onCloseClick = onDismiss
+                        onCloseClick = onDismiss,
                     )
 
                     // Content section
                     Column(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
                             .padding(horizontal = Spacing.lg)
-                            .padding(bottom = Spacing.lg)
+                            .padding(bottom = Spacing.lg),
                     ) {
                         Spacer(modifier = Modifier.height(Spacing.md))
 
@@ -124,7 +129,7 @@ fun UserProfileModal(
                             text = displayName,
                             style = NostrordTypography.ServerHeader,
                             color = Color.White,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
 
                         // Username (if different from display name)
@@ -132,7 +137,7 @@ fun UserProfileModal(
                             Text(
                                 text = "@$username",
                                 style = NostrordTypography.Caption,
-                                color = NostrordColors.TextSecondary
+                                color = NostrordColors.TextSecondary,
                             )
                         }
 
@@ -145,7 +150,7 @@ fun UserProfileModal(
                             Text(
                                 text = "ABOUT",
                                 style = NostrordTypography.SectionHeader,
-                                color = NostrordColors.TextMuted
+                                color = NostrordColors.TextMuted,
                             )
 
                             Spacer(modifier = Modifier.height(Spacing.sm))
@@ -155,7 +160,7 @@ fun UserProfileModal(
                                 userMetadata = userMetadata,
                                 style = NostrordTypography.MessageBody,
                                 color = NostrordColors.TextContent,
-                                onMentionClick = onUserClick
+                                onMentionClick = onUserClick,
                             )
                         }
 
@@ -165,14 +170,14 @@ fun UserProfileModal(
                         Text(
                             text = "PUBLIC KEY",
                             style = NostrordTypography.SectionHeader,
-                            color = NostrordColors.TextMuted
+                            color = NostrordColors.TextMuted,
                         )
 
                         Spacer(modifier = Modifier.height(Spacing.sm))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
                                 text = npub,
@@ -180,7 +185,7 @@ fun UserProfileModal(
                                 color = NostrordColors.TextSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
                             )
 
                             Spacer(modifier = Modifier.width(Spacing.sm))
@@ -189,15 +194,16 @@ fun UserProfileModal(
                                 onClick = {
                                     copyToClipboard(npub)
                                 },
-                                modifier = Modifier
+                                modifier =
+                                Modifier
                                     .size(32.dp)
-                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .pointerHoverIcon(PointerIcon.Hand),
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = "Copy public key",
                                     tint = NostrordColors.TextSecondary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
                         }
@@ -209,7 +215,7 @@ fun UserProfileModal(
                             Text(
                                 text = "NIP-05",
                                 style = NostrordTypography.SectionHeader,
-                                color = NostrordColors.TextMuted
+                                color = NostrordColors.TextMuted,
                             )
 
                             Spacer(modifier = Modifier.height(Spacing.sm))
@@ -219,7 +225,7 @@ fun UserProfileModal(
                                 style = NostrordTypography.Caption,
                                 color = NostrordColors.Success,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -238,21 +244,24 @@ private fun UserBannerSection(
     avatarUrl: String?,
     displayName: String,
     pubkey: String,
-    onCloseClick: () -> Unit
+    onCloseClick: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
     val hasBannerImage = !bannerUrl.isNullOrBlank()
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
-            .height(160.dp)
+            .height(160.dp),
     ) {
         // Banner image or gradient background
         if (hasBannerImage) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(bannerUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
@@ -262,87 +271,95 @@ private fun UserBannerSection(
                 contentScale = ContentScale.Crop,
                 filterQuality = FilterQuality.High,
                 modifier = Modifier.fillMaxSize(),
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
 
             // Gradient overlay for text readability
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(
+                            colors =
+                            listOf(
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.6f)
-                            )
-                        )
-                    )
+                                Color.Black.copy(alpha = 0.6f),
+                            ),
+                        ),
+                    ),
             )
         } else {
             // Gradient background when no banner image
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(
+                            colors =
+                            listOf(
                                 NostrordColors.Primary.copy(alpha = 0.8f),
-                                NostrordColors.Primary.copy(alpha = 0.4f)
-                            )
-                        )
-                    )
+                                NostrordColors.Primary.copy(alpha = 0.4f),
+                            ),
+                        ),
+                    ),
             )
         }
 
         // Loading indicator for banner image
         if (hasBannerImage && imageState is AsyncImagePainter.State.Loading) {
             CircularProgressIndicator(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(32.dp)
                     .align(Alignment.Center),
                 color = Color.White,
-                strokeWidth = 3.dp
+                strokeWidth = 3.dp,
             )
         }
 
         // Close button
         IconButton(
             onClick = onCloseClick,
-            modifier = Modifier
+            modifier =
+            Modifier
                 .align(Alignment.TopEnd)
                 .padding(Spacing.sm)
                 .size(36.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.5f))
-                .pointerHoverIcon(PointerIcon.Hand)
+                .pointerHoverIcon(PointerIcon.Hand),
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Close",
                 tint = Color.White,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
 
         // User avatar at bottom, overlapping
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = Spacing.lg)
-                .offset(y = 40.dp)
+                .offset(y = 40.dp),
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(88.dp)
                     .clip(CircleShape)
                     .background(NostrordColors.Surface)
-                    .padding(4.dp)
+                    .padding(4.dp),
             ) {
                 ProfileAvatar(
                     imageUrl = avatarUrl,
                     displayName = displayName,
                     pubkey = pubkey,
-                    size = 80.dp
+                    size = 80.dp,
                 )
             }
         }

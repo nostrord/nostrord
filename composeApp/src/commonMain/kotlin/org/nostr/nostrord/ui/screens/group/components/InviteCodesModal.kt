@@ -23,10 +23,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import org.nostr.nostrord.utils.rememberClipboardWriter
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /**
  * Data class representing an invite code parsed from kind 9009 messages.
@@ -34,7 +34,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 data class InviteCode(
     val code: String,
     val createdAt: Long,
-    val eventId: String
+    val eventId: String,
 )
 
 /**
@@ -51,89 +51,93 @@ fun InviteCodesModal(
     isCreating: Boolean = false,
     createdCode: String? = null,
     errorMessage: String? = null,
-    onClearError: () -> Unit = {}
+    onClearError: () -> Unit = {},
 ) {
     val copyToClipboard = rememberClipboardWriter()
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onDismiss
-                )
-                .safeDrawingPadding(),
-            contentAlignment = Alignment.Center
+                    onClick = onDismiss,
+                ).safeDrawingPadding(),
+            contentAlignment = Alignment.Center,
         ) {
             Card(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .widthIn(max = 420.dp)
                     .fillMaxWidth(0.9f)
                     .heightIn(max = 500.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = {}
+                        onClick = {},
                     ),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
             ) {
                 Column {
                     // Header
                     Row(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
                             .background(NostrordColors.BackgroundDark)
                             .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = "Invite Codes",
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                         IconButton(
                             onClick = onDismiss,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(32.dp),
                         ) {
                             Icon(
                                 Icons.Default.Close,
                                 contentDescription = "Close",
                                 tint = NostrordColors.TextSecondary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
 
                     Column(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
-                            .padding(16.dp)
+                            .padding(16.dp),
                     ) {
                         // Create button
                         Button(
                             onClick = onCreateInviteCode,
                             enabled = !isCreating,
-                            colors = ButtonDefaults.buttonColors(
+                            colors =
+                            ButtonDefaults.buttonColors(
                                 containerColor = NostrordColors.Primary,
                                 contentColor = Color.White,
-                                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f)
+                                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
                             ),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
                             if (isCreating) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(16.dp),
                                     color = Color.White,
-                                    strokeWidth = 2.dp
+                                    strokeWidth = 2.dp,
                                 )
                                 Spacer(modifier = Modifier.width(Spacing.sm))
                             } else {
@@ -147,27 +151,28 @@ fun InviteCodesModal(
                         if (errorMessage != null) {
                             Spacer(modifier = Modifier.height(Spacing.md))
                             Row(
-                                modifier = Modifier
+                                modifier =
+                                Modifier
                                     .fillMaxWidth()
                                     .background(NostrordColors.Error.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
                                     .padding(Spacing.md),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     text = errorMessage,
                                     style = NostrordTypography.Caption,
                                     color = NostrordColors.Error,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
                                 )
                                 IconButton(
                                     onClick = onClearError,
-                                    modifier = Modifier.size(32.dp)
+                                    modifier = Modifier.size(32.dp),
                                 ) {
                                     Icon(
                                         Icons.Default.Close,
                                         contentDescription = "Dismiss",
                                         tint = NostrordColors.Error,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(16.dp),
                                     )
                                 }
                             }
@@ -177,36 +182,37 @@ fun InviteCodesModal(
                         if (createdCode != null) {
                             Spacer(modifier = Modifier.height(Spacing.md))
                             Row(
-                                modifier = Modifier
+                                modifier =
+                                Modifier
                                     .fillMaxWidth()
                                     .background(NostrordColors.SurfaceVariant, RoundedCornerShape(8.dp))
                                     .padding(Spacing.md),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = "Invite Code Created",
                                         style = NostrordTypography.Caption,
                                         color = NostrordColors.Success,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
                                     )
                                     Spacer(modifier = Modifier.height(Spacing.xs))
                                     Text(
                                         text = createdCode,
                                         style = NostrordTypography.MessageBody,
                                         color = NostrordColors.TextPrimary,
-                                        fontFamily = FontFamily.Monospace
+                                        fontFamily = FontFamily.Monospace,
                                     )
                                 }
                                 IconButton(
                                     onClick = { copyToClipboard(createdCode) },
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier.size(36.dp),
                                 ) {
                                     Icon(
                                         Icons.Default.ContentCopy,
                                         contentDescription = "Copy code",
                                         tint = NostrordColors.TextSecondary,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(18.dp),
                                     )
                                 }
                                 IconButton(
@@ -214,13 +220,13 @@ fun InviteCodesModal(
                                         val url = buildInviteUrl(relayUrl, groupId, createdCode)
                                         copyToClipboard(url)
                                     },
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier.size(36.dp),
                                 ) {
                                     Icon(
                                         Icons.Default.Link,
                                         contentDescription = "Copy invite URL",
                                         tint = NostrordColors.TextSecondary,
-                                        modifier = Modifier.size(18.dp)
+                                        modifier = Modifier.size(18.dp),
                                     )
                                 }
                             }
@@ -233,12 +239,12 @@ fun InviteCodesModal(
                                 text = "Active Codes (${inviteCodes.size})",
                                 style = NostrordTypography.Caption,
                                 color = NostrordColors.TextSecondary,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
                             )
                             Spacer(modifier = Modifier.height(Spacing.sm))
 
                             LazyColumn(
-                                verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+                                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
                             ) {
                                 items(inviteCodes, key = { it.eventId }) { invite ->
                                     InviteCodeItem(
@@ -248,7 +254,7 @@ fun InviteCodesModal(
                                             val url = buildInviteUrl(relayUrl, groupId, invite.code)
                                             copyToClipboard(url)
                                         },
-                                        onRevoke = { onRevokeInviteCode(invite.eventId) }
+                                        onRevoke = { onRevokeInviteCode(invite.eventId) },
                                     )
                                 }
                             }
@@ -256,12 +262,12 @@ fun InviteCodesModal(
                             Spacer(modifier = Modifier.height(Spacing.lg))
                             Box(
                                 modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     text = "No active invite codes",
                                     style = NostrordTypography.Caption,
-                                    color = NostrordColors.TextMuted
+                                    color = NostrordColors.TextMuted,
                                 )
                             }
                         }
@@ -277,14 +283,15 @@ private fun InviteCodeItem(
     invite: InviteCode,
     onCopyCode: () -> Unit,
     onCopyUrl: () -> Unit,
-    onRevoke: () -> Unit
+    onRevoke: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .background(NostrordColors.SurfaceVariant, RoundedCornerShape(8.dp))
             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = invite.code,
@@ -292,14 +299,14 @@ private fun InviteCodeItem(
             color = NostrordColors.TextPrimary,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
         IconButton(onClick = onCopyCode, modifier = Modifier.size(32.dp)) {
             Icon(
                 Icons.Default.ContentCopy,
                 contentDescription = "Copy code",
                 tint = NostrordColors.TextSecondary,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
         }
         IconButton(onClick = onCopyUrl, modifier = Modifier.size(32.dp)) {
@@ -307,7 +314,7 @@ private fun InviteCodeItem(
                 Icons.Default.Link,
                 contentDescription = "Copy URL",
                 tint = NostrordColors.TextSecondary,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
         }
         IconButton(onClick = onRevoke, modifier = Modifier.size(32.dp)) {
@@ -315,7 +322,7 @@ private fun InviteCodeItem(
                 Icons.Default.Delete,
                 contentDescription = "Revoke",
                 tint = NostrordColors.Error,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(16.dp),
             )
         }
     }
@@ -324,9 +331,12 @@ private fun InviteCodeItem(
 /**
  * Builds an invite URL with code appended to the share link.
  */
-private fun buildInviteUrl(relayUrl: String, groupId: String, code: String): String {
-    return org.nostr.nostrord.ui.util.buildShareGroupLink(relayUrl, groupId) + "&code=$code"
-}
+private fun buildInviteUrl(
+    relayUrl: String,
+    groupId: String,
+    code: String,
+): String = org.nostr.nostrord.ui.util
+    .buildShareGroupLink(relayUrl, groupId) + "&code=$code"
 
 /**
  * Dialog for entering an invite code to join a closed group.
@@ -334,29 +344,29 @@ private fun buildInviteUrl(relayUrl: String, groupId: String, code: String): Str
 @Composable
 fun InviteCodeInputDialog(
     onSubmit: (code: String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var code by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
             Column(
-                modifier = Modifier.padding(Spacing.lg)
+                modifier = Modifier.padding(Spacing.lg),
             ) {
                 Text(
                     text = "Enter Invite Code",
                     style = MaterialTheme.typography.titleMedium,
                     color = NostrordColors.TextPrimary,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
                 Spacer(modifier = Modifier.height(Spacing.xs))
                 Text(
                     text = "This group requires an invite code to join.",
                     style = NostrordTypography.Caption,
-                    color = NostrordColors.TextSecondary
+                    color = NostrordColors.TextSecondary,
                 )
                 Spacer(modifier = Modifier.height(Spacing.md))
                 OutlinedTextField(
@@ -367,20 +377,21 @@ fun InviteCodeInputDialog(
                     },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
+                    colors =
+                    OutlinedTextFieldDefaults.colors(
                         focusedTextColor = NostrordColors.TextPrimary,
                         unfocusedTextColor = NostrordColors.TextPrimary,
                         focusedBorderColor = NostrordColors.Primary,
                         unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                        cursorColor = NostrordColors.Primary
+                        cursorColor = NostrordColors.Primary,
                     ),
-                    textStyle = NostrordTypography.MessageBody.copy(fontFamily = FontFamily.Monospace)
+                    textStyle = NostrordTypography.MessageBody.copy(fontFamily = FontFamily.Monospace),
                 )
                 Spacer(modifier = Modifier.height(Spacing.md))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     TextButton(onClick = onDismiss) {
                         Text("Cancel", color = NostrordColors.TextSecondary)
@@ -389,12 +400,13 @@ fun InviteCodeInputDialog(
                     Button(
                         onClick = { onSubmit(code) },
                         enabled = code.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(
+                        colors =
+                        ButtonDefaults.buttonColors(
                             containerColor = NostrordColors.Primary,
                             contentColor = Color.White,
-                            disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f)
+                            disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
                         ),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
                     ) {
                         Text("Join", style = NostrordTypography.Button)
                     }

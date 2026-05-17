@@ -19,12 +19,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
@@ -46,49 +44,52 @@ fun JoinRequestsModal(
     userMetadata: Map<String, UserMetadata>,
     onApprove: (pubkey: String) -> Unit,
     onReject: (eventId: String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onDismiss
+                    onClick = onDismiss,
                 ),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Card(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .widthIn(max = 420.dp)
                     .fillMaxWidth(0.9f)
                     .heightIn(max = 500.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = {}
+                        onClick = {},
                     ),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
             ) {
                 Column {
                     // Header
                     Row(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
                             .background(NostrordColors.BackgroundDark)
                             .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
                             Icons.Default.Person,
                             contentDescription = null,
                             tint = NostrordColors.TextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(20.dp),
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
@@ -96,48 +97,49 @@ fun JoinRequestsModal(
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
                         )
                         IconButton(
                             onClick = onDismiss,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(32.dp),
                         ) {
                             Icon(
                                 Icons.Default.Close,
                                 contentDescription = "Close",
                                 tint = NostrordColors.TextSecondary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
 
                     if (pendingRequests.isEmpty()) {
                         Box(
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .fillMaxWidth()
                                 .padding(32.dp),
-                            contentAlignment = Alignment.Center
+                            contentAlignment = Alignment.Center,
                         ) {
                             Text(
                                 text = "No pending requests",
                                 color = NostrordColors.TextMuted,
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium,
                             )
                         }
                     } else {
                         LazyColumn(
                             modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(vertical = 8.dp)
+                            contentPadding = PaddingValues(vertical = 8.dp),
                         ) {
                             items(
                                 items = pendingRequests,
-                                key = { it.id }
+                                key = { it.id },
                             ) { request ->
                                 JoinRequestItem(
                                     request = request,
                                     metadata = userMetadata[request.pubkey],
                                     onApprove = { onApprove(request.pubkey) },
-                                    onReject = { onReject(request.id) }
+                                    onReject = { onReject(request.id) },
                                 )
                             }
                         }
@@ -153,39 +155,44 @@ private fun JoinRequestItem(
     request: NostrGroupClient.NostrMessage,
     metadata: UserMetadata?,
     onApprove: () -> Unit,
-    onReject: () -> Unit
+    onReject: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Avatar
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .size(40.dp)
                 .clip(CircleShape),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Jdenticon(
                 value = request.pubkey,
-                size = 40.dp
+                size = 40.dp,
             )
             if (!metadata?.picture.isNullOrBlank()) {
                 val context = LocalPlatformContext.current
                 AsyncImage(
-                    model = ImageRequest.Builder(context)
+                    model =
+                    ImageRequest
+                        .Builder(context)
                         .data(metadata?.picture)
                         .crossfade(true)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .build(),
                     contentDescription = null,
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(40.dp)
                         .clip(CircleShape),
-                    contentScale = ContentScale.Crop
+                    contentScale = ContentScale.Crop,
                 )
             }
         }
@@ -195,14 +202,15 @@ private fun JoinRequestItem(
         // Name + pubkey
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = metadata?.displayName
+                text =
+                metadata?.displayName
                     ?: metadata?.name
                     ?: request.pubkey.take(8) + "...",
                 color = Color.White,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             if (request.content.isNotBlank() && request.content != "/join") {
                 Text(
@@ -210,7 +218,7 @@ private fun JoinRequestItem(
                     color = NostrordColors.TextMuted,
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -220,26 +228,26 @@ private fun JoinRequestItem(
         // Reject button
         IconButton(
             onClick = onReject,
-            modifier = Modifier.size(36.dp)
+            modifier = Modifier.size(36.dp),
         ) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = "Reject",
                 tint = NostrordColors.Error,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
 
         // Approve button
         IconButton(
             onClick = onApprove,
-            modifier = Modifier.size(36.dp)
+            modifier = Modifier.size(36.dp),
         ) {
             Icon(
                 Icons.Default.Check,
                 contentDescription = "Approve",
                 tint = NostrordColors.Success,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
     }

@@ -42,102 +42,110 @@ fun ZapEventItem(
     senderMetadata: UserMetadata? = null,
     recipientMetadata: UserMetadata? = null,
     onSenderClick: (String) -> Unit = {},
-    onRecipientClick: (String) -> Unit = {}
+    onRecipientClick: (String) -> Unit = {},
 ) {
     // Sender display name
-    val senderDisplayName = remember(senderMetadata?.displayName, senderMetadata?.name, senderPubkey) {
-        senderMetadata?.displayName ?: senderMetadata?.name ?: senderPubkey.take(8) + "..."
-    }
+    val senderDisplayName =
+        remember(senderMetadata?.displayName, senderMetadata?.name, senderPubkey) {
+            senderMetadata?.displayName ?: senderMetadata?.name ?: senderPubkey.take(8) + "..."
+        }
 
     // Recipient display name
-    val recipientDisplayName = remember(recipientMetadata?.displayName, recipientMetadata?.name, recipientPubkey) {
-        recipientMetadata?.displayName ?: recipientMetadata?.name ?: recipientPubkey.take(6)
-    }
+    val recipientDisplayName =
+        remember(recipientMetadata?.displayName, recipientMetadata?.name, recipientPubkey) {
+            recipientMetadata?.displayName ?: recipientMetadata?.name ?: recipientPubkey.take(6)
+        }
 
     // Chat bubble shape: rounded top corners and bottom-right, sharp bottom-left
-    val zapShape = RoundedCornerShape(
-        topStart = NostrordShapes.radiusMedium,
-        topEnd = NostrordShapes.radiusMedium,
-        bottomEnd = NostrordShapes.radiusMedium,
-        bottomStart = NostrordShapes.radiusNone
-    )
+    val zapShape =
+        RoundedCornerShape(
+            topStart = NostrordShapes.radiusMedium,
+            topEnd = NostrordShapes.radiusMedium,
+            bottomEnd = NostrordShapes.radiusMedium,
+            bottomStart = NostrordShapes.radiusNone,
+        )
 
     // Bitcoin orange gradient for border
-    val gradientBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0xFFF7931A), // Bitcoin orange
-            Color(0xFFFFAA00), // Lighter orange
-            Color(0xFFF7931A)  // Bitcoin orange
+    val gradientBrush =
+        Brush.linearGradient(
+            colors =
+            listOf(
+                Color(0xFFF7931A), // Bitcoin orange
+                Color(0xFFFFAA00), // Lighter orange
+                Color(0xFFF7931A), // Bitcoin orange
+            ),
         )
-    )
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .padding(
                 start = Spacing.messagePaddingHorizontal,
                 end = Spacing.messagePaddingHorizontal,
                 top = Spacing.messageGroupStart,
-                bottom = Spacing.sm
-            )
+                bottom = Spacing.sm,
+            ),
     ) {
         // Avatar column - same width as MessageItem (72dp total)
         Box(
             modifier = Modifier.width(Spacing.avatarColumnWidth - Spacing.messagePaddingHorizontal),
-            contentAlignment = Alignment.TopStart
+            contentAlignment = Alignment.TopStart,
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(Spacing.avatarSize)
                     .clip(CircleShape)
                     .clickable { onSenderClick(senderPubkey) }
-                    .pointerHoverIcon(PointerIcon.Hand)
+                    .pointerHoverIcon(PointerIcon.Hand),
             ) {
                 ProfileAvatar(
                     imageUrl = senderMetadata?.picture,
                     displayName = senderDisplayName,
                     pubkey = senderPubkey,
-                    size = Spacing.avatarSize
+                    size = Spacing.avatarSize,
                 )
             }
         }
 
         // Zap card
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .clip(zapShape)
                 .border(
                     width = 1.dp,
                     brush = gradientBrush,
-                    shape = zapShape
-                )
-                .background(NostrordColors.Background.copy(alpha = 0.9f))
-                .padding(Spacing.sm)
+                    shape = zapShape,
+                ).background(NostrordColors.Background.copy(alpha = 0.9f))
+                .padding(Spacing.sm),
         ) {
             // Header row: Bitcoin amount + recipient info
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Bitcoin amount
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
                 ) {
                     // Bitcoin symbol
                     Text(
                         text = "₿",
                         color = NostrordColors.TextMuted,
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                     // Amount
                     Text(
                         text = formatSatsAmount(amount),
                         color = NostrordColors.TextPrimary,
-                        style = NostrordTypography.Username.copy(
-                            fontWeight = FontWeight.Medium
-                        )
+                        style =
+                        NostrordTypography.Username.copy(
+                            fontWeight = FontWeight.Medium,
+                        ),
                     )
                 }
 
@@ -145,30 +153,32 @@ fun ZapEventItem(
 
                 // Recipient info
                 Row(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .clickable { onRecipientClick(recipientPubkey) }
                         .pointerHoverIcon(PointerIcon.Hand),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs)
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
                     // Mini recipient avatar
                     Box(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .size(Spacing.avatarSizeTiny)
-                            .clip(CircleShape)
+                            .clip(CircleShape),
                     ) {
                         ProfileAvatar(
                             imageUrl = recipientMetadata?.picture,
                             displayName = recipientDisplayName,
                             pubkey = recipientPubkey,
-                            size = Spacing.avatarSizeTiny
+                            size = Spacing.avatarSizeTiny,
                         )
                     }
                     // Recipient name
                     Text(
                         text = recipientDisplayName,
                         color = NostrordColors.TextSecondary,
-                        style = NostrordTypography.Caption
+                        style = NostrordTypography.Caption,
                     )
                 }
             }
@@ -179,7 +189,7 @@ fun ZapEventItem(
                 Text(
                     text = content,
                     fontSize = 48.sp,
-                    lineHeight = 56.sp
+                    lineHeight = 56.sp,
                 )
             }
         }
@@ -189,12 +199,10 @@ fun ZapEventItem(
 /**
  * Format sats amount with appropriate suffix for large values.
  */
-private fun formatSatsAmount(sats: Long): String {
-    return when {
-        sats >= 1_000_000 -> "${formatOneDecimal(sats / 1_000_000.0)}M"
-        sats >= 1_000 -> "${formatOneDecimal(sats / 1_000.0)}k"
-        else -> sats.toString()
-    }
+private fun formatSatsAmount(sats: Long): String = when {
+    sats >= 1_000_000 -> "${formatOneDecimal(sats / 1_000_000.0)}M"
+    sats >= 1_000 -> "${formatOneDecimal(sats / 1_000.0)}k"
+    else -> sats.toString()
 }
 
 /**

@@ -22,5 +22,5 @@ expect fun PlatformVideoPlayer(
     thumbnailUrl: String?,
     aspectRatio: Float,
     onFallbackClick: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
 )

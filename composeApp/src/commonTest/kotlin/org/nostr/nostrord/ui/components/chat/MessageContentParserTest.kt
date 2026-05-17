@@ -2,8 +2,8 @@ package org.nostr.nostrord.ui.components.chat
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 /**
  * Comprehensive test matrix for MessageContentParser.
@@ -160,7 +160,7 @@ class MessageContentParserTest {
         assertIs<MessageContentParser.ParsedPart.Link>(parts[1])
         assertEquals(
             "https://en.wikipedia.org/wiki/Rust_(programming_language)",
-            (parts[1] as MessageContentParser.ParsedPart.Link).url
+            (parts[1] as MessageContentParser.ParsedPart.Link).url,
         )
     }
 
@@ -402,7 +402,7 @@ class MessageContentParserTest {
         assertIs<MessageContentParser.ParsedPart.Link>(parts[1])
         assertEquals(
             "https://example.com/search?q=hello%20world",
-            (parts[1] as MessageContentParser.ParsedPart.Link).url
+            (parts[1] as MessageContentParser.ParsedPart.Link).url,
         )
     }
 
@@ -415,7 +415,7 @@ class MessageContentParserTest {
         assertIs<MessageContentParser.ParsedPart.Link>(parts[1])
         assertEquals(
             "https://api.example.com/v1?key=abc123&callback=fn",
-            (parts[1] as MessageContentParser.ParsedPart.Link).url
+            (parts[1] as MessageContentParser.ParsedPart.Link).url,
         )
     }
 
@@ -473,7 +473,7 @@ class MessageContentParserTest {
         val emojiMap = mapOf(
             "gleasonator" to "https://example.com/gleasonator.png",
             "ablobcatrainbow" to "https://example.com/ablobcatrainbow.png",
-            "disputed" to "https://example.com/disputed.png"
+            "disputed" to "https://example.com/disputed.png",
         )
         val parts = MessageContentParser.parse(input, emojiMap)
 
@@ -537,7 +537,7 @@ class MessageContentParserTest {
             listOf("emoji", "wave", "https://example.com/wave.png"),
             listOf("emoji", "smile", "https://example.com/smile.png"),
             listOf("p", "pubkey123"), // Not an emoji tag
-            listOf("e", "eventid123") // Not an emoji tag
+            listOf("e", "eventid123"), // Not an emoji tag
         )
         val emojiMap = MessageContentParser.extractEmojiMap(tags)
 

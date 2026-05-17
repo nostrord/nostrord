@@ -16,10 +16,12 @@ actual fun createHttpClient(): HttpClient = HttpClient(Js) {
     }
     install(WebSockets)
     install(ContentNegotiation) {
-        json(Json {
-            ignoreUnknownKeys = true
-            isLenient = true
-        })
+        json(
+            Json {
+                ignoreUnknownKeys = true
+                isLenient = true
+            },
+        )
     }
 }
 

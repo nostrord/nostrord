@@ -18,12 +18,12 @@ actual fun EmojiImage(
     contentDescription: String,
     modifier: Modifier,
     contentScale: ContentScale,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     AnimatedImage(
         url = url,
         modifier = modifier,
         contentScale = contentScale,
-        onError = onError
+        onError = onError,
     )
 }

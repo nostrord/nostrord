@@ -29,7 +29,7 @@ import org.nostr.nostrord.utils.epochMillis
  */
 class AdaptiveConfig(
     private val connStats: ConnectionStats,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
 ) {
     // ── Adaptive parameters (read by consumers) ──────────────────────────
 
@@ -100,7 +100,10 @@ class AdaptiveConfig(
     }
 
     /** Record observed relay response latency (connect time or REQ→EVENT). */
-    fun recordRelayLatency(relayUrl: String, latencyMs: Long) {
+    fun recordRelayLatency(
+        relayUrl: String,
+        latencyMs: Long,
+    ) {
         scope.launch {
             mutex.withLock {
                 val window = relayLatencies.getOrPut(relayUrl) { mutableListOf() }
@@ -115,16 +118,22 @@ class AdaptiveConfig(
     /** Average latency for a relay, or [Long.MAX_VALUE] if unknown. */
     suspend fun getRelayLatency(relayUrl: String): Long = mutex.withLock {
         val samples = relayLatencies[relayUrl]
-        if (samples.isNullOrEmpty()) Long.MAX_VALUE
-        else samples.average().toLong()
+        if (samples.isNullOrEmpty()) {
+            Long.MAX_VALUE
+        } else {
+            samples.average().toLong()
+        }
     }
 
     /** Returns the relay with the lowest average latency from the given set. */
     suspend fun fastestRelay(relayUrls: Collection<String>): String? = mutex.withLock {
         relayUrls.minByOrNull { url ->
             val samples = relayLatencies[url]
-            if (samples.isNullOrEmpty()) Long.MAX_VALUE
-            else samples.average().toLong()
+            if (samples.isNullOrEmpty()) {
+                Long.MAX_VALUE
+            } else {
+                samples.average().toLong()
+            }
         }
     }
 
@@ -136,26 +145,33 @@ class AdaptiveConfig(
         // Snapshot the three counters under the mutex so we never iterate a
         // list that's being mutated by a concurrent recordEventBurst /
         // recordReconnect / recordRelayLatency.
-        data class Snapshot(val reconnects: Int, val events: Int, val avgLatency: Long)
-        val snap = mutex.withLock {
-            Snapshot(
-                reconnects = reconnectTimestamps.count { now - it < 60_000 },
-                events = eventTimestamps.count { now - it < 10_000 },
-                avgLatency = relayLatencies.values
-                    .flatMap { it.takeLast(5) }
-                    .let { if (it.isEmpty()) 200L else it.average().toLong() }
-            )
-        }
+        data class Snapshot(
+            val reconnects: Int,
+            val events: Int,
+            val avgLatency: Long,
+        )
+        val snap =
+            mutex.withLock {
+                Snapshot(
+                    reconnects = reconnectTimestamps.count { now - it < 60_000 },
+                    events = eventTimestamps.count { now - it < 10_000 },
+                    avgLatency =
+                    relayLatencies.values
+                        .flatMap { it.takeLast(5) }
+                        .let { if (it.isEmpty()) 200L else it.average().toLong() },
+                )
+            }
 
         val recentReconnects = snap.reconnects
 
         // Network stability classification
-        networkStability = when {
-            recentReconnects >= 5 -> Stability.UNSTABLE
-            recentReconnects >= 3 -> Stability.DEGRADED
-            recentReconnects >= 1 -> Stability.NORMAL
-            else -> Stability.GOOD
-        }
+        networkStability =
+            when {
+                recentReconnects >= 5 -> Stability.UNSTABLE
+                recentReconnects >= 3 -> Stability.DEGRADED
+                recentReconnects >= 1 -> Stability.NORMAL
+                else -> Stability.GOOD
+            }
 
         val avgLatency = snap.avgLatency
 
@@ -163,38 +179,43 @@ class AdaptiveConfig(
         val eventsPerSecond = snap.events / 10.0
 
         // ── Adapt request cooldown ───────────────────────────────────
-        requestCooldownMs = when (networkStability) {
-            Stability.UNSTABLE -> 2500L
-            Stability.DEGRADED -> 1500L
-            Stability.NORMAL -> when {
-                avgLatency > 500 -> 1200L
-                avgLatency > 200 -> 800L
-                else -> 500L
+        requestCooldownMs =
+            when (networkStability) {
+                Stability.UNSTABLE -> 2500L
+                Stability.DEGRADED -> 1500L
+                Stability.NORMAL ->
+                    when {
+                        avgLatency > 500 -> 1200L
+                        avgLatency > 200 -> 800L
+                        else -> 500L
+                    }
+                Stability.GOOD ->
+                    when {
+                        avgLatency > 300 -> 600L
+                        else -> 300L
+                    }
             }
-            Stability.GOOD -> when {
-                avgLatency > 300 -> 600L
-                else -> 300L
-            }
-        }
 
         // ── Adapt buffer window ──────────────────────────────────────
-        bufferWindowMs = when {
-            eventsPerSecond > 50 -> 200L    // high burst → batch aggressively
-            eventsPerSecond > 20 -> 150L    // moderate burst
-            eventsPerSecond > 5 -> 100L     // steady state
-            else -> 50L                     // idle → near-instant render
-        }
+        bufferWindowMs =
+            when {
+                eventsPerSecond > 50 -> 200L // high burst → batch aggressively
+                eventsPerSecond > 20 -> 150L // moderate burst
+                eventsPerSecond > 5 -> 100L // steady state
+                else -> 50L // idle → near-instant render
+            }
 
         // ── Adapt prefetch scope ─────────────────────────────────────
         prefetchEnabled = networkStability == Stability.GOOD && avgLatency < 300
 
         // ── Adapt background work budget ─────────────────────────────
-        maxBackgroundWork = when (networkStability) {
-            Stability.UNSTABLE -> 0
-            Stability.DEGRADED -> 1
-            Stability.NORMAL -> 2
-            Stability.GOOD -> 3
-        }
+        maxBackgroundWork =
+            when (networkStability) {
+                Stability.UNSTABLE -> 0
+                Stability.DEGRADED -> 1
+                Stability.NORMAL -> 2
+                Stability.GOOD -> 3
+            }
     }
 
     private suspend fun evictStaleSignals() {
@@ -209,7 +230,7 @@ class AdaptiveConfig(
         const val DEFAULT_COOLDOWN_MS = 1000L
         const val DEFAULT_BUFFER_MS = 100L
         const val TUNE_INTERVAL_MS = 10_000L
-        const val SIGNAL_TTL_MS = 120_000L          // keep last 2 minutes of signals
-        const val LATENCY_WINDOW_SIZE = 20           // rolling window per relay
+        const val SIGNAL_TTL_MS = 120_000L // keep last 2 minutes of signals
+        const val LATENCY_WINDOW_SIZE = 20 // rolling window per relay
     }
 }

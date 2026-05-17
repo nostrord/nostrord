@@ -30,16 +30,23 @@ object VideoThumbnailExtractor {
 
         return withContext(Dispatchers.IO) {
             try {
-                val process = ProcessBuilder(
-                    "ffmpeg",
-                    "-i", url,
-                    "-ss", "00:00:01",
-                    "-vframes", "1",
-                    "-f", "image2pipe",
-                    "-vcodec", "png",
-                    "-loglevel", "error",
-                    "pipe:1"
-                ).redirectErrorStream(false).start()
+                val process =
+                    ProcessBuilder(
+                        "ffmpeg",
+                        "-i",
+                        url,
+                        "-ss",
+                        "00:00:01",
+                        "-vframes",
+                        "1",
+                        "-f",
+                        "image2pipe",
+                        "-vcodec",
+                        "png",
+                        "-loglevel",
+                        "error",
+                        "pipe:1",
+                    ).redirectErrorStream(false).start()
 
                 val bytes = process.inputStream.readBytes()
                 process.waitFor()

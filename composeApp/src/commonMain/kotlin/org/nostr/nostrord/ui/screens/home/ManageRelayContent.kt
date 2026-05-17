@@ -44,7 +44,7 @@ fun ManageRelayContent(
     isRelaySaved: Boolean = true,
     onDismiss: (() -> Unit)? = null,
     dismissAtBottom: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val domain = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
     val relayName = relayMeta?.name?.takeIf { it.isNotBlank() } ?: domain
@@ -61,11 +61,14 @@ fun ManageRelayContent(
             text = {
                 Text(
                     if (isRelaySaved) {
-                        if (groups.isEmpty()) "$relayName will be removed from your relay list."
-                        else "$relayName and all its groups will be removed from your list."
+                        if (groups.isEmpty()) {
+                            "$relayName will be removed from your relay list."
+                        } else {
+                            "$relayName and all its groups will be removed from your list."
+                        }
                     } else {
                         "Your groups on $relayName will be removed from your list."
-                    }
+                    },
                 )
             },
             confirmButton = {
@@ -80,19 +83,21 @@ fun ManageRelayContent(
                 TextButton(onClick = { confirmRemoveRelay = false }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
     LazyColumn(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxSize()
             .background(NostrordColors.BackgroundDark),
-        contentPadding = PaddingValues(
+        contentPadding =
+        PaddingValues(
             horizontal = if (isCompact) 16.dp else 24.dp,
-            vertical = if (isCompact) 16.dp else 24.dp
+            vertical = if (isCompact) 16.dp else 24.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
             RelayManagementHeader(
@@ -101,7 +106,7 @@ fun ManageRelayContent(
                 relayMeta = relayMeta,
                 isCompact = isCompact,
                 isOffline = isOffline,
-                onDismiss = if (dismissAtBottom) null else onDismiss
+                onDismiss = if (dismissAtBottom) null else onDismiss,
             )
         }
 
@@ -111,7 +116,7 @@ fun ManageRelayContent(
                     text = "No groups joined on this relay.",
                     color = NostrordColors.TextMuted,
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(vertical = 8.dp)
+                    modifier = Modifier.padding(vertical = 8.dp),
                 )
             }
         } else {
@@ -121,14 +126,14 @@ fun ManageRelayContent(
                     color = NostrordColors.TextSecondary,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    modifier = Modifier.padding(bottom = 4.dp),
                 )
             }
             items(groups, key = { it.id }) { group ->
                 OfflineGroupRow(
                     group = group,
                     isCompact = isCompact,
-                    onForget = { onForgetGroup(group.id) }
+                    onForget = { onForgetGroup(group.id) },
                 )
             }
         }
@@ -138,12 +143,12 @@ fun ManageRelayContent(
             if (dismissAtBottom && onDismiss != null) {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     OutlinedButton(
                         onClick = onDismiss,
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     ) {
                         Text("Back", color = NostrordColors.TextSecondary, fontWeight = FontWeight.SemiBold)
                     }
@@ -151,7 +156,7 @@ fun ManageRelayContent(
                         onClick = { confirmRemoveRelay = true },
                         colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Error),
                         shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     ) {
                         Text("Remove relay", color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
@@ -161,12 +166,12 @@ fun ManageRelayContent(
                     onClick = { confirmRemoveRelay = true },
                     colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Error),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         text = "Remove relay",
                         color = Color.White,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
@@ -181,20 +186,20 @@ private fun RelayManagementHeader(
     relayMeta: Nip11RelayInfo?,
     isCompact: Boolean,
     isOffline: Boolean,
-    onDismiss: (() -> Unit)?
+    onDismiss: (() -> Unit)?,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (isCompact) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (onDismiss != null) {
                     IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Back",
-                            tint = NostrordColors.TextSecondary
+                            tint = NostrordColors.TextSecondary,
                         )
                     }
                 }
@@ -202,7 +207,7 @@ private fun RelayManagementHeader(
                     text = "Manage relay",
                     color = NostrordColors.TextPrimary,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
         } else {
@@ -211,7 +216,7 @@ private fun RelayManagementHeader(
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
                         contentDescription = "Back",
-                        tint = NostrordColors.TextSecondary
+                        tint = NostrordColors.TextSecondary,
                     )
                 }
             }
@@ -219,17 +224,17 @@ private fun RelayManagementHeader(
                 text = "Manage relay",
                 color = NostrordColors.TextPrimary,
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 RelayHeaderIcon(
                     relayUrl = relayUrl,
                     iconUrl = relayMeta?.icon,
                     label = relayName,
-                    size = 56.dp
+                    size = 56.dp,
                 )
 
                 Column(modifier = Modifier.weight(1f)) {
@@ -239,25 +244,25 @@ private fun RelayManagementHeader(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                     if (isOffline) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.WifiOff,
                                 contentDescription = null,
                                 tint = NostrordColors.StatusOffline,
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(14.dp),
                             )
                             Text(
                                 text = "Offline",
                                 color = NostrordColors.StatusOffline,
                                 style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
                             )
                         }
                     }
@@ -271,7 +276,7 @@ private fun RelayManagementHeader(
 private fun OfflineGroupRow(
     group: GroupMetadata,
     isCompact: Boolean,
-    onForget: () -> Unit
+    onForget: () -> Unit,
 ) {
     var showConfirm by remember { mutableStateOf(false) }
 
@@ -296,24 +301,25 @@ private fun OfflineGroupRow(
                 TextButton(onClick = { showConfirm = false }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
     Surface(
         color = NostrordColors.Surface,
         shape = RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             GroupIcon(
                 group = group,
-                size = if (isCompact) 36.dp else 40.dp
+                size = if (isCompact) 36.dp else 40.dp,
             )
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -324,7 +330,7 @@ private fun OfflineGroupRow(
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Text(
@@ -333,18 +339,18 @@ private fun OfflineGroupRow(
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             IconButton(
                 onClick = { showConfirm = true },
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(32.dp),
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = "Leave group",
                     tint = NostrordColors.TextMuted,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(16.dp),
                 )
             }
         }
@@ -352,7 +358,10 @@ private fun OfflineGroupRow(
 }
 
 @Composable
-private fun GroupIcon(group: GroupMetadata, size: Dp) {
+private fun GroupIcon(
+    group: GroupMetadata,
+    size: Dp,
+) {
     val context = LocalPlatformContext.current
     val pictureUrl = group.picture
     var imageState by remember(pictureUrl) {
@@ -363,23 +372,26 @@ private fun GroupIcon(group: GroupMetadata, size: Dp) {
     val shape = RoundedCornerShape(8.dp)
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(shape)
             .background(if (!showImage) generateColorFromString(group.id) else NostrordColors.BackgroundDark),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         if (!showImage) {
             Text(
                 text = displayName.take(1).uppercase(),
                 color = Color.White,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
         if (!pictureUrl.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
@@ -388,7 +400,7 @@ private fun GroupIcon(group: GroupMetadata, size: Dp) {
                 contentDescription = displayName,
                 modifier = Modifier.fillMaxSize().clip(shape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }

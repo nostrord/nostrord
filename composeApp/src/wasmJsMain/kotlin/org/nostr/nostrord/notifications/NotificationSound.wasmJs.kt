@@ -1,4 +1,5 @@
 @file:OptIn(ExperimentalWasmJsInterop::class)
+
 package org.nostr.nostrord.notifications
 
 import kotlin.js.ExperimentalWasmJsInterop
@@ -10,7 +11,7 @@ import kotlin.js.ExperimentalWasmJsInterop
             a.volume = 0.6;
             a.play();
         } catch (e) { /* autoplay blocked before user gesture */ }
-    }"""
+    }""",
 )
 private external fun jsPlaySound()
 

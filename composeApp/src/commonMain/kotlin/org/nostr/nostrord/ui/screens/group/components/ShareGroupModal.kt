@@ -25,7 +25,7 @@ import org.nostr.nostrord.utils.supportsNativeShare
 fun ShareGroupModal(
     relayUrl: String,
     groupId: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val link = buildShareGroupLink(relayUrl, groupId)
     val naddr = buildGroupNaddr(relayUrl, groupId)
@@ -40,7 +40,7 @@ fun ShareGroupModal(
                 "Share Group",
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         },
         text = {
@@ -50,14 +50,14 @@ fun ShareGroupModal(
                     value = link,
                     actionIcon = if (supportsNativeShare) Icons.Default.Share else Icons.Default.ContentCopy,
                     actionLabel = if (supportsNativeShare) "Share" else "Copy",
-                    onAction = { if (supportsNativeShare) shareText(link) else copyToClipboard(link) }
+                    onAction = { if (supportsNativeShare) shareText(link) else copyToClipboard(link) },
                 )
                 ShareRow(
                     label = "Nostr Address (naddr)",
                     value = naddr,
                     actionIcon = if (supportsNativeShare) Icons.Default.Share else Icons.Default.ContentCopy,
                     actionLabel = if (supportsNativeShare) "Share" else "Copy",
-                    onAction = { if (supportsNativeShare) shareText(naddr) else copyToClipboard(naddr) }
+                    onAction = { if (supportsNativeShare) shareText(naddr) else copyToClipboard(naddr) },
                 )
             }
         },
@@ -65,7 +65,7 @@ fun ShareGroupModal(
             TextButton(onClick = onDismiss) {
                 Text("Close", color = NostrordColors.TextSecondary)
             }
-        }
+        },
     )
 }
 
@@ -75,20 +75,21 @@ private fun ShareRow(
     value: String,
     actionIcon: androidx.compose.ui.graphics.vector.ImageVector,
     actionLabel: String,
-    onAction: () -> Unit
+    onAction: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
             text = label,
             color = NostrordColors.TextSecondary,
-            style = MaterialTheme.typography.labelSmall
+            style = MaterialTheme.typography.labelSmall,
         )
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .background(NostrordColors.SurfaceVariant, RoundedCornerShape(8.dp))
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = value,
@@ -96,18 +97,18 @@ private fun ShareRow(
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
             Spacer(modifier = Modifier.width(8.dp))
             IconButton(
                 onClick = onAction,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(32.dp),
             ) {
                 Icon(
                     imageVector = actionIcon,
                     contentDescription = actionLabel,
                     tint = NostrordColors.Primary,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }

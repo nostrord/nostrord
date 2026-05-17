@@ -21,5 +21,5 @@ import org.nostr.nostrord.ui.Screen
 expect fun BrowserNavigationHandler(
     currentScreen: Screen,
     selectedRelayUrl: String,
-    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?, viewNotifications: Boolean) -> Unit
+    onUrlNavigation: (relayUrl: String, groupId: String?, inviteCode: String?, viewNotifications: Boolean) -> Unit,
 )

@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.Dp
 fun Jdenticon(
     value: String,
     size: Dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val hash = remember(value) { hashString(value) }
     val foregroundColor = remember(hash) { generateColor(hash) }
@@ -33,7 +33,7 @@ fun Jdenticon(
         drawRect(
             color = Color(0xFFF0F0F0),
             topLeft = Offset.Zero,
-            size = this.size
+            size = this.size,
         )
 
         // Draw the 5x5 pattern with vertical symmetry
@@ -44,14 +44,14 @@ fun Jdenticon(
                     drawRect(
                         color = foregroundColor,
                         topLeft = Offset(col * cellSize, row * cellSize),
-                        size = Size(cellSize, cellSize)
+                        size = Size(cellSize, cellSize),
                     )
                     // Mirror on right side (except center column)
                     if (col < 2) {
                         drawRect(
                             color = foregroundColor,
                             topLeft = Offset((4 - col) * cellSize, row * cellSize),
-                            size = Size(cellSize, cellSize)
+                            size = Size(cellSize, cellSize),
                         )
                     }
                 }

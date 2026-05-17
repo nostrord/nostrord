@@ -5,7 +5,6 @@ import io.ktor.client.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.KSerializer
@@ -43,7 +42,7 @@ data class GroupMetadata(
      * explicitly listed in [children] are legitimate; all other parent claims
      * are invalid and MUST be ignored by the client.
      */
-    val closedChildren: Boolean = false
+    val closedChildren: Boolean = false,
 ) {
     companion object
 }
@@ -61,7 +60,7 @@ val groupMetadataListSerializer: KSerializer<List<GroupMetadata>> = ListSerializ
 data class DeclaredChild(
     val id: String,
     val order: String? = null,
-    val flags: List<String> = emptyList()
+    val flags: List<String> = emptyList(),
 ) {
     val isSuggested: Boolean get() = "suggested" in flags
 }
@@ -73,7 +72,7 @@ data class DeclaredChild(
 @Immutable
 data class GroupMembers(
     val groupId: String,
-    val members: List<String> // List of pubkeys
+    val members: List<String>, // List of pubkeys
 )
 
 /**
@@ -83,7 +82,7 @@ data class GroupMembers(
 @Immutable
 data class GroupAdmins(
     val groupId: String,
-    val admins: List<String> // List of admin pubkeys
+    val admins: List<String>, // List of admin pubkeys
 )
 
 /**
@@ -94,13 +93,13 @@ data class GroupAdmins(
 @Immutable
 data class GroupRoles(
     val groupId: String,
-    val roles: List<RoleDefinition>
+    val roles: List<RoleDefinition>,
 )
 
 @Immutable
 data class RoleDefinition(
     val name: String,
-    val description: String = ""
+    val description: String = "",
 )
 
 @Immutable
@@ -115,7 +114,7 @@ data class UserMetadata(
     val lud16: String? = null,
     val website: String? = null,
     /** Original kind:0 content JSON — preserved so updates can merge without losing unknown fields. */
-    val rawContentJson: String? = null
+    val rawContentJson: String? = null,
 )
 
 data class CachedEvent(
@@ -124,7 +123,7 @@ data class CachedEvent(
     val kind: Int,
     val content: String,
     val createdAt: Long,
-    val tags: List<List<String>>
+    val tags: List<List<String>>,
 )
 
 /**
@@ -134,16 +133,19 @@ data class CachedEvent(
 sealed class PublishResult {
     /** Event accepted by relay */
     data class Success(val eventId: String, val message: String?) : PublishResult()
+
     /** Event rejected by relay */
     data class Rejected(val eventId: String, val reason: String) : PublishResult()
+
     /** Timeout waiting for OK response */
     data class Timeout(val eventId: String) : PublishResult()
+
     /** Error during publish (network, etc.) */
     data class Error(val eventId: String, val exception: Exception) : PublishResult()
 }
 
 class NostrGroupClient(
-    private val relayUrl: String = "wss://groups.fiatjaf.com"
+    private val relayUrl: String = "wss://groups.fiatjaf.com",
 ) {
     // Managed coroutine scope for this client - cancelled on disconnect
     private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -203,20 +205,16 @@ class NostrGroupClient(
      * Parse NIP-42 AUTH challenge from relay
      * Returns the challenge string if this is an AUTH message, null otherwise
      */
-    fun parseAuthChallenge(message: String): String? {
-        return try {
-            parseAuthChallenge(json.parseToJsonElement(message).jsonArray)
-        } catch (e: Exception) {
-            null
-        }
+    fun parseAuthChallenge(message: String): String? = try {
+        parseAuthChallenge(json.parseToJsonElement(message).jsonArray)
+    } catch (e: Exception) {
+        null
     }
 
-    fun parseAuthChallenge(arr: JsonArray): String? {
-        return if (arr.size >= 2 && arr[0].jsonPrimitive.content == "AUTH") {
-            arr[1].jsonPrimitive.content
-        } else {
-            null
-        }
+    fun parseAuthChallenge(arr: JsonArray): String? = if (arr.size >= 2 && arr[0].jsonPrimitive.content == "AUTH") {
+        arr[1].jsonPrimitive.content
+    } else {
+        null
     }
 
     suspend fun connect(onMessage: (String) -> Unit) {
@@ -293,23 +291,19 @@ class NostrGroupClient(
         }
     }
 
-    suspend fun waitForConnection(timeoutMs: Long = 7_000): Boolean {
-        return withTimeoutOrNull(timeoutMs) {
-            connectionResult.await()
-        } ?: false
-    }
+    suspend fun waitForConnection(timeoutMs: Long = 7_000): Boolean = withTimeoutOrNull(timeoutMs) {
+        connectionResult.await()
+    } ?: false
 
     /**
      * Wait for the relay's NIP-42 AUTH challenge to be answered.
      * Returns true if auth completed, false if the relay didn't send a challenge
      * within [timeoutMs] (meaning it likely doesn't require auth).
      */
-    suspend fun awaitAuthOrTimeout(timeoutMs: Long = 2_000): Boolean {
-        return withTimeoutOrNull(timeoutMs) {
-            authCompleted.await()
-            true
-        } ?: false
-    }
+    suspend fun awaitAuthOrTimeout(timeoutMs: Long = 2_000): Boolean = withTimeoutOrNull(timeoutMs) {
+        authCompleted.await()
+        true
+    } ?: false
 
     /** Called after the AUTH response has been sent to the relay. */
     fun notifyAuthCompleted() {
@@ -356,7 +350,7 @@ class NostrGroupClient(
     suspend fun sendAndAwaitOk(
         eventJson: String,
         eventId: String,
-        timeoutMs: Long = 10_000
+        timeoutMs: Long = 10_000,
     ): PublishResult {
         val deferred = CompletableDeferred<PublishResult>()
 
@@ -387,7 +381,8 @@ class NostrGroupClient(
             // isConnected() returns false and reconnect logic can kick in.
             val msg = e.message ?: ""
             if (msg.contains("Channel was cancelled", ignoreCase = true) ||
-                msg.contains("closed", ignoreCase = true)) {
+                msg.contains("closed", ignoreCase = true)
+            ) {
                 session = null
             }
             PublishResult.Error(eventId, e)
@@ -399,23 +394,19 @@ class NostrGroupClient(
      * Format: ["OK", <event_id>, <success>, <message>]
      * @return Triple of (eventId, success, message) or null if not an OK message
      */
-    fun parseOkMessage(message: String): Triple<String, Boolean, String?>? {
-        return try {
-            parseOkMessage(json.parseToJsonElement(message).jsonArray)
-        } catch (e: Exception) {
-            null
-        }
+    fun parseOkMessage(message: String): Triple<String, Boolean, String?>? = try {
+        parseOkMessage(json.parseToJsonElement(message).jsonArray)
+    } catch (e: Exception) {
+        null
     }
 
-    fun parseOkMessage(arr: JsonArray): Triple<String, Boolean, String?>? {
-        return if (arr.size >= 3 && arr[0].jsonPrimitive.content == "OK") {
-            val eventId = arr[1].jsonPrimitive.content
-            val success = arr[2].jsonPrimitive.boolean
-            val okMessage = arr.getOrNull(3)?.jsonPrimitive?.contentOrNull
-            Triple(eventId, success, okMessage)
-        } else {
-            null
-        }
+    fun parseOkMessage(arr: JsonArray): Triple<String, Boolean, String?>? = if (arr.size >= 3 && arr[0].jsonPrimitive.content == "OK") {
+        val eventId = arr[1].jsonPrimitive.content
+        val success = arr[2].jsonPrimitive.boolean
+        val okMessage = arr.getOrNull(3)?.jsonPrimitive?.contentOrNull
+        Triple(eventId, success, okMessage)
+    } else {
+        null
     }
 
     /**
@@ -494,7 +485,7 @@ class NostrGroupClient(
         create9007EventJson: String,
         create9007EventId: String,
         suggestedGroupId: String,
-        timeoutMs: Long = 15_000
+        timeoutMs: Long = 15_000,
     ): String {
         val halfTimeout = timeoutMs / 2
 
@@ -515,14 +506,18 @@ class NostrGroupClient(
         }
 
         return try {
-            send(buildJsonArray {
-                add("REQ")
-                add(subId)
-                add(buildJsonObject {
-                    putJsonArray("kinds") { add(39000) }
-                    putJsonArray("#d") { add(suggestedGroupId) }
-                })
-            }.toString())
+            send(
+                buildJsonArray {
+                    add("REQ")
+                    add(subId)
+                    add(
+                        buildJsonObject {
+                            putJsonArray("kinds") { add(39000) }
+                            putJsonArray("#d") { add(suggestedGroupId) }
+                        },
+                    )
+                }.toString(),
+            )
 
             // Step 3: wait for the 39000 event, fall back to suggestedGroupId on timeout
             val confirmedId = withTimeoutOrNull(halfTimeout) {
@@ -530,7 +525,12 @@ class NostrGroupClient(
             }
 
             // Close the temporary subscription
-            send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+            send(
+                buildJsonArray {
+                    add("CLOSE")
+                    add(subId)
+                }.toString(),
+            )
 
             confirmedId ?: suggestedGroupId
         } finally {
@@ -563,7 +563,7 @@ class NostrGroupClient(
             add(
                 buildJsonObject {
                     putJsonArray("kinds") { add(39000) }
-                }
+                },
             )
         }
         sendJson(req)
@@ -587,10 +587,12 @@ class NostrGroupClient(
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(39000) }
-                putJsonArray("#d") { groupIds.forEach { add(it) } }
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(39000) }
+                    putJsonArray("#d") { groupIds.forEach { add(it) } }
+                },
+            )
         }
         sendJson(req)
     }
@@ -610,208 +612,314 @@ class NostrGroupClient(
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(39000) }
-                put("#d", buildJsonArray { add(groupId) })
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(39000) }
+                    put("#d", buildJsonArray { add(groupId) })
+                },
+            )
         }
         sendJson(req)
         return subId
     }
 
-suspend fun requestGroupMessages(
-    groupId: String,
-    channel: String? = null,
-    until: Long? = null,
-    limit: Int = 50,
-    subscriptionId: String? = null
-): String {
-    val subId = subscriptionId ?: "msg_${epochMillis()}"
+    suspend fun requestGroupMessages(
+        groupId: String,
+        channel: String? = null,
+        until: Long? = null,
+        limit: Int = 50,
+        subscriptionId: String? = null,
+    ): String {
+        val subId = subscriptionId ?: "msg_${epochMillis()}"
 
-    // Reactions (kind 7) and zaps (kind 9321) are excluded from the paginated
-    // subscription to preserve the per-group limit budget. They are fetched via
-    // the mux_reactions sub and the live subscription instead.
-    val subscription = buildJsonArray {
-        add("REQ")
-        add(subId)
-        add(buildJsonObject {
-            put("kinds", buildJsonArray {
-                add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9005); add(9009); add(9021); add(9022)
-            })
-            put("#h", buildJsonArray { add(groupId) })
-            // Only filter by channel if it's NOT "general"
-            if (channel != null && channel != "general") {
-                put("#channel", buildJsonArray {
-                    add(channel)
-                })
-            }
-            // Pagination: fetch messages before this timestamp
-            if (until != null) {
-                put("until", until)
-            }
-            put("limit", limit)
-        })
-    }.toString()
+        // Reactions (kind 7) and zaps (kind 9321) are excluded from the paginated
+        // subscription to preserve the per-group limit budget. They are fetched via
+        // the mux_reactions sub and the live subscription instead.
+        val subscription = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    put(
+                        "kinds",
+                        buildJsonArray {
+                            add(5)
+                            add(9)
+                            add(9000)
+                            add(9001)
+                            add(9002)
+                            add(9003)
+                            add(9005)
+                            add(9009)
+                            add(9021)
+                            add(9022)
+                        },
+                    )
+                    put("#h", buildJsonArray { add(groupId) })
+                    // Only filter by channel if it's NOT "general"
+                    if (channel != null && channel != "general") {
+                        put(
+                            "#channel",
+                            buildJsonArray {
+                                add(channel)
+                            },
+                        )
+                    }
+                    // Pagination: fetch messages before this timestamp
+                    if (until != null) {
+                        put("until", until)
+                    }
+                    put("limit", limit)
+                },
+            )
+        }.toString()
 
-    send(subscription)  // may throw — caller (GroupManager) catches and handles via state machine
-    return subId
-}
-
-/**
- * Fetch reactions (kind 7) for specific message IDs.
- * Chachi-style approach: after loading messages, request reactions by event ID
- * so they don't consume the paginated message limit.
- */
-suspend fun requestReactionsForMessages(messageIds: List<String>): String? {
-    if (messageIds.isEmpty()) return null
-    val subId = "reactions_${epochMillis()}"
-    val subscription = buildJsonArray {
-        add("REQ")
-        add(subId)
-        add(buildJsonObject {
-            put("kinds", buildJsonArray { add(7); add(9321) })
-            put("#e", buildJsonArray { messageIds.forEach { add(it) } })
-        })
-    }.toString()
-    send(subscription)
-    return subId
-}
-
-/**
- * Deterministic sub ID for the relay-level multiplexed chat subscription.
- * Using the relay URL hash makes it stable across reconnects so the relay doesn't
- * accumulate duplicate slots.
- */
-fun muxChatSubId(): String = "mux_chat_${relayUrl.hashCode().toUInt()}"
-
-/**
- * Deterministic sub ID for the relay-level multiplexed reactions subscription.
- */
-fun muxReactionsSubId(): String = "mux_reactions_${relayUrl.hashCode().toUInt()}"
-
-/**
- * Deterministic sub ID for the relay-level multiplexed group-metadata subscription.
- */
-fun muxMetaSubId(): String = "mux_meta_${relayUrl.hashCode().toUInt()}"
-
-/**
- * Deterministic sub ID for the relay-level delete-group watch (kind:9008).
- */
-fun muxDeleteSubId(): String = "mux_del_${relayUrl.hashCode().toUInt()}"
-
-/**
- * Send (or refresh) the three relay-level multiplexed subscriptions.
- *
- * Replaces per-group `live_<id>` + `reactions_<id>` with three relay-scoped REQs that cover
- * ALL joined/loaded groups on this relay simultaneously.  Benefits:
- *
- * - N×3 per-group subs → 3 per-relay subs regardless of group count
- * - A single reconnect re-subscribes everything with one round-trip
- * - `since = min(cursors)` ensures no group misses events during the offline window
- *
- * Idempotent: sends CLOSE before REQ so calling it multiple times is safe.
- *
- * @param metadataGroupIds Group IDs for the metadata mux (kind:39000 — all joined groups).
- * @param chatGroupIds     Group IDs for chat + reactions mux (opened groups).
- * @param chatSinceSeconds Unix-seconds `since` for chat/reactions (cursor for opened groups).
- */
-suspend fun sendMuxSubscriptions(
-    metadataGroupIds: List<String>,
-    chatGroupIds: List<String>,
-    chatSinceSeconds: Long
-) {
-    if (metadataGroupIds.isEmpty() && chatGroupIds.isEmpty()) return
-    val chatSubId = muxChatSubId()
-    val reactSubId = muxReactionsSubId()
-    val metaSubId = muxMetaSubId()
-    val delSubId = muxDeleteSubId()
-
-    // Close the previous mux slots first (idempotent — no-op if not open).
-    send(buildJsonArray { add("CLOSE"); add(chatSubId) }.toString())
-    send(buildJsonArray { add("CLOSE"); add(reactSubId) }.toString())
-    send(buildJsonArray { add("CLOSE"); add(metaSubId) }.toString())
-    send(buildJsonArray { add("CLOSE"); add(delSubId) }.toString())
-
-    // Chat + admin events for opened groups.
-    if (chatGroupIds.isNotEmpty()) {
-        send(buildJsonArray {
-            add("REQ"); add(chatSubId)
-            add(buildJsonObject {
-                putJsonArray("kinds") {
-                    add(5); add(9); add(9000); add(9001); add(9002); add(9003); add(9005); add(9009); add(9021); add(9022)
-                }
-                putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
-                put("since", chatSinceSeconds)
-            })
-        }.toString())
-
-        // Reactions / zaps for opened groups.
-        send(buildJsonArray {
-            add("REQ"); add(reactSubId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(7); add(9321) }
-                putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
-                put("since", chatSinceSeconds)
-            })
-        }.toString())
+        send(subscription) // may throw — caller (GroupManager) catches and handles via state machine
+        return subId
     }
 
-    // Group metadata + members + admins (kinds 39000, 39001, 39002) for all joined groups.
-    // All three are addressable (replaceable), so the relay always returns the latest
-    // state. No `since` filter — avoids massive backfill traffic on relays with many groups.
-    // Including 39001/39002 here makes member/admin lists arrive reliably via the mux
-    // instead of depending solely on individual per-group requests that can fail silently.
-    if (metadataGroupIds.isNotEmpty()) {
-        send(buildJsonArray {
-            add("REQ"); add(metaSubId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(39000); add(39001); add(39002) }
-                putJsonArray("#d") { metadataGroupIds.forEach { add(it) } }
-            })
-        }.toString())
-
-        // Delete-group watch for every joined group on this relay. kind:9008 is the only
-        // authoritative signal that a group was destroyed; without this, non-admin members
-        // never find out and the stale metadata lingers in their UI.
-        // Uses `since` so historical deletions don't poison the in-memory deletedGroupIds
-        // set and make existing groups disappear until the user reloads.
-        val delSince = epochMillis() / 1000 - 60
-        send(buildJsonArray {
-            add("REQ"); add(delSubId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(9008) }
-                putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
-                put("since", delSince)
-            })
-        }.toString())
+/**
+     * Fetch reactions (kind 7) for specific message IDs.
+     * Chachi-style approach: after loading messages, request reactions by event ID
+     * so they don't consume the paginated message limit.
+     */
+    suspend fun requestReactionsForMessages(messageIds: List<String>): String? {
+        if (messageIds.isEmpty()) return null
+        val subId = "reactions_${epochMillis()}"
+        val subscription = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    put(
+                        "kinds",
+                        buildJsonArray {
+                            add(7)
+                            add(9321)
+                        },
+                    )
+                    put("#e", buildJsonArray { messageIds.forEach { add(it) } })
+                },
+            )
+        }.toString()
+        send(subscription)
+        return subId
     }
-}
 
 /**
- * Superseded by [sendMuxSubscriptions] — kept as a single-group fallback.
- * @param sinceSeconds  Cursor-based Unix-seconds since value from [LiveCursorStore].
- */
-suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
-    val subId = "live_${groupId.take(8)}"
-    val since = sinceSeconds ?: (epochMillis() / 1000 - 60)
-    send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
-    send(buildJsonArray {
-        add("REQ")
-        add(subId)
-        add(buildJsonObject {
-            putJsonArray("kinds") {
-                add(5); add(7); add(9); add(9000); add(9001); add(9002); add(9003); add(9021); add(9022); add(9321)
-            }
-            put("#h", buildJsonArray { add(groupId) })
-            put("since", since)
-        })
-    }.toString())
-}
+     * Deterministic sub ID for the relay-level multiplexed chat subscription.
+     * Using the relay URL hash makes it stable across reconnects so the relay doesn't
+     * accumulate duplicate slots.
+     */
+    fun muxChatSubId(): String = "mux_chat_${relayUrl.hashCode().toUInt()}"
+
+/**
+     * Deterministic sub ID for the relay-level multiplexed reactions subscription.
+     */
+    fun muxReactionsSubId(): String = "mux_reactions_${relayUrl.hashCode().toUInt()}"
+
+/**
+     * Deterministic sub ID for the relay-level multiplexed group-metadata subscription.
+     */
+    fun muxMetaSubId(): String = "mux_meta_${relayUrl.hashCode().toUInt()}"
+
+/**
+     * Deterministic sub ID for the relay-level delete-group watch (kind:9008).
+     */
+    fun muxDeleteSubId(): String = "mux_del_${relayUrl.hashCode().toUInt()}"
+
+/**
+     * Send (or refresh) the three relay-level multiplexed subscriptions.
+     *
+     * Replaces per-group `live_<id>` + `reactions_<id>` with three relay-scoped REQs that cover
+     * ALL joined/loaded groups on this relay simultaneously.  Benefits:
+     *
+     * - N×3 per-group subs → 3 per-relay subs regardless of group count
+     * - A single reconnect re-subscribes everything with one round-trip
+     * - `since = min(cursors)` ensures no group misses events during the offline window
+     *
+     * Idempotent: sends CLOSE before REQ so calling it multiple times is safe.
+     *
+     * @param metadataGroupIds Group IDs for the metadata mux (kind:39000 — all joined groups).
+     * @param chatGroupIds     Group IDs for chat + reactions mux (opened groups).
+     * @param chatSinceSeconds Unix-seconds `since` for chat/reactions (cursor for opened groups).
+     */
+    suspend fun sendMuxSubscriptions(
+        metadataGroupIds: List<String>,
+        chatGroupIds: List<String>,
+        chatSinceSeconds: Long,
+    ) {
+        if (metadataGroupIds.isEmpty() && chatGroupIds.isEmpty()) return
+        val chatSubId = muxChatSubId()
+        val reactSubId = muxReactionsSubId()
+        val metaSubId = muxMetaSubId()
+        val delSubId = muxDeleteSubId()
+
+        // Close the previous mux slots first (idempotent — no-op if not open).
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(chatSubId)
+            }.toString(),
+        )
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(reactSubId)
+            }.toString(),
+        )
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(metaSubId)
+            }.toString(),
+        )
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(delSubId)
+            }.toString(),
+        )
+
+        // Chat + admin events for opened groups.
+        if (chatGroupIds.isNotEmpty()) {
+            send(
+                buildJsonArray {
+                    add("REQ")
+                    add(chatSubId)
+                    add(
+                        buildJsonObject {
+                            putJsonArray("kinds") {
+                                add(5)
+                                add(9)
+                                add(9000)
+                                add(9001)
+                                add(9002)
+                                add(9003)
+                                add(9005)
+                                add(9009)
+                                add(9021)
+                                add(9022)
+                            }
+                            putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
+                            put("since", chatSinceSeconds)
+                        },
+                    )
+                }.toString(),
+            )
+
+            // Reactions / zaps for opened groups.
+            send(
+                buildJsonArray {
+                    add("REQ")
+                    add(reactSubId)
+                    add(
+                        buildJsonObject {
+                            putJsonArray("kinds") {
+                                add(7)
+                                add(9321)
+                            }
+                            putJsonArray("#h") { chatGroupIds.forEach { add(it) } }
+                            put("since", chatSinceSeconds)
+                        },
+                    )
+                }.toString(),
+            )
+        }
+
+        // Group metadata + members + admins (kinds 39000, 39001, 39002) for all joined groups.
+        // All three are addressable (replaceable), so the relay always returns the latest
+        // state. No `since` filter — avoids massive backfill traffic on relays with many groups.
+        // Including 39001/39002 here makes member/admin lists arrive reliably via the mux
+        // instead of depending solely on individual per-group requests that can fail silently.
+        if (metadataGroupIds.isNotEmpty()) {
+            send(
+                buildJsonArray {
+                    add("REQ")
+                    add(metaSubId)
+                    add(
+                        buildJsonObject {
+                            putJsonArray("kinds") {
+                                add(39000)
+                                add(39001)
+                                add(39002)
+                            }
+                            putJsonArray("#d") { metadataGroupIds.forEach { add(it) } }
+                        },
+                    )
+                }.toString(),
+            )
+
+            // Delete-group watch for every joined group on this relay. kind:9008 is the only
+            // authoritative signal that a group was destroyed; without this, non-admin members
+            // never find out and the stale metadata lingers in their UI.
+            // Uses `since` so historical deletions don't poison the in-memory deletedGroupIds
+            // set and make existing groups disappear until the user reloads.
+            val delSince = epochMillis() / 1000 - 60
+            send(
+                buildJsonArray {
+                    add("REQ")
+                    add(delSubId)
+                    add(
+                        buildJsonObject {
+                            putJsonArray("kinds") { add(9008) }
+                            putJsonArray("#h") { metadataGroupIds.forEach { add(it) } }
+                            put("since", delSince)
+                        },
+                    )
+                }.toString(),
+            )
+        }
+    }
+
+/**
+     * Superseded by [sendMuxSubscriptions] — kept as a single-group fallback.
+     * @param sinceSeconds  Cursor-based Unix-seconds since value from [LiveCursorStore].
+     */
+    suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
+        val subId = "live_${groupId.take(8)}"
+        val since = sinceSeconds ?: (epochMillis() / 1000 - 60)
+        send(
+            buildJsonArray {
+                add("CLOSE")
+                add(subId)
+            }.toString(),
+        )
+        send(
+            buildJsonArray {
+                add("REQ")
+                add(subId)
+                add(
+                    buildJsonObject {
+                        putJsonArray("kinds") {
+                            add(5)
+                            add(7)
+                            add(9)
+                            add(9000)
+                            add(9001)
+                            add(9002)
+                            add(9003)
+                            add(9021)
+                            add(9022)
+                            add(9321)
+                        }
+                        put("#h", buildJsonArray { add(groupId) })
+                        put("since", since)
+                    },
+                )
+            }.toString(),
+        )
+    }
 
     /** Best-effort CLOSE — swallows send failures so the subsequent REQ always runs. */
     private suspend fun trySendClose(subId: String) {
         try {
-            send(buildJsonArray { add("CLOSE"); add(subId) }.toString())
+            send(
+                buildJsonArray {
+                    add("CLOSE")
+                    add(subId)
+                }.toString(),
+            )
         } catch (_: Exception) {
             // Not connected yet or session gone — safe to ignore; relay will
             // simply treat the next REQ as a fresh subscription.
@@ -873,7 +981,9 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                     arr.drop(3).mapNotNull {
                         it.jsonPrimitive.content.takeIf { s -> s.isNotEmpty() }
                     }
-                } else emptyList()
+                } else {
+                    emptyList()
+                }
                 DeclaredChild(id = childId, order = order, flags = flags)
             }
 
@@ -887,7 +997,7 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                 parent = parent,
                 parentAttestation = parentAttestation,
                 children = children,
-                closedChildren = tagNames.contains("closed-children")
+                closedChildren = tagNames.contains("closed-children"),
             )
         } catch (e: Exception) {
             null
@@ -925,7 +1035,7 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
 
             GroupMembers(
                 groupId = groupId,
-                members = members
+                members = members,
             )
         } catch (e: Exception) {
             null
@@ -987,7 +1097,7 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                 .map { tag ->
                     RoleDefinition(
                         name = tag.jsonArray[1].jsonPrimitive.content,
-                        description = if (tag.jsonArray.size >= 3) tag.jsonArray[2].jsonPrimitive.content else ""
+                        description = if (tag.jsonArray.size >= 3) tag.jsonArray[2].jsonPrimitive.content else "",
                     )
                 }
 
@@ -1008,10 +1118,12 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(39003) }
-                put("#d", buildJsonArray { add(groupId) })
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(39003) }
+                    put("#d", buildJsonArray { add(groupId) })
+                },
+            )
         }
         sendJson(req)
         return subId
@@ -1030,10 +1142,12 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(39001) }
-                put("#d", buildJsonArray { add(groupId) })
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(39001) }
+                    put("#d", buildJsonArray { add(groupId) })
+                },
+            )
         }
         sendJson(req)
         return subId
@@ -1050,10 +1164,12 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(39002) }
-                put("#d", buildJsonArray { add(groupId) })
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(39002) }
+                    put("#d", buildJsonArray { add(groupId) })
+                },
+            )
         }
         sendJson(req)
         return subId
@@ -1078,18 +1194,21 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
 
             val metadata = json.parseToJsonElement(content).jsonObject
 
-            Pair(pubkey, UserMetadata(
-                pubkey = pubkey,
-                name = metadata["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                displayName = metadata["display_name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                picture = metadata["picture"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                about = metadata["about"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                banner = metadata["banner"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                lud16 = metadata["lud16"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                website = metadata["website"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
-                rawContentJson = content
-            ))
+            Pair(
+                pubkey,
+                UserMetadata(
+                    pubkey = pubkey,
+                    name = metadata["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    displayName = metadata["display_name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    picture = metadata["picture"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    about = metadata["about"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    banner = metadata["banner"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    lud16 = metadata["lud16"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    website = metadata["website"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    rawContentJson = content,
+                ),
+            )
         } catch (e: Exception) {
             null
         }
@@ -1102,7 +1221,7 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         val content: String,
         val createdAt: Long,
         val kind: Int,
-        val tags: List<List<String>> = emptyList()
+        val tags: List<List<String>> = emptyList(),
     )
 
     @Immutable
@@ -1143,7 +1262,7 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
                 content = event["content"]?.jsonPrimitive?.content ?: "",
                 createdAt = event["created_at"]?.jsonPrimitive?.long ?: (epochMillis() / 1000),
                 kind = event["kind"]?.jsonPrimitive?.int ?: 0,
-                tags = tags
+                tags = tags,
             )
         } catch (e: Exception) {
             null
@@ -1201,81 +1320,86 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
     }
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    fun prettyPrintEvent(message: String): String {
-        return try {
-            val json = Json { 
-                ignoreUnknownKeys = true
-                prettyPrint = true
-                prettyPrintIndent = "  "
-            }
-            val arr = json.parseToJsonElement(message).jsonArray
-            
-            when (arr[0].jsonPrimitive.content) {
-                "EVENT" -> {
-                    val event = arr[2].jsonObject
-                    val kind = event["kind"]?.jsonPrimitive?.int
-                    val pubkey = event["pubkey"]?.jsonPrimitive?.content?.take(8) ?: "unknown"
-                    val content = event["content"]?.jsonPrimitive?.content?.take(50) ?: ""
-                    
-                    buildString {
-                        appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                        appendLine("📨 EVENT Received")
-                        appendLine("Type: kind $kind")
-                        appendLine("From: $pubkey...")
-                        when (kind) {
-                            0 -> appendLine("Category: User Profile (metadata)")
-                            5 -> appendLine("Category: Deletion Request (NIP-09)")
-                            7 -> appendLine("Category: Reaction")
-                            9 -> appendLine("Category: Group Message (NIP-29)")
-                            9000 -> appendLine("Category: Admin Add User (NIP-29)")
-                            9001 -> appendLine("Category: Admin Remove User (NIP-29)")
-                            9005 -> appendLine("Category: Admin Delete Event (NIP-29)")
-                            9008 -> appendLine("Category: Admin Edit Metadata (NIP-29)")
-                            9021 -> appendLine("Category: Join Group Request")
-                            9022 -> appendLine("Category: Leave Group Request")
-                            9321 -> appendLine("Category: Zap Request (NIP-57)")
-                            30382 -> appendLine("Category: Group List (NIP-51)")
-                            39000 -> appendLine("Category: Group Metadata")
-                            39002 -> appendLine("Category: Group Members")
-                            else -> appendLine("Category: Unknown")
-                        }
-                        appendLine("Content: ${if (content.length > 50) content.take(50) + "..." else content}")
-                        appendLine("Full JSON:")
-                        appendLine(json.encodeToString(JsonElement.serializer(), arr))
-                        appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                    }
-                }
-                "EOSE" -> "✅ End of Stored Events (subscription: ${arr.getOrNull(1)?.jsonPrimitive?.content})"
-                "OK" -> {
-                    val eventId = arr.getOrNull(1)?.jsonPrimitive?.content?.take(8)
-                    val success = arr.getOrNull(2)?.jsonPrimitive?.boolean
-                    val message = arr.getOrNull(3)?.jsonPrimitive?.content
-                    "✓ OK Response: Event $eventId -> ${if (success == true) "✅ Success" else "❌ Failed"}: $message"
-                }
-                "NOTICE" -> "⚠️ NOTICE: ${arr.getOrNull(1)?.jsonPrimitive?.content}"
-                "CLOSED" -> "🔒 CLOSED: Subscription ${arr.getOrNull(1)?.jsonPrimitive?.content} closed: ${arr.getOrNull(2)?.jsonPrimitive?.content}"
-                "AUTH" -> "🔐 AUTH: Challenge received: ${arr.getOrNull(1)?.jsonPrimitive?.content?.take(16)}..."
-                else -> "❓ Unknown message type: $message"
-            }
-        } catch (e: Exception) {
-            "⚠️ Failed to parse: $message (${e.message})"
+    fun prettyPrintEvent(message: String): String = try {
+        val json = Json {
+            ignoreUnknownKeys = true
+            prettyPrint = true
+            prettyPrintIndent = "  "
         }
+        val arr = json.parseToJsonElement(message).jsonArray
+
+        when (arr[0].jsonPrimitive.content) {
+            "EVENT" -> {
+                val event = arr[2].jsonObject
+                val kind = event["kind"]?.jsonPrimitive?.int
+                val pubkey = event["pubkey"]?.jsonPrimitive?.content?.take(8) ?: "unknown"
+                val content = event["content"]?.jsonPrimitive?.content?.take(50) ?: ""
+
+                buildString {
+                    appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                    appendLine("📨 EVENT Received")
+                    appendLine("Type: kind $kind")
+                    appendLine("From: $pubkey...")
+                    when (kind) {
+                        0 -> appendLine("Category: User Profile (metadata)")
+                        5 -> appendLine("Category: Deletion Request (NIP-09)")
+                        7 -> appendLine("Category: Reaction")
+                        9 -> appendLine("Category: Group Message (NIP-29)")
+                        9000 -> appendLine("Category: Admin Add User (NIP-29)")
+                        9001 -> appendLine("Category: Admin Remove User (NIP-29)")
+                        9005 -> appendLine("Category: Admin Delete Event (NIP-29)")
+                        9008 -> appendLine("Category: Admin Edit Metadata (NIP-29)")
+                        9021 -> appendLine("Category: Join Group Request")
+                        9022 -> appendLine("Category: Leave Group Request")
+                        9321 -> appendLine("Category: Zap Request (NIP-57)")
+                        30382 -> appendLine("Category: Group List (NIP-51)")
+                        39000 -> appendLine("Category: Group Metadata")
+                        39002 -> appendLine("Category: Group Members")
+                        else -> appendLine("Category: Unknown")
+                    }
+                    appendLine("Content: ${if (content.length > 50) content.take(50) + "..." else content}")
+                    appendLine("Full JSON:")
+                    appendLine(json.encodeToString(JsonElement.serializer(), arr))
+                    appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                }
+            }
+            "EOSE" -> "✅ End of Stored Events (subscription: ${arr.getOrNull(1)?.jsonPrimitive?.content})"
+            "OK" -> {
+                val eventId = arr.getOrNull(1)?.jsonPrimitive?.content?.take(8)
+                val success = arr.getOrNull(2)?.jsonPrimitive?.boolean
+                val message = arr.getOrNull(3)?.jsonPrimitive?.content
+                "✓ OK Response: Event $eventId -> ${if (success == true) "✅ Success" else "❌ Failed"}: $message"
+            }
+            "NOTICE" -> "⚠️ NOTICE: ${arr.getOrNull(1)?.jsonPrimitive?.content}"
+            "CLOSED" -> "🔒 CLOSED: Subscription ${arr.getOrNull(1)?.jsonPrimitive?.content} closed: ${arr.getOrNull(2)?.jsonPrimitive?.content}"
+            "AUTH" -> "🔐 AUTH: Challenge received: ${arr.getOrNull(1)?.jsonPrimitive?.content?.take(16)}..."
+            else -> "❓ Unknown message type: $message"
+        }
+    } catch (e: Exception) {
+        "⚠️ Failed to parse: $message (${e.message})"
     }
 
     suspend fun requestMetadata(pubkeys: List<String>) {
         if (pubkeys.isEmpty()) return
         val subId = "metadata_${pubkeys.first().take(8)}"
         // CLOSE any previous subscription for this pubkey before re-subscribing
-        sendJson(buildJsonArray { add("CLOSE"); add(subId) })
+        sendJson(
+            buildJsonArray {
+                add("CLOSE")
+                add(subId)
+            },
+        )
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(0) } // kind 0 = metadata
-                putJsonArray("authors") {
-                    pubkeys.forEach { add(it) }
-                }
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(0) } // kind 0 = metadata
+                    putJsonArray("authors") {
+                        pubkeys.forEach { add(it) }
+                    }
+                },
+            )
         }
         sendJson(req)
     }
@@ -1286,9 +1410,11 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("ids") { add(eventId) }
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("ids") { add(eventId) }
+                },
+            )
         }
         sendJson(req)
     }
@@ -1299,10 +1425,12 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("ids") { add(messageId) }
-                putJsonArray("#h") { add(groupId) }
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("ids") { add(messageId) }
+                    putJsonArray("#h") { add(groupId) }
+                },
+            )
         }
         sendJson(req)
     }
@@ -1317,12 +1445,14 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
         val req = buildJsonArray {
             add("REQ")
             add(subId)
-            add(buildJsonObject {
-                putJsonArray("kinds") { add(kind) }
-                putJsonArray("authors") { add(pubkey) }
-                putJsonArray("#d") { add(identifier) }
-                put("limit", 1)
-            })
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(kind) }
+                    putJsonArray("authors") { add(pubkey) }
+                    putJsonArray("#d") { add(identifier) }
+                    put("limit", 1)
+                },
+            )
         }
         sendJson(req)
     }
@@ -1347,10 +1477,12 @@ suspend fun sendLiveSubscription(groupId: String, sinceSeconds: Long? = null) {
      * or when orphaning a client after a concurrent connect succeeded first.
      */
     fun cancelAndClose() {
-        onConnectionLost = null   // prevent any further callbacks
+        onConnectionLost = null // prevent any further callbacks
         isDisconnecting = true
         connectionJob?.cancel()
         clientScope.coroutineContext.cancelChildren()
-        try { client.close() } catch (_: Exception) {}
+        try {
+            client.close()
+        } catch (_: Exception) {}
     }
 }

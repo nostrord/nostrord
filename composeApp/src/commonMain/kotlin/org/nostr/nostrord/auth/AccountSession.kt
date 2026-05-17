@@ -5,10 +5,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.concurrent.Volatile
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.saveLastActiveAt
 import org.nostr.nostrord.utils.epochSeconds
+import kotlin.concurrent.Volatile
 
 /**
  * Isolated runtime context for a single active Nostr account.
@@ -49,7 +49,8 @@ class AccountSession(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Throwable) {}
+            } catch (_: Throwable) {
+            }
         }
     }
 
@@ -58,8 +59,14 @@ class AccountSession(
         cancelled = true
         // One last write so the catch-up `since` reflects the moment of switch,
         // not the most recent 30s tick.
-        try { SecureStorage.saveLastActiveAt(pubkey, epochSeconds()) } catch (_: Exception) {}
-        try { signer.dispose() } catch (_: Exception) {}
+        try {
+            SecureStorage.saveLastActiveAt(pubkey, epochSeconds())
+        } catch (_: Exception) {
+        }
+        try {
+            signer.dispose()
+        } catch (_: Exception) {
+        }
         scope.cancel("AccountSession($accountId) cancelled on account switch")
     }
 

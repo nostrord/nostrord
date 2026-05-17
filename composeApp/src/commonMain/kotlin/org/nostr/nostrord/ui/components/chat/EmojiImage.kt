@@ -18,5 +18,5 @@ expect fun EmojiImage(
     contentDescription: String,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Fit,
-    onError: () -> Unit = {}
+    onError: () -> Unit = {},
 )

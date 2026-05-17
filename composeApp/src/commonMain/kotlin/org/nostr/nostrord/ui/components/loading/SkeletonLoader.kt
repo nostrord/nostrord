@@ -17,24 +17,24 @@ import org.nostr.nostrord.ui.theme.NostrordColors
  * Matches the row-style layout of GroupCard component.
  */
 @Composable
-fun GroupCardSkeleton(
-    modifier: Modifier = Modifier
-) {
+fun GroupCardSkeleton(modifier: Modifier = Modifier) {
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .height(48.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(NostrordColors.Surface)
             .padding(horizontal = 12.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Avatar skeleton
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .shimmerEffect()
+                .shimmerEffect(),
         )
 
         Spacer(modifier = Modifier.width(12.dp))
@@ -42,26 +42,28 @@ fun GroupCardSkeleton(
         // Text content
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
         ) {
             // Group name skeleton
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .width(140.dp)
                     .height(14.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .shimmerEffect()
+                    .shimmerEffect(),
             )
 
             Spacer(modifier = Modifier.height(6.dp))
 
             // Description skeleton
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth(0.7f)
                     .height(10.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .shimmerEffect()
+                    .shimmerEffect(),
             )
         }
     }
@@ -74,24 +76,26 @@ fun GroupCardSkeleton(
 @Composable
 fun MessageSkeleton(
     showAvatar: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         // Avatar skeleton
         Box(
             modifier = Modifier.width(48.dp),
-            contentAlignment = Alignment.TopStart
+            contentAlignment = Alignment.TopStart,
         ) {
             if (showAvatar) {
                 Box(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .shimmerEffect()
+                        .shimmerEffect(),
                 )
             }
         }
@@ -103,19 +107,21 @@ fun MessageSkeleton(
                 // Name and time skeleton
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .width(100.dp)
                             .height(14.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .shimmerEffect()
+                            .shimmerEffect(),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Box(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .width(40.dp)
                             .height(10.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .shimmerEffect()
+                            .shimmerEffect(),
                     )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
@@ -123,19 +129,21 @@ fun MessageSkeleton(
 
             // Message content skeleton (random-ish widths)
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth(0.85f)
                     .height(14.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .shimmerEffect()
+                    .shimmerEffect(),
             )
             Spacer(modifier = Modifier.height(4.dp))
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth(0.6f)
                     .height(14.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .shimmerEffect()
+                    .shimmerEffect(),
             )
         }
     }
@@ -147,7 +155,7 @@ fun MessageSkeleton(
 @Composable
 fun MessagesListSkeleton(
     count: Int = 5,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
         repeat(count) { index ->
@@ -162,32 +170,33 @@ fun MessagesListSkeleton(
  * Skeleton loader for member list items.
  */
 @Composable
-fun MemberSkeleton(
-    modifier: Modifier = Modifier
-) {
+fun MemberSkeleton(modifier: Modifier = Modifier) {
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Avatar
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .size(32.dp)
                 .clip(CircleShape)
-                .shimmerEffect()
+                .shimmerEffect(),
         )
 
         Spacer(modifier = Modifier.width(12.dp))
 
         // Name
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .width(100.dp)
                 .height(14.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .shimmerEffect()
+                .shimmerEffect(),
         )
     }
 }
@@ -199,14 +208,15 @@ fun MemberSkeleton(
 fun SkeletonLine(
     width: Dp = 100.dp,
     height: Dp = 14.dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .width(width)
             .height(height)
             .clip(RoundedCornerShape(4.dp))
-            .shimmerEffect()
+            .shimmerEffect(),
     )
 }
 
@@ -216,13 +226,14 @@ fun SkeletonLine(
 @Composable
 fun SkeletonCircle(
     size: Dp = 40.dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .size(size)
             .clip(CircleShape)
-            .shimmerEffect()
+            .shimmerEffect(),
     )
 }
 
@@ -234,13 +245,14 @@ fun SkeletonBox(
     width: Dp = 100.dp,
     height: Dp = 100.dp,
     cornerRadius: Dp = 8.dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .width(width)
             .height(height)
             .clip(RoundedCornerShape(cornerRadius))
-            .shimmerEffect()
+            .shimmerEffect(),
     )
 }

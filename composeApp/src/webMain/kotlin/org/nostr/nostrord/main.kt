@@ -1,10 +1,8 @@
 package org.nostr.nostrord
 
 import androidx.compose.foundation.background
-import org.nostr.nostrord.utils.toRelayUrl
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import kotlinx.browser.document
 import androidx.compose.runtime.*
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -21,12 +19,14 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.js.Js
 import io.ktor.client.plugins.HttpRedirect
 import io.ktor.client.plugins.HttpTimeout
+import kotlinx.browser.document
 import nostrord.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.preloadFont
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.ui.theme.AppFonts
+import org.nostr.nostrord.utils.toRelayUrl
 
 /**
  * Parse URL query parameters for deep linking.
@@ -37,11 +37,15 @@ private fun parseDeepLinkFromUrl() {
     val search = kotlinx.browser.window.location.search
     if (search.isBlank()) return
 
-    val params = search.removePrefix("?").split("&").associate { param ->
-        val idx = param.indexOf("=")
-        if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1)
-        else param to ""
-    }
+    val params =
+        search.removePrefix("?").split("&").associate { param ->
+            val idx = param.indexOf("=")
+            if (idx >= 0) {
+                param.substring(0, idx) to param.substring(idx + 1)
+            } else {
+                param to ""
+            }
+        }
 
     val viewNotifications = params["view"] == "notifications"
     val relay = params["relay"]?.takeIf { it.isNotBlank() }
@@ -60,11 +64,19 @@ private fun parseDeepLinkFromUrl() {
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
     val messageId = params["e"]?.takeIf { it.isNotBlank() }
 
-    val context = when {
-        groupId != null -> ExternalLaunchContext.OpenGroup(groupId = groupId, groupName = null, relayUrl = relayUrl, inviteCode = inviteCode, messageId = messageId)
-        viewNotifications -> ExternalLaunchContext.OpenNotifications(relayUrl)
-        else -> ExternalLaunchContext.OpenRelay(relayUrl)
-    }
+    val context =
+        when {
+            groupId != null ->
+                ExternalLaunchContext.OpenGroup(
+                    groupId = groupId,
+                    groupName = null,
+                    relayUrl = relayUrl,
+                    inviteCode = inviteCode,
+                    messageId = messageId,
+                )
+            viewNotifications -> ExternalLaunchContext.OpenNotifications(relayUrl)
+            else -> ExternalLaunchContext.OpenRelay(relayUrl)
+        }
     StartupResolver.setExternalLaunchContext(context)
 }
 
@@ -77,26 +89,27 @@ private fun parseDeepLinkFromUrl() {
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
     SingletonImageLoader.setSafe { context ->
-        val httpClient = HttpClient(Js) {
-            install(HttpTimeout) {
-                connectTimeoutMillis = 5_000
-                requestTimeoutMillis = 15_000
-                socketTimeoutMillis = 10_000
+        val httpClient =
+            HttpClient(Js) {
+                install(HttpTimeout) {
+                    connectTimeoutMillis = 5_000
+                    requestTimeoutMillis = 15_000
+                    socketTimeoutMillis = 10_000
+                }
+                install(HttpRedirect) {
+                    checkHttpMethod = false
+                }
             }
-            install(HttpRedirect) {
-                checkHttpMethod = false
-            }
-        }
-        ImageLoader.Builder(context)
+        ImageLoader
+            .Builder(context)
             .components {
                 add(KtorNetworkFetcherFactory(httpClient))
-            }
-            .memoryCache {
-                MemoryCache.Builder()
+            }.memoryCache {
+                MemoryCache
+                    .Builder()
                     .maxSizeBytes(64L * 1024 * 1024)
                     .build()
-            }
-            .build()
+            }.build()
     }
 
     parseDeepLinkFromUrl()
@@ -130,11 +143,13 @@ private fun WebAppWithFontPreloading() {
         if (tier1Registered && notoColorEmoji != null) {
             fontFamilyResolver.preload(FontFamily(listOf(notoColorEmoji)))
             AppFonts.setDefaultFontFamily(
-                FontFamily(buildList {
-                    notoSansRegular?.let { add(it) }
-                    notoSansBold?.let { add(it) }
-                    add(notoColorEmoji)
-                })
+                FontFamily(
+                    buildList {
+                        notoSansRegular?.let { add(it) }
+                        notoSansBold?.let { add(it) }
+                        add(notoColorEmoji)
+                    },
+                ),
             )
         }
     }
@@ -145,16 +160,32 @@ private fun WebAppWithFontPreloading() {
 
     LaunchedEffect(tier2Fonts) {
         tier2Fonts?.let { fonts ->
-            val loadedFonts = buildList {
-                notoSansRegular?.let { add(it) }
-                notoSansBold?.let { add(it) }
-                notoColorEmoji?.let { add(it) }
-                fonts.jp?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-                fonts.sc?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-                fonts.kr?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-                fonts.arabic?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-                fonts.hebrew?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-            }
+            val loadedFonts =
+                buildList {
+                    notoSansRegular?.let { add(it) }
+                    notoSansBold?.let { add(it) }
+                    notoColorEmoji?.let { add(it) }
+                    fonts.jp?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                    fonts.sc?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                    fonts.kr?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                    fonts.arabic?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                    fonts.hebrew?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                }
             if (loadedFonts.isNotEmpty()) {
                 AppFonts.setDefaultFontFamily(FontFamily(loadedFonts))
             }
@@ -163,21 +194,37 @@ private fun WebAppWithFontPreloading() {
 
     LaunchedEffect(tier3Fonts) {
         tier3Fonts?.let { fonts ->
-            val loadedFonts = buildList {
-                notoSansRegular?.let { add(it) }
-                notoSansBold?.let { add(it) }
-                notoColorEmoji?.let { add(it) }
-                tier2Fonts?.jp?.let { add(it) }
-                tier2Fonts?.sc?.let { add(it) }
-                tier2Fonts?.kr?.let { add(it) }
-                tier2Fonts?.arabic?.let { add(it) }
-                tier2Fonts?.hebrew?.let { add(it) }
-                fonts.thai?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-                fonts.cherokee?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-                fonts.symbols?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-                fonts.symbols2?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-                fonts.math?.let { fontFamilyResolver.preload(FontFamily(listOf(it))); add(it) }
-            }
+            val loadedFonts =
+                buildList {
+                    notoSansRegular?.let { add(it) }
+                    notoSansBold?.let { add(it) }
+                    notoColorEmoji?.let { add(it) }
+                    tier2Fonts?.jp?.let { add(it) }
+                    tier2Fonts?.sc?.let { add(it) }
+                    tier2Fonts?.kr?.let { add(it) }
+                    tier2Fonts?.arabic?.let { add(it) }
+                    tier2Fonts?.hebrew?.let { add(it) }
+                    fonts.thai?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                    fonts.cherokee?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                    fonts.symbols?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                    fonts.symbols2?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                    fonts.math?.let {
+                        fontFamilyResolver.preload(FontFamily(listOf(it)))
+                        add(it)
+                    }
+                }
             if (loadedFonts.isNotEmpty()) {
                 AppFonts.setDefaultFontFamily(FontFamily(loadedFonts))
             }
@@ -187,7 +234,8 @@ private fun WebAppWithFontPreloading() {
     if (tier1Ready && tier1Registered) {
         App()
         LaunchedEffect(Unit) {
-            document.getElementById("composeApplication")
+            document
+                .getElementById("composeApplication")
                 ?.setAttribute("data-app-ready", "true")
         }
     } else {
@@ -204,7 +252,7 @@ private data class Tier2FontState(
     val sc: Font?,
     val kr: Font?,
     val arabic: Font?,
-    val hebrew: Font?
+    val hebrew: Font?,
 ) {
     val allLoaded: Boolean
         get() = jp != null && sc != null && kr != null && arabic != null && hebrew != null
@@ -212,15 +260,13 @@ private data class Tier2FontState(
 
 @OptIn(ExperimentalResourceApi::class)
 @Composable
-private fun Tier2Fonts(): Tier2FontState {
-    return Tier2FontState(
-        jp = preloadFont(Res.font.NotoSansJP_Regular).value,
-        sc = preloadFont(Res.font.NotoSansSC_Regular).value,
-        kr = preloadFont(Res.font.NotoSansKR_Regular).value,
-        arabic = preloadFont(Res.font.NotoSansArabic_Regular).value,
-        hebrew = preloadFont(Res.font.NotoSansHebrew_Regular).value
-    )
-}
+private fun Tier2Fonts(): Tier2FontState = Tier2FontState(
+    jp = preloadFont(Res.font.NotoSansJP_Regular).value,
+    sc = preloadFont(Res.font.NotoSansSC_Regular).value,
+    kr = preloadFont(Res.font.NotoSansKR_Regular).value,
+    arabic = preloadFont(Res.font.NotoSansArabic_Regular).value,
+    hebrew = preloadFont(Res.font.NotoSansHebrew_Regular).value,
+)
 
 /**
  * Tier 3 fonts container - specialized scripts (~2MB)
@@ -231,7 +277,7 @@ private data class Tier3FontState(
     val cherokee: Font?,
     val symbols: Font?,
     val symbols2: Font?,
-    val math: Font?
+    val math: Font?,
 ) {
     val allLoaded: Boolean
         get() = thai != null && cherokee != null && symbols != null && symbols2 != null && math != null
@@ -239,12 +285,10 @@ private data class Tier3FontState(
 
 @OptIn(ExperimentalResourceApi::class)
 @Composable
-private fun Tier3Fonts(): Tier3FontState {
-    return Tier3FontState(
-        thai = preloadFont(Res.font.NotoSansThai_Regular).value,
-        cherokee = preloadFont(Res.font.NotoSansCherokee_Regular).value,
-        symbols = preloadFont(Res.font.NotoSansSymbols_Regular).value,
-        symbols2 = preloadFont(Res.font.NotoSansSymbols2_Regular).value,
-        math = preloadFont(Res.font.NotoSansMath_Regular).value
-    )
-}
+private fun Tier3Fonts(): Tier3FontState = Tier3FontState(
+    thai = preloadFont(Res.font.NotoSansThai_Regular).value,
+    cherokee = preloadFont(Res.font.NotoSansCherokee_Regular).value,
+    symbols = preloadFont(Res.font.NotoSansSymbols_Regular).value,
+    symbols2 = preloadFont(Res.font.NotoSansSymbols2_Regular).value,
+    math = preloadFont(Res.font.NotoSansMath_Regular).value,
+)

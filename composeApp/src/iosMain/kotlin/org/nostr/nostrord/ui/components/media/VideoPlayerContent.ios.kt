@@ -23,29 +23,31 @@ actual fun PlatformVideoPlayer(
     thumbnailUrl: String?,
     aspectRatio: Float,
     onFallbackClick: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .aspectRatio(aspectRatio, matchHeightConstraintsFirst = false)
             .clip(RoundedCornerShape(8.dp))
             .background(NostrordColors.SurfaceVariant)
             .clickable(onClick = onFallbackClick),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         // Play button overlay
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(28.dp))
                 .background(NostrordColors.Background.copy(alpha = 0.8f)),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = "▶",
                 style = NostrordTypography.MessageBody,
-                color = NostrordColors.TextPrimary
+                color = NostrordColors.TextPrimary,
             )
         }
     }

@@ -23,7 +23,10 @@ actual fun playNotificationSound() {
         val player = MediaPlayer.create(context, R.raw.message_incoming) ?: return
         player.setVolume(0.6f, 0.6f)
         player.setOnCompletionListener { it.release() }
-        player.setOnErrorListener { mp, _, _ -> mp.release(); true }
+        player.setOnErrorListener { mp, _, _ ->
+            mp.release()
+            true
+        }
         player.start()
     } catch (_: Throwable) {
         // Audio focus conflict or codec failure — silent fallback.

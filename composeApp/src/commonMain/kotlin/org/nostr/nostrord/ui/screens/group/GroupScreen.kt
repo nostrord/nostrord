@@ -2,40 +2,36 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.ui.Alignment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
-import org.nostr.nostrord.network.upload.UploadResult
-import org.nostr.nostrord.utils.Result
-import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.network.managers.ConnectionManager
-import kotlinx.coroutines.delay
+import org.nostr.nostrord.network.upload.UploadResult
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
-import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
-import org.nostr.nostrord.ui.screens.group.components.ManageChildrenModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.screens.group.components.InviteCode
 import org.nostr.nostrord.ui.screens.group.components.InviteCodesModal
 import org.nostr.nostrord.ui.screens.group.components.JoinRequestsModal
+import org.nostr.nostrord.ui.screens.group.components.ManageChildrenModal
 import org.nostr.nostrord.ui.screens.group.components.MemberManagementModal
 import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
-import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
-import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.screens.group.model.buildChatItems
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.epochSeconds
 
 @Composable
 fun GroupScreen(
@@ -50,7 +46,7 @@ fun GroupScreen(
     pendingInviteCode: String? = null,
     onInviteCodeConsumed: () -> Unit = {},
     targetMessageId: String? = null,
-    onTargetMessageConsumed: () -> Unit = {}
+    onTargetMessageConsumed: () -> Unit = {},
 ) {
     val vm = viewModel(key = groupId) { GroupViewModel(AppModule.nostrRepository, groupId) }
 
@@ -87,9 +83,10 @@ fun GroupScreen(
     // the remote signer dance delays everything). Flattening joinedGroupsByRelay
     // gives a stable "any relay has me as a member" view that doesn't race.
     val joinedGroupsByRelay by vm.joinedGroupsByRelay.collectAsState()
-    val joinedGroups = remember(joinedGroupsByRelay) {
-        joinedGroupsByRelay.values.flatten().toSet()
-    }
+    val joinedGroups =
+        remember(joinedGroupsByRelay) {
+            joinedGroupsByRelay.values.flatten().toSet()
+        }
     val groups by vm.groups.collectAsState()
     val groupsByRelay by vm.groupsByRelay.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
@@ -104,31 +101,36 @@ fun GroupScreen(
     val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
     val currentUserPubkey = vm.getPublicKey()
 
-    val currentGroupMetadata = remember(groups, groupId) {
-        groups.find { it.id == groupId }
-    }
+    val currentGroupMetadata =
+        remember(groups, groupId) {
+            groups.find { it.id == groupId }
+        }
 
-    val availableGroups = remember(groupsByRelay) {
-        groupsByRelay.flatMap { (relay, relayGroups) ->
-            relayGroups.map { g ->
-                GroupInfo(id = g.id, name = g.name ?: g.id, picture = g.picture, relay = relay)
-            }
-        }.distinctBy { it.id }
-    }
+    val availableGroups =
+        remember(groupsByRelay) {
+            groupsByRelay
+                .flatMap { (relay, relayGroups) ->
+                    relayGroups.map { g ->
+                        GroupInfo(id = g.id, name = g.name ?: g.id, picture = g.picture, relay = relay)
+                    }
+                }.distinctBy { it.id }
+        }
 
     val isGroupRestricted = allRestrictedGroups.containsKey(groupId)
 
-    val parentGroupName = remember(groups, currentGroupMetadata?.parent, childrenByParent, groupId) {
-        val parentId = currentGroupMetadata?.parent ?: return@remember null
-        // Only show breadcrumb when the parent-child relationship is confirmed
-        val isConfirmed = childrenByParent[parentId]?.contains(groupId) == true
-        if (!isConfirmed) return@remember null
-        groups.find { it.id == parentId }?.name ?: parentId.take(8)
-    }
+    val parentGroupName =
+        remember(groups, currentGroupMetadata?.parent, childrenByParent, groupId) {
+            val parentId = currentGroupMetadata?.parent ?: return@remember null
+            // Only show breadcrumb when the parent-child relationship is confirmed
+            val isConfirmed = childrenByParent[parentId]?.contains(groupId) == true
+            if (!isConfirmed) return@remember null
+            groups.find { it.id == parentId }?.name ?: parentId.take(8)
+        }
 
-    val isAdmin = remember(allGroupAdmins, groupId, currentUserPubkey) {
-        currentUserPubkey != null && currentUserPubkey in (allGroupAdmins[groupId] ?: emptyList())
-    }
+    val isAdmin =
+        remember(allGroupAdmins, groupId, currentUserPubkey) {
+            currentUserPubkey != null && currentUserPubkey in (allGroupAdmins[groupId] ?: emptyList())
+        }
 
     val isLoadingMoreMap by vm.isLoadingMore.collectAsState()
     val hasMoreMessagesMap by vm.hasMoreMessages.collectAsState()
@@ -157,9 +159,10 @@ fun GroupScreen(
     var showCreateSubgroupModal by remember { mutableStateOf(false) }
     var createdInviteCode by remember { mutableStateOf<String?>(null) }
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
-    val isJoined = remember(joinedGroups, groupId) {
-        joinedGroups.contains(groupId)
-    }
+    val isJoined =
+        remember(joinedGroups, groupId) {
+            joinedGroups.contains(groupId)
+        }
 
     val initialInviteCode = remember { pendingInviteCode }
     val isConnected = connectionState is ConnectionManager.ConnectionState.Connected
@@ -181,8 +184,11 @@ fun GroupScreen(
     val memberPubkeys by remember(groupId) {
         derivedStateOf {
             val k39002 = allGroupMembers[groupId] ?: emptyList()
-            if (k39002.isNotEmpty()) k39002
-            else (allMessages[groupId] ?: emptyList()).map { it.pubkey }.distinct()
+            if (k39002.isNotEmpty()) {
+                k39002
+            } else {
+                (allMessages[groupId] ?: emptyList()).map { it.pubkey }.distinct()
+            }
         }
     }
 
@@ -192,17 +198,19 @@ fun GroupScreen(
 
     val groupMembers by remember(groupId) {
         derivedStateOf {
-            memberPubkeys.map { pubkey ->
-                val metadata = userMetadata[pubkey]
-                MemberInfo(
-                    pubkey = pubkey,
-                    displayName = metadata?.displayName
-                        ?: metadata?.name
-                        ?: pubkey.take(8) + "...",
-                    picture = metadata?.picture,
-                    isAdmin = pubkey in adminPubkeys
-                )
-            }.sortedWith(compareByDescending<MemberInfo> { it.isAdmin }.thenBy { it.displayName.lowercase() })
+            memberPubkeys
+                .map { pubkey ->
+                    val metadata = userMetadata[pubkey]
+                    MemberInfo(
+                        pubkey = pubkey,
+                        displayName =
+                        metadata?.displayName
+                            ?: metadata?.name
+                            ?: pubkey.take(8) + "...",
+                        picture = metadata?.picture,
+                        isAdmin = pubkey in adminPubkeys,
+                    )
+                }.sortedWith(compareByDescending<MemberInfo> { it.isAdmin }.thenBy { it.displayName.lowercase() })
         }
     }
 
@@ -210,14 +218,17 @@ fun GroupScreen(
         derivedStateOf {
             val msgs = allMessages[groupId] ?: emptyList()
             val members = (allGroupMembers[groupId] ?: emptyList()).toSet()
-            val lastLeave: Map<String, Long> = msgs
-                .filter { it.kind == 9022 }
-                .groupBy { it.pubkey }
-                .mapValues { (_, events) -> events.maxOf { it.createdAt } }
+            val lastLeave: Map<String, Long> =
+                msgs
+                    .filter { it.kind == 9022 }
+                    .groupBy { it.pubkey }
+                    .mapValues { (_, events) -> events.maxOf { it.createdAt } }
             msgs
                 .filter { it.kind == 9021 && it.pubkey !in members && it.pubkey !in resolvedRequestPubkeys }
-                .filter { req -> val leave = lastLeave[req.pubkey]; leave == null || req.createdAt > leave }
-                .distinctBy { it.pubkey }
+                .filter { req ->
+                    val leave = lastLeave[req.pubkey]
+                    leave == null || req.createdAt > leave
+                }.distinctBy { it.pubkey }
                 .sortedByDescending { it.createdAt }
         }
     }
@@ -232,7 +243,7 @@ fun GroupScreen(
             when {
                 k39002.isNotEmpty() -> pubkey !in k39002
                 isClosed -> true // closed group, no member list yet → assume pending
-                else -> false    // open group, no list yet → don't block
+                else -> false // open group, no list yet → don't block
             }
         }
     }
@@ -265,54 +276,60 @@ fun GroupScreen(
     val inviteCodes by remember(groupId) {
         derivedStateOf {
             val msgs = allMessages[groupId] ?: emptyList()
-            val revokedEventIds = msgs
-                .filter { it.kind == 9005 }
-                .flatMap { msg -> msg.tags.filter { it.firstOrNull() == "e" }.mapNotNull { it.getOrNull(1) } }
-                .toSet()
+            val revokedEventIds =
+                msgs
+                    .filter { it.kind == 9005 }
+                    .flatMap { msg -> msg.tags.filter { it.firstOrNull() == "e" }.mapNotNull { it.getOrNull(1) } }
+                    .toSet()
             msgs
                 .filter { it.kind == 9009 }
                 .mapNotNull { msg ->
                     val code = msg.tags.firstOrNull { it.firstOrNull() == "code" }?.getOrNull(1) ?: return@mapNotNull null
                     if (msg.id in revokedEventIds) return@mapNotNull null
                     InviteCode(code = code, createdAt = msg.createdAt, eventId = msg.id)
-                }
-                .sortedByDescending { it.createdAt }
+                }.sortedByDescending { it.createdAt }
         }
     }
 
-    val recentlyActiveMembers = remember(messages) {
-        val tenMinutesAgo = epochSeconds() - (10 * 60)
-        messages
-            .filter { it.createdAt >= tenMinutesAgo }
-            .map { it.pubkey }
-            .toSet()
-    }
-
-    val connectionStatus = when (connectionState) {
-        is ConnectionManager.ConnectionState.Disconnected -> "Disconnected"
-        is ConnectionManager.ConnectionState.Connecting -> "Connecting..."
-        is ConnectionManager.ConnectionState.Connected -> "Connected"
-        is ConnectionManager.ConnectionState.Reconnecting -> {
-            val state = connectionState as ConnectionManager.ConnectionState.Reconnecting
-            "Reconnecting (${state.attempt}/${state.maxAttempts})..."
+    val recentlyActiveMembers =
+        remember(messages) {
+            val tenMinutesAgo = epochSeconds() - (10 * 60)
+            messages
+                .filter { it.createdAt >= tenMinutesAgo }
+                .map { it.pubkey }
+                .toSet()
         }
-        is ConnectionManager.ConnectionState.Error -> "Connection lost"
-    }
+
+    val connectionStatus =
+        when (connectionState) {
+            is ConnectionManager.ConnectionState.Disconnected -> "Disconnected"
+            is ConnectionManager.ConnectionState.Connecting -> "Connecting..."
+            is ConnectionManager.ConnectionState.Connected -> "Connected"
+            is ConnectionManager.ConnectionState.Reconnecting -> {
+                val state = connectionState as ConnectionManager.ConnectionState.Reconnecting
+                "Reconnecting (${state.attempt}/${state.maxAttempts})..."
+            }
+            is ConnectionManager.ConnectionState.Error -> "Connection lost"
+        }
 
     // Snapshot of the last-read timestamp at screen entry. The "new messages" divider
     // anchors on this value and stays in place even after markAsRead updates storage,
     // so the user keeps visual context for the session.
     val lastReadSnapshot = remember(groupId) { vm.getLastReadTimestamp() }
 
-    val chatItems = remember(messages, lastReadSnapshot) {
-        buildChatItems(messages, lastReadSnapshot, currentUserPubkey)
-    }
+    val chatItems =
+        remember(messages, lastReadSnapshot) {
+            buildChatItems(messages, lastReadSnapshot, currentUserPubkey)
+        }
 
     val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
     // Pending/restricted relays never deliver the member list, so the skeleton
     // would spin forever — force-off so the sidebar can render its empty state.
-    val isMembersLoading = groupId in loadingMembersSet && groupMembers.isEmpty() &&
-            !isPendingApproval && !isGroupRestricted
+    val isMembersLoading =
+        groupId in loadingMembersSet &&
+            groupMembers.isEmpty() &&
+            !isPendingApproval &&
+            !isGroupRestricted
 
     LaunchedEffect(groupId) {
         vm.requestGroupMessages(selectedChannel)
@@ -345,7 +362,7 @@ fun GroupScreen(
                 showGroupInfoModal = false
                 selectedUserPubkey = pubkey
             },
-            onDismiss = { showGroupInfoModal = false }
+            onDismiss = { showGroupInfoModal = false },
         )
     }
 
@@ -357,7 +374,7 @@ fun GroupScreen(
             onGroupCreated = { newId, newName ->
                 showCreateSubgroupModal = false
                 onNavigateToGroup(newId, newName, null)
-            }
+            },
         )
     }
 
@@ -368,7 +385,7 @@ fun GroupScreen(
             currentMetadata = currentGroupMetadata,
             onDismiss = { showEditGroupModal = false },
             onGroupUpdated = { showEditGroupModal = false },
-            showSubgroupControls = subgroupsEnabled
+            showSubgroupControls = subgroupsEnabled,
         )
     }
 
@@ -378,7 +395,7 @@ fun GroupScreen(
             groupId = groupId,
             currentMetadata = currentGroupMetadata,
             onDismiss = { showManageChildrenModal = false },
-            onSaved = { showManageChildrenModal = false }
+            onSaved = { showManageChildrenModal = false },
         )
     }
 
@@ -390,7 +407,7 @@ fun GroupScreen(
             onPromoteToAdmin = { pubkey -> vm.promoteToAdmin(pubkey) },
             onDemoteFromAdmin = { pubkey -> vm.demoteFromAdmin(pubkey) },
             onRemoveMember = { member -> vm.removeUser(member.pubkey) },
-            onDismiss = { showMemberManagementModal = false }
+            onDismiss = { showMemberManagementModal = false },
         )
     }
 
@@ -411,7 +428,7 @@ fun GroupScreen(
             groupId = groupId,
             createdCode = createdInviteCode,
             errorMessage = moderationError,
-            onClearError = { vm.clearModerationError() }
+            onClearError = { vm.clearModerationError() },
         )
     }
 
@@ -426,7 +443,9 @@ fun GroupScreen(
             title = { Text("Delete Group") },
             text = {
                 Column {
-                    Text("Are you sure you want to permanently delete \"${currentGroupMetadata?.name ?: groupName ?: "this group"}\"? This action cannot be undone.")
+                    Text(
+                        "Are you sure you want to permanently delete \"${currentGroupMetadata?.name ?: groupName ?: "this group"}\"? This action cannot be undone.",
+                    )
                     deleteErrorMessage?.let { err ->
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(err, color = NostrordColors.Error)
@@ -436,7 +455,7 @@ fun GroupScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             "This group has $childCount subgroup${if (childCount == 1) "" else "s"} that will become root groups.",
-                            color = NostrordColors.TextPrimary
+                            color = NostrordColors.TextPrimary,
                         )
                     }
                 }
@@ -461,7 +480,7 @@ fun GroupScreen(
                                 }
                             }
                         }
-                    }
+                    },
                 ) {
                     Text("Delete", color = NostrordColors.Error)
                 }
@@ -470,7 +489,7 @@ fun GroupScreen(
                 TextButton(onClick = { showDeleteGroupDialog = false }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
@@ -495,7 +514,7 @@ fun GroupScreen(
                 TextButton(onClick = { messageToDelete = null }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
@@ -512,7 +531,7 @@ fun GroupScreen(
                 TextButton(onClick = { vm.clearDeleteMessageError() }) {
                     Text("OK", color = NostrordColors.Primary)
                 }
-            }
+            },
         )
     }
 
@@ -527,8 +546,11 @@ fun GroupScreen(
             title = { Text(if (isUnknownMember) "Join Required" else "Cannot React") },
             text = {
                 Text(
-                    if (isUnknownMember) "You need to join this group before you can react to messages."
-                    else "This relay does not support reactions.\n\n$error"
+                    if (isUnknownMember) {
+                        "You need to join this group before you can react to messages."
+                    } else {
+                        "This relay does not support reactions.\n\n$error"
+                    },
                 )
             },
             confirmButton = {
@@ -549,11 +571,16 @@ fun GroupScreen(
                     }
                 }
             },
-            dismissButton = if (isUnknownMember) {
-                { TextButton(onClick = { vm.clearReactionError() }) {
-                    Text("Cancel", color = NostrordColors.TextSecondary)
-                } }
-            } else null
+            dismissButton =
+            if (isUnknownMember) {
+                {
+                    TextButton(onClick = { vm.clearReactionError() }) {
+                        Text("Cancel", color = NostrordColors.TextSecondary)
+                    }
+                }
+            } else {
+                null
+            },
         )
     }
 
@@ -571,7 +598,7 @@ fun GroupScreen(
                 TextButton(onClick = { vm.clearSendError() }) {
                     Text("OK", color = NostrordColors.Primary)
                 }
-            }
+            },
         )
     }
 
@@ -584,7 +611,7 @@ fun GroupScreen(
             onUserClick = { clickedPubkey ->
                 selectedUserPubkey = clickedPubkey
             },
-            onDismiss = { selectedUserPubkey = null }
+            onDismiss = { selectedUserPubkey = null },
         )
     }
 
@@ -602,7 +629,7 @@ fun GroupScreen(
                     onClick = {
                         vm.removeUser(member.pubkey)
                         memberToRemove = null
-                    }
+                    },
                 ) {
                     Text("Remove", color = NostrordColors.Error)
                 }
@@ -611,7 +638,7 @@ fun GroupScreen(
                 TextButton(onClick = { memberToRemove = null }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
@@ -629,7 +656,7 @@ fun GroupScreen(
                 vm.rejectJoinRequest(eventId)
                 if (pubkey != null) resolvedRequestPubkeys = resolvedRequestPubkeys + pubkey
             },
-            onDismiss = { showJoinRequestsModal = false }
+            onDismiss = { showJoinRequestsModal = false },
         )
     }
 
@@ -648,7 +675,7 @@ fun GroupScreen(
                             showLeaveDialog = false
                             onNavigateHome()
                         }
-                    }
+                    },
                 ) {
                     Text("Leave", color = NostrordColors.Error)
                 }
@@ -657,231 +684,242 @@ fun GroupScreen(
                 TextButton(onClick = { showLeaveDialog = false }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
     // Responsive layout
     val parentHidden = LocalAnimatedImageHidden.current
-    val anyDialogOpen = parentHidden || showLeaveDialog || showGroupInfoModal || showEditGroupModal ||
-        showManageChildrenModal || showDeleteGroupDialog || messageToDelete != null || selectedUserPubkey != null || showMemberSheet || memberToRemove != null || showJoinRequestsModal || showInviteCodesModal
+    val anyDialogOpen =
+        parentHidden ||
+            showLeaveDialog ||
+            showGroupInfoModal ||
+            showEditGroupModal ||
+            showManageChildrenModal ||
+            showDeleteGroupDialog ||
+            messageToDelete != null ||
+            selectedUserPubkey != null ||
+            showMemberSheet ||
+            memberToRemove != null ||
+            showJoinRequestsModal ||
+            showInviteCodesModal
     CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isCompact = !forceDesktop
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val isCompact = !forceDesktop
 
-        if (isCompact) {
-            GroupScreenMobile(
-                groupId = groupId,
-                groupName = groupName,
-                relayUrl = currentRelayUrl,
-                groupMetadata = currentGroupMetadata,
-                selectedChannel = selectedChannel,
-                onChannelSelect = { selectedChannel = it },
-                onOpenDrawer = onOpenDrawer,
-                messages = messages,
-                chatItems = chatItems,
-                connectionStatus = connectionStatus,
-                connectionState = connectionState,
-                isJoined = isJoined,
-                isAdmin = isAdmin,
-                userMetadata = userMetadata,
-                reactions = allReactions,
-                currentUserPubkey = currentUserPubkey,
-                messageInput = messageInput,
-                onMessageInputChange = { messageInput = it },
-                onSendMessage = {
-                    val imetaTags = pendingUploads.map { it.toImetaTag() }
-                    var content = messageInput
-                    groupMentions.forEach { (name, group) ->
-                        val relayPubkey = relayMetadata[group.relay]?.pubkey
-                        val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
-                        content = content.replace("%$name", "nostr:$naddr")
-                    }
-                    vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
-                    messageInput = ""
-                    mentions = emptyMap()
-                    groupMentions = emptyMap()
-                    replyingToMessage = null
-                    pendingUploads = emptyList()
-                },
-                onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
-                onLeaveGroup = { showLeaveDialog = true },
-                onShowGroupInfo = { showGroupInfoModal = true },
-                onEditGroup = { showEditGroupModal = true },
-                onDeleteGroup = { showDeleteGroupDialog = true },
-                onManageMembers = { showMemberManagementModal = true },
-                onCreateSubgroup = { showCreateSubgroupModal = true },
-                onManageChildren = { showManageChildrenModal = true },
-                showSubgroupControls = subgroupsEnabled,
-                parentGroupName = parentGroupName,
-                onParentClick = {
-                    val parentId = currentGroupMetadata?.parent
-                    if (!parentId.isNullOrBlank()) {
-                        onNavigateToGroup(parentId, parentGroupName, null)
-                    }
-                },
-                subgroupCount = childrenByParent[groupId]?.size ?: 0,
-                groupMembers = groupMembers,
-                recentlyActiveMembers = recentlyActiveMembers,
-                mentions = mentions,
-                onMentionsChange = { mentions = it },
-                availableGroups = availableGroups,
-                groupMentions = groupMentions,
-                onGroupMentionsChange = { groupMentions = it },
-                replyingToMessage = replyingToMessage,
-                onReplyClick = { message -> replyingToMessage = message },
-                onDeleteMessage = { message -> messageToDelete = message },
-                onReactionBadgeClick = { messageId, emoji ->
-                    val targetMessage = messages.find { it.id == messageId }
-                    if (targetMessage != null) {
-                        vm.sendReaction(messageId, targetMessage.pubkey, emoji)
-                    }
-                },
-                onCancelReply = { replyingToMessage = null },
-                isMembersLoading = isMembersLoading,
-                isInitialLoading = isInitialLoading,
-                isLoadingMore = isLoadingMore,
-                hasMoreMessages = hasMoreMessages,
-                onLoadMore = { vm.loadMoreMessages(selectedChannel) },
-                joinedGroups = joinedGroups,
-                groups = groups,
-                onNavigateToGroup = onNavigateToGroup,
-                onUserClick = { pubkey -> selectedUserPubkey = pubkey },
-                onReconnect = { vm.reconnect() },
-                onManageRelay = onNavigateHomeManageRelay,
-                isSending = isSending,
-                onMediaUploaded = { upload ->
+            if (isCompact) {
+                GroupScreenMobile(
+                    groupId = groupId,
+                    groupName = groupName,
+                    relayUrl = currentRelayUrl,
+                    groupMetadata = currentGroupMetadata,
+                    selectedChannel = selectedChannel,
+                    onChannelSelect = { selectedChannel = it },
+                    onOpenDrawer = onOpenDrawer,
+                    messages = messages,
+                    chatItems = chatItems,
+                    connectionStatus = connectionStatus,
+                    connectionState = connectionState,
+                    isJoined = isJoined,
+                    isAdmin = isAdmin,
+                    userMetadata = userMetadata,
+                    reactions = allReactions,
+                    currentUserPubkey = currentUserPubkey,
+                    messageInput = messageInput,
+                    onMessageInputChange = { messageInput = it },
+                    onSendMessage = {
+                        val imetaTags = pendingUploads.map { it.toImetaTag() }
+                        var content = messageInput
+                        groupMentions.forEach { (name, group) ->
+                            val relayPubkey = relayMetadata[group.relay]?.pubkey
+                            val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
+                            content = content.replace("%$name", "nostr:$naddr")
+                        }
+                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
+                        messageInput = ""
+                        mentions = emptyMap()
+                        groupMentions = emptyMap()
+                        replyingToMessage = null
+                        pendingUploads = emptyList()
+                    },
+                    onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
+                    onLeaveGroup = { showLeaveDialog = true },
+                    onShowGroupInfo = { showGroupInfoModal = true },
+                    onEditGroup = { showEditGroupModal = true },
+                    onDeleteGroup = { showDeleteGroupDialog = true },
+                    onManageMembers = { showMemberManagementModal = true },
+                    onCreateSubgroup = { showCreateSubgroupModal = true },
+                    onManageChildren = { showManageChildrenModal = true },
+                    showSubgroupControls = subgroupsEnabled,
+                    parentGroupName = parentGroupName,
+                    onParentClick = {
+                        val parentId = currentGroupMetadata?.parent
+                        if (!parentId.isNullOrBlank()) {
+                            onNavigateToGroup(parentId, parentGroupName, null)
+                        }
+                    },
+                    subgroupCount = childrenByParent[groupId]?.size ?: 0,
+                    groupMembers = groupMembers,
+                    recentlyActiveMembers = recentlyActiveMembers,
+                    mentions = mentions,
+                    onMentionsChange = { mentions = it },
+                    availableGroups = availableGroups,
+                    groupMentions = groupMentions,
+                    onGroupMentionsChange = { groupMentions = it },
+                    replyingToMessage = replyingToMessage,
+                    onReplyClick = { message -> replyingToMessage = message },
+                    onDeleteMessage = { message -> messageToDelete = message },
+                    onReactionBadgeClick = { messageId, emoji ->
+                        val targetMessage = messages.find { it.id == messageId }
+                        if (targetMessage != null) {
+                            vm.sendReaction(messageId, targetMessage.pubkey, emoji)
+                        }
+                    },
+                    onCancelReply = { replyingToMessage = null },
+                    isMembersLoading = isMembersLoading,
+                    isInitialLoading = isInitialLoading,
+                    isLoadingMore = isLoadingMore,
+                    hasMoreMessages = hasMoreMessages,
+                    onLoadMore = { vm.loadMoreMessages(selectedChannel) },
+                    joinedGroups = joinedGroups,
+                    groups = groups,
+                    onNavigateToGroup = onNavigateToGroup,
+                    onUserClick = { pubkey -> selectedUserPubkey = pubkey },
+                    onReconnect = { vm.reconnect() },
+                    onManageRelay = onNavigateHomeManageRelay,
+                    isSending = isSending,
+                    onMediaUploaded = { upload ->
                         if (pendingUploads.none { it.url == upload.url }) {
                             pendingUploads = pendingUploads + upload
                         }
                     },
-                isCurrentUserAdmin = isAdmin,
-                onRemoveMember = { member -> memberToRemove = member },
-                onAddMember = { pubkey -> vm.addUser(pubkey) },
-                pendingJoinRequestCount = pendingJoinRequests.size,
-                onJoinRequestsClick = { showJoinRequestsModal = true },
-                isPendingApproval = isPendingApproval,
-                pendingRequestedAtSeconds = pendingRequestedAtSeconds,
-                onCancelJoinRequest = {
-                    vm.leaveGroup { onNavigateHome() }
-                },
-                onInviteCodesClick = { showInviteCodesModal = true },
-                isClosed = currentGroupMetadata?.isOpen == false,
-                isGroupRestricted = isGroupRestricted,
-                initialInviteCode = effectiveInviteCode,
-                onReachedBottom = { vm.markAsRead() },
-                targetMessageId = targetMessageId,
-                onTargetConsumed = onTargetMessageConsumed,
-                onFetchTargetById = { id -> vm.fetchMessageById(id) }
-            )
-        } else {
-            GroupScreenDesktop(
-                groupId = groupId,
-                groupName = groupName,
-                relayUrl = currentRelayUrl,
-                groupMetadata = currentGroupMetadata,
-                selectedChannel = selectedChannel,
-                onChannelSelect = { selectedChannel = it },
-                messages = messages,
-                chatItems = chatItems,
-                connectionStatus = connectionStatus,
-                connectionState = connectionState,
-                isJoined = isJoined,
-                isAdmin = isAdmin,
-                userMetadata = userMetadata,
-                reactions = allReactions,
-                currentUserPubkey = currentUserPubkey,
-                messageInput = messageInput,
-                onMessageInputChange = { messageInput = it },
-                onSendMessage = {
-                    val imetaTags = pendingUploads.map { it.toImetaTag() }
-                    var content = messageInput
-                    groupMentions.forEach { (name, group) ->
-                        val relayPubkey = relayMetadata[group.relay]?.pubkey
-                        val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
-                        content = content.replace("%$name", "nostr:$naddr")
-                    }
-                    vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
-                    messageInput = ""
-                    mentions = emptyMap()
-                    groupMentions = emptyMap()
-                    replyingToMessage = null
-                    pendingUploads = emptyList()
-                },
-                onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
-                onLeaveGroup = { showLeaveDialog = true },
-                onShowGroupInfo = { showGroupInfoModal = true },
-                onEditGroup = { showEditGroupModal = true },
-                onDeleteGroup = { showDeleteGroupDialog = true },
-                onManageMembers = { showMemberManagementModal = true },
-                onCreateSubgroup = { showCreateSubgroupModal = true },
-                onManageChildren = { showManageChildrenModal = true },
-                showSubgroupControls = subgroupsEnabled,
-                parentGroupName = parentGroupName,
-                onParentClick = {
-                    val parentId = currentGroupMetadata?.parent
-                    if (!parentId.isNullOrBlank()) {
-                        onNavigateToGroup(parentId, parentGroupName, null)
-                    }
-                },
-                subgroupCount = childrenByParent[groupId]?.size ?: 0,
-                groupMembers = groupMembers,
-                recentlyActiveMembers = recentlyActiveMembers,
-                mentions = mentions,
-                onMentionsChange = { mentions = it },
-                availableGroups = availableGroups,
-                groupMentions = groupMentions,
-                onGroupMentionsChange = { groupMentions = it },
-                replyingToMessage = replyingToMessage,
-                onReplyClick = { message -> replyingToMessage = message },
-                onDeleteMessage = { message -> messageToDelete = message },
-                onReactionBadgeClick = { messageId, emoji ->
-                    val targetMessage = messages.find { it.id == messageId }
-                    if (targetMessage != null) {
-                        vm.sendReaction(messageId, targetMessage.pubkey, emoji)
-                    }
-                },
-                onCancelReply = { replyingToMessage = null },
-                isMembersLoading = isMembersLoading,
-                isInitialLoading = isInitialLoading,
-                isLoadingMore = isLoadingMore,
-                hasMoreMessages = hasMoreMessages,
-                onLoadMore = { vm.loadMoreMessages(selectedChannel) },
-                joinedGroups = joinedGroups,
-                groups = groups,
-                onNavigateToGroup = onNavigateToGroup,
-                onUserClick = { pubkey -> selectedUserPubkey = pubkey },
-                onReconnect = { vm.reconnect() },
-                onManageRelay = onNavigateHomeManageRelay,
-                isSending = isSending,
-                onMediaUploaded = { upload ->
+                    isCurrentUserAdmin = isAdmin,
+                    onRemoveMember = { member -> memberToRemove = member },
+                    onAddMember = { pubkey -> vm.addUser(pubkey) },
+                    pendingJoinRequestCount = pendingJoinRequests.size,
+                    onJoinRequestsClick = { showJoinRequestsModal = true },
+                    isPendingApproval = isPendingApproval,
+                    pendingRequestedAtSeconds = pendingRequestedAtSeconds,
+                    onCancelJoinRequest = {
+                        vm.leaveGroup { onNavigateHome() }
+                    },
+                    onInviteCodesClick = { showInviteCodesModal = true },
+                    isClosed = currentGroupMetadata?.isOpen == false,
+                    isGroupRestricted = isGroupRestricted,
+                    initialInviteCode = effectiveInviteCode,
+                    onReachedBottom = { vm.markAsRead() },
+                    targetMessageId = targetMessageId,
+                    onTargetConsumed = onTargetMessageConsumed,
+                    onFetchTargetById = { id -> vm.fetchMessageById(id) },
+                )
+            } else {
+                GroupScreenDesktop(
+                    groupId = groupId,
+                    groupName = groupName,
+                    relayUrl = currentRelayUrl,
+                    groupMetadata = currentGroupMetadata,
+                    selectedChannel = selectedChannel,
+                    onChannelSelect = { selectedChannel = it },
+                    messages = messages,
+                    chatItems = chatItems,
+                    connectionStatus = connectionStatus,
+                    connectionState = connectionState,
+                    isJoined = isJoined,
+                    isAdmin = isAdmin,
+                    userMetadata = userMetadata,
+                    reactions = allReactions,
+                    currentUserPubkey = currentUserPubkey,
+                    messageInput = messageInput,
+                    onMessageInputChange = { messageInput = it },
+                    onSendMessage = {
+                        val imetaTags = pendingUploads.map { it.toImetaTag() }
+                        var content = messageInput
+                        groupMentions.forEach { (name, group) ->
+                            val relayPubkey = relayMetadata[group.relay]?.pubkey
+                            val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
+                            content = content.replace("%$name", "nostr:$naddr")
+                        }
+                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
+                        messageInput = ""
+                        mentions = emptyMap()
+                        groupMentions = emptyMap()
+                        replyingToMessage = null
+                        pendingUploads = emptyList()
+                    },
+                    onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
+                    onLeaveGroup = { showLeaveDialog = true },
+                    onShowGroupInfo = { showGroupInfoModal = true },
+                    onEditGroup = { showEditGroupModal = true },
+                    onDeleteGroup = { showDeleteGroupDialog = true },
+                    onManageMembers = { showMemberManagementModal = true },
+                    onCreateSubgroup = { showCreateSubgroupModal = true },
+                    onManageChildren = { showManageChildrenModal = true },
+                    showSubgroupControls = subgroupsEnabled,
+                    parentGroupName = parentGroupName,
+                    onParentClick = {
+                        val parentId = currentGroupMetadata?.parent
+                        if (!parentId.isNullOrBlank()) {
+                            onNavigateToGroup(parentId, parentGroupName, null)
+                        }
+                    },
+                    subgroupCount = childrenByParent[groupId]?.size ?: 0,
+                    groupMembers = groupMembers,
+                    recentlyActiveMembers = recentlyActiveMembers,
+                    mentions = mentions,
+                    onMentionsChange = { mentions = it },
+                    availableGroups = availableGroups,
+                    groupMentions = groupMentions,
+                    onGroupMentionsChange = { groupMentions = it },
+                    replyingToMessage = replyingToMessage,
+                    onReplyClick = { message -> replyingToMessage = message },
+                    onDeleteMessage = { message -> messageToDelete = message },
+                    onReactionBadgeClick = { messageId, emoji ->
+                        val targetMessage = messages.find { it.id == messageId }
+                        if (targetMessage != null) {
+                            vm.sendReaction(messageId, targetMessage.pubkey, emoji)
+                        }
+                    },
+                    onCancelReply = { replyingToMessage = null },
+                    isMembersLoading = isMembersLoading,
+                    isInitialLoading = isInitialLoading,
+                    isLoadingMore = isLoadingMore,
+                    hasMoreMessages = hasMoreMessages,
+                    onLoadMore = { vm.loadMoreMessages(selectedChannel) },
+                    joinedGroups = joinedGroups,
+                    groups = groups,
+                    onNavigateToGroup = onNavigateToGroup,
+                    onUserClick = { pubkey -> selectedUserPubkey = pubkey },
+                    onReconnect = { vm.reconnect() },
+                    onManageRelay = onNavigateHomeManageRelay,
+                    isSending = isSending,
+                    onMediaUploaded = { upload ->
                         if (pendingUploads.none { it.url == upload.url }) {
                             pendingUploads = pendingUploads + upload
                         }
                     },
-                showMemberSidebar = maxWidth >= 1080.dp,
-                showMemberSheet = showMemberSheet,
-                onShowMemberSheet = { showMemberSheet = it },
-                isCurrentUserAdmin = isAdmin,
-                onRemoveMember = { member -> memberToRemove = member },
-                onAddMember = { pubkey -> vm.addUser(pubkey) },
-                pendingJoinRequestCount = pendingJoinRequests.size,
-                onJoinRequestsClick = { showJoinRequestsModal = true },
-                isPendingApproval = isPendingApproval,
-                pendingRequestedAtSeconds = pendingRequestedAtSeconds,
-                onCancelJoinRequest = {
-                    vm.leaveGroup { onNavigateHome() }
-                },
-                onInviteCodesClick = { showInviteCodesModal = true },
-                isClosed = currentGroupMetadata?.isOpen == false,
-                isGroupRestricted = isGroupRestricted,
-                initialInviteCode = effectiveInviteCode,
-                onReachedBottom = { vm.markAsRead() },
-                targetMessageId = targetMessageId,
-                onTargetConsumed = onTargetMessageConsumed,
-                onFetchTargetById = { id -> vm.fetchMessageById(id) }
-            )
+                    showMemberSidebar = maxWidth >= 1080.dp,
+                    showMemberSheet = showMemberSheet,
+                    onShowMemberSheet = { showMemberSheet = it },
+                    isCurrentUserAdmin = isAdmin,
+                    onRemoveMember = { member -> memberToRemove = member },
+                    onAddMember = { pubkey -> vm.addUser(pubkey) },
+                    pendingJoinRequestCount = pendingJoinRequests.size,
+                    onJoinRequestsClick = { showJoinRequestsModal = true },
+                    isPendingApproval = isPendingApproval,
+                    pendingRequestedAtSeconds = pendingRequestedAtSeconds,
+                    onCancelJoinRequest = {
+                        vm.leaveGroup { onNavigateHome() }
+                    },
+                    onInviteCodesClick = { showInviteCodesModal = true },
+                    isClosed = currentGroupMetadata?.isOpen == false,
+                    isGroupRestricted = isGroupRestricted,
+                    initialInviteCode = effectiveInviteCode,
+                    onReachedBottom = { vm.markAsRead() },
+                    targetMessageId = targetMessageId,
+                    onTargetConsumed = onTargetMessageConsumed,
+                    onFetchTargetById = { id -> vm.fetchMessageById(id) },
+                )
+            }
         }
-    }
     } // CompositionLocalProvider
 }

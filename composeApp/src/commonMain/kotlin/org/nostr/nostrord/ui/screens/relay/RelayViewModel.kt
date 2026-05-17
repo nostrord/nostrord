@@ -5,8 +5,9 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
 
-class RelayViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
-
+class RelayViewModel(
+    private val repo: NostrRepositoryApi,
+) : ViewModel() {
     val currentRelayUrl = repo.currentRelayUrl
 
     fun switchRelay(url: String) {

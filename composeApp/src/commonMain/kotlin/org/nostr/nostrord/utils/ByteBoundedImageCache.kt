@@ -12,11 +12,11 @@ import androidx.compose.ui.graphics.ImageBitmap
  * prevent one oversized image from evicting everything else.
  */
 class ByteBoundedImageCache(
-    private val maxBytes: Long
+    private val maxBytes: Long,
 ) {
     private data class Entry(
         val bitmap: ImageBitmap,
-        val estimatedBytes: Long
+        val estimatedBytes: Long,
     )
 
     // Doubly-linked list + map for O(1) LRU, same pattern as LruCache
@@ -24,7 +24,7 @@ class ByteBoundedImageCache(
         val key: String,
         var entry: Entry,
         var prev: Node? = null,
-        var next: Node? = null
+        var next: Node? = null,
     )
 
     private val head = Node("", Entry(ImageBitmap(1, 1), 0)).also { it.next = null }
@@ -56,7 +56,10 @@ class ByteBoundedImageCache(
         return node.entry.bitmap
     }
 
-    fun put(key: String, bitmap: ImageBitmap) {
+    fun put(
+        key: String,
+        bitmap: ImageBitmap,
+    ) {
         val bytes = bitmap.width.toLong() * bitmap.height * 4
         // Don't cache entries larger than half the budget
         if (bytes > maxBytes / 2) return

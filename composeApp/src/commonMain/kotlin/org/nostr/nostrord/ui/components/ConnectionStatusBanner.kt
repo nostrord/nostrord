@@ -27,56 +27,58 @@ fun ConnectionStatusBanner(
     connectionState: ConnectionManager.ConnectionState,
     onRetry: () -> Unit,
     onManageRelay: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
-    val visible = connectionState is ConnectionManager.ConnectionState.Error ||
+    val visible =
+        connectionState is ConnectionManager.ConnectionState.Error ||
             connectionState is ConnectionManager.ConnectionState.Reconnecting
 
     AnimatedVisibility(
         visible = visible,
         enter = expandVertically(),
         exit = shrinkVertically(),
-        modifier = modifier
+        modifier = modifier,
     ) {
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .padding(bottom = Spacing.sm)
                 .clip(RoundedCornerShape(8.dp))
                 .background(NostrordColors.Warning.copy(alpha = 0.12f))
                 .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             when (connectionState) {
                 is ConnectionManager.ConnectionState.Reconnecting -> {
                     CircularProgressIndicator(
                         modifier = Modifier.size(14.dp),
                         color = NostrordColors.Warning,
-                        strokeWidth = 2.dp
+                        strokeWidth = 2.dp,
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = "Reconnecting (${connectionState.attempt}/${connectionState.maxAttempts})...",
                         style = NostrordTypography.Caption,
                         color = NostrordColors.Warning,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     )
                     TextButton(
                         onClick = onRetry,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     ) {
                         Icon(
                             Icons.Default.Refresh,
                             contentDescription = null,
                             tint = NostrordColors.Warning,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(14.dp),
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
                             "Retry now",
                             style = NostrordTypography.Caption,
                             color = NostrordColors.Warning,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
@@ -85,54 +87,55 @@ fun ConnectionStatusBanner(
                         Icons.Default.WifiOff,
                         contentDescription = null,
                         tint = NostrordColors.Warning,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(14.dp),
                     )
                     Spacer(Modifier.width(8.dp))
                     Text(
                         text = "Unable to connect",
                         style = NostrordTypography.Caption,
                         color = NostrordColors.Warning,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     )
                     TextButton(
                         onClick = onRetry,
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     ) {
                         Icon(
                             Icons.Default.Refresh,
                             contentDescription = null,
                             tint = NostrordColors.Warning,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(14.dp),
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
                             "Retry",
                             style = NostrordTypography.Caption,
                             color = NostrordColors.Warning,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                     Spacer(Modifier.width(4.dp))
                     Button(
                         onClick = onManageRelay,
-                        colors = ButtonDefaults.buttonColors(
+                        colors =
+                        ButtonDefaults.buttonColors(
                             containerColor = NostrordColors.Warning.copy(alpha = 0.2f),
-                            contentColor = NostrordColors.Warning
+                            contentColor = NostrordColors.Warning,
                         ),
                         shape = RoundedCornerShape(6.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        elevation = ButtonDefaults.buttonElevation(0.dp)
+                        elevation = ButtonDefaults.buttonElevation(0.dp),
                     ) {
                         Icon(
                             Icons.Default.Settings,
                             contentDescription = null,
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(13.dp),
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
                             "Manage relay",
                             style = NostrordTypography.Caption,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }

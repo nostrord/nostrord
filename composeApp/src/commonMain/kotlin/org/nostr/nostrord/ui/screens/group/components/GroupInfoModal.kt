@@ -25,7 +25,6 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,59 +62,64 @@ fun GroupInfoModal(
     groupMetadata: GroupMetadata?,
     userMetadata: Map<String, UserMetadata> = emptyMap(),
     onUserClick: ((String) -> Unit)? = null,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val copyToClipboard = rememberClipboardWriter()
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
+        properties =
+        DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.7f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null
+                    indication = null,
                 ) { onDismiss() },
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             // Modal card
             Card(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .widthIn(max = 480.dp)
                     .fillMaxWidth(0.9f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
+                        indication = null,
                     ) { /* consume click */ },
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = NostrordColors.Surface
-                )
+                colors =
+                CardDefaults.cardColors(
+                    containerColor = NostrordColors.Surface,
+                ),
             ) {
                 Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState())
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
                 ) {
                     // Banner/Cover image section
                     BannerSection(
                         coverImageUrl = groupMetadata?.picture,
                         groupName = groupName,
                         groupId = groupId,
-                        onCloseClick = onDismiss
+                        onCloseClick = onDismiss,
                     )
 
                     // Content section
                     Column(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
                             .padding(horizontal = Spacing.lg)
-                            .padding(bottom = Spacing.lg)
+                            .padding(bottom = Spacing.lg),
                     ) {
                         Spacer(modifier = Modifier.height(Spacing.md))
 
@@ -124,26 +128,26 @@ fun GroupInfoModal(
                             text = groupMetadata?.name ?: groupName ?: "Unknown Group",
                             style = NostrordTypography.ServerHeader,
                             color = Color.White,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
 
                         Spacer(modifier = Modifier.height(Spacing.sm))
 
                         // Status badges
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm)
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                         ) {
                             // Public/Private badge
                             StatusBadge(
                                 icon = if (groupMetadata?.isPublic == true) Icons.Default.Public else Icons.Default.Lock,
                                 text = if (groupMetadata?.isPublic == true) "Public" else "Private",
-                                color = if (groupMetadata?.isPublic == true) NostrordColors.Success else NostrordColors.TextSecondary
+                                color = if (groupMetadata?.isPublic == true) NostrordColors.Success else NostrordColors.TextSecondary,
                             )
 
                             // Open/Closed badge
                             StatusBadge(
                                 text = if (groupMetadata?.isOpen == true) "Open" else "Closed",
-                                color = if (groupMetadata?.isOpen == true) NostrordColors.Primary else NostrordColors.TextMuted
+                                color = if (groupMetadata?.isOpen == true) NostrordColors.Primary else NostrordColors.TextMuted,
                             )
                         }
 
@@ -154,7 +158,7 @@ fun GroupInfoModal(
                             Text(
                                 text = "ABOUT",
                                 style = NostrordTypography.SectionHeader,
-                                color = NostrordColors.TextMuted
+                                color = NostrordColors.TextMuted,
                             )
 
                             Spacer(modifier = Modifier.height(Spacing.sm))
@@ -164,7 +168,7 @@ fun GroupInfoModal(
                                 userMetadata = userMetadata,
                                 style = NostrordTypography.MessageBody,
                                 color = NostrordColors.TextContent,
-                                onMentionClick = onUserClick
+                                onMentionClick = onUserClick,
                             )
                         }
 
@@ -174,14 +178,14 @@ fun GroupInfoModal(
                         Text(
                             text = "GROUP ID",
                             style = NostrordTypography.SectionHeader,
-                            color = NostrordColors.TextMuted
+                            color = NostrordColors.TextMuted,
                         )
 
                         Spacer(modifier = Modifier.height(Spacing.sm))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
                                 text = groupId,
@@ -189,22 +193,23 @@ fun GroupInfoModal(
                                 color = NostrordColors.TextSecondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
                             )
 
                             Spacer(modifier = Modifier.width(Spacing.sm))
 
                             IconButton(
                                 onClick = { copyToClipboard(groupId) },
-                                modifier = Modifier
+                                modifier =
+                                Modifier
                                     .size(32.dp)
-                                    .pointerHoverIcon(PointerIcon.Hand)
+                                    .pointerHoverIcon(PointerIcon.Hand),
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = "Copy group ID",
                                     tint = NostrordColors.TextSecondary,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
                         }
@@ -223,21 +228,24 @@ private fun BannerSection(
     coverImageUrl: String?,
     groupName: String?,
     groupId: String,
-    onCloseClick: () -> Unit
+    onCloseClick: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
     val hasCoverImage = !coverImageUrl.isNullOrBlank()
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
-            .height(160.dp)
+            .height(160.dp),
     ) {
         // Cover image or gradient background
         if (hasCoverImage) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(coverImageUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
@@ -247,87 +255,95 @@ private fun BannerSection(
                 contentScale = ContentScale.Crop,
                 filterQuality = FilterQuality.High,
                 modifier = Modifier.fillMaxSize(),
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
 
             // Gradient overlay for text readability
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(
+                            colors =
+                            listOf(
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.6f)
-                            )
-                        )
-                    )
+                                Color.Black.copy(alpha = 0.6f),
+                            ),
+                        ),
+                    ),
             )
         } else {
             // Gradient background when no cover image
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(
+                            colors =
+                            listOf(
                                 NostrordColors.Primary.copy(alpha = 0.8f),
-                                NostrordColors.Primary.copy(alpha = 0.4f)
-                            )
-                        )
-                    )
+                                NostrordColors.Primary.copy(alpha = 0.4f),
+                            ),
+                        ),
+                    ),
             )
         }
 
         // Loading indicator for cover image
         if (hasCoverImage && imageState is AsyncImagePainter.State.Loading) {
             CircularProgressIndicator(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(32.dp)
                     .align(Alignment.Center),
                 color = Color.White,
-                strokeWidth = 3.dp
+                strokeWidth = 3.dp,
             )
         }
 
         // Close button
         IconButton(
             onClick = onCloseClick,
-            modifier = Modifier
+            modifier =
+            Modifier
                 .align(Alignment.TopEnd)
                 .padding(Spacing.sm)
                 .size(36.dp)
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.5f))
-                .pointerHoverIcon(PointerIcon.Hand)
+                .pointerHoverIcon(PointerIcon.Hand),
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Close",
                 tint = Color.White,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
 
         // Group avatar at bottom, overlapping
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = Spacing.lg)
-                .offset(y = 40.dp)
+                .offset(y = 40.dp),
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(88.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(NostrordColors.Surface)
-                    .padding(4.dp)
+                    .padding(4.dp),
             ) {
                 GroupInfoIcon(
                     pictureUrl = coverImageUrl,
                     groupId = groupId,
                     displayName = groupName ?: "Group",
-                    size = 80.dp
+                    size = 80.dp,
                 )
             }
         }
@@ -344,30 +360,30 @@ private fun BannerSection(
 private fun StatusBadge(
     text: String,
     color: Color,
-    icon: androidx.compose.ui.graphics.vector.ImageVector? = null
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 ) {
     Surface(
         shape = RoundedCornerShape(4.dp),
-        color = color.copy(alpha = 0.15f)
+        color = color.copy(alpha = 0.15f),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             if (icon != null) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = color,
-                    modifier = Modifier.size(14.dp)
+                    modifier = Modifier.size(14.dp),
                 )
             }
             Text(
                 text = text,
                 style = NostrordTypography.Caption,
                 color = color,
-                fontWeight = FontWeight.Medium
+                fontWeight = FontWeight.Medium,
             )
         }
     }
@@ -378,7 +394,7 @@ private fun GroupInfoIcon(
     pictureUrl: String?,
     groupId: String,
     displayName: String,
-    size: androidx.compose.ui.unit.Dp
+    size: androidx.compose.ui.unit.Dp,
 ) {
     val context = LocalPlatformContext.current
     val iconShape = RoundedCornerShape(12.dp)
@@ -388,34 +404,38 @@ private fun GroupInfoIcon(
     val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(iconShape)
             .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         if (!showImage) {
             Text(
                 text = displayName.take(1).uppercase(),
                 color = Color.White,
                 fontSize = 28.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
         if (!pictureUrl.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = displayName,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clip(iconShape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }

@@ -3,12 +3,12 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -16,14 +16,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
-import org.nostr.nostrord.network.groupMetadataListSerializer
+import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupAdmins
 import org.nostr.nostrord.network.GroupMembers
-import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.GroupRoles
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.RoleDefinition
+import org.nostr.nostrord.network.groupMetadataListSerializer
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
@@ -91,7 +91,9 @@ class GroupManager(
     private val _currentRelayUrl = MutableStateFlow<String?>(null)
     private var currentRelayUrl: String?
         get() = _currentRelayUrl.value
-        set(value) { _currentRelayUrl.value = value }
+        set(value) {
+            _currentRelayUrl.value = value
+        }
     private val _completeGroupLoadRelays = MutableStateFlow<Set<String>>(emptySet())
 
     /**
@@ -108,7 +110,7 @@ class GroupManager(
             kotlinx.coroutines.flow.combine(
                 _groupsByRelay,
                 _joinedGroupsByRelay,
-                _completeGroupLoadRelays
+                _completeGroupLoadRelays,
             ) { groupsMap, joinedMap, doneRelays ->
                 doneRelays.associateWith { relay ->
                     val known = groupsMap[relay].orEmpty().map { it.id }.toSet()
@@ -188,6 +190,7 @@ class GroupManager(
     // EOSE hasn't arrived yet. Lets handleEoseSuspend() distinguish a full fetch from a
     // lazy (joined-only) fetch when the same sub ID is reused.
     private val pendingFullFetchRelays = mutableSetOf<String>()
+
     // Group IDs seen during an in-flight full fetch; cleared on EOSE to prune stale groups.
     private val pendingFetchSeenGroups = mutableMapOf<String, MutableSet<String>>()
 
@@ -211,9 +214,7 @@ class GroupManager(
      * Used by [NostrRepository.requestFullGroupListForRelay] to skip a duplicate REQ when
      * [requestGroupsForRelay] already scheduled a full fetch on connect.
      */
-    fun hasPendingFullFetch(relayUrl: String): Boolean {
-        return relayUrl.normalizeRelayUrl() in pendingFullFetchRelays
-    }
+    fun hasPendingFullFetch(relayUrl: String): Boolean = relayUrl.normalizeRelayUrl() in pendingFullFetchRelays
 
     // Relays whose FULL group list (unfiltered requestGroups()) EOSE was received this session.
     // Updated by handleEoseSuspend when the relay is in pendingFullFetchRelays.
@@ -244,7 +245,7 @@ class GroupManager(
     // Active-relay view — derived so it can never drift from _joinedGroupsByRelay.
     val joinedGroups: StateFlow<Set<String>> = combine(
         _joinedGroupsByRelay,
-        _currentRelayUrl
+        _currentRelayUrl,
     ) { map, relay ->
         relay?.normalizeRelayUrl()?.let { map[it] } ?: emptySet()
     }.stateIn(scope, SharingStarted.Eagerly, emptySet())
@@ -275,7 +276,7 @@ class GroupManager(
      */
     data class ReactionInfo(
         val emojiUrl: String?, // URL for custom emoji (NIP-30), null for standard emojis
-        val reactors: List<String> // List of pubkeys who reacted with this emoji
+        val reactors: List<String>, // List of pubkeys who reacted with this emoji
     )
 
     // Global emoji shortcode → URL cache, populated from every emoji tag we see.
@@ -345,8 +346,7 @@ class GroupManager(
     // each event. Used by notifications to route clicks to the correct relay
     // when getRelayForGroup would be ambiguous.
     private val _latestMessageRelayByGroup = MutableStateFlow<Map<String, String>>(emptyMap())
-    fun getLatestMessageRelayForGroup(groupId: String): String? =
-        _latestMessageRelayByGroup.value[groupId]
+    fun getLatestMessageRelayForGroup(groupId: String): String? = _latestMessageRelayByGroup.value[groupId]
 
     private fun isRecentlyLeft(groupId: String): Boolean {
         val at = recentlyLeftAt[groupId] ?: return false
@@ -437,6 +437,7 @@ class GroupManager(
     // re-applies on a later reconnect of the same session.
     @kotlin.concurrent.Volatile
     private var catchUpSinceSeconds: Long? = null
+
     @kotlin.concurrent.Volatile
     private var catchUpSetAtSeconds: Long = 0L
     private val CATCH_UP_TTL_S = 60L
@@ -461,7 +462,6 @@ class GroupManager(
         return s
     }
 
-
     // Mutex for message list updates (separate from loading state)
     private val messageMutex = Mutex()
 
@@ -473,12 +473,11 @@ class GroupManager(
      * Returns the relay URL that hosts the given group, by scanning the per-relay cache.
      * Uses an immutable snapshot of _groupsByRelay so no lock is needed.
      */
-    fun getRelayForGroup(groupId: String): String? =
-        _groupsByRelay.value.entries.firstOrNull { (_, groups) -> groups.any { it.id == groupId } }?.key
-            // Fallback: private groups may not appear in kind 39000 listing but are
-            // tracked in _joinedGroupsByRelay (from kind 10009). Without this,
-            // clientForGroup() falls back to the primary client which may be wrong.
-            ?: _joinedGroupsByRelay.value.entries.firstOrNull { (_, groupIds) -> groupId in groupIds }?.key
+    fun getRelayForGroup(groupId: String): String? = _groupsByRelay.value.entries.firstOrNull { (_, groups) -> groups.any { it.id == groupId } }?.key
+        // Fallback: private groups may not appear in kind 39000 listing but are
+        // tracked in _joinedGroupsByRelay (from kind 10009). Without this,
+        // clientForGroup() falls back to the primary client which may be wrong.
+        ?: _joinedGroupsByRelay.value.entries.firstOrNull { (_, groupIds) -> groupId in groupIds }?.key
 
     /**
      * Returns the WebSocket client for the relay that hosts [groupId].
@@ -492,9 +491,9 @@ class GroupManager(
             val client = connectionManager.getClientForRelay(relayUrl)
             when {
                 client == null -> connectionManager.getPrimaryClient() // relay not in pool yet
-                client.isConnected() -> client                         // healthy pool client ✓
+                client.isConnected() -> client // healthy pool client ✓
                 else -> {
-                    null  // dead pool client — reconnect is pending, don't send to it
+                    null // dead pool client — reconnect is pending, don't send to it
                 }
             }
         } else {
@@ -503,8 +502,7 @@ class GroupManager(
     }
 
     /** Returns all cached groups for the given relay URL. */
-    fun getGroupsForRelay(relayUrl: String): List<GroupMetadata> =
-        _groupsByRelay.value[relayUrl] ?: emptyList()
+    fun getGroupsForRelay(relayUrl: String): List<GroupMetadata> = _groupsByRelay.value[relayUrl] ?: emptyList()
 
     /**
      * Reverse-lookup: find a group ID from its first-8-chars prefix.
@@ -557,8 +555,12 @@ class GroupManager(
             if (groupId !in current) {
                 _openedGroupIds.value = current + groupId
                 true
-            } else false
-        } else false
+            } else {
+                false
+            }
+        } else {
+            false
+        }
 
         if (isNew) {
             scope.launch {
@@ -586,9 +588,9 @@ class GroupManager(
                     // Mux provides breadth; these provide speed for the group the user is looking at.
                     // Duplicates are handled by the event deduplicator.
                     client.requestGroupMetadata(groupId!!) // Metadata (essential for private groups)
-                    requestGroupMessages(groupId)  // Pagination (mux has no limit)
-                    requestGroupMembers(groupId)   // Fast member list
-                    requestGroupAdmins(groupId)    // Fast admin list
+                    requestGroupMessages(groupId) // Pagination (mux has no limit)
+                    requestGroupMembers(groupId) // Fast member list
+                    requestGroupAdmins(groupId) // Fast admin list
                 }
 
                 muxJob.join()
@@ -683,7 +685,7 @@ class GroupManager(
         val desired = MuxSubscriptionTracker.MuxState(
             metadataGroupIds = allGroupIds.toSet(),
             chatGroupIds = chatGroupIds.toSet(),
-            chatSinceSeconds = chatSince
+            chatSinceSeconds = chatSince,
         )
 
         if (!muxTracker.needsRefresh(relayUrl, desired)) {
@@ -704,10 +706,14 @@ class GroupManager(
      * Called from the 5-minute periodic timer in NostrRepository.
      */
     suspend fun refreshLiveSubscriptions() {
-        val relayUrls = (_joinedGroupsByRelay.value.keys +
-            _messages.value.keys.mapNotNull { getRelayForGroup(it) }).distinct()
+        val relayUrls = (
+            _joinedGroupsByRelay.value.keys +
+                _messages.value.keys.mapNotNull { getRelayForGroup(it) }
+            ).distinct()
         for (relayUrl in relayUrls) {
-            try { refreshMuxSubscriptionsForRelay(relayUrl) } catch (_: Exception) {}
+            try {
+                refreshMuxSubscriptionsForRelay(relayUrl)
+            } catch (_: Exception) {}
         }
     }
 
@@ -829,7 +835,7 @@ class GroupManager(
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit,
-        inviteCode: String? = null
+        inviteCode: String? = null,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -849,7 +855,7 @@ class GroupManager(
                 createdAt = epochMillis() / 1000,
                 kind = 9021,
                 tags = tags,
-                content = "/join"
+                content = "/join",
             )
 
             val signedEvent = signEvent(event)
@@ -900,7 +906,7 @@ class GroupManager(
         pubKey: String,
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
-        publishJoinedGroups: suspend () -> Unit
+        publishJoinedGroups: suspend () -> Unit,
     ): Result<String> {
         val currentClient = connectionManager.getPrimaryClient()
             ?: return Result.Error(AppError.Network.Disconnected(currentRelayUrl))
@@ -923,7 +929,7 @@ class GroupManager(
                 createdAt = epochMillis() / 1000,
                 kind = 9007,
                 tags = listOf(listOf("h", suggestedId)),
-                content = ""
+                content = "",
             )
             val signedCreate = signEvent(createEvent)
             val create9007Json = buildJsonArray {
@@ -936,7 +942,7 @@ class GroupManager(
             val confirmedGroupId = currentClient.awaitGroupCreated(
                 create9007EventJson = create9007Json,
                 create9007EventId = signedCreate.id ?: suggestedId,
-                suggestedGroupId = suggestedId
+                suggestedGroupId = suggestedId,
             )
 
             // kind 9002: edit-metadata — sets name, about, picture, and access in one event
@@ -944,21 +950,25 @@ class GroupManager(
                 listOf("h", confirmedGroupId),
                 listOf("name", name),
                 if (isPrivate) listOf("private") else listOf("public"),
-                if (isClosed) listOf("closed") else listOf("open")
+                if (isClosed) listOf("closed") else listOf("open"),
             )
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
-            val signedMeta = signEvent(Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 9002,
-                tags = metaTags,
-                content = ""
-            ))
-            currentClient.send(buildJsonArray {
-                add("EVENT")
-                add(signedMeta.toJsonObject())
-            }.toString())
+            val signedMeta = signEvent(
+                Event(
+                    pubkey = pubKey,
+                    createdAt = epochMillis() / 1000,
+                    kind = 9002,
+                    tags = metaTags,
+                    content = "",
+                ),
+            )
+            currentClient.send(
+                buildJsonArray {
+                    add("EVENT")
+                    add(signedMeta.toJsonObject())
+                }.toString(),
+            )
 
             val relayGroups = _joinedGroupsByRelay.value[currentRelayUrl] ?: emptySet()
             val updatedAfterCreate = relayGroups + confirmedGroupId
@@ -1000,7 +1010,7 @@ class GroupManager(
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
         parentOp: ParentOp? = null,
-        childrenEdit: ChildrenEdit? = null
+        childrenEdit: ChildrenEdit? = null,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1012,7 +1022,7 @@ class GroupManager(
                 listOf("h", groupId),
                 listOf("name", name),
                 if (isPrivate) listOf("private") else listOf("public"),
-                if (isClosed) listOf("closed") else listOf("open")
+                if (isClosed) listOf("closed") else listOf("open"),
             )
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
@@ -1039,18 +1049,23 @@ class GroupManager(
                     }
                 }
                 metaTags.add(
-                    if (childrenEdit.closedChildren) listOf("closed-children")
-                    else listOf("open-children")
+                    if (childrenEdit.closedChildren) {
+                        listOf("closed-children")
+                    } else {
+                        listOf("open-children")
+                    },
                 )
             }
 
-            val signedMeta = signEvent(Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 9002,
-                tags = metaTags,
-                content = ""
-            ))
+            val signedMeta = signEvent(
+                Event(
+                    pubkey = pubKey,
+                    createdAt = epochMillis() / 1000,
+                    kind = 9002,
+                    tags = metaTags,
+                    content = "",
+                ),
+            )
             val eventJson = buildJsonArray {
                 add("EVENT")
                 add(signedMeta.toJsonObject())
@@ -1075,7 +1090,7 @@ class GroupManager(
     /** Child-list edit for [editGroup]: the full desired list plus the flag. */
     data class ChildrenEdit(
         val children: List<DeclaredChild>,
-        val closedChildren: Boolean
+        val closedChildren: Boolean,
     )
 
     /**
@@ -1089,7 +1104,7 @@ class GroupManager(
         parent: ParentOp?,
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1103,15 +1118,18 @@ class GroupManager(
                 ParentOp.Detach -> tags.add(listOf("parent"))
                 null -> Unit
             }
-            val signed = signEvent(Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 9002,
-                tags = tags,
-                content = ""
-            ))
+            val signed = signEvent(
+                Event(
+                    pubkey = pubKey,
+                    createdAt = epochMillis() / 1000,
+                    kind = 9002,
+                    tags = tags,
+                    content = "",
+                ),
+            )
             val eventJson = buildJsonArray {
-                add("EVENT"); add(signed.toJsonObject())
+                add("EVENT")
+                add(signed.toJsonObject())
             }.toString()
             val eventId = signed.id
                 ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
@@ -1131,6 +1149,7 @@ class GroupManager(
 
     sealed class ParentOp {
         data class SetTo(val id: String) : ParentOp()
+
         /** Republish metadata without a parent (promotes subgroup back to root). */
         object Detach : ParentOp()
     }
@@ -1149,7 +1168,7 @@ class GroupManager(
         closedChildren: Boolean,
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1164,7 +1183,7 @@ class GroupManager(
                 listOf("h", groupId),
                 listOf("name", meta?.name ?: groupId),
                 if (meta?.isPublic != false) listOf("public") else listOf("private"),
-                if (meta?.isOpen != false) listOf("open") else listOf("closed")
+                if (meta?.isOpen != false) listOf("open") else listOf("closed"),
             )
             meta?.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
             meta?.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
@@ -1192,15 +1211,18 @@ class GroupManager(
                 tags.add(listOf("open-children"))
             }
 
-            val signed = signEvent(Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 9002,
-                tags = tags,
-                content = ""
-            ))
+            val signed = signEvent(
+                Event(
+                    pubkey = pubKey,
+                    createdAt = epochMillis() / 1000,
+                    kind = 9002,
+                    tags = tags,
+                    content = "",
+                ),
+            )
             val eventJson = buildJsonArray {
-                add("EVENT"); add(signed.toJsonObject())
+                add("EVENT")
+                add(signed.toJsonObject())
             }.toString()
             val eventId = signed.id
                 ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
@@ -1229,7 +1251,7 @@ class GroupManager(
         pubKey: String,
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
-        publishJoinedGroups: suspend () -> Unit
+        publishJoinedGroups: suspend () -> Unit,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1242,7 +1264,7 @@ class GroupManager(
                 createdAt = epochMillis() / 1000,
                 kind = 9008,
                 tags = listOf(listOf("h", groupId)),
-                content = ""
+                content = "",
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
@@ -1352,7 +1374,9 @@ class GroupManager(
             if (alsoInActive) next + (activeKey!! to (activeGroups - groupId)) else next
         }
         if (pubKey != null) {
-            try { SecureStorage.saveJoinedGroupsForRelay(pubKey, normalized, updatedPerRelay) } catch (_: Exception) {}
+            try {
+                SecureStorage.saveJoinedGroupsForRelay(pubKey, normalized, updatedPerRelay)
+            } catch (_: Exception) {}
         }
         deletedGroupIds.add(groupId)
         return true
@@ -1368,7 +1392,7 @@ class GroupManager(
         roles: List<String> = emptyList(),
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1382,7 +1406,7 @@ class GroupManager(
                 createdAt = epochMillis() / 1000,
                 kind = 9000,
                 tags = listOf(listOf("h", groupId), pTag),
-                content = ""
+                content = "",
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
@@ -1413,7 +1437,7 @@ class GroupManager(
         targetPubkey: String,
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1427,9 +1451,9 @@ class GroupManager(
                 kind = 9001,
                 tags = listOf(
                     listOf("h", groupId),
-                    listOf("p", targetPubkey)
+                    listOf("p", targetPubkey),
                 ),
-                content = ""
+                content = "",
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
@@ -1460,7 +1484,7 @@ class GroupManager(
         joinRequestEventId: String,
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1474,9 +1498,9 @@ class GroupManager(
                 kind = 9005,
                 tags = listOf(
                     listOf("h", groupId),
-                    listOf("e", joinRequestEventId)
+                    listOf("e", joinRequestEventId),
                 ),
-                content = ""
+                content = "",
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
@@ -1507,7 +1531,7 @@ class GroupManager(
         groupId: String,
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<String> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1518,14 +1542,14 @@ class GroupManager(
             val code = generateInviteCode()
             val tags = listOf(
                 listOf("h", groupId),
-                listOf("code", code)
+                listOf("code", code),
             )
             val event = Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
                 kind = 9009,
                 tags = tags,
-                content = ""
+                content = "",
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
@@ -1556,7 +1580,7 @@ class GroupManager(
         eventId: String,
         pubKey: String,
         currentRelayUrl: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1570,9 +1594,9 @@ class GroupManager(
                 kind = 9005,
                 tags = listOf(
                     listOf("h", groupId),
-                    listOf("e", eventId)
+                    listOf("e", eventId),
                 ),
-                content = ""
+                content = "",
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
@@ -1609,7 +1633,7 @@ class GroupManager(
         currentRelayUrl: String,
         reason: String? = null,
         signEvent: suspend (Event) -> Event,
-        publishJoinedGroups: suspend () -> Unit
+        publishJoinedGroups: suspend () -> Unit,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
         val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
@@ -1622,7 +1646,7 @@ class GroupManager(
                 createdAt = epochMillis() / 1000,
                 kind = 9022,
                 tags = listOf(listOf("h", groupId)),
-                content = reason.orEmpty()
+                content = reason.orEmpty(),
             )
 
             val signedEvent = signEvent(event)
@@ -1678,9 +1702,7 @@ class GroupManager(
     /**
      * Check if a group is joined
      */
-    fun isGroupJoined(groupId: String): Boolean {
-        return groupId in activeJoinedGroups
-    }
+    fun isGroupJoined(groupId: String): Boolean = groupId in activeJoinedGroups
 
     /**
      * Request group messages (initial load).
@@ -1715,7 +1737,7 @@ class GroupManager(
                 channel = channel,
                 until = until,
                 limit = PAGE_SIZE,
-                subscriptionId = subscriptionId
+                subscriptionId = subscriptionId,
             )
             true
         } catch (e: Throwable) {
@@ -1797,7 +1819,7 @@ class GroupManager(
                 channel = channel,
                 until = effectiveUntil,
                 limit = PAGE_SIZE,
-                subscriptionId = subscriptionId
+                subscriptionId = subscriptionId,
             )
             true
         } catch (e: Throwable) {
@@ -1832,7 +1854,8 @@ class GroupManager(
             // match the source socket. Legacy "group-list" (no hash) is
             // single-relay and trusted as-is.
             if (subscriptionId.startsWith("group-list-") &&
-                subscriptionId != "group-list-${sourceRelayUrl.hashCode().toUInt()}") {
+                subscriptionId != "group-list-${sourceRelayUrl.hashCode().toUInt()}"
+            ) {
                 return true
             }
             val normalizedRelay = sourceRelayUrl.normalizeRelayUrl()
@@ -1844,7 +1867,9 @@ class GroupManager(
                 // Save the dedicated full-list timestamp so hasFullGroupListBeenFetched()
                 // returns true after an app restart.
                 _fullGroupListFetchedRelays.update { it + normalizedRelay }
-                try { SecureStorage.saveFullGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
+                try {
+                    SecureStorage.saveFullGroupListEoseTimestamp(normalizedRelay, now)
+                } catch (_: Exception) {}
                 // Prune stale groups: keep only those seen in this fetch, plus joined
                 // groups (which become orphans the user can manually forget).
                 val seenIds = pendingFetchSeenGroups.remove(normalizedRelay) ?: emptySet()
@@ -1855,7 +1880,9 @@ class GroupManager(
                     current + (normalizedRelay to pruned)
                 }
             }
-            try { SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
+            try {
+                SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now)
+            } catch (_: Exception) {}
             refreshMuxSubscriptionsForRelay(normalizedRelay)
             return true
         }
@@ -1900,9 +1927,7 @@ class GroupManager(
     /**
      * Check if a subscription is managed by the loading registry.
      */
-    suspend fun isPaginationSubscription(subscriptionId: String): Boolean {
-        return loadingRegistry.findBySubscription(subscriptionId) != null
-    }
+    suspend fun isPaginationSubscription(subscriptionId: String): Boolean = loadingRegistry.findBySubscription(subscriptionId) != null
 
     /**
      * Retry loading after an error.
@@ -1930,7 +1955,7 @@ class GroupManager(
                 channel = channel,
                 until = cursor?.untilTimestamp,
                 limit = PAGE_SIZE,
-                subscriptionId = subscriptionId
+                subscriptionId = subscriptionId,
             )
             true
         } catch (e: Throwable) {
@@ -1944,9 +1969,7 @@ class GroupManager(
     /**
      * Get the current loading state for a group.
      */
-    suspend fun getLoadingState(groupId: String): GroupLoadingState {
-        return loadingRegistry.getController(groupId).state.value
-    }
+    suspend fun getLoadingState(groupId: String): GroupLoadingState = loadingRegistry.getController(groupId).state.value
 
     /**
      * Handle connection lost - notify all active loaders.
@@ -2000,7 +2023,7 @@ class GroupManager(
         mentions: Map<String, String> = emptyMap(),
         replyToMessageId: String? = null,
         extraTags: List<List<String>> = emptyList(),
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val currentClient = clientForGroup(groupId)
             ?: return Result.Error(AppError.Network.Disconnected(""))
@@ -2032,7 +2055,7 @@ class GroupManager(
                 createdAt = epochMillis() / 1000,
                 kind = 9,
                 tags = tags,
-                content = processedContent
+                content = processedContent,
             )
 
             val signedEvent = signEvent(event)
@@ -2069,7 +2092,6 @@ class GroupManager(
         }
     }
 
-
     /**
      * Send a reaction to a message (NIP-25: kind 7 reaction event).
      * Uses optimistic update: shows the reaction immediately, rolls back on rejection.
@@ -2080,7 +2102,7 @@ class GroupManager(
         targetPubkey: String,
         emoji: String,
         pubKey: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val currentClient = clientForGroup(groupId)
             ?: return Result.Error(AppError.Network.Disconnected(""))
@@ -2105,7 +2127,7 @@ class GroupManager(
                 createdAt = epochMillis() / 1000,
                 kind = 7,
                 tags = tags,
-                content = emoji
+                content = emoji,
             )
 
             val signedEvent = signEvent(event)
@@ -2118,16 +2140,18 @@ class GroupManager(
             val eventId = signedEvent.id
                 ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
 
-
             // Optimistic update: show reaction in UI immediately (no debounce)
-            handleReaction(NostrGroupClient.NostrReaction(
-                id = eventId,
-                pubkey = pubKey,
-                emoji = emoji,
-                emojiUrl = null,
-                targetEventId = targetEventId,
-                createdAt = event.createdAt
-            ), immediate = true)
+            handleReaction(
+                NostrGroupClient.NostrReaction(
+                    id = eventId,
+                    pubkey = pubKey,
+                    emoji = emoji,
+                    emojiUrl = null,
+                    targetEventId = targetEventId,
+                    createdAt = event.createdAt,
+                ),
+                immediate = true,
+            )
 
             // Send to group relay
             val publishResult = currentClient.sendAndAwaitOk(message, eventId)
@@ -2164,7 +2188,7 @@ class GroupManager(
         groupId: String,
         messageId: String,
         pubKey: String,
-        signEvent: suspend (Event) -> Event
+        signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
         val currentClient = clientForGroup(groupId)
             ?: return Result.Error(AppError.Network.Disconnected(""))
@@ -2175,9 +2199,9 @@ class GroupManager(
                 kind = 5,
                 tags = listOf(
                     listOf("e", messageId),
-                    listOf("h", groupId)
+                    listOf("h", groupId),
                 ),
-                content = ""
+                content = "",
             )
             val signedEvent = signEvent(event)
             val eventId = signedEvent.id
@@ -2335,7 +2359,9 @@ class GroupManager(
                 try {
                     val groups = json.decodeFromString(groupMetadataListSerializer, jsonStr)
                     if (groups.isNotEmpty()) normalized to groups else null
-                } catch (_: Exception) { null }
+                } catch (_: Exception) {
+                    null
+                }
             }.toMap()
             current + updates
         }
@@ -2389,10 +2415,10 @@ class GroupManager(
         _loadingMembers.value = _loadingMembers.value - members.groupId
 
         val self = currentPubkey
-        if (self != null
-            && pendingApprovalSince.containsKey(members.groupId)
-            && self in members.members
-            && currentMembers?.contains(self) != true
+        if (self != null &&
+            pendingApprovalSince.containsKey(members.groupId) &&
+            self in members.members &&
+            currentMembers?.contains(self) != true
         ) {
             onApprovalDetected(members.groupId)
         }
@@ -2402,8 +2428,10 @@ class GroupManager(
         // "restricted" from a past auth race would otherwise keep the group
         // showing the "Private group / invite code" placeholder forever, even
         // after the relay returned 39002 listing self as a member.
-        if (self != null && self in members.members &&
-            members.groupId in _restrictedGroups.value) {
+        if (self != null &&
+            self in members.members &&
+            members.groupId in _restrictedGroups.value
+        ) {
             clearGroupRestricted(members.groupId)
         }
 
@@ -2417,10 +2445,14 @@ class GroupManager(
         pendingApprovalSince.remove(groupId)
         clearGroupRestricted(groupId)
         scope.launch {
-            try { loadingRegistry.getController(groupId).reset() } catch (_: Exception) {}
+            try {
+                loadingRegistry.getController(groupId).reset()
+            } catch (_: Exception) {}
             val relayUrl = getRelayForGroup(groupId)
             if (relayUrl != null) {
-                try { refreshMuxSubscriptionsForRelay(relayUrl) } catch (_: Exception) {}
+                try {
+                    refreshMuxSubscriptionsForRelay(relayUrl)
+                } catch (_: Exception) {}
             }
         }
     }
@@ -2504,16 +2536,12 @@ class GroupManager(
     /**
      * Check if a pubkey is an admin of a group
      */
-    fun isGroupAdmin(groupId: String, pubkey: String): Boolean {
-        return pubkey in (_groupAdmins.value[groupId] ?: emptyList())
-    }
+    fun isGroupAdmin(groupId: String, pubkey: String): Boolean = pubkey in (_groupAdmins.value[groupId] ?: emptyList())
 
     /**
      * Get members for a specific group
      */
-    fun getMembersForGroup(groupId: String): List<String> {
-        return _groupMembers.value[groupId] ?: emptyList()
-    }
+    fun getMembersForGroup(groupId: String): List<String> = _groupMembers.value[groupId] ?: emptyList()
 
     /**
      * Apply immediate member list changes from kind:9000 (add-user) and kind:9001 (remove-user)
@@ -2534,15 +2562,21 @@ class GroupManager(
             9000 -> { // add-user
                 _groupMembers.update { current ->
                     val members = current[groupId] ?: return@update current
-                    if (targetPubkey in members) current
-                    else current + (groupId to members + targetPubkey)
+                    if (targetPubkey in members) {
+                        current
+                    } else {
+                        current + (groupId to members + targetPubkey)
+                    }
                 }
             }
             9001 -> { // remove-user
                 _groupMembers.update { current ->
                     val members = current[groupId] ?: return@update current
-                    if (targetPubkey !in members) current
-                    else current + (groupId to members - targetPubkey)
+                    if (targetPubkey !in members) {
+                        current
+                    } else {
+                        current + (groupId to members - targetPubkey)
+                    }
                 }
             }
         }
@@ -2550,21 +2584,21 @@ class GroupManager(
 
     // Valid message kinds for group events (NIP-29 and related)
     private val validMessageKinds = setOf(
-        9,      // Chat messages (NIP-29)
-        9000,   // Group admin: add user
-        9001,   // Group admin: remove user
-        9002,   // Group admin: edit metadata (NIP-29)
-        9009,   // Group admin: create invite (NIP-29)
-        9021,   // Join request
-        9022,   // Leave request
-        9321    // Zap request (NIP-57)
+        9, // Chat messages (NIP-29)
+        9000, // Group admin: add user
+        9001, // Group admin: remove user
+        9002, // Group admin: edit metadata (NIP-29)
+        9009, // Group admin: create invite (NIP-29)
+        9021, // Join request
+        9022, // Leave request
+        9321, // Zap request (NIP-57)
     )
 
     // Deletion kinds that remove other events
     private val deletionKinds = setOf(
-        5,      // Deletion request (NIP-09)
-        9003,   // Group admin: delete event (NIP-29)
-        9005    // Group admin: delete event (NIP-29 moderation)
+        5, // Deletion request (NIP-09)
+        9003, // Group admin: delete event (NIP-29)
+        9005, // Group admin: delete event (NIP-29 moderation)
     )
 
     /**
@@ -2576,7 +2610,7 @@ class GroupManager(
         message: NostrGroupClient.NostrMessage,
         rawMsg: String,
         subscriptionId: String? = null,
-        relayUrl: String? = null
+        relayUrl: String? = null,
     ): String? {
         // Handle deletion events separately — but still track for pagination cursor
         if (message.kind in deletionKinds) {
@@ -2726,9 +2760,7 @@ class GroupManager(
     /**
      * Get messages for a specific group
      */
-    fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> {
-        return _messages.value[groupId] ?: emptyList()
-    }
+    fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> = _messages.value[groupId] ?: emptyList()
 
     fun findMessageByIdAcrossGroups(messageId: String): Pair<String, NostrGroupClient.NostrMessage>? {
         for ((groupId, msgs) in _messages.value) {
@@ -2743,8 +2775,7 @@ class GroupManager(
      * in-memory list for [groupId], or null if the group has no messages loaded yet.
      * Used by gap detection to check whether events near the cursor arrived after reconnect.
      */
-    fun getLatestMessageTimestamp(groupId: String): Long? =
-        _messages.value[groupId]?.maxOfOrNull { it.createdAt }
+    fun getLatestMessageTimestamp(groupId: String): Long? = _messages.value[groupId]?.maxOfOrNull { it.createdAt }
 
     /**
      * Handle incoming reaction (kind 7).
@@ -2757,7 +2788,7 @@ class GroupManager(
      */
     fun handleReaction(
         reaction: NostrGroupClient.NostrReaction,
-        immediate: Boolean = false
+        immediate: Boolean = false,
     ): String? {
         val messageId = reaction.targetEventId
         if (messageId.isBlank()) return null
@@ -2793,7 +2824,7 @@ class GroupManager(
 
         val updatedInfo = ReactionInfo(
             emojiUrl = resolvedUrl,
-            reactors = currentReactors + reactorPubkey
+            reactors = currentReactors + reactorPubkey,
         )
         val updatedEmojiMap = currentReactions + (emoji to updatedInfo)
 
@@ -2846,8 +2877,12 @@ class GroupManager(
                     if (cached != null) {
                         changed = true
                         info.copy(emojiUrl = cached)
-                    } else info
-                } else info
+                    } else {
+                        info
+                    }
+                } else {
+                    info
+                }
             }
         }
         if (changed) _reactions.value = updated
@@ -3040,7 +3075,7 @@ class GroupManager(
                         kind = obj["kind"]?.jsonPrimitive?.int ?: 9,
                         tags = obj["tags"]?.jsonArray?.map { tagArray ->
                             tagArray.jsonArray.map { it.jsonPrimitive.content }
-                        } ?: emptyList()
+                        } ?: emptyList(),
                     )
                 } catch (e: Throwable) {
                     null
@@ -3080,20 +3115,27 @@ class GroupManager(
             val toSave = messages.takeLast(MAX_PERSISTED_MESSAGES)
             val messagesJson = buildJsonArray {
                 toSave.forEach { msg ->
-                    add(buildJsonObject {
-                        put("id", msg.id)
-                        put("pubkey", msg.pubkey)
-                        put("content", msg.content)
-                        put("createdAt", msg.createdAt)
-                        put("kind", msg.kind)
-                        put("tags", buildJsonArray {
-                            msg.tags.forEach { tag ->
-                                add(buildJsonArray {
-                                    tag.forEach { add(it) }
-                                })
-                            }
-                        })
-                    })
+                    add(
+                        buildJsonObject {
+                            put("id", msg.id)
+                            put("pubkey", msg.pubkey)
+                            put("content", msg.content)
+                            put("createdAt", msg.createdAt)
+                            put("kind", msg.kind)
+                            put(
+                                "tags",
+                                buildJsonArray {
+                                    msg.tags.forEach { tag ->
+                                        add(
+                                            buildJsonArray {
+                                                tag.forEach { add(it) }
+                                            },
+                                        )
+                                    }
+                                },
+                            )
+                        },
+                    )
                 }
             }.toString()
 

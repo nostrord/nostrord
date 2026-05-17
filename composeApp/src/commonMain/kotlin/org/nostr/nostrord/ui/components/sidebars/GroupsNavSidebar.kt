@@ -1,11 +1,10 @@
 package org.nostr.nostrord.ui.components.sidebars
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
@@ -14,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Clear
@@ -31,25 +31,25 @@ import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,7 +63,6 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.components.loading.shimmerEffect
-import org.nostr.nostrord.ui.components.navigation.relayShortLabel
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
@@ -115,7 +114,7 @@ fun GroupsNavSidebar(
     onRequestFullGroupList: () -> Unit = {},
     /** True when the relay WebSocket is connected — used to re-trigger the fetch once connection is ready. */
     isRelayConnected: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     // Reset when relay changes
     var searchQuery by remember(relayUrl) { mutableStateOf("") }
@@ -151,13 +150,16 @@ fun GroupsNavSidebar(
                 // sort last in stable input order. Subgroups keep DFS order
                 // under their parent (handled inside flattenHierarchy).
                 roots.sortedByDescending { lastMessageAt[it.id] ?: Long.MIN_VALUE }
-            }
+            },
         )
     }
     val otherGroups = remember(groups, myGroupsIds, searchQuery, childrenByParent, unverifiedChildren, expandedUnverified.toMap()) {
         val base = groups.filter { it.id !in myGroupsIds }
-        val filtered = if (searchQuery.isBlank()) base
-        else base.filter { it.name?.contains(searchQuery, ignoreCase = true) == true || it.id.contains(searchQuery, ignoreCase = true) }
+        val filtered = if (searchQuery.isBlank()) {
+            base
+        } else {
+            base.filter { it.name?.contains(searchQuery, ignoreCase = true) == true || it.id.contains(searchQuery, ignoreCase = true) }
+        }
         flattenHierarchy(filtered, childrenByParent, unverifiedChildren, expandedUnverified)
     }
 
@@ -184,7 +186,7 @@ fun GroupsNavSidebar(
         modifier = modifier
             .fillMaxWidth()
             .fillMaxHeight()
-            .background(NostrordColors.Surface)
+            .background(NostrordColors.Surface),
     ) {
         if (showRelayTitle) {
             val titleClickEnabled = onRelayTitleClick != null && relayUrl.isNotBlank()
@@ -195,18 +197,24 @@ fun GroupsNavSidebar(
                     .fillMaxWidth()
                     .height(Spacing.headerHeight)
                     .background(
-                        if (titleClickEnabled && titleHovered) NostrordColors.HoverBackground
-                        else NostrordColors.Surface
+                        if (titleClickEnabled && titleHovered) {
+                            NostrordColors.HoverBackground
+                        } else {
+                            NostrordColors.Surface
+                        },
                     )
                     .then(
-                        if (titleClickEnabled) Modifier
-                            .hoverable(titleInteractionSource)
-                            .clickable(onClick = onRelayTitleClick!!)
-                            .pointerHoverIcon(PointerIcon.Hand)
-                        else Modifier
+                        if (titleClickEnabled) {
+                            Modifier
+                                .hoverable(titleInteractionSource)
+                                .clickable(onClick = onRelayTitleClick!!)
+                                .pointerHoverIcon(PointerIcon.Hand)
+                        } else {
+                            Modifier
+                        },
                     )
                     .padding(horizontal = Spacing.lg),
-                contentAlignment = Alignment.CenterStart
+                contentAlignment = Alignment.CenterStart,
             ) {
                 Text(
                     text = if (relayUrl.isBlank()) "No Relay" else (relayName?.takeIf { it.isNotBlank() } ?: relayUrl).uppercase(),
@@ -215,7 +223,7 @@ fun GroupsNavSidebar(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.02.sp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
@@ -224,7 +232,7 @@ fun GroupsNavSidebar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(1.dp)
-                    .background(NostrordColors.BackgroundDark)
+                    .background(NostrordColors.BackgroundDark),
             )
         }
 
@@ -237,20 +245,20 @@ fun GroupsNavSidebar(
                         .fillMaxSize()
                         .padding(horizontal = Spacing.lg),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                    verticalArrangement = Arrangement.Center,
                 ) {
                     Text(
                         text = "#",
                         color = NostrordColors.TextMuted,
                         fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
                         text = "No groups yet",
                         color = NostrordColors.TextPrimary,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -258,7 +266,7 @@ fun GroupsNavSidebar(
                         color = NostrordColors.TextMuted,
                         fontSize = 12.sp,
                         lineHeight = 17.sp,
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(16.dp))
                     Box(
@@ -267,13 +275,13 @@ fun GroupsNavSidebar(
                             .background(NostrordColors.Primary)
                             .clickable(onClick = onAddRelay)
                             .padding(horizontal = 20.dp, vertical = 8.dp),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = "Add a Relay",
                             color = Color.White,
                             fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 }
@@ -281,7 +289,7 @@ fun GroupsNavSidebar(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = Spacing.sm, vertical = Spacing.xs)
+                        .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
                 ) {
                     repeat(6) { GroupNavItemSkeleton() }
                 }
@@ -290,44 +298,197 @@ fun GroupsNavSidebar(
                     text = "No groups on this relay",
                     color = NostrordColors.TextMuted,
                     fontSize = 13.sp,
-                    modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm)
+                    modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm),
                 )
             } else {
                 val hasOtherGroups = otherGroups.isNotEmpty() || searchQuery.isNotBlank() || isGroupFetchLazy
                 Column(modifier = Modifier.fillMaxSize()) {
-                // MY GROUPS — weight gives verticalScroll a bounded viewport; OTHER GROUPS header always visible
-                if (myGroups.isNotEmpty() || orphanedJoinedIds.isNotEmpty()) {
-                    val myGroupsScrollState = remember(relayUrl) { ScrollState(0) }
-                    val expandedWithOtherGroups = hasOtherGroups && otherGroupsExpanded
-                    Column(modifier = if (expandedWithOtherGroups)
-                        Modifier.padding(horizontal = Spacing.sm)
-                    else
-                        Modifier.padding(horizontal = Spacing.sm).weight(1f)
-                    ) {
-                        SectionToggleHeader(
-                            text = "MY GROUPS",
-                            expanded = myGroupsExpanded,
-                            topPadding = Spacing.xs,
-                            onToggle = { myGroupsExpanded = !myGroupsExpanded }
-                        )
-                        if (myGroupsExpanded) {
-                            Box(modifier = if (expandedWithOtherGroups)
-                                Modifier.heightIn(max = 240.dp)
-                            else
-                                Modifier.weight(1f)
-                            ) {
-                                Column(modifier = Modifier.verticalScroll(myGroupsScrollState)) {
-                                    myGroups.forEach { item ->
+                    // MY GROUPS — weight gives verticalScroll a bounded viewport; OTHER GROUPS header always visible
+                    if (myGroups.isNotEmpty() || orphanedJoinedIds.isNotEmpty()) {
+                        val myGroupsScrollState = remember(relayUrl) { ScrollState(0) }
+                        val expandedWithOtherGroups = hasOtherGroups && otherGroupsExpanded
+                        Column(
+                            modifier = if (expandedWithOtherGroups) {
+                                Modifier.padding(horizontal = Spacing.sm)
+                            } else {
+                                Modifier.padding(horizontal = Spacing.sm).weight(1f)
+                            },
+                        ) {
+                            SectionToggleHeader(
+                                text = "MY GROUPS",
+                                expanded = myGroupsExpanded,
+                                topPadding = Spacing.xs,
+                                onToggle = { myGroupsExpanded = !myGroupsExpanded },
+                            )
+                            if (myGroupsExpanded) {
+                                Box(
+                                    modifier = if (expandedWithOtherGroups) {
+                                        Modifier.heightIn(max = 240.dp)
+                                    } else {
+                                        Modifier.weight(1f)
+                                    },
+                                ) {
+                                    Column(modifier = Modifier.verticalScroll(myGroupsScrollState)) {
+                                        myGroups.forEach { item ->
+                                            when (item) {
+                                                is SidebarItem.Group -> GroupItem(
+                                                    group = item.group,
+                                                    isActive = item.group.id == activeGroupId,
+                                                    unreadCount = unreadCounts[item.group.id] ?: 0,
+                                                    childCount = childrenByParent[item.group.id]?.size ?: 0,
+                                                    notJoined = item.group.id !in joinedGroupIds,
+                                                    unverified = item.unverified,
+                                                    depth = item.depth,
+                                                    onClick = { onGroupClick(item.group.id, item.group.name) },
+                                                )
+                                                is SidebarItem.UnverifiedHeader -> UnverifiedClaimsHeader(
+                                                    count = item.count,
+                                                    expanded = expandedUnverified[item.parentId] == true,
+                                                    depth = item.depth,
+                                                    onToggle = {
+                                                        expandedUnverified[item.parentId] =
+                                                            !(expandedUnverified[item.parentId] ?: false)
+                                                    },
+                                                )
+                                            }
+                                        }
+                                        orphanedJoinedIds.forEach { orphanId ->
+                                            OrphanedGroupItem(
+                                                groupId = orphanId,
+                                                onForget = { onForgetOrphan(orphanId) },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // OTHER GROUPS — scrollable, fills remaining space
+                    if (otherGroups.isNotEmpty() || searchQuery.isNotBlank() || isGroupFetchLazy) {
+                        Column(modifier = Modifier.padding(horizontal = Spacing.sm)) {
+                            SectionToggleHeader(
+                                text = "OTHER GROUPS",
+                                expanded = otherGroupsExpanded,
+                                topPadding = if (myGroups.isNotEmpty()) Spacing.md else Spacing.xs,
+                                onToggle = {
+                                    val next = !otherGroupsExpanded
+                                    otherGroupsExpanded = next
+                                    SecureStorage.saveBooleanPref("sidebar_other_expanded_$relayUrl", next)
+                                    // Trigger immediately rather than waiting for the LaunchedEffect
+                                    // below to recompose with the new otherGroupsExpanded value.
+                                    if (next && isGroupFetchLazy && needsFullFetch) {
+                                        onRequestFullGroupList()
+                                    }
+                                },
+                            )
+                            if (otherGroupsExpanded) {
+                                val focusRequester = remember { FocusRequester() }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                        .height(28.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(NostrordColors.BackgroundDark)
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null,
+                                        ) { focusRequester.requestFocus() }
+                                        .padding(horizontal = 6.dp),
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Search,
+                                            contentDescription = null,
+                                            tint = NostrordColors.TextMuted,
+                                            modifier = Modifier.size(12.dp),
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Box(
+                                            modifier = Modifier.weight(1f),
+                                            contentAlignment = Alignment.CenterStart,
+                                        ) {
+                                            if (searchQuery.isEmpty()) {
+                                                Text(
+                                                    text = "Filter…",
+                                                    color = NostrordColors.TextMuted,
+                                                    fontSize = 12.sp,
+                                                )
+                                            }
+                                            BasicTextField(
+                                                value = searchQuery,
+                                                onValueChange = { searchQuery = it },
+                                                singleLine = true,
+                                                textStyle = TextStyle(
+                                                    color = NostrordColors.TextPrimary,
+                                                    fontSize = 12.sp,
+                                                ),
+                                                cursorBrush = SolidColor(NostrordColors.Primary),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(focusRequester)
+                                                    .onPreviewKeyEvent { event ->
+                                                        if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && searchQuery.isNotEmpty()) {
+                                                            searchQuery = ""
+                                                            true
+                                                        } else {
+                                                            false
+                                                        }
+                                                    },
+                                            )
+                                        }
+                                        if (searchQuery.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clip(RoundedCornerShape(7.dp))
+                                                    .clickable { searchQuery = "" }
+                                                    .pointerHoverIcon(PointerIcon.Hand),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Clear,
+                                                    contentDescription = "Clear filter",
+                                                    tint = NostrordColors.TextMuted,
+                                                    modifier = Modifier.size(10.dp),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (otherGroupsExpanded) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                LazyColumn(
+                                    state = listState,
+                                    modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.sm),
+                                ) {
+                                    items(
+                                        otherGroups,
+                                        key = { item ->
+                                            when (item) {
+                                                is SidebarItem.Group -> "other_${item.group.id}"
+                                                is SidebarItem.UnverifiedHeader -> "other_unverified_${item.parentId}"
+                                            }
+                                        },
+                                    ) { item ->
                                         when (item) {
                                             is SidebarItem.Group -> GroupItem(
                                                 group = item.group,
                                                 isActive = item.group.id == activeGroupId,
                                                 unreadCount = unreadCounts[item.group.id] ?: 0,
                                                 childCount = childrenByParent[item.group.id]?.size ?: 0,
-                                                notJoined = item.group.id !in joinedGroupIds,
                                                 unverified = item.unverified,
                                                 depth = item.depth,
-                                                onClick = { onGroupClick(item.group.id, item.group.name) }
+                                                onClick = { onGroupClick(item.group.id, item.group.name) },
                                             )
                                             is SidebarItem.UnverifiedHeader -> UnverifiedClaimsHeader(
                                                 count = item.count,
@@ -336,188 +497,41 @@ fun GroupsNavSidebar(
                                                 onToggle = {
                                                     expandedUnverified[item.parentId] =
                                                         !(expandedUnverified[item.parentId] ?: false)
-                                                }
+                                                },
                                             )
                                         }
                                     }
-                                    orphanedJoinedIds.forEach { orphanId ->
-                                        OrphanedGroupItem(
-                                            groupId = orphanId,
-                                            onForget = { onForgetOrphan(orphanId) }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
 
-                // OTHER GROUPS — scrollable, fills remaining space
-                if (otherGroups.isNotEmpty() || searchQuery.isNotBlank() || isGroupFetchLazy) {
-                    Column(modifier = Modifier.padding(horizontal = Spacing.sm)) {
-                        SectionToggleHeader(
-                            text = "OTHER GROUPS",
-                            expanded = otherGroupsExpanded,
-                            topPadding = if (myGroups.isNotEmpty()) Spacing.md else Spacing.xs,
-                            onToggle = {
-                                val next = !otherGroupsExpanded
-                                otherGroupsExpanded = next
-                                SecureStorage.saveBooleanPref("sidebar_other_expanded_$relayUrl", next)
-                                // Trigger immediately rather than waiting for the LaunchedEffect
-                                // below to recompose with the new otherGroupsExpanded value.
-                                if (next && isGroupFetchLazy && needsFullFetch) {
-                                    onRequestFullGroupList()
-                                }
-                            }
-                        )
-                        if (otherGroupsExpanded) {
-                            val focusRequester = remember { FocusRequester() }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp)
-                                    .height(28.dp)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(NostrordColors.BackgroundDark)
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) { focusRequester.requestFocus() }
-                                    .padding(horizontal = 6.dp),
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Search,
-                                        contentDescription = null,
-                                        tint = NostrordColors.TextMuted,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Box(
-                                        modifier = Modifier.weight(1f),
-                                        contentAlignment = Alignment.CenterStart
-                                    ) {
-                                        if (searchQuery.isEmpty()) {
+                                    if (otherGroups.isEmpty() && searchQuery.isNotBlank()) {
+                                        item(key = "no_results") {
                                             Text(
-                                                text = "Filter…",
+                                                text = "No groups match \"$searchQuery\"",
                                                 color = NostrordColors.TextMuted,
-                                                fontSize = 12.sp
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
                                             )
                                         }
-                                        BasicTextField(
-                                            value = searchQuery,
-                                            onValueChange = { searchQuery = it },
-                                            singleLine = true,
-                                            textStyle = TextStyle(
-                                                color = NostrordColors.TextPrimary,
-                                                fontSize = 12.sp
-                                            ),
-                                            cursorBrush = SolidColor(NostrordColors.Primary),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .focusRequester(focusRequester)
-                                                .onPreviewKeyEvent { event ->
-                                                    if (event.key == Key.Escape && event.type == KeyEventType.KeyDown && searchQuery.isNotEmpty()) {
-                                                        searchQuery = ""
-                                                        true
-                                                    } else false
-                                                }
-                                        )
                                     }
-                                    if (searchQuery.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .size(14.dp)
-                                                .clip(RoundedCornerShape(7.dp))
-                                                .clickable { searchQuery = "" }
-                                                .pointerHoverIcon(PointerIcon.Hand),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Clear,
-                                                contentDescription = "Clear filter",
-                                                tint = NostrordColors.TextMuted,
-                                                modifier = Modifier.size(10.dp)
+
+                                    if (otherGroups.isEmpty() && isGroupFetchLazy) {
+                                        item(key = "lazy_placeholder") {
+                                            Text(
+                                                text = if (isLoading) "Loading groups…" else "No other groups",
+                                                color = NostrordColors.TextMuted,
+                                                fontSize = 12.sp,
+                                                modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
                                             )
                                         }
                                     }
                                 }
+
+                                VerticalScrollbarWrapper(
+                                    listState = listState,
+                                    modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                                )
                             }
                         }
                     }
-
-                    if (otherGroupsExpanded) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            LazyColumn(
-                                state = listState,
-                                modifier = Modifier.fillMaxSize().padding(horizontal = Spacing.sm)
-                            ) {
-                                items(
-                                    otherGroups,
-                                    key = { item ->
-                                        when (item) {
-                                            is SidebarItem.Group -> "other_${item.group.id}"
-                                            is SidebarItem.UnverifiedHeader -> "other_unverified_${item.parentId}"
-                                        }
-                                    }
-                                ) { item ->
-                                    when (item) {
-                                        is SidebarItem.Group -> GroupItem(
-                                            group = item.group,
-                                            isActive = item.group.id == activeGroupId,
-                                            unreadCount = unreadCounts[item.group.id] ?: 0,
-                                            childCount = childrenByParent[item.group.id]?.size ?: 0,
-                                            unverified = item.unverified,
-                                            depth = item.depth,
-                                            onClick = { onGroupClick(item.group.id, item.group.name) }
-                                        )
-                                        is SidebarItem.UnverifiedHeader -> UnverifiedClaimsHeader(
-                                            count = item.count,
-                                            expanded = expandedUnverified[item.parentId] == true,
-                                            depth = item.depth,
-                                            onToggle = {
-                                                expandedUnverified[item.parentId] =
-                                                    !(expandedUnverified[item.parentId] ?: false)
-                                            }
-                                        )
-                                    }
-                                }
-
-                                if (otherGroups.isEmpty() && searchQuery.isNotBlank()) {
-                                    item(key = "no_results") {
-                                        Text(
-                                            text = "No groups match \"$searchQuery\"",
-                                            color = NostrordColors.TextMuted,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)
-                                        )
-                                    }
-                                }
-
-                                if (otherGroups.isEmpty() && isGroupFetchLazy) {
-                                    item(key = "lazy_placeholder") {
-                                        Text(
-                                            text = if (isLoading) "Loading groups…" else "No other groups",
-                                            color = NostrordColors.TextMuted,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs)
-                                        )
-                                    }
-                                }
-                            }
-
-                            VerticalScrollbarWrapper(
-                                listState = listState,
-                                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-                            )
-                        }
-                    }
-                }
                 }
             }
         }
@@ -528,7 +542,7 @@ fun GroupsNavSidebar(
                     .fillMaxWidth()
                     .background(NostrordColors.Surface)
                     .padding(Spacing.md),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Box(
                     modifier = Modifier
@@ -538,13 +552,13 @@ fun GroupsNavSidebar(
                         .clickable(onClick = onCreateGroupClick)
                         .pointerHoverIcon(PointerIcon.Hand)
                         .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "Create Group",
                         color = Color.White,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
                 Box(
@@ -555,13 +569,13 @@ fun GroupsNavSidebar(
                         .clickable(onClick = onJoinGroupClick)
                         .pointerHoverIcon(PointerIcon.Hand)
                         .padding(vertical = 8.dp),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = "Join Group",
                         color = NostrordColors.TextPrimary,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
             }
@@ -574,7 +588,7 @@ private fun SectionToggleHeader(
     text: String,
     expanded: Boolean,
     topPadding: androidx.compose.ui.unit.Dp = Spacing.xs,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
 ) {
     val chevronRotation by animateFloatAsState(targetValue = if (expanded) 0f else -90f)
 
@@ -584,17 +598,17 @@ private fun SectionToggleHeader(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = onToggle
+                onClick = onToggle,
             )
             .pointerHoverIcon(PointerIcon.Hand)
             .padding(top = topPadding, bottom = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = "▼",
             color = NostrordColors.TextMuted,
             fontSize = 8.sp,
-            modifier = Modifier.rotate(chevronRotation)
+            modifier = Modifier.rotate(chevronRotation),
         )
         Spacer(modifier = Modifier.width(5.dp))
         Text(
@@ -602,7 +616,7 @@ private fun SectionToggleHeader(
             color = NostrordColors.TextMuted,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 0.02.sp
+            letterSpacing = 0.02.sp,
         )
     }
 }
@@ -617,7 +631,7 @@ private fun UnverifiedClaimsHeader(
     count: Int,
     expanded: Boolean,
     depth: Int,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -635,15 +649,15 @@ private fun UnverifiedClaimsHeader(
                 start = (10 + depth.coerceAtMost(3) * 14).dp,
                 end = 10.dp,
                 top = 6.dp,
-                bottom = 6.dp
+                bottom = 6.dp,
             ),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = "▼",
             color = NostrordColors.TextMuted,
             fontSize = 8.sp,
-            modifier = Modifier.rotate(chevronRotation)
+            modifier = Modifier.rotate(chevronRotation),
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
@@ -653,7 +667,7 @@ private fun UnverifiedClaimsHeader(
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.02.sp,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -664,13 +678,13 @@ private fun GroupNavItemSkeleton() {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
                 .size(22.dp)
                 .clip(RoundedCornerShape(4.dp))
-                .shimmerEffect()
+                .shimmerEffect(),
         )
         Spacer(modifier = Modifier.width(6.dp))
         Box(
@@ -678,7 +692,7 @@ private fun GroupNavItemSkeleton() {
                 .height(13.dp)
                 .fillMaxWidth(0.65f)
                 .clip(RoundedCornerShape(3.dp))
-                .shimmerEffect()
+                .shimmerEffect(),
         )
     }
 }
@@ -693,7 +707,7 @@ private fun GroupItem(
     notJoined: Boolean = false,
     unverified: Boolean = false,
     depth: Int = 0,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -728,7 +742,7 @@ private fun GroupItem(
             // Product decision, not a protocol rule — the tree itself keeps rendering
             // as deep as the data goes; only the visual indent stops growing.
             .padding(start = (10 + depth.coerceAtMost(3) * 14).dp, end = 10.dp, top = 7.dp, bottom = 7.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         val groupName = group.name ?: group.id
         if (depth > 0) {
@@ -736,7 +750,7 @@ private fun GroupItem(
                 text = "›",
                 color = NostrordColors.TextMuted,
                 fontSize = 13.sp,
-                modifier = Modifier.padding(end = 4.dp)
+                modifier = Modifier.padding(end = 4.dp),
             )
         }
         GroupNavIcon(group = group, size = 22.dp)
@@ -751,30 +765,30 @@ private fun GroupItem(
             fontStyle = if (unverified) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
 
         if (unverified) {
             Spacer(modifier = Modifier.width(4.dp))
             TooltipBox(
                 positionProvider = TooltipDefaults.rememberTooltipPositionProvider(
-                    TooltipAnchorPosition.Above
+                    TooltipAnchorPosition.Above,
                 ),
                 tooltip = {
                     PlainTooltip(
                         containerColor = NostrordColors.Surface,
-                        contentColor = NostrordColors.TextPrimary
+                        contentColor = NostrordColors.TextPrimary,
                     ) {
                         Text("Unverified subgroup — this group claims a parent that hasn't listed it back.")
                     }
                 },
-                state = rememberTooltipState()
+                state = rememberTooltipState(),
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.HelpOutline,
                     contentDescription = "Unverified subgroup",
                     tint = NostrordColors.TextMuted,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(12.dp),
                 )
             }
         }
@@ -784,7 +798,7 @@ private fun GroupItem(
             Text(
                 text = "› $childCount",
                 color = NostrordColors.TextMuted,
-                fontSize = 11.sp
+                fontSize = 11.sp,
             )
         }
 
@@ -811,14 +825,14 @@ private fun GroupNavIcon(group: GroupMetadata, size: Dp) {
             .size(size)
             .clip(iconShape)
             .background(if (!showImage) generateColorFromString(group.id) else NostrordColors.BackgroundDark),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         if (!showImage) {
             Text(
                 text = displayName.take(1).uppercase(),
                 color = Color.White,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
         if (!pictureUrl.isNullOrBlank()) {
@@ -834,7 +848,7 @@ private fun GroupNavIcon(group: GroupMetadata, size: Dp) {
                     .fillMaxSize()
                     .clip(iconShape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }
@@ -843,7 +857,7 @@ private fun GroupNavIcon(group: GroupMetadata, size: Dp) {
 @Composable
 private fun OrphanedGroupItem(
     groupId: String,
-    onForget: () -> Unit
+    onForget: () -> Unit,
 ) {
     var showConfirm by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -856,14 +870,14 @@ private fun OrphanedGroupItem(
             .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
             .hoverable(interactionSource)
             .padding(start = 10.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
                 .size(22.dp)
                 .clip(RoundedCornerShape(4.dp))
                 .background(NostrordColors.BackgroundDark),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Text("?", color = NostrordColors.TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
@@ -874,14 +888,14 @@ private fun OrphanedGroupItem(
                 color = NostrordColors.TextMuted,
                 fontSize = 13.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = groupId.take(12) + if (groupId.length > 12) "…" else "",
                 color = NostrordColors.TextMuted,
                 fontSize = 10.sp,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
         Box(
@@ -890,13 +904,13 @@ private fun OrphanedGroupItem(
                 .clip(RoundedCornerShape(4.dp))
                 .clickable { showConfirm = true }
                 .pointerHoverIcon(PointerIcon.Hand),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Icon(
                 imageVector = Icons.Filled.Delete,
                 contentDescription = "Remove from list",
                 tint = NostrordColors.TextMuted,
-                modifier = Modifier.size(14.dp)
+                modifier = Modifier.size(14.dp),
             )
         }
     }
@@ -921,7 +935,7 @@ private fun OrphanedGroupItem(
                 TextButton(onClick = { showConfirm = false }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 }
@@ -936,12 +950,12 @@ private sealed class SidebarItem {
     data class Group(
         val group: GroupMetadata,
         override val depth: Int,
-        val unverified: Boolean
+        val unverified: Boolean,
     ) : SidebarItem()
     data class UnverifiedHeader(
         val parentId: String,
         override val depth: Int,
-        val count: Int
+        val count: Int,
     ) : SidebarItem()
 }
 
@@ -964,7 +978,7 @@ private fun flattenHierarchy(
      * keep their DFS position under the parent, so reordering at the root level
      * (e.g. by recent activity) doesn't shuffle the inner hierarchy.
      */
-    rootOrder: ((List<GroupMetadata>) -> List<GroupMetadata>)? = null
+    rootOrder: ((List<GroupMetadata>) -> List<GroupMetadata>)? = null,
 ): List<SidebarItem> {
     if (list.isEmpty()) return emptyList()
     val byId = list.associateBy { it.id }

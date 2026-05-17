@@ -19,14 +19,16 @@ import javax.swing.SwingUtilities
 import javax.swing.UIManager
 import javax.swing.filechooser.FileNameExtensionFilter
 
-actual class MediaPickerLauncher(private val doLaunch: () -> Unit) {
+actual class MediaPickerLauncher(
+    private val doLaunch: () -> Unit,
+) {
     actual fun launch() = doLaunch()
 }
 
-private val IMAGE_EXTENSIONS     = arrayOf("jpg", "jpeg", "png", "gif", "webp", "avif")
-private val AUDIO_EXTENSIONS     = arrayOf("mp3", "ogg", "wav", "flac", "m4a", "aac", "opus")
-private val ALL_EXTENSIONS       = IMAGE_EXTENSIONS + arrayOf("mp4", "mov", "webm") + AUDIO_EXTENSIONS
-private val ALL_EXTENSIONS_SET   = ALL_EXTENSIONS.toSet()
+private val IMAGE_EXTENSIONS = arrayOf("jpg", "jpeg", "png", "gif", "webp", "avif")
+private val AUDIO_EXTENSIONS = arrayOf("mp3", "ogg", "wav", "flac", "m4a", "aac", "opus")
+private val ALL_EXTENSIONS = IMAGE_EXTENSIONS + arrayOf("mp4", "mov", "webm") + AUDIO_EXTENSIONS
+private val ALL_EXTENSIONS_SET = ALL_EXTENSIONS.toSet()
 private val IMAGE_EXTENSIONS_SET = IMAGE_EXTENSIONS.toSet()
 
 // UIManager is global state — apply system L&F only once.
@@ -41,7 +43,7 @@ actual fun rememberMediaPickerLauncher(
     accept: MediaAccept,
     onPickStart: () -> Unit,
     onError: (String) -> Unit,
-    onFilePicked: (ByteArray, String) -> Unit
+    onFilePicked: (ByteArray, String) -> Unit,
 ): MediaPickerLauncher {
     val scope = rememberCoroutineScope()
     return remember {
@@ -54,71 +56,89 @@ actual fun rememberMediaPickerLauncher(
                     systemLafApplied = true
                 }
 
-                val appWindow: Window? = KeyboardFocusManager
-                    .getCurrentKeyboardFocusManager()
-                    .activeWindow
+                val appWindow: Window? =
+                    KeyboardFocusManager
+                        .getCurrentKeyboardFocusManager()
+                        .activeWindow
 
-                val appBounds: Rectangle = appWindow?.bounds
-                    ?: Toolkit.getDefaultToolkit().screenSize
-                        .let { Rectangle(0, 0, it.width, it.height) }
+                val appBounds: Rectangle =
+                    appWindow?.bounds
+                        ?: Toolkit
+                            .getDefaultToolkit()
+                            .screenSize
+                            .let { Rectangle(0, 0, it.width, it.height) }
 
-                val monitorBounds: Rectangle = appWindow
-                    ?.graphicsConfiguration?.bounds
-                    ?: appBounds
+                val monitorBounds: Rectangle =
+                    appWindow
+                        ?.graphicsConfiguration
+                        ?.bounds
+                        ?: appBounds
 
-                val anchor = JFrame().apply {
-                    isUndecorated = true
-                    isAlwaysOnTop = true
-                    setSize(1, 1)
-                    setLocation(
-                        appBounds.x + appBounds.width / 2,
-                        appBounds.y + appBounds.height / 2
-                    )
-                    isVisible = true
-                }
+                val anchor =
+                    JFrame().apply {
+                        isUndecorated = true
+                        isAlwaysOnTop = true
+                        setSize(1, 1)
+                        setLocation(
+                            appBounds.x + appBounds.width / 2,
+                            appBounds.y + appBounds.height / 2,
+                        )
+                        isVisible = true
+                    }
 
-                val (filterDesc, extensions, allowedSet) = when (accept) {
-                    MediaAccept.Images ->
-                        Triple("Images (jpg, png, gif, webp, avif)", IMAGE_EXTENSIONS, IMAGE_EXTENSIONS_SET)
-                    MediaAccept.ImagesVideosAudio ->
-                        Triple("Images, Videos & Audio (jpg, png, gif, webp, avif, mp4, mov, webm, mp3, ogg, wav, flac, m4a, aac, opus)", ALL_EXTENSIONS, ALL_EXTENSIONS_SET)
-                }
+                val (filterDesc, extensions, allowedSet) =
+                    when (accept) {
+                        MediaAccept.Images ->
+                            Triple("Images (jpg, png, gif, webp, avif)", IMAGE_EXTENSIONS, IMAGE_EXTENSIONS_SET)
+                        MediaAccept.ImagesVideosAudio ->
+                            Triple(
+                                "Images, Videos & Audio (jpg, png, gif, webp, avif, mp4, mov, webm, mp3, ogg, wav, flac, m4a, aac, opus)",
+                                ALL_EXTENSIONS,
+                                ALL_EXTENSIONS_SET,
+                            )
+                    }
 
-                val chooser = JFileChooser().apply {
-                    dialogTitle = "Select File"
-                    fileFilter = FileNameExtensionFilter(filterDesc, *extensions)
-                    isMultiSelectionEnabled = false
-                    fileSelectionMode = JFileChooser.FILES_ONLY
-                }
+                val chooser =
+                    JFileChooser().apply {
+                        dialogTitle = "Select File"
+                        fileFilter = FileNameExtensionFilter(filterDesc, *extensions)
+                        isMultiSelectionEnabled = false
+                        fileSelectionMode = JFileChooser.FILES_ONLY
+                    }
 
-                val pickerDialog = JDialog(
-                    anchor, "Select File",
-                    Dialog.ModalityType.APPLICATION_MODAL
-                ).apply {
-                    isAlwaysOnTop = true
-                    defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
-                    contentPane.add(chooser)
-                    pack()
+                val pickerDialog =
+                    JDialog(
+                        anchor,
+                        "Select File",
+                        Dialog.ModalityType.APPLICATION_MODAL,
+                    ).apply {
+                        isAlwaysOnTop = true
+                        defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
+                        contentPane.add(chooser)
+                        pack()
 
-                    val dw = width
-                    val dh = height
-                    var dx = appBounds.x + (appBounds.width - dw) / 2
-                    var dy = appBounds.y + (appBounds.height - dh) / 2
-                    dx = dx.coerceIn(
-                        monitorBounds.x,
-                        monitorBounds.x + (monitorBounds.width - dw).coerceAtLeast(0)
-                    )
-                    dy = dy.coerceIn(
-                        monitorBounds.y,
-                        monitorBounds.y + (monitorBounds.height - dh).coerceAtLeast(0)
-                    )
-                    setLocation(dx, dy)
-                }
+                        val dw = width
+                        val dh = height
+                        var dx = appBounds.x + (appBounds.width - dw) / 2
+                        var dy = appBounds.y + (appBounds.height - dh) / 2
+                        dx =
+                            dx.coerceIn(
+                                monitorBounds.x,
+                                monitorBounds.x + (monitorBounds.width - dw).coerceAtLeast(0),
+                            )
+                        dy =
+                            dy.coerceIn(
+                                monitorBounds.y,
+                                monitorBounds.y + (monitorBounds.height - dh).coerceAtLeast(0),
+                            )
+                        setLocation(dx, dy)
+                    }
 
                 chooser.addActionListener { e ->
                     when (e.actionCommand) {
                         JFileChooser.APPROVE_SELECTION,
-                        JFileChooser.CANCEL_SELECTION -> pickerDialog.dispose()
+                        JFileChooser.CANCEL_SELECTION,
+                        -> pickerDialog.dispose()
                     }
                 }
 
@@ -155,7 +175,8 @@ actual fun rememberMediaPickerLauncher(
                     if (result != null) {
                         withContext(Dispatchers.Main) { onFilePicked(result.first, result.second) }
                     }
-                } catch (_: Throwable) {}
+                } catch (_: Throwable) {
+                }
             }
         }
     }

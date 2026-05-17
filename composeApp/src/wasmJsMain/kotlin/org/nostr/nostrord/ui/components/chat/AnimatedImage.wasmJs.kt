@@ -21,12 +21,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.WebElementView
-import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.browser.document
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.getImageUrl
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.HTMLImageElement
+import kotlin.js.ExperimentalWasmJsInterop
 
 private const val IMAGE_BORDER_RADIUS_PX = 8
 
@@ -54,7 +54,7 @@ actual fun AnimatedImage(
     modifier: Modifier,
     contentScale: ContentScale,
     onClick: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     var aspectRatio by remember(url) { mutableStateOf(16f / 9f) }
     var isLoaded by remember(url) { mutableStateOf(false) }
@@ -73,12 +73,13 @@ actual fun AnimatedImage(
     if (hasError) return
 
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .aspectRatio(aspectRatio, heightFirst)
             .background(NostrordColors.Surface)
             .clickable(onClick = { currentOnClick() }),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         WebElementView(
             factory = {
@@ -107,7 +108,8 @@ actual fun AnimatedImage(
                     }
                 }
             },
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .aspectRatio(aspectRatio, heightFirst),
             update = { element ->
@@ -117,14 +119,14 @@ actual fun AnimatedImage(
                 }
                 // Re-apply on every update in case Compose recreated the wrapper.
                 disablePointerEventsOnTree(img)
-            }
+            },
         )
 
         if (!isLoaded) {
             CircularProgressIndicator(
                 modifier = Modifier.size(28.dp),
                 color = NostrordColors.TextMuted,
-                strokeWidth = 2.5.dp
+                strokeWidth = 2.5.dp,
             )
         }
     }

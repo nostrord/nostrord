@@ -33,10 +33,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -56,10 +56,10 @@ import org.nostr.nostrord.storage.PassphraseSettings
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
-import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.components.cards.KeyCard
 import org.nostr.nostrord.ui.components.cards.WarningCard
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
+import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -74,7 +74,7 @@ enum class SettingsSection(val label: String) {
     RelaysNip65("Relays (NIP-65)"),
     Notifications("Notifications"),
     Security("Security"),
-    Experimental("Experimental")
+    Experimental("Experimental"),
 }
 
 /**
@@ -99,7 +99,7 @@ fun SettingsScreen(
     canGoForward: Boolean = false,
     onHistoryBack: () -> Unit = {},
     onHistoryForward: () -> Unit = {},
-    forceDesktop: Boolean = false
+    forceDesktop: Boolean = false,
 ) {
     val vm = viewModel { EditProfileViewModel(AppModule.nostrRepository) }
     val userMetadata by vm.userMetadata.collectAsState()
@@ -134,10 +134,16 @@ fun SettingsScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(showSuccessMessage) {
-        if (showSuccessMessage) { delay(2000); showSuccessMessage = false }
+        if (showSuccessMessage) {
+            delay(2000)
+            showSuccessMessage = false
+        }
     }
     LaunchedEffect(errorMessage) {
-        if (errorMessage != null) { delay(3000); errorMessage = null }
+        if (errorMessage != null) {
+            delay(3000)
+            errorMessage = null
+        }
     }
 
     val onSave: () -> Unit = {
@@ -152,11 +158,14 @@ fun SettingsScreen(
             banner = bannerUrl.ifBlank { null },
             nip05 = nip05.ifBlank { null },
             lud16 = lightningAddress.ifBlank { null },
-            website = website.ifBlank { null }
+            website = website.ifBlank { null },
         ) { result ->
             isSaving = false
-            if (result.isSuccess) showSuccessMessage = true
-            else errorMessage = result.exceptionOrNull()?.message ?: "Failed to update profile"
+            if (result.isSuccess) {
+                showSuccessMessage = true
+            } else {
+                errorMessage = result.exceptionOrNull()?.message ?: "Failed to update profile"
+            }
         }
     }
 
@@ -180,7 +189,7 @@ fun SettingsScreen(
             onNip05Change = { nip05 = it },
             onLightningAddressChange = { lightningAddress = it },
             onWebsiteChange = { website = it },
-            onSave = onSave
+            onSave = onSave,
         )
     }
 
@@ -189,7 +198,10 @@ fun SettingsScreen(
     val privateKey = remember { AppModule.nostrRepository.getPrivateKey() }
     var showKeyCopied by remember { mutableStateOf(false) }
     LaunchedEffect(showKeyCopied) {
-        if (showKeyCopied) { delay(2000); showKeyCopied = false }
+        if (showKeyCopied) {
+            delay(2000)
+            showKeyCopied = false
+        }
     }
 
     val backupContent: @Composable () -> Unit = {
@@ -197,8 +209,18 @@ fun SettingsScreen(
             privateKey = privateKey,
             publicKey = publicKey,
             showCopiedMessage = showKeyCopied,
-            onCopyPublicKey = { publicKey?.let { copyToClipboard(it); showKeyCopied = true } },
-            onCopyPrivateKey = { privateKey?.let { copyToClipboard(it); showKeyCopied = true } }
+            onCopyPublicKey = {
+                publicKey?.let {
+                    copyToClipboard(it)
+                    showKeyCopied = true
+                }
+            },
+            onCopyPrivateKey = {
+                privateKey?.let {
+                    copyToClipboard(it)
+                    showKeyCopied = true
+                }
+            },
         )
     }
 
@@ -214,7 +236,7 @@ fun SettingsScreen(
         RelayNip65PanelContent(
             currentRelays = effectiveRelayList,
             usingDefaults = usingDefaultRelays,
-            onPublish = { relays -> AppModule.nostrRepository.publishRelayList(relays) }
+            onPublish = { relays -> AppModule.nostrRepository.publishRelayList(relays) },
         )
     }
 
@@ -226,7 +248,7 @@ fun SettingsScreen(
     val experimentalContent: @Composable () -> Unit = {
         ExperimentalPanelContent(
             subgroupsEnabled = subgroupsEnabled,
-            onToggleSubgroups = { AppModule.featureFlags.setSubgroupsEnabled(it) }
+            onToggleSubgroups = { AppModule.featureFlags.setSubgroupsEnabled(it) },
         )
     }
 
@@ -251,21 +273,27 @@ fun SettingsScreen(
             // Consume all pointer events so the chat behind is not interactive
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = null
+                indication = null,
             ) { /* consume clicks */ }
             .focusRequester(focusRequester)
             .focusTarget()
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
-                    onClose(); true
-                } else false
-            }
+                    onClose()
+                    true
+                } else {
+                    false
+                }
+            },
     ) {
         if (!forceDesktop && maxWidth < 912.dp) {
             MobileSettings(
                 activeSection = activeSection,
                 showPanel = showMobilePanel,
-                onSelectSection = { section -> activeSection = section; showMobilePanel = true },
+                onSelectSection = { section ->
+                    activeSection = section
+                    showMobilePanel = true
+                },
                 onBack = { showMobilePanel = false },
                 onClose = onClose,
                 onLogout = onLogout,
@@ -275,7 +303,7 @@ fun SettingsScreen(
                 relaysContent = relaysContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
-                experimentalContent = experimentalContent
+                experimentalContent = experimentalContent,
             )
         } else {
             DesktopSettings(
@@ -294,7 +322,7 @@ fun SettingsScreen(
                 canGoBack = canGoBack,
                 canGoForward = canGoForward,
                 onHistoryBack = onHistoryBack,
-                onHistoryForward = onHistoryForward
+                onHistoryForward = onHistoryForward,
             )
         }
     }
@@ -319,7 +347,7 @@ private fun DesktopSettings(
     canGoBack: Boolean = false,
     canGoForward: Boolean = false,
     onHistoryBack: () -> Unit = {},
-    onHistoryForward: () -> Unit = {}
+    onHistoryForward: () -> Unit = {},
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         if (showToolbar) {
@@ -327,7 +355,7 @@ private fun DesktopSettings(
                 canGoBack = canGoBack,
                 canGoForward = canGoForward,
                 onBack = onHistoryBack,
-                onForward = onHistoryForward
+                onForward = onHistoryForward,
             )
         }
 
@@ -358,7 +386,7 @@ private fun DesktopSettings(
                         .width(sidebarW)
                         .fillMaxHeight()
                         .padding(top = 24.dp, end = 8.dp, bottom = 24.dp)
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(rememberScrollState()),
                 ) {
                     SettingsSidebar(
                         activeSection = activeSection,
@@ -372,7 +400,7 @@ private fun DesktopSettings(
                         .width(contentW)
                         .fillMaxHeight()
                         .verticalScroll(rememberScrollState())
-                        .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp)
+                        .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp),
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
                         SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, securityContent, experimentalContent)
@@ -403,14 +431,14 @@ private fun MobileSettings(
     relaysContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
-    experimentalContent: @Composable () -> Unit
+    experimentalContent: @Composable () -> Unit,
 ) {
     if (!showPanel) {
         Column(modifier = Modifier.fillMaxSize().background(NostrordColors.BackgroundDark).statusBarsPadding()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Settings", color = NostrordColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 SettingsCloseButton(onClick = onClose, showEscHint = false)
@@ -432,7 +460,7 @@ private fun MobileSettings(
                     .background(NostrordColors.BackgroundDark)
                     .clickable(onClick = onBack)
                     .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("‹", color = NostrordColors.TextSecondary, fontSize = 22.sp)
                 Spacer(Modifier.width(8.dp))
@@ -442,7 +470,7 @@ private fun MobileSettings(
                 modifier = Modifier
                     .weight(1f)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 24.dp)
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
                 SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, securityContent, experimentalContent)
             }
@@ -457,7 +485,7 @@ private fun SettingsSidebar(
     activeSection: SettingsSection,
     onSelectSection: (SettingsSection) -> Unit,
     onLogout: () -> Unit,
-    compact: Boolean = false
+    compact: Boolean = false,
 ) {
     var showLogoutConfirm by remember { mutableStateOf(false) }
 
@@ -481,7 +509,7 @@ private fun SettingsSidebar(
                 androidx.compose.material3.TextButton(onClick = { showLogoutConfirm = false }) {
                     Text("Cancel", color = NostrordColors.TextSecondary)
                 }
-            }
+            },
         )
     }
 
@@ -506,8 +534,13 @@ private fun SettingsSidebar(
         onSelectSection(SettingsSection.Experimental)
     }
     SettingsNavDivider(compact)
-    SettingsNavItem("Log Out", isActive = false, isDanger = true, compact = compact,
-        onClick = { showLogoutConfirm = true })
+    SettingsNavItem(
+        "Log Out",
+        isActive = false,
+        isDanger = true,
+        compact = compact,
+        onClick = { showLogoutConfirm = true },
+    )
 }
 
 // ── Nav primitives ────────────────────────────────────────────────────────────
@@ -518,7 +551,7 @@ private fun SettingsNavItem(
     isActive: Boolean,
     isDanger: Boolean = false,
     compact: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -537,7 +570,7 @@ private fun SettingsNavItem(
                     .hoverable(interactionSource).clickable(onClick = onClick)
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(text = label, color = textColor, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                 if (!isDanger) Text("›", color = NostrordColors.TextMuted, fontSize = 20.sp, lineHeight = 20.sp)
@@ -553,13 +586,13 @@ private fun SettingsNavItem(
         Box(
             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(bg)
                 .hoverable(interactionSource).clickable(onClick = onClick)
-                .pointerHoverIcon(PointerIcon.Hand).padding(horizontal = 10.dp, vertical = 8.dp)
+                .pointerHoverIcon(PointerIcon.Hand).padding(horizontal = 10.dp, vertical = 8.dp),
         ) {
             Text(
                 text = label,
                 color = textColor,
                 fontSize = 14.sp,
-                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium
+                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
             )
         }
     }
@@ -569,7 +602,7 @@ private fun SettingsNavItem(
 private fun SettingsNavDivider(compact: Boolean = false) {
     HorizontalDivider(
         modifier = if (compact) Modifier else Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
-        color = NostrordColors.Divider
+        color = NostrordColors.Divider,
     )
 }
 
@@ -586,10 +619,14 @@ private fun SettingsCloseButton(onClick: () -> Unit, showEscHint: Boolean = true
             .hoverable(interactionSource).clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Default.Close, contentDescription = "Close settings",
-            tint = NostrordColors.TextSecondary, modifier = Modifier.size(16.dp))
+        Icon(
+            Icons.Default.Close,
+            contentDescription = "Close settings",
+            tint = NostrordColors.TextSecondary,
+            modifier = Modifier.size(16.dp),
+        )
         if (showEscHint) {
             Text("ESC", color = NostrordColors.TextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
         }
@@ -606,7 +643,7 @@ private fun SettingsPanel(
     relaysContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
-    experimentalContent: @Composable () -> Unit
+    experimentalContent: @Composable () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -614,13 +651,13 @@ private fun SettingsPanel(
             color = NostrordColors.TextPrimary,
             fontSize = 20.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
+            modifier = Modifier.padding(bottom = 16.dp),
         )
         HorizontalDivider(color = NostrordColors.Divider)
         Spacer(Modifier.height(24.dp))
 
         when (section) {
-            SettingsSection.Profile    -> profileContent()
+            SettingsSection.Profile -> profileContent()
             SettingsSection.BackupKeys -> backupContent()
             SettingsSection.RelaysNip65 -> relaysContent()
             SettingsSection.Notifications -> notificationsContent()
@@ -652,24 +689,24 @@ private fun ProfileFormContent(
     onNip05Change: (String) -> Unit,
     onLightningAddressChange: (String) -> Unit,
     onWebsiteChange: (String) -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
         // Avatar preview card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 ProfileAvatar(
                     imageUrl = pictureUrl.ifBlank { null },
                     displayName = name.ifBlank { "User" },
                     pubkey = pubkey ?: "",
-                    size = 100.dp
+                    size = 100.dp,
                 )
                 Spacer(Modifier.height(Spacing.sm))
                 Text("Avatar Preview", style = NostrordTypography.Caption, color = NostrordColors.TextMuted)
@@ -680,16 +717,16 @@ private fun ProfileFormContent(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
-                verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             ) {
                 Text(
                     text = "PROFILE INFORMATION",
                     style = NostrordTypography.SectionHeader,
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
 
                 ProfileField("Name", name, onNameChange, "Your name")
@@ -698,13 +735,13 @@ private fun ProfileFormContent(
                     label = "Avatar URL",
                     value = pictureUrl,
                     onValueChange = onPictureUrlChange,
-                    placeholder = "https://example.com/avatar.jpg"
+                    placeholder = "https://example.com/avatar.jpg",
                 )
                 UploadImageField(
                     label = "Banner URL",
                     value = bannerUrl,
                     onValueChange = onBannerUrlChange,
-                    placeholder = "https://example.com/banner.jpg"
+                    placeholder = "https://example.com/banner.jpg",
                 )
                 ProfileField("Nostr Address (NIP-05)", nip05, onNip05Change, "you@example.com")
                 ProfileField("Lightning Address", lightningAddress, onLightningAddressChange, "you@walletofsatoshi.com")
@@ -713,14 +750,14 @@ private fun ProfileFormContent(
                 // Save button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.End,
                 ) {
                     TextButton(onClick = onSave, enabled = !isSaving) {
                         if (isSaving) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(18.dp),
                                 color = NostrordColors.Primary,
-                                strokeWidth = 2.dp
+                                strokeWidth = 2.dp,
                             )
                         } else {
                             Text("Save", color = NostrordColors.Primary, style = NostrordTypography.Button)
@@ -736,11 +773,15 @@ private fun ProfileFormContent(
                 Card(
                     colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Check, contentDescription = null,
-                            tint = Color.White, modifier = Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp),
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text("Profile updated successfully", color = Color.White, fontWeight = FontWeight.Bold)
                     }
@@ -750,11 +791,15 @@ private fun ProfileFormContent(
                 Card(
                     colors = CardDefaults.cardColors(containerColor = NostrordColors.Error),
                     shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Error, contentDescription = null,
-                            tint = Color.White, modifier = Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.Error,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp),
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text(errorMessage, color = Color.White, fontWeight = FontWeight.Bold)
                     }
@@ -771,7 +816,7 @@ private fun ProfileField(
     onValueChange: (String) -> Unit,
     placeholder: String,
     singleLine: Boolean = true,
-    maxLines: Int = 1
+    maxLines: Int = 1,
 ) {
     Column {
         Text(text = label, style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
@@ -790,9 +835,9 @@ private fun ProfileField(
                 unfocusedContainerColor = NostrordColors.InputBackground,
                 cursorColor = NostrordColors.Primary,
                 focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
+                unfocusedTextColor = Color.White,
             ),
-            shape = NostrordShapes.shapeSmall
+            shape = NostrordShapes.shapeSmall,
         )
     }
 }
@@ -805,18 +850,18 @@ private fun BackupPanelContent(
     publicKey: String?,
     showCopiedMessage: Boolean,
     onCopyPublicKey: () -> Unit,
-    onCopyPrivateKey: () -> Unit
+    onCopyPrivateKey: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
         Icon(
             Icons.Default.Warning,
             contentDescription = null,
             tint = NostrordColors.WarningOrange,
-            modifier = Modifier.size(48.dp)
+            modifier = Modifier.size(48.dp),
         )
 
         WarningCard(isCompact = false)
@@ -830,7 +875,7 @@ private fun BackupPanelContent(
                 buttonText = "Copy Public Key",
                 buttonColor = NostrordColors.Primary,
                 onCopy = onCopyPublicKey,
-                isCompact = false
+                isCompact = false,
             )
         }
 
@@ -844,7 +889,7 @@ private fun BackupPanelContent(
                 buttonColor = NostrordColors.Error,
                 onCopy = onCopyPrivateKey,
                 isCompact = false,
-                showSecretBadge = true
+                showSecretBadge = true,
             )
         }
 
@@ -852,11 +897,15 @@ private fun BackupPanelContent(
             Card(
                 colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
                 shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Check, contentDescription = null,
-                        tint = Color.White, modifier = Modifier.size(16.dp))
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
                     Spacer(Modifier.width(8.dp))
                     Text("Copied to clipboard", color = Color.White, fontWeight = FontWeight.Bold)
                 }
@@ -868,11 +917,11 @@ private fun BackupPanelContent(
             titleColor = NostrordColors.Warning,
             icon = Icons.Default.Lightbulb,
             content = "1. Write it down on paper and store in a safe place\n" +
-                    "2. Use a password manager like 1Password or Bitwarden\n" +
-                    "3. Never store it in plain text files or screenshots\n" +
-                    "4. Never send it via email or messaging apps\n" +
-                    "5. Consider using a hardware wallet for long-term storage",
-            isCompact = false
+                "2. Use a password manager like 1Password or Bitwarden\n" +
+                "3. Never store it in plain text files or screenshots\n" +
+                "4. Never send it via email or messaging apps\n" +
+                "5. Consider using a hardware wallet for long-term storage",
+            isCompact = false,
         )
     }
 }
@@ -891,22 +940,22 @@ private fun NotificationsPanelContent() {
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
         // ── Sound card ──
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
             Column(modifier = Modifier.padding(Spacing.xl)) {
                 ToggleRow(
                     icon = Icons.Default.Notifications,
                     label = "Notification sound",
                     description = "Play a chime when a new message arrives in a joined " +
-                            "group you're not currently viewing.",
+                        "group you're not currently viewing.",
                     checked = soundEnabled,
-                    onCheckedChange = { settings.setSoundEnabled(it) }
+                    onCheckedChange = { settings.setSoundEnabled(it) },
                 )
                 if (soundEnabled) {
                     Spacer(Modifier.height(Spacing.sm))
@@ -914,7 +963,7 @@ private fun NotificationsPanelContent() {
                         onClick = {
                             org.nostr.nostrord.notifications.playNotificationSound()
                         },
-                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                        modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                     ) {
                         Text("Test sound", color = NostrordColors.Primary, fontSize = 13.sp)
                     }
@@ -926,61 +975,61 @@ private fun NotificationsPanelContent() {
         // browser Notification API isn't available, to avoid showing UI the user
         // can't act on)
         if (systemSupported) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
-        ) {
-            Column(modifier = Modifier.padding(Spacing.xl)) {
-                ToggleRow(
-                    icon = Icons.Default.Notifications,
-                    label = "Desktop notifications",
-                    description = "Show a system popup outside the app when a new " +
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = NostrordShapes.cardShape,
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+            ) {
+                Column(modifier = Modifier.padding(Spacing.xl)) {
+                    ToggleRow(
+                        icon = Icons.Default.Notifications,
+                        label = "Desktop notifications",
+                        description = "Show a system popup outside the app when a new " +
                             "message arrives and you're on another tab.",
-                    checked = systemEnabled,
-                    onCheckedChange = { settings.setSystemNotificationsEnabled(it) }
-                )
+                        checked = systemEnabled,
+                        onCheckedChange = { settings.setSystemNotificationsEnabled(it) },
+                    )
 
-                Spacer(Modifier.height(Spacing.lg))
+                    Spacer(Modifier.height(Spacing.lg))
 
-                // Permission status row
-                when (permission) {
-                    org.nostr.nostrord.notifications.NotificationPermission.Granted -> {
-                        PermissionStatusRow(
-                            icon = Icons.Default.Check,
-                            tint = NostrordColors.Success,
-                            text = "Permission granted"
-                        )
-                    }
-                    org.nostr.nostrord.notifications.NotificationPermission.Default -> {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                "Permission not granted yet.",
-                                color = NostrordColors.TextSecondary,
-                                fontSize = 13.sp,
-                                modifier = Modifier.weight(1f)
+                    // Permission status row
+                    when (permission) {
+                        org.nostr.nostrord.notifications.NotificationPermission.Granted -> {
+                            PermissionStatusRow(
+                                icon = Icons.Default.Check,
+                                tint = NostrordColors.Success,
+                                text = "Permission granted",
                             )
-                            TextButton(
-                                onClick = { notificationService.requestPermission() },
-                                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                        }
+                        org.nostr.nostrord.notifications.NotificationPermission.Default -> {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text("Request permission", color = NostrordColors.Primary, fontSize = 13.sp)
+                                Text(
+                                    "Permission not granted yet.",
+                                    color = NostrordColors.TextSecondary,
+                                    fontSize = 13.sp,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(
+                                    onClick = { notificationService.requestPermission() },
+                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
+                                ) {
+                                    Text("Request permission", color = NostrordColors.Primary, fontSize = 13.sp)
+                                }
                             }
                         }
-                    }
-                    org.nostr.nostrord.notifications.NotificationPermission.Denied -> {
-                        PermissionStatusRow(
-                            icon = Icons.Default.Error,
-                            tint = NostrordColors.Error,
-                            text = "Blocked. Re-enable in your browser's site settings."
-                        )
+                        org.nostr.nostrord.notifications.NotificationPermission.Denied -> {
+                            PermissionStatusRow(
+                                icon = Icons.Default.Error,
+                                tint = NostrordColors.Error,
+                                text = "Blocked. Re-enable in your browser's site settings.",
+                            )
+                        }
                     }
                 }
             }
-        }
         }
     }
 }
@@ -991,14 +1040,14 @@ private fun ToggleRow(
     label: String,
     description: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = if (checked) NostrordColors.Primary else NostrordColors.TextMuted,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(20.dp),
         )
         Spacer(Modifier.width(Spacing.md))
         Column(modifier = Modifier.weight(1f)) {
@@ -1006,13 +1055,13 @@ private fun ToggleRow(
                 text = label,
                 color = NostrordColors.TextPrimary,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(Spacing.xs))
             Text(
                 text = description,
                 style = NostrordTypography.Caption,
-                color = NostrordColors.TextMuted
+                color = NostrordColors.TextMuted,
             )
         }
         Spacer(Modifier.width(Spacing.md))
@@ -1023,9 +1072,9 @@ private fun ToggleRow(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = NostrordColors.Primary,
                 uncheckedThumbColor = NostrordColors.TextMuted,
-                uncheckedTrackColor = NostrordColors.InputBackground
+                uncheckedTrackColor = NostrordColors.InputBackground,
             ),
-            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
         )
     }
 }
@@ -1034,14 +1083,14 @@ private fun ToggleRow(
 private fun PermissionStatusRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     tint: Color,
-    text: String
+    text: String,
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
             imageVector = icon,
             contentDescription = null,
             tint = tint,
-            modifier = Modifier.size(16.dp)
+            modifier = Modifier.size(16.dp),
         )
         Spacer(Modifier.width(Spacing.sm))
         Text(text = text, color = NostrordColors.TextSecondary, fontSize = 13.sp)
@@ -1053,34 +1102,34 @@ private fun PermissionStatusRow(
 @Composable
 private fun ExperimentalPanelContent(
     subgroupsEnabled: Boolean,
-    onToggleSubgroups: (Boolean) -> Unit
+    onToggleSubgroups: (Boolean) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
         InfoCard(
             title = "Draft protocol features",
             titleColor = NostrordColors.Warning,
             icon = Icons.Default.Lightbulb,
             content = "Features here rely on NIP drafts that haven't been accepted " +
-                    "upstream yet. Behavior, event kinds, and tags may change — use " +
-                    "at your own risk.",
-            isCompact = false
+                "upstream yet. Behavior, event kinds, and tags may change — use " +
+                "at your own risk.",
+            isCompact = false,
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
             ExperimentalToggleRow(
                 label = "NIP-29 Subgroups (draft)",
                 description = "Show parent/child group hierarchy, create subgroups, " +
-                        "and manage attestations. When off, groups are rendered as a " +
-                        "flat list and subgroup actions are hidden.",
+                    "and manage attestations. When off, groups are rendered as a " +
+                    "flat list and subgroup actions are hidden.",
                 checked = subgroupsEnabled,
-                onCheckedChange = onToggleSubgroups
+                onCheckedChange = onToggleSubgroups,
             )
         }
     }
@@ -1091,26 +1140,26 @@ private fun ExperimentalToggleRow(
     label: String,
     description: String,
     checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(Spacing.xl),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
                 color = NostrordColors.TextPrimary,
                 fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.height(Spacing.xs))
             Text(
                 text = description,
                 style = NostrordTypography.Caption,
-                color = NostrordColors.TextMuted
+                color = NostrordColors.TextMuted,
             )
         }
         Spacer(Modifier.width(Spacing.md))
@@ -1121,9 +1170,9 @@ private fun ExperimentalToggleRow(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = NostrordColors.Primary,
                 uncheckedThumbColor = NostrordColors.TextMuted,
-                uncheckedTrackColor = NostrordColors.InputBackground
+                uncheckedTrackColor = NostrordColors.InputBackground,
             ),
-            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
         )
     }
 }
@@ -1139,7 +1188,7 @@ private fun SecurityPanelContent() {
                 titleColor = NostrordColors.TextSecondary,
                 icon = Icons.Default.Lightbulb,
                 content = "This setting is only relevant on the desktop app.",
-                isCompact = false
+                isCompact = false,
             )
         }
         PassphraseSettings.usesKeychain() -> {
@@ -1148,10 +1197,10 @@ private fun SecurityPanelContent() {
                 titleColor = NostrordColors.Success,
                 icon = Icons.Default.Check,
                 content = "Your private key, bunker credentials and cached messages " +
-                        "are encrypted with a key held in your operating system " +
-                        "credential store (macOS Keychain, Windows Credential Manager " +
-                        "or Linux Secret Service). No passphrase is needed.",
-                isCompact = false
+                    "are encrypted with a key held in your operating system " +
+                    "credential store (macOS Keychain, Windows Credential Manager " +
+                    "or Linux Secret Service). No passphrase is needed.",
+                isCompact = false,
             )
         }
         PassphraseSettings.usesPassphrase() -> {
@@ -1163,10 +1212,10 @@ private fun SecurityPanelContent() {
                 titleColor = NostrordColors.Warning,
                 icon = Icons.Default.Warning,
                 content = "Your OS keychain is not available. Nostrord is using an " +
-                        "in-memory key for this session. Save a credential (private " +
-                        "key or bunker URL) and you will be prompted to set a " +
-                        "passphrase to persist your data securely.",
-                isCompact = false
+                    "in-memory key for this session. Save a credential (private " +
+                    "key or bunker URL) and you will be prompted to set a " +
+                    "passphrase to persist your data securely.",
+                isCompact = false,
             )
         }
     }
@@ -1181,7 +1230,10 @@ private fun ChangePassphraseForm() {
     var success by remember { mutableStateOf(false) }
 
     LaunchedEffect(success) {
-        if (success) { delay(2000); success = false }
+        if (success) {
+            delay(2000)
+            success = false
+        }
     }
 
     val canSubmit = current.isNotEmpty() && new.length >= 8 && new == confirm
@@ -1190,8 +1242,11 @@ private fun ChangePassphraseForm() {
         if (!canSubmit) return
         val ok = PassphraseSettings.changePassphrase(current, new)
         if (ok) {
-            current = ""; new = ""; confirm = ""
-            success = true; error = null
+            current = ""
+            new = ""
+            confirm = ""
+            success = true
+            error = null
         } else {
             error = "Current passphrase is incorrect."
         }
@@ -1199,35 +1254,44 @@ private fun ChangePassphraseForm() {
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
     ) {
         InfoCard(
             title = "Passphrase-protected",
             titleColor = NostrordColors.TextSecondary,
             icon = Icons.Default.Key,
             content = "Your data is encrypted with a key derived from your passphrase. " +
-                    "Choose a new passphrase below to rotate it. The passphrase cannot " +
-                    "be recovered if you forget it.",
-            isCompact = false
+                "Choose a new passphrase below to rotate it. The passphrase cannot " +
+                "be recovered if you forget it.",
+            isCompact = false,
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.cardShape,
-            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(Spacing.xl),
-                verticalArrangement = Arrangement.spacedBy(Spacing.lg)
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             ) {
-                PassphraseField("Current passphrase", current) { current = it; error = null }
-                PassphraseField("New passphrase", new) { new = it; error = null }
-                PassphraseField("Confirm new passphrase", confirm) { confirm = it; error = null }
+                PassphraseField("Current passphrase", current) {
+                    current = it
+                    error = null
+                }
+                PassphraseField("New passphrase", new) {
+                    new = it
+                    error = null
+                }
+                PassphraseField("Confirm new passphrase", confirm) {
+                    confirm = it
+                    error = null
+                }
 
                 Text(
                     text = "At least 8 characters. Must match.",
                     style = NostrordTypography.Caption,
-                    color = NostrordColors.TextSecondary
+                    color = NostrordColors.TextSecondary,
                 )
 
                 error?.let {
@@ -1246,11 +1310,15 @@ private fun ChangePassphraseForm() {
             Card(
                 colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
                 shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Check, contentDescription = null,
-                        tint = Color.White, modifier = Modifier.size(16.dp))
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                    )
                     Spacer(Modifier.width(8.dp))
                     Text("Passphrase updated", color = Color.White, fontWeight = FontWeight.Bold)
                 }
@@ -1263,7 +1331,7 @@ private fun ChangePassphraseForm() {
 private fun PassphraseField(
     label: String,
     value: String,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
 ) {
     Column {
         Text(text = label, style = NostrordTypography.SectionHeader, color = NostrordColors.TextMuted)
@@ -1281,9 +1349,9 @@ private fun PassphraseField(
                 unfocusedContainerColor = NostrordColors.InputBackground,
                 cursorColor = NostrordColors.Primary,
                 focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White
+                unfocusedTextColor = Color.White,
             ),
-            shape = NostrordShapes.shapeSmall
+            shape = NostrordShapes.shapeSmall,
         )
     }
 }

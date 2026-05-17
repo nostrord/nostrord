@@ -5,11 +5,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.nostr.nostrord.network.NostrGroupClient
-import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.UnreadEntry
 import org.nostr.nostrord.storage.getUnreadEntries
 import org.nostr.nostrord.storage.saveUnreadEntries
+import org.nostr.nostrord.utils.epochSeconds
 
 class UnreadManager(
     private val isJoined: (String) -> Boolean = { true },
@@ -45,6 +45,7 @@ class UnreadManager(
     // switch. Set by [setCatchUpAnchor] and cleared automatically when stale.
     @kotlin.concurrent.Volatile
     private var catchUpAnchorSeconds: Long? = null
+
     @kotlin.concurrent.Volatile
     private var catchUpAnchorSetAt: Long = 0L
     private val CATCH_UP_ANCHOR_TTL_S = 60L
@@ -98,8 +99,7 @@ class UnreadManager(
         persistEntries()
     }
 
-    fun getLastReadTimestamp(groupId: String): Long? =
-        currentPubkey?.let { SecureStorage.getLastReadTimestamp(it, groupId) }
+    fun getLastReadTimestamp(groupId: String): Long? = currentPubkey?.let { SecureStorage.getLastReadTimestamp(it, groupId) }
 
     fun getUnreadCount(groupId: String): Int = _unreadCounts.value[groupId] ?: 0
 
@@ -153,8 +153,8 @@ class UnreadManager(
         val latestReply = qualifying.filter { msg ->
             msg.tags.any { tag ->
                 tag.size >= 2 &&
-                (tag[0] == "q" || tag[0] == "e") &&
-                findMessageAuthor(tag[1]) == pubkey
+                    (tag[0] == "q" || tag[0] == "e") &&
+                    findMessageAuthor(tag[1]) == pubkey
             }
         }.maxByOrNull { it.createdAt }
 
@@ -177,7 +177,7 @@ class UnreadManager(
         val previousHighWater = _latestMessageTimestamps.value[groupId] ?: 0L
         val anchor = maxOf(
             lastRead ?: firstSeenAtByGroup.getOrPut(groupId) { firstSeenFallback() },
-            previousHighWater
+            previousHighWater,
         )
         if (reaction.createdAt <= anchor) return
 

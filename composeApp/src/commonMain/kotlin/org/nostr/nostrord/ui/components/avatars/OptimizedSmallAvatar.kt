@@ -1,13 +1,11 @@
 package org.nostr.nostrord.ui.components.avatars
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,11 +17,8 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
@@ -39,12 +34,15 @@ import coil3.size.Size
 private enum class AvatarSizeCategory {
     /** 48dp+ - Full detail, standard rendering */
     LARGE,
+
     /** 32-47dp - Enhanced contrast, subtle edge definition */
     MEDIUM,
+
     /** 24-31dp - High contrast, stronger edge definition */
     SMALL,
+
     /** <24dp - Fallback to initial letter (photos become unrecognizable) */
-    TINY
+    TINY,
 }
 
 private fun Dp.toSizeCategory(): AvatarSizeCategory = when {
@@ -78,7 +76,7 @@ fun OptimizedSmallAvatar(
     displayName: String,
     size: Dp,
     shape: Shape = CircleShape,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalPlatformContext.current
     val density = LocalDensity.current
@@ -90,14 +88,16 @@ fun OptimizedSmallAvatar(
     val requestSizePx = 128
 
     // Edge color for subtle border at smaller sizes
-    val edgeColor = Color.Black.copy(
-        alpha = when (sizeCategory) {
-            AvatarSizeCategory.LARGE -> 0f
-            AvatarSizeCategory.MEDIUM -> 0.1f
-            AvatarSizeCategory.SMALL -> 0.15f
-            AvatarSizeCategory.TINY -> 0.2f
-        }
-    )
+    val edgeColor =
+        Color.Black.copy(
+            alpha =
+            when (sizeCategory) {
+                AvatarSizeCategory.LARGE -> 0f
+                AvatarSizeCategory.MEDIUM -> 0.1f
+                AvatarSizeCategory.SMALL -> 0.15f
+                AvatarSizeCategory.TINY -> 0.2f
+            },
+        )
 
     // For tiny sizes or no image, use Jdenticon
     if (sizeCategory == AvatarSizeCategory.TINY || imageUrl.isNullOrBlank()) {
@@ -106,19 +106,20 @@ fun OptimizedSmallAvatar(
             edgeColor = edgeColor,
             size = size,
             shape = shape,
-            modifier = modifier
+            modifier = modifier,
         )
         return
     }
 
     Box(
         modifier = modifier.size(size),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
 
-        val showPlaceholder = imageState is AsyncImagePainter.State.Loading ||
-            imageState is AsyncImagePainter.State.Error
+        val showPlaceholder =
+            imageState is AsyncImagePainter.State.Loading ||
+                imageState is AsyncImagePainter.State.Error
 
         // Always render placeholder behind (for loading state and as fallback)
         if (showPlaceholder) {
@@ -126,14 +127,16 @@ fun OptimizedSmallAvatar(
                 identifier = identifier,
                 edgeColor = edgeColor,
                 size = size,
-                shape = shape
+                shape = shape,
             )
         }
 
         // Attempt to load image unless in error state
         if (imageState !is AsyncImagePainter.State.Error) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(imageUrl)
                     .crossfade(150) // Quick crossfade
                     .size(Size(requestSizePx, requestSizePx))
@@ -144,7 +147,8 @@ fun OptimizedSmallAvatar(
                 contentScale = ContentScale.Crop,
                 // High filter quality ensures crisp downscaling with proper anti-aliasing
                 filterQuality = FilterQuality.High,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clip(shape)
                     .then(
@@ -153,18 +157,22 @@ fun OptimizedSmallAvatar(
                             Modifier.border(
                                 width = 1.dp,
                                 color = edgeColor,
-                                shape = shape
+                                shape = shape,
                             )
-                        } else Modifier
-                    )
-                    .then(
+                        } else {
+                            Modifier
+                        },
+                    ).then(
                         // Add micro-contrast enhancement via vignette for medium/small
                         if (sizeCategory == AvatarSizeCategory.MEDIUM ||
-                            sizeCategory == AvatarSizeCategory.SMALL) {
+                            sizeCategory == AvatarSizeCategory.SMALL
+                        ) {
                             Modifier.subtleVignette()
-                        } else Modifier
+                        } else {
+                            Modifier
+                        },
                     ),
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }
@@ -179,22 +187,25 @@ private fun SmallAvatarPlaceholder(
     edgeColor: Color,
     size: Dp,
     shape: Shape,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .size(size)
             .clip(shape)
             .then(
                 if (edgeColor.alpha > 0f) {
                     Modifier.border(1.dp, edgeColor, shape)
-                } else Modifier
+                } else {
+                    Modifier
+                },
             ),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Jdenticon(
             value = identifier,
-            size = size
+            size = size,
         )
     }
 }
@@ -207,14 +218,16 @@ private fun Modifier.subtleVignette(): Modifier = this.drawWithContent {
     drawContent()
     // Draw radial gradient overlay - darker at edges
     drawRect(
-        brush = Brush.radialGradient(
-            colors = listOf(
+        brush =
+        Brush.radialGradient(
+            colors =
+            listOf(
                 Color.Transparent,
-                Color.Black.copy(alpha = 0.08f)
+                Color.Black.copy(alpha = 0.08f),
             ),
             center = center,
-            radius = size.minDimension / 1.5f
-        )
+            radius = size.minDimension / 1.5f,
+        ),
     )
 }
 
@@ -229,7 +242,7 @@ fun OptimizedServerIcon(
     groupName: String,
     size: Dp,
     cornerRadius: Dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     OptimizedSmallAvatar(
         imageUrl = imageUrl,
@@ -237,7 +250,7 @@ fun OptimizedServerIcon(
         displayName = groupName,
         size = size,
         shape = RoundedCornerShape(cornerRadius),
-        modifier = modifier
+        modifier = modifier,
     )
 }
 
@@ -250,7 +263,7 @@ fun OptimizedUserAvatar(
     pubkey: String,
     displayName: String?,
     size: Dp,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     OptimizedSmallAvatar(
         imageUrl = imageUrl,
@@ -258,6 +271,6 @@ fun OptimizedUserAvatar(
         displayName = displayName ?: pubkey.take(8),
         size = size,
         shape = CircleShape,
-        modifier = modifier
+        modifier = modifier,
     )
 }

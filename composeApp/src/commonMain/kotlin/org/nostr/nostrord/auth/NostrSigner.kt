@@ -23,7 +23,6 @@ import kotlin.concurrent.Volatile
  * Tests may provide their own implementations.
  */
 interface NostrSigner {
-
     /** Hex-encoded public key this signer represents. */
     val pubkey: String
 
@@ -41,21 +40,26 @@ interface NostrSigner {
      */
     fun dispose()
 
-    class SigningException(message: String, cause: Throwable? = null) :
-        Exception(message, cause)
+    class SigningException(
+        message: String,
+        cause: Throwable? = null,
+    ) : Exception(message, cause)
 
     /**
      * Signs synchronously using a locally held secp256k1 key pair.
      * Private key bytes are zeroed on [dispose].
      */
-    class Local(keyPair: KeyPair) : NostrSigner {
+    class Local(
+        keyPair: KeyPair,
+    ) : NostrSigner {
         override val pubkey: String = keyPair.publicKeyHex
 
         @Volatile private var _keyPair: KeyPair? = keyPair
 
         override suspend fun signEvent(event: Event): Event {
-            val kp = _keyPair
-                ?: throw SigningException("Local signer has been disposed")
+            val kp =
+                _keyPair
+                    ?: throw SigningException("Local signer has been disposed")
             return event.sign(kp)
         }
 
@@ -74,7 +78,6 @@ interface NostrSigner {
         val nip46Client: Nip46Client,
         override val pubkey: String,
     ) : NostrSigner {
-
         @Volatile private var disposed = false
 
         override suspend fun signEvent(event: Event): Event {
@@ -91,7 +94,10 @@ interface NostrSigner {
         override fun dispose() {
             if (disposed) return
             disposed = true
-            try { nip46Client.disconnect() } catch (_: Exception) {}
+            try {
+                nip46Client.disconnect()
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -100,7 +106,9 @@ interface NostrSigner {
      * Valid on JS/WasmJS targets only. On other targets [Nip07.isAvailable]
      * returns false and [AccountSessionFactory] will not create this signer.
      */
-    class Nip07Extension(override val pubkey: String) : NostrSigner {
+    class Nip07Extension(
+        override val pubkey: String,
+    ) : NostrSigner {
         @Volatile private var disposed = false
 
         override suspend fun signEvent(event: Event): Event {
@@ -109,25 +117,29 @@ interface NostrSigner {
             return parseSignedEventJson(signedJson)
         }
 
-        override fun dispose() { disposed = true }
+        override fun dispose() {
+            disposed = true
+        }
     }
-
 }
 
 private val signedEventJson = Json { ignoreUnknownKeys = true }
 
 internal fun parseSignedEventJson(jsonString: String): Event {
     val obj = signedEventJson.parseToJsonElement(jsonString).jsonObject
-    val id = obj["id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-        ?: throw NostrSigner.SigningException("Bunker returned event with missing id")
-    val sig = obj["sig"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-        ?: throw NostrSigner.SigningException("Bunker returned unsigned event (missing sig)")
+    val id =
+        obj["id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            ?: throw NostrSigner.SigningException("Bunker returned event with missing id")
+    val sig =
+        obj["sig"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+            ?: throw NostrSigner.SigningException("Bunker returned unsigned event (missing sig)")
     return Event(
         id = id,
         pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: "",
         createdAt = obj["created_at"]?.jsonPrimitive?.long ?: 0L,
         kind = obj["kind"]?.jsonPrimitive?.int ?: 0,
-        tags = obj["tags"]?.jsonArray?.map { tag ->
+        tags =
+        obj["tags"]?.jsonArray?.map { tag ->
             tag.jsonArray.map { it.jsonPrimitive.content }
         } ?: emptyList(),
         content = obj["content"]?.jsonPrimitive?.content ?: "",

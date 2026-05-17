@@ -6,12 +6,15 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.utils.epochMillis
 import kotlin.random.Random
 
-actual class Nip46Client actual constructor(existingPrivateKey: String?) {
-    private val clientKeyPair: KeyPair = if (existingPrivateKey != null) {
-        KeyPair.fromPrivateKeyHex(existingPrivateKey)
-    } else {
-        KeyPair.generate()
-    }
+actual class Nip46Client actual constructor(
+    existingPrivateKey: String?,
+) {
+    private val clientKeyPair: KeyPair =
+        if (existingPrivateKey != null) {
+            KeyPair.fromPrivateKeyHex(existingPrivateKey)
+        } else {
+            KeyPair.generate()
+        }
 
     private var remoteSignerPubkey: String? = null
     private var relayClients: MutableList<NostrGroupClient> = mutableListOf()
@@ -27,7 +30,10 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     actual val clientPubkey: String get() = clientKeyPair.publicKeyHex
     actual val clientPrivateKey: String get() = clientKeyPair.privateKeyHex
 
-    actual fun generateNostrConnectUri(relays: List<String>, name: String): String {
+    actual fun generateNostrConnectUri(
+        relays: List<String>,
+        name: String,
+    ): String {
         val relayParams = relays.joinToString("&") { "relay=${it.encodeForUri()}" }
         val metadata = """{"name":"$name"}"""
         val secretParam = nostrConnectSecret?.let { "&secret=${it.encodeForUri()}" } ?: ""
@@ -35,9 +41,9 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         return uri
     }
 
-    private suspend fun connectRelaysParallel(relays: List<String>): List<NostrGroupClient> =
-        coroutineScope {
-            relays.map { relayUrl ->
+    private suspend fun connectRelaysParallel(relays: List<String>): List<NostrGroupClient> = coroutineScope {
+        relays
+            .map { relayUrl ->
                 async {
                     try {
                         val cleanUrl = relayUrl.trimEnd('/')
@@ -45,10 +51,13 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                         client.connect { msg -> handleMessage(msg) }
                         client.waitForConnection()
                         client
-                    } catch (e: Exception) { null }
+                    } catch (e: Exception) {
+                        null
+                    }
                 }
-            }.awaitAll().filterNotNull()
-        }
+            }.awaitAll()
+            .filterNotNull()
+    }
 
     /**
      * Ensure at least one relay client is connected before sending a request.
@@ -58,7 +67,12 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         // Remove dead clients
         val dead = relayClients.filter { !it.isConnected() }
         if (dead.isNotEmpty()) {
-            dead.forEach { try { it.disconnect() } catch (_: Exception) {} }
+            dead.forEach {
+                try {
+                    it.disconnect()
+                } catch (_: Exception) {
+                }
+            }
             relayClients.removeAll(dead)
         }
 
@@ -71,14 +85,20 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         relayClients.addAll(fresh)
     }
 
-    actual suspend fun connectRelaysOnly(remoteSignerPubkey: String, relays: List<String>) {
+    actual suspend fun connectRelaysOnly(
+        remoteSignerPubkey: String,
+        relays: List<String>,
+    ) {
         this.remoteSignerPubkey = remoteSignerPubkey
         this.relayUrls = relays.map { it.trimEnd('/') }
         relayClients.addAll(connectRelaysParallel(relays))
         if (relayClients.isEmpty()) throw Exception("Failed to connect to any bunker relay")
     }
 
-    actual suspend fun startListeningForConnection(relays: List<String>, secret: String?) {
+    actual suspend fun startListeningForConnection(
+        relays: List<String>,
+        secret: String?,
+    ) {
         nostrConnectSecret = secret ?: generateRequestId().take(16)
         this.relayUrls = relays.map { it.trimEnd('/') }
 
@@ -91,26 +111,33 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         val subscriptionId = "nip46-listen-${generateRequestId().take(8)}"
         listenSubscriptionId = subscriptionId
         val since = (epochMillis() / 1000) - 10
-        val filter = buildJsonObject {
-            putJsonArray("kinds") { add(24133) }
-            putJsonArray("#p") { add(clientKeyPair.publicKeyHex) }
-            put("since", since)
-        }
-        val subMessage = buildJsonArray {
-            add("REQ")
-            add(subscriptionId)
-            add(filter)
-        }.toString()
+        val filter =
+            buildJsonObject {
+                putJsonArray("kinds") { add(24133) }
+                putJsonArray("#p") { add(clientKeyPair.publicKeyHex) }
+                put("since", since)
+            }
+        val subMessage =
+            buildJsonArray {
+                add("REQ")
+                add(subscriptionId)
+                add(filter)
+            }.toString()
 
-        relayClients.forEach { try { it.send(subMessage) } catch (e: Exception) {
-        } }
+        relayClients.forEach {
+            try {
+                it.send(subMessage)
+            } catch (e: Exception) {
+            }
+        }
 
         pendingRequests["_incoming_connect"] = CompletableDeferred()
     }
 
     actual suspend fun awaitIncomingConnection(): String {
-        val connectDeferred = pendingRequests["_incoming_connect"]
-            ?: throw Exception("Not listening. Call startListeningForConnection first.")
+        val connectDeferred =
+            pendingRequests["_incoming_connect"]
+                ?: throw Exception("Not listening. Call startListeningForConnection first.")
 
         try {
             val result = withTimeout(120_000) { connectDeferred.await() }
@@ -120,9 +147,18 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         } finally {
             pendingRequests.remove("_incoming_connect")
             listenSubscriptionId?.let { subId ->
-                val closeMessage = buildJsonArray { add("CLOSE"); add(subId) }.toString()
+                val closeMessage =
+                    buildJsonArray {
+                        add("CLOSE")
+                        add(subId)
+                    }.toString()
                 withContext(NonCancellable) {
-                    relayClients.forEach { try { it.send(closeMessage) } catch (_: Exception) {} }
+                    relayClients.forEach {
+                        try {
+                            it.send(closeMessage)
+                        } catch (_: Exception) {
+                        }
+                    }
                 }
             }
             listenSubscriptionId = null
@@ -132,7 +168,7 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     actual suspend fun connect(
         remoteSignerPubkey: String,
         relays: List<String>,
-        secret: String?
+        secret: String?,
     ): String {
         this.remoteSignerPubkey = remoteSignerPubkey
         this.relayUrls = relays.map { it.trimEnd('/') }
@@ -144,10 +180,11 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         }
 
         val requestId = generateRequestId()
-        val params = buildList {
-            add(remoteSignerPubkey)
-            secret?.let { add(it) }
-        }
+        val params =
+            buildList {
+                add(remoteSignerPubkey)
+                secret?.let { add(it) }
+            }
 
         sendRequest(requestId, "connect", params)
 
@@ -168,10 +205,11 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
     private suspend fun sendRequest(
         requestId: String,
         method: String,
-        params: List<String>
+        params: List<String>,
     ): String = withTimeout(120_000) {
-        val signerPubkey = remoteSignerPubkey
-            ?: throw Exception("Not connected to signer")
+        val signerPubkey =
+            remoteSignerPubkey
+                ?: throw Exception("Not connected to signer")
 
         // Ensure relay connections are alive before sending
         ensureRelaysConnected()
@@ -179,25 +217,28 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             throw Exception("No bunker relay connections available")
         }
 
-        val requestJson = buildJsonObject {
-            put("id", requestId)
-            put("method", method)
-            putJsonArray("params") { params.forEach { add(it) } }
-        }.toString()
+        val requestJson =
+            buildJsonObject {
+                put("id", requestId)
+                put("method", method)
+                putJsonArray("params") { params.forEach { add(it) } }
+            }.toString()
 
-        val encryptedContent = Nip44.encrypt(
-            plaintext = requestJson,
-            privateKeyHex = clientKeyPair.privateKeyHex,
-            pubKeyHex = signerPubkey
-        )
+        val encryptedContent =
+            Nip44.encrypt(
+                plaintext = requestJson,
+                privateKeyHex = clientKeyPair.privateKeyHex,
+                pubKeyHex = signerPubkey,
+            )
 
-        val event = Event(
-            pubkey = clientKeyPair.publicKeyHex,
-            createdAt = epochMillis() / 1000,
-            kind = 24133,
-            tags = listOf(listOf("p", signerPubkey)),
-            content = encryptedContent
-        )
+        val event =
+            Event(
+                pubkey = clientKeyPair.publicKeyHex,
+                createdAt = epochMillis() / 1000,
+                kind = 24133,
+                tags = listOf(listOf("p", signerPubkey)),
+                content = encryptedContent,
+            )
 
         val signedEvent = event.sign(clientKeyPair)
         val responseDeferred = CompletableDeferred<String>()
@@ -206,32 +247,43 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         val subscriptionId = "nip46-${requestId.take(8)}"
         val since = (epochMillis() / 1000) - 120
 
-        val filter = buildJsonObject {
-            putJsonArray("kinds") { add(24133) }
-            putJsonArray("#p") { add(clientKeyPair.publicKeyHex) }
-            put("since", since)
-        }
+        val filter =
+            buildJsonObject {
+                putJsonArray("kinds") { add(24133) }
+                putJsonArray("#p") { add(clientKeyPair.publicKeyHex) }
+                put("since", since)
+            }
 
-        val subMessage = buildJsonArray {
-            add("REQ")
-            add(subscriptionId)
-            add(filter)
-        }.toString()
+        val subMessage =
+            buildJsonArray {
+                add("REQ")
+                add(subscriptionId)
+                add(filter)
+            }.toString()
 
         var sentToAny = false
         relayClients.forEach { client ->
-            try { client.send(subMessage); sentToAny = true } catch (_: Exception) {}
+            try {
+                client.send(subMessage)
+                sentToAny = true
+            } catch (_: Exception) {
+            }
         }
 
         delay(100)
 
-        val eventMessage = buildJsonArray {
-            add("EVENT")
-            add(signedEvent.toJsonObject())
-        }.toString()
+        val eventMessage =
+            buildJsonArray {
+                add("EVENT")
+                add(signedEvent.toJsonObject())
+            }.toString()
 
         relayClients.forEach { client ->
-            try { client.send(eventMessage); sentToAny = true } catch (_: Exception) {}
+            try {
+                client.send(eventMessage)
+                sentToAny = true
+            } catch (_: Exception) {
+            }
         }
 
         if (!sentToAny) {
@@ -243,12 +295,18 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
             responseDeferred.await()
         } finally {
             pendingRequests.remove(requestId)
-            val closeMessage = buildJsonArray {
-                add("CLOSE")
-                add(subscriptionId)
-            }.toString()
+            val closeMessage =
+                buildJsonArray {
+                    add("CLOSE")
+                    add(subscriptionId)
+                }.toString()
             withContext(NonCancellable) {
-                relayClients.forEach { try { it.send(closeMessage) } catch (_: Exception) {} }
+                relayClients.forEach {
+                    try {
+                        it.send(closeMessage)
+                    } catch (_: Exception) {
+                    }
+                }
             }
         }
     }
@@ -275,11 +333,12 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
                 val encryptedContent = eventObj["content"]?.jsonPrimitive?.content ?: return
 
                 try {
-                    val decrypted = decryptMessage(
-                        ciphertext = encryptedContent,
-                        privateKeyHex = clientKeyPair.privateKeyHex,
-                        pubKeyHex = eventPubkey
-                    )
+                    val decrypted =
+                        decryptMessage(
+                            ciphertext = encryptedContent,
+                            privateKeyHex = clientKeyPair.privateKeyHex,
+                            pubKeyHex = eventPubkey,
+                        )
                     val responseObj = json.parseToJsonElement(decrypted).jsonObject
                     val responseId = responseObj["id"]?.jsonPrimitive?.content
                     val method = responseObj["method"]?.jsonPrimitive?.contentOrNull
@@ -299,23 +358,31 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
 
                         clientScope.launch {
                             try {
-                                val ackResponse = buildJsonObject {
-                                    responseId?.let { put("id", it) }
-                                    put("result", "ack")
-                                }.toString()
+                                val ackResponse =
+                                    buildJsonObject {
+                                        responseId?.let { put("id", it) }
+                                        put("result", "ack")
+                                    }.toString()
                                 val ackEncrypted = Nip44.encrypt(ackResponse, clientKeyPair.privateKeyHex, eventPubkey)
-                                val ackEvent = Event(
-                                    pubkey = clientKeyPair.publicKeyHex,
-                                    createdAt = epochMillis() / 1000,
-                                    kind = 24133,
-                                    tags = listOf(listOf("p", eventPubkey)),
-                                    content = ackEncrypted
-                                ).sign(clientKeyPair)
-                                val ackMessage = buildJsonArray {
-                                    add("EVENT")
-                                    add(ackEvent.toJsonObject())
-                                }.toString()
-                                relayClients.forEach { try { it.send(ackMessage) } catch (_: Exception) {} }
+                                val ackEvent =
+                                    Event(
+                                        pubkey = clientKeyPair.publicKeyHex,
+                                        createdAt = epochMillis() / 1000,
+                                        kind = 24133,
+                                        tags = listOf(listOf("p", eventPubkey)),
+                                        content = ackEncrypted,
+                                    ).sign(clientKeyPair)
+                                val ackMessage =
+                                    buildJsonArray {
+                                        add("EVENT")
+                                        add(ackEvent.toJsonObject())
+                                    }.toString()
+                                relayClients.forEach {
+                                    try {
+                                        it.send(ackMessage)
+                                    } catch (_: Exception) {
+                                    }
+                                }
                             } catch (e: Exception) {
                             }
                         }
@@ -327,8 +394,10 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
 
                     // Handle signer connect response in nostrconnect:// flow.
                     // Result must equal the secret we generated (per NIP-46 spec).
-                    val isConnectResponse = pendingRequests.containsKey("_incoming_connect") &&
-                        nostrConnectSecret != null && result == nostrConnectSecret
+                    val isConnectResponse =
+                        pendingRequests.containsKey("_incoming_connect") &&
+                            nostrConnectSecret != null &&
+                            result == nostrConnectSecret
                     if (isConnectResponse) {
                         remoteSignerPubkey = eventPubkey
                         pendingRequests["_incoming_connect"]?.complete(eventPubkey)
@@ -366,29 +435,34 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         }
     }
 
-    private fun decryptMessage(ciphertext: String, privateKeyHex: String, pubKeyHex: String): String {
-        return if (ciphertext.contains("?iv=")) {
-            Nip04.decrypt(ciphertext, privateKeyHex, pubKeyHex)
-        } else {
-            Nip44.decrypt(ciphertext, privateKeyHex, pubKeyHex)
-        }
+    private fun decryptMessage(
+        ciphertext: String,
+        privateKeyHex: String,
+        pubKeyHex: String,
+    ): String = if (ciphertext.contains("?iv=")) {
+        Nip04.decrypt(ciphertext, privateKeyHex, pubKeyHex)
+    } else {
+        Nip44.decrypt(ciphertext, privateKeyHex, pubKeyHex)
     }
 
-    private fun generateRequestId(): String {
-        return Random.nextBytes(16).joinToString("") {
-            it.toUByte().toString(16).padStart(2, '0')
-        }
+    private fun generateRequestId(): String = Random.nextBytes(16).joinToString("") {
+        it.toUByte().toString(16).padStart(2, '0')
     }
 
-    actual fun backgroundConnect(secret: String?, onSuccess: (() -> Unit)?, onRevoked: (() -> Unit)?) {
+    actual fun backgroundConnect(
+        secret: String?,
+        onSuccess: (() -> Unit)?,
+        onRevoked: (() -> Unit)?,
+    ) {
         val signerPubkey = remoteSignerPubkey ?: return
         clientScope.launch {
             try {
                 val requestId = generateRequestId()
-                val params = buildList {
-                    add(signerPubkey)
-                    secret?.let { add(it) }
-                }
+                val params =
+                    buildList {
+                        add(signerPubkey)
+                        secret?.let { add(it) }
+                    }
                 withTimeout(10_000) {
                     sendRequest(requestId, "connect", params)
                 }
@@ -404,7 +478,10 @@ actual class Nip46Client actual constructor(existingPrivateKey: String?) {
         clientScope.coroutineContext.cancelChildren()
         relayClients.forEach { client ->
             clientScope.launch {
-                try { client.disconnect() } catch (_: Exception) {}
+                try {
+                    client.disconnect()
+                } catch (_: Exception) {
+                }
             }
         }
         relayClients.clear()

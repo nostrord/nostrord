@@ -29,131 +29,135 @@ fun BackupScreenDesktop(
     publicKey: String?,
     showCopiedMessage: Boolean,
     onCopyPublicKey: () -> Unit,
-    onCopyPrivateKey: () -> Unit
+    onCopyPrivateKey: () -> Unit,
 ) {
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxSize()
-            .background(NostrordColors.Background)
+            .background(NostrordColors.Background),
     ) {
         val scrollState = rememberScrollState()
 
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
                 .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-        // Centered content with max width
-        Column(
-            modifier = Modifier.widthIn(max = 600.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // Warning icon
-            Icon(
-                Icons.Default.Warning,
-                contentDescription = "Warning",
-                tint = NostrordColors.WarningOrange,
-                modifier = Modifier
-                    .size(64.dp)
-                    .padding(16.dp)
-            )
-
-            // Title
-            Text(
-                "Backup Your Private Key",
-                color = Color.White,
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Warning card
-            WarningCard(isCompact = false)
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Public Key Section
-            if (publicKey != null) {
-                KeyCard(
-                    title = "Public Key (npub)",
-                    titleColor = NostrordColors.TextSecondary,
-                    keyValue = publicKey,
-                    keyColor = Color.White,
-                    buttonText = "Copy Public Key",
-                    buttonColor = NostrordColors.Primary,
-                    onCopy = onCopyPublicKey,
-                    isCompact = false
+            // Centered content with max width
+            Column(
+                modifier = Modifier.widthIn(max = 600.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // Warning icon
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = "Warning",
+                    tint = NostrordColors.WarningOrange,
+                    modifier =
+                    Modifier
+                        .size(64.dp)
+                        .padding(16.dp),
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
 
-            // Private Key Section
-            if (privateKey != null) {
-                KeyCard(
-                    title = "Private Key (nsec)",
-                    titleColor = NostrordColors.Error,
-                    keyValue = privateKey,
-                    keyColor = NostrordColors.LightRed,
-                    buttonText = "Copy Private Key",
-                    buttonColor = NostrordColors.Error,
-                    onCopy = onCopyPrivateKey,
-                    isCompact = false,
-                    showSecretBadge = true
+                // Title
+                Text(
+                    "Backup Your Private Key",
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
                 )
-            } else {
-                NoKeyCard()
-            }
 
-            // Copied message
-            if (showCopiedMessage) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Warning card
+                WarningCard(isCompact = false)
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Public Key Section
+                if (publicKey != null) {
+                    KeyCard(
+                        title = "Public Key (npub)",
+                        titleColor = NostrordColors.TextSecondary,
+                        keyValue = publicKey,
+                        keyColor = Color.White,
+                        buttonText = "Copy Public Key",
+                        buttonColor = NostrordColors.Primary,
+                        onCopy = onCopyPublicKey,
+                        isCompact = false,
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // Private Key Section
+                if (privateKey != null) {
+                    KeyCard(
+                        title = "Private Key (nsec)",
+                        titleColor = NostrordColors.Error,
+                        keyValue = privateKey,
+                        keyColor = NostrordColors.LightRed,
+                        buttonText = "Copy Private Key",
+                        buttonColor = NostrordColors.Error,
+                        onCopy = onCopyPrivateKey,
+                        isCompact = false,
+                        showSecretBadge = true,
+                    )
+                } else {
+                    NoKeyCard()
+                }
+
+                // Copied message
+                if (showCopiedMessage) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = NostrordColors.Success),
+                        shape = RoundedCornerShape(8.dp),
                     ) {
-                        Icon(
-                            Icons.Default.Check,
-                            contentDescription = "Success",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Copied to clipboard",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = "Success",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "Copied to clipboard",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
-            // Security tips
-            InfoCard(
-                title = "Security Tips",
-                titleColor = NostrordColors.Warning,
-                icon = Icons.Default.Lightbulb,
-                content = "1. Write it down on paper and store in a safe place\n" +
+                // Security tips
+                InfoCard(
+                    title = "Security Tips",
+                    titleColor = NostrordColors.Warning,
+                    icon = Icons.Default.Lightbulb,
+                    content =
+                    "1. Write it down on paper and store in a safe place\n" +
                         "2. Use a password manager like 1Password or Bitwarden\n" +
                         "3. Never store it in plain text files or screenshots\n" +
                         "4. Never send it via email or messaging apps\n" +
                         "5. Consider using a hardware wallet for long-term storage",
-                isCompact = false
-            )
-        }
+                    isCompact = false,
+                )
+            }
         }
 
         VerticalScrollbarWrapper(
             scrollState = scrollState,
-            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
         )
     }
 }

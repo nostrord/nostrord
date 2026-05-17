@@ -25,9 +25,8 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -40,7 +39,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 data class QuotedEventReference(
     val eventId: String,
     val relayHint: String?,
-    val authorPubkey: String?
+    val authorPubkey: String?,
 )
 
 /**
@@ -58,16 +57,14 @@ fun getQuotedEventReference(message: NostrGroupClient.NostrMessage): QuotedEvent
     return QuotedEventReference(
         eventId = eventId,
         relayHint = qTag.getOrNull(2)?.takeIf { it.isNotBlank() },
-        authorPubkey = qTag.getOrNull(3)?.takeIf { it.isNotBlank() }
+        authorPubkey = qTag.getOrNull(3)?.takeIf { it.isNotBlank() },
     )
 }
 
 /**
  * Check if a message has a valid quoted event (q tag with non-empty event ID).
  */
-fun hasQuotedEvent(message: NostrGroupClient.NostrMessage): Boolean {
-    return message.tags.any { it.size >= 2 && it[0] == "q" && it[1].isNotBlank() }
-}
+fun hasQuotedEvent(message: NostrGroupClient.NostrMessage): Boolean = message.tags.any { it.size >= 2 && it[0] == "q" && it[1].isNotBlank() }
 
 /**
  * Displays a quoted event preview for messages with a "q" tag.
@@ -77,7 +74,7 @@ fun hasQuotedEvent(message: NostrGroupClient.NostrMessage): Boolean {
 fun QuotedEventPreview(
     reference: QuotedEventReference,
     onClick: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
@@ -99,39 +96,44 @@ fun QuotedEventPreview(
     }
 
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
             .background(NostrordColors.Surface)
             .clickable(onClick = onClick)
-            .pointerHoverIcon(PointerIcon.Hand)
+            .pointerHoverIcon(PointerIcon.Hand),
     ) {
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .weight(1f)
-                .padding(Spacing.md)
+                .padding(Spacing.md),
         ) {
             if (event != null) {
                 val metadata = userMetadata[event.pubkey]
-                val authorName = metadata?.displayName
-                    ?: metadata?.name
-                    ?: event.pubkey.take(8) + "..."
+                val authorName =
+                    metadata?.displayName
+                        ?: metadata?.name
+                        ?: event.pubkey.take(8) + "..."
 
                 // Request metadata for any pubkeys mentioned in the content
                 LaunchedEffect(event.content) {
-                    val pubkeysToFetch = extractPubkeysFromContent(event.content)
-                        .filter { !userMetadata.containsKey(it) }
-                        .toSet()
+                    val pubkeysToFetch =
+                        extractPubkeysFromContent(event.content)
+                            .filter { !userMetadata.containsKey(it) }
+                            .toSet()
                     if (pubkeysToFetch.isNotEmpty()) {
                         AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
                     }
                 }
 
                 // Process mentions in content to show @name instead of nostr:npub...
-                val processedContent = remember(event.content, userMetadata) {
-                    processMentionsInContent(event.content, userMetadata)
-                        .replace('\n', ' ')
-                }
+                val processedContent =
+                    remember(event.content, userMetadata) {
+                        processMentionsInContent(event.content, userMetadata)
+                            .replace('\n', ' ')
+                    }
 
                 // Author row with avatar
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -139,7 +141,7 @@ fun QuotedEventPreview(
                         imageUrl = metadata?.picture,
                         displayName = authorName,
                         pubkey = event.pubkey,
-                        size = 20.dp
+                        size = 20.dp,
                     )
                     Spacer(modifier = Modifier.width(Spacing.sm))
                     Text(
@@ -148,7 +150,7 @@ fun QuotedEventPreview(
                         style = NostrordTypography.Caption,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
 
@@ -160,14 +162,14 @@ fun QuotedEventPreview(
                     color = NostrordColors.TextContent,
                     style = NostrordTypography.Quote,
                     maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             } else {
                 // Loading state
                 Text(
                     text = "Loading quoted event...",
                     color = NostrordColors.TextMuted,
-                    style = NostrordTypography.Caption
+                    style = NostrordTypography.Caption,
                 )
             }
         }

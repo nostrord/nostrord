@@ -2,7 +2,6 @@ package org.nostr.nostrord.ui.components.accounts
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -18,12 +17,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -51,9 +49,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.ui.screens.login.components.BunkerLoginTab
 import org.nostr.nostrord.ui.screens.login.components.ExtensionLoginTab
@@ -66,8 +62,11 @@ private val DESKTOP_SHEET_WIDTH = 420.dp
 
 private sealed class AddStep {
     object PickMethod : AddStep()
+
     object PrivateKey : AddStep()
+
     object Bunker : AddStep()
+
     object Extension : AddStep()
 }
 
@@ -97,11 +96,12 @@ fun AddAccountSheet(
     val activeId by AppModule.accountStore.activeId.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val activeAccount = accounts.firstOrNull { it.id == activeId }
-    val activeDisplayName = activeAccount?.let { acc ->
-        userMetadata[acc.pubkey]?.displayName?.takeIf { it.isNotBlank() }
-            ?: userMetadata[acc.pubkey]?.name?.takeIf { it.isNotBlank() }
-            ?: acc.label
-    }
+    val activeDisplayName =
+        activeAccount?.let { acc ->
+            userMetadata[acc.pubkey]?.displayName?.takeIf { it.isNotBlank() }
+                ?: userMetadata[acc.pubkey]?.name?.takeIf { it.isNotBlank() }
+                ?: acc.label
+        }
     val scope = rememberCoroutineScope()
 
     var step: AddStep by remember { mutableStateOf<AddStep>(AddStep.PickMethod) }
@@ -114,10 +114,11 @@ fun AddAccountSheet(
         // snackbar prefers the user's profile name when available.
         val newActive = AppModule.accountStore.active
         val newMeta = newActive?.pubkey?.let { userMetadata[it] }
-        val label = newMeta?.displayName?.takeIf { it.isNotBlank() }
-            ?: newMeta?.name?.takeIf { it.isNotBlank() }
-            ?: newActive?.label
-            ?: "account"
+        val label =
+            newMeta?.displayName?.takeIf { it.isNotBlank() }
+                ?: newMeta?.name?.takeIf { it.isNotBlank() }
+                ?: newActive?.label
+                ?: "account"
         onAdded(label)
     }
 
@@ -125,14 +126,18 @@ fun AddAccountSheet(
 
     val content: @Composable ColumnScope.() -> Unit = {
         StepHeader(
-            title = when (step) {
+            title =
+            when (step) {
                 AddStep.PickMethod -> "Add account"
                 AddStep.PrivateKey -> "Private key"
                 AddStep.Bunker -> "Bunker"
                 AddStep.Extension -> "Browser extension"
             },
             showBack = step !is AddStep.PickMethod,
-            onBack = { step = AddStep.PickMethod; pendingError = null },
+            onBack = {
+                step = AddStep.PickMethod
+                pendingError = null
+            },
             onClose = onDismiss,
         )
         HorizontalDivider(color = NostrordColors.BackgroundDark)
@@ -147,23 +152,27 @@ fun AddAccountSheet(
         }
 
         when (step) {
-            AddStep.PickMethod -> PickMethodContent(
-                activeDisplayName = activeDisplayName,
-                isBusy = isBusy,
-                hasExtension = Nip07.isAvailable(),
-                onPickPrivateKey = { step = AddStep.PrivateKey },
-                onPickBunker = { step = AddStep.Bunker },
-                onPickExtension = { step = AddStep.Extension },
-            )
-            AddStep.PrivateKey -> Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                PrivateKeyLoginTab(onLoginSuccess = onMethodSuccess)
-            }
-            AddStep.Bunker -> Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                BunkerLoginTab(onLoginSuccess = onMethodSuccess)
-            }
-            AddStep.Extension -> Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                ExtensionLoginTab(onLoginSuccess = onMethodSuccess)
-            }
+            AddStep.PickMethod ->
+                PickMethodContent(
+                    activeDisplayName = activeDisplayName,
+                    isBusy = isBusy,
+                    hasExtension = Nip07.isAvailable(),
+                    onPickPrivateKey = { step = AddStep.PrivateKey },
+                    onPickBunker = { step = AddStep.Bunker },
+                    onPickExtension = { step = AddStep.Extension },
+                )
+            AddStep.PrivateKey ->
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    PrivateKeyLoginTab(onLoginSuccess = onMethodSuccess)
+                }
+            AddStep.Bunker ->
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    BunkerLoginTab(onLoginSuccess = onMethodSuccess)
+                }
+            AddStep.Extension ->
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    ExtensionLoginTab(onLoginSuccess = onMethodSuccess)
+                }
         }
         Spacer(Modifier.height(8.dp))
     }
@@ -289,11 +298,16 @@ private fun MethodRow(
     onClick: () -> Unit,
     highlight: Boolean = false,
 ) {
-    val containerColor = if (highlight) NostrordColors.Primary.copy(alpha = 0.12f)
-    else NostrordColors.BackgroundDark
+    val containerColor =
+        if (highlight) {
+            NostrordColors.Primary.copy(alpha = 0.12f)
+        } else {
+            NostrordColors.BackgroundDark
+        }
     val labelColor = if (highlight) NostrordColors.Primary else Color.White
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
             .background(containerColor, RoundedCornerShape(10.dp))

@@ -6,20 +6,19 @@ import org.nostr.nostrord.nostr.KeyPair
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NostrSignerTest {
-
-    private val dummyEvent = Event(
-        id = null,
-        pubkey = "a".repeat(64),
-        createdAt = 1_700_000_000L,
-        kind = 1,
-        tags = emptyList(),
-        content = "hello",
-        sig = null,
-    )
+    private val dummyEvent =
+        Event(
+            id = null,
+            pubkey = "a".repeat(64),
+            createdAt = 1_700_000_000L,
+            kind = 1,
+            tags = emptyList(),
+            content = "hello",
+            sig = null,
+        )
 
     // -------------------------------------------------------------------------
     // Local signer

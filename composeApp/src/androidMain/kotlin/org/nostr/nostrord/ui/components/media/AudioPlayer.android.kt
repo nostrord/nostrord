@@ -32,26 +32,27 @@ actual class AudioPlayer actual constructor() {
         if (url != currentUrl) {
             mediaPlayer?.release()
             currentUrl = url
-            mediaPlayer = MediaPlayer().apply {
-                setDataSource(url)
-                setOnPreparedListener { mp ->
-                    _durationMs.value = mp.duration.toLong()
-                    mp.start()
-                    _isPlaying.value = true
-                    startPositionTracking()
+            mediaPlayer =
+                MediaPlayer().apply {
+                    setDataSource(url)
+                    setOnPreparedListener { mp ->
+                        _durationMs.value = mp.duration.toLong()
+                        mp.start()
+                        _isPlaying.value = true
+                        startPositionTracking()
+                    }
+                    setOnCompletionListener {
+                        _isPlaying.value = false
+                        _currentPositionMs.value = _durationMs.value
+                        positionJob?.cancel()
+                    }
+                    setOnErrorListener { _, _, _ ->
+                        _isPlaying.value = false
+                        positionJob?.cancel()
+                        true
+                    }
+                    prepareAsync()
                 }
-                setOnCompletionListener {
-                    _isPlaying.value = false
-                    _currentPositionMs.value = _durationMs.value
-                    positionJob?.cancel()
-                }
-                setOnErrorListener { _, _, _ ->
-                    _isPlaying.value = false
-                    positionJob?.cancel()
-                    true
-                }
-                prepareAsync()
-            }
         } else {
             mediaPlayer?.let { mp ->
                 if (!mp.isPlaying) {
@@ -101,18 +102,20 @@ actual class AudioPlayer actual constructor() {
 
     private fun startPositionTracking() {
         positionJob?.cancel()
-        positionJob = scope.launch {
-            while (isActive) {
-                mediaPlayer?.let { mp ->
-                    try {
-                        if (mp.isPlaying) {
-                            _currentPositionMs.value = mp.currentPosition.toLong()
+        positionJob =
+            scope.launch {
+                while (isActive) {
+                    mediaPlayer?.let { mp ->
+                        try {
+                            if (mp.isPlaying) {
+                                _currentPositionMs.value = mp.currentPosition.toLong()
+                            }
+                        } catch (_: IllegalStateException) {
                         }
-                    } catch (_: IllegalStateException) {}
+                    }
+                    delay(250)
                 }
-                delay(250)
             }
-        }
     }
 }
 

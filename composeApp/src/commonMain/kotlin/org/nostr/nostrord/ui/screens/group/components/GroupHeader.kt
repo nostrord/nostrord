@@ -3,20 +3,20 @@ package org.nostr.nostrord.ui.screens.group.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -73,37 +73,40 @@ fun GroupHeader(
     onJoinRequestsClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     navigationIcon: @Composable (() -> Unit)? = null,
-    trailingIcon: @Composable (() -> Unit)? = null
+    trailingIcon: @Composable (() -> Unit)? = null,
 ) {
     Column(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
-            .background(NostrordColors.BackgroundDark)
+            .background(NostrordColors.BackgroundDark),
     ) {
         Row(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .height(56.dp)
                 .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             if (navigationIcon != null) {
                 navigationIcon()
             }
 
             Row(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .weight(1f)
                     .clickable(onClick = onTitleClick)
                     .pointerHoverIcon(PointerIcon.Hand)
                     .padding(end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 GroupHeaderIcon(
                     pictureUrl = groupMetadata?.picture,
                     groupId = groupMetadata?.id ?: "",
                     displayName = groupName ?: "Group",
-                    size = 36.dp
+                    size = 36.dp,
                 )
 
                 Spacer(modifier = Modifier.width(12.dp))
@@ -116,9 +119,10 @@ fun GroupHeader(
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
+                            modifier =
+                            Modifier
                                 .clickable(onClick = onParentClick)
-                                .pointerHoverIcon(PointerIcon.Hand)
+                                .pointerHoverIcon(PointerIcon.Hand),
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -129,20 +133,21 @@ fun GroupHeader(
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier.weight(1f, fill = false),
                         )
                         if (showSubgroupControls && childCount > 0) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Box(
-                                modifier = Modifier
+                                modifier =
+                                Modifier
                                     .background(NostrordColors.SurfaceVariant, RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
                             ) {
                                 Text(
                                     text = "› $childCount",
                                     color = NostrordColors.TextSecondary,
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
                                 )
                             }
                         }
@@ -154,7 +159,7 @@ fun GroupHeader(
                             color = NostrordColors.TextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -168,28 +173,29 @@ fun GroupHeader(
                 Box {
                     IconButton(
                         onClick = onJoinRequestsClick,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(40.dp),
                     ) {
                         Icon(
                             Icons.Default.PersonAdd,
                             contentDescription = "Join requests",
                             tint = NostrordColors.TextSecondary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                     Box(
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .align(Alignment.TopEnd)
                             .offset(x = (-4).dp, y = 4.dp)
                             .size(18.dp)
                             .background(NostrordColors.Error, CircleShape),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
                             color = Color.White,
                             fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
                         )
                     }
                 }
@@ -197,7 +203,7 @@ fun GroupHeader(
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!isJoined) {
                     val showInviteButton = isClosed || initialInviteCode != null
@@ -208,15 +214,16 @@ fun GroupHeader(
                             onClick = { showInviteModal = true },
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                             shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(
+                            colors =
+                            ButtonDefaults.buttonColors(
                                 containerColor = NostrordColors.SurfaceVariant,
-                                contentColor = NostrordColors.TextPrimary
-                            )
+                                contentColor = NostrordColors.TextPrimary,
+                            ),
                         ) {
                             Icon(
                                 Icons.Default.VpnKey,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(16.dp),
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Invite Code", style = MaterialTheme.typography.labelMedium)
@@ -228,7 +235,7 @@ fun GroupHeader(
                         onClick = { onJoinClick(null) },
                         colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(8.dp),
                     ) {
                         Text("Join", style = MaterialTheme.typography.labelMedium)
                     }
@@ -240,7 +247,7 @@ fun GroupHeader(
                                 showInviteModal = false
                                 onJoinClick(code)
                             },
-                            onDismiss = { showInviteModal = false }
+                            onDismiss = { showInviteModal = false },
                         )
                     }
                 } else {
@@ -251,13 +258,13 @@ fun GroupHeader(
                     Box {
                         IconButton(
                             onClick = { menuExpanded = true },
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 Icons.Default.MoreVert,
                                 contentDescription = "More options",
                                 tint = NostrordColors.TextSecondary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
                             )
                         }
 
@@ -278,9 +285,9 @@ fun GroupHeader(
                                             Icons.Default.Edit,
                                             contentDescription = null,
                                             tint = NostrordColors.TextSecondary,
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(20.dp),
                                         )
-                                    }
+                                    },
                                 )
                                 DropdownMenuItem(
                                     text = { Text("Manage Members", color = NostrordColors.TextPrimary) },
@@ -293,9 +300,9 @@ fun GroupHeader(
                                             Icons.Default.People,
                                             contentDescription = null,
                                             tint = NostrordColors.TextSecondary,
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(20.dp),
                                         )
-                                    }
+                                    },
                                 )
                                 if (isClosed) {
                                     DropdownMenuItem(
@@ -309,27 +316,27 @@ fun GroupHeader(
                                                 Icons.Default.Link,
                                                 contentDescription = null,
                                                 tint = NostrordColors.TextSecondary,
-                                                modifier = Modifier.size(20.dp)
+                                                modifier = Modifier.size(20.dp),
                                             )
-                                        }
+                                        },
                                     )
                                 }
                                 if (showSubgroupControls) {
                                     DropdownMenuItem(
-                                    text = { Text("Create Subgroup", color = NostrordColors.TextPrimary) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onCreateSubgroupClick()
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Add,
-                                            contentDescription = null,
-                                            tint = NostrordColors.TextSecondary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                )
+                                        text = { Text("Create Subgroup", color = NostrordColors.TextPrimary) },
+                                        onClick = {
+                                            menuExpanded = false
+                                            onCreateSubgroupClick()
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Default.Add,
+                                                contentDescription = null,
+                                                tint = NostrordColors.TextSecondary,
+                                                modifier = Modifier.size(20.dp),
+                                            )
+                                        },
+                                    )
                                     DropdownMenuItem(
                                         text = { Text("Manage Children", color = NostrordColors.TextPrimary) },
                                         onClick = {
@@ -341,9 +348,9 @@ fun GroupHeader(
                                                 Icons.Default.AccountTree,
                                                 contentDescription = null,
                                                 tint = NostrordColors.TextSecondary,
-                                                modifier = Modifier.size(20.dp)
+                                                modifier = Modifier.size(20.dp),
                                             )
-                                        }
+                                        },
                                     )
                                 }
                                 DropdownMenuItem(
@@ -357,9 +364,9 @@ fun GroupHeader(
                                             Icons.Default.Delete,
                                             contentDescription = null,
                                             tint = NostrordColors.Error,
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(20.dp),
                                         )
-                                    }
+                                    },
                                 )
                             }
                             if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
@@ -374,16 +381,16 @@ fun GroupHeader(
                                             Icons.Default.Share,
                                             contentDescription = null,
                                             tint = NostrordColors.TextSecondary,
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(20.dp),
                                         )
-                                    }
+                                    },
                                 )
                             }
                             DropdownMenuItem(
                                 text = {
                                     Text(
                                         "Leave Group",
-                                        color = NostrordColors.Error
+                                        color = NostrordColors.Error,
                                     )
                                 },
                                 onClick = {
@@ -395,9 +402,9 @@ fun GroupHeader(
                                         Icons.AutoMirrored.Filled.ExitToApp,
                                         contentDescription = null,
                                         tint = NostrordColors.Error,
-                                        modifier = Modifier.size(20.dp)
+                                        modifier = Modifier.size(20.dp),
                                     )
-                                }
+                                },
                             )
                         }
                     }
@@ -406,7 +413,7 @@ fun GroupHeader(
                         ShareGroupModal(
                             relayUrl = relayUrl,
                             groupId = groupId,
-                            onDismiss = { showShareModal = false }
+                            onDismiss = { showShareModal = false },
                         )
                     }
                 }
@@ -420,7 +427,7 @@ fun GroupHeader(
 fun InviteCodeJoinModal(
     initialCode: String = "",
     onJoin: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var inviteCode by remember { mutableStateOf(initialCode) }
 
@@ -431,7 +438,7 @@ fun InviteCodeJoinModal(
             Text(
                 "Join with Invite Code",
                 color = Color.White,
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
             )
         },
         text = {
@@ -442,33 +449,35 @@ fun InviteCodeJoinModal(
                     Text(
                         "Enter invite code",
                         color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.bodyMedium
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                colors = OutlinedTextFieldDefaults.colors(
+                colors =
+                OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     focusedBorderColor = NostrordColors.Primary,
                     unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                    cursorColor = NostrordColors.Primary
+                    cursorColor = NostrordColors.Primary,
                 ),
                 textStyle = MaterialTheme.typography.bodyMedium,
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
             )
         },
         confirmButton = {
             Button(
                 onClick = { onJoin(inviteCode) },
                 enabled = inviteCode.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(
+                colors =
+                ButtonDefaults.buttonColors(
                     containerColor = NostrordColors.Primary,
                     contentColor = Color.White,
                     disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.3f),
-                    disabledContentColor = Color.White.copy(alpha = 0.5f)
+                    disabledContentColor = Color.White.copy(alpha = 0.5f),
                 ),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(8.dp),
             ) {
                 Text("Join")
             }
@@ -477,7 +486,7 @@ fun InviteCodeJoinModal(
             TextButton(onClick = onDismiss) {
                 Text("Cancel", color = NostrordColors.TextSecondary)
             }
-        }
+        },
     )
 }
 
@@ -486,7 +495,7 @@ internal fun GroupHeaderIcon(
     pictureUrl: String?,
     groupId: String,
     displayName: String,
-    size: androidx.compose.ui.unit.Dp
+    size: androidx.compose.ui.unit.Dp,
 ) {
     val context = LocalPlatformContext.current
     val iconShape = RoundedCornerShape(8.dp)
@@ -496,34 +505,38 @@ internal fun GroupHeaderIcon(
     val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(iconShape)
             .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         if (!showImage) {
             Text(
                 text = displayName.take(1).uppercase(),
                 color = Color.White,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
         if (!pictureUrl.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = displayName,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clip(iconShape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }

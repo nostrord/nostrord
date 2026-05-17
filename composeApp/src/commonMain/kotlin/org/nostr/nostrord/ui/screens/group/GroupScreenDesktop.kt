@@ -118,15 +118,15 @@ fun GroupScreenDesktop(
     initialInviteCode: String? = null,
     targetMessageId: String? = null,
     onTargetConsumed: () -> Unit = {},
-    onFetchTargetById: (String) -> Unit = {}
+    onFetchTargetById: (String) -> Unit = {},
 ) {
-
     Row(modifier = Modifier.fillMaxSize()) {
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxHeight()
                 .weight(1f)
-                .background(NostrordColors.Background)
+                .background(NostrordColors.Background),
         ) {
             GroupHeader(
                 groupName = if (isGroupRestricted && groupName == null) "Private Group" else groupName,
@@ -152,33 +152,37 @@ fun GroupScreenDesktop(
                 initialInviteCode = initialInviteCode,
                 pendingJoinRequestCount = pendingJoinRequestCount,
                 onJoinRequestsClick = onJoinRequestsClick,
-                trailingIcon = if (!showMemberSidebar) {
+                trailingIcon =
+                if (!showMemberSidebar) {
                     {
                         IconButton(
                             onClick = { onShowMemberSheet(true) },
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(40.dp),
                         ) {
                             Icon(
                                 Icons.Default.People,
                                 contentDescription = "Members",
                                 tint = Color.White,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
-                } else null
+                } else {
+                    null
+                },
             )
 
             ConnectionStatusBanner(
                 connectionState = connectionState,
                 onRetry = onReconnect,
-                onManageRelay = onManageRelay
+                onManageRelay = onManageRelay,
             )
 
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth()
-                    .weight(1f)
+                    .weight(1f),
             ) {
                 MessagesList(
                     groupId = groupId,
@@ -202,7 +206,7 @@ fun GroupScreenDesktop(
                     onReachedBottom = onReachedBottom,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetConsumed,
-                    onFetchTargetById = onFetchTargetById
+                    onFetchTargetById = onFetchTargetById,
                 )
             }
 
@@ -228,7 +232,7 @@ fun GroupScreenDesktop(
                 userMetadata = userMetadata,
                 onCancelReply = onCancelReply,
                 isSending = isSending,
-                onMediaUploaded = onMediaUploaded
+                onMediaUploaded = onMediaUploaded,
             )
         }
 
@@ -243,7 +247,7 @@ fun GroupScreenDesktop(
                 isCurrentUserAdmin = isCurrentUserAdmin,
                 currentUserPubkey = currentUserPubkey,
                 onRemoveMember = onRemoveMember,
-                onAddMember = onAddMember
+                onAddMember = onAddMember,
             )
         }
     }
@@ -254,7 +258,7 @@ fun GroupScreenDesktop(
             onDismissRequest = { onShowMemberSheet(false) },
             sheetState = rememberModalBottomSheetState(),
             containerColor = NostrordColors.Surface,
-            sheetMaxWidth = Dp.Unspecified
+            sheetMaxWidth = Dp.Unspecified,
         ) {
             MemberSidebar(
                 members = groupMembers,
@@ -270,7 +274,7 @@ fun GroupScreenDesktop(
                 currentUserPubkey = currentUserPubkey,
                 onRemoveMember = onRemoveMember,
                 onAddMember = onAddMember,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

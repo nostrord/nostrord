@@ -27,7 +27,7 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 fun AudioPlayerContent(
     url: String,
     player: AudioPlayer,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val isPlaying by player.isPlaying.collectAsState()
     val currentMs by player.currentPositionMs.collectAsState()
@@ -37,29 +37,30 @@ fun AudioPlayerContent(
     val fileName = url.substringAfterLast("/").substringBefore("?").take(40)
 
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(NostrordColors.SurfaceVariant)
             .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Play / Pause button
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .size(40.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(NostrordColors.Primary.copy(alpha = 0.2f))
                 .clickable {
                     if (isPlaying) player.pause() else player.play(url)
-                }
-                .pointerHoverIcon(PointerIcon.Hand),
-            contentAlignment = Alignment.Center
+                }.pointerHoverIcon(PointerIcon.Hand),
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = if (isPlaying) "⏸" else "▶",
                 style = NostrordTypography.MessageBody,
-                color = NostrordColors.Primary
+                color = NostrordColors.Primary,
             )
         }
 
@@ -73,7 +74,7 @@ fun AudioPlayerContent(
                 style = NostrordTypography.MessageBody,
                 color = NostrordColors.TextContent,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
 
             Spacer(Modifier.height(4.dp))
@@ -81,7 +82,8 @@ fun AudioPlayerContent(
             // Progress bar
             LinearProgressIndicator(
                 progress = { progress },
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxWidth()
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp)),
@@ -94,18 +96,18 @@ fun AudioPlayerContent(
             // Duration text
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
                     text = formatDuration(currentMs),
                     style = NostrordTypography.Caption,
-                    color = NostrordColors.TextMuted
+                    color = NostrordColors.TextMuted,
                 )
                 if (durationMs > 0) {
                     Text(
                         text = formatDuration(durationMs),
                         style = NostrordTypography.Caption,
-                        color = NostrordColors.TextMuted
+                        color = NostrordColors.TextMuted,
                     )
                 }
             }

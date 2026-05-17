@@ -55,28 +55,28 @@ fun GroupCard(
     onClick: () -> Unit,
     memberCount: Int = 0,
     isJoined: Boolean = false,
-    unreadCount: Int = 0
+    unreadCount: Int = 0,
 ) {
     val groupName = group.name ?: group.id
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .height(Spacing.memberItemHeight + Spacing.lg) // ~44dp
             .border(
                 width = 1.dp,
                 color = NostrordColors.Divider,
-                shape = NostrordShapes.channelItemShape
-            )
-            .clip(NostrordShapes.channelItemShape)
+                shape = NostrordShapes.channelItemShape,
+            ).clip(NostrordShapes.channelItemShape)
             .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
             .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Avatar with unread badge
         Box {
@@ -84,17 +84,18 @@ fun GroupCard(
                 groupId = group.id,
                 groupName = groupName,
                 pictureUrl = group.picture,
-                size = Spacing.avatarSize
+                size = Spacing.avatarSize,
             )
 
             // Unread badge positioned at bottom-right of avatar
             if (unreadCount > 0) {
                 UnreadBadge(
                     count = unreadCount,
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .align(Alignment.BottomEnd)
                         .offset(x = Spacing.xxs, y = Spacing.xxs),
-                    size = Spacing.badgeSize
+                    size = Spacing.badgeSize,
                 )
             }
         }
@@ -104,7 +105,7 @@ fun GroupCard(
         // Name and subtext
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
         ) {
             // Group name - bold white
             Text(
@@ -112,7 +113,7 @@ fun GroupCard(
                 color = if (unreadCount > 0) NostrordColors.ChannelUnread else Color.White,
                 style = if (unreadCount > 0) NostrordTypography.ChannelNameUnread else NostrordTypography.ChannelName,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
 
             // Subtext with description
@@ -123,7 +124,7 @@ fun GroupCard(
                     color = NostrordColors.TextMuted,
                     style = NostrordTypography.Timestamp,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -135,43 +136,48 @@ private fun GroupAvatar(
     groupId: String,
     groupName: String,
     pictureUrl: String?,
-    size: Dp
+    size: Dp,
 ) {
     val context = LocalPlatformContext.current
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
-            .clip(CircleShape)
+            .clip(CircleShape),
     ) {
         var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
-        val showPlaceholder = pictureUrl.isNullOrBlank() ||
-            imageState is AsyncImagePainter.State.Loading ||
-            imageState is AsyncImagePainter.State.Error
+        val showPlaceholder =
+            pictureUrl.isNullOrBlank() ||
+                imageState is AsyncImagePainter.State.Loading ||
+                imageState is AsyncImagePainter.State.Error
 
         // Show Jdenticon when no URL, loading, or error
         if (showPlaceholder) {
             Jdenticon(
                 value = groupId,
-                size = size
+                size = size,
             )
         }
 
         // Only attempt to load image if URL is provided and not in error state
         if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = groupName,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clip(CircleShape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }

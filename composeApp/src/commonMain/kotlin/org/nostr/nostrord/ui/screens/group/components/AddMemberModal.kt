@@ -41,7 +41,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 @Composable
 fun AddMemberModal(
     onAddMember: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var input by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
@@ -57,14 +57,15 @@ fun AddMemberModal(
             error = "Enter an npub or hex pubkey"
             return
         }
-        val pubkey = when {
-            trimmed.startsWith("npub") -> {
-                val entity = Nip19.decode(trimmed)
-                (entity as? Nip19.Entity.Npub)?.pubkey
+        val pubkey =
+            when {
+                trimmed.startsWith("npub") -> {
+                    val entity = Nip19.decode(trimmed)
+                    (entity as? Nip19.Entity.Npub)?.pubkey
+                }
+                trimmed.length == 64 && trimmed.all { c -> c in '0'..'9' || c in 'a'..'f' } -> trimmed
+                else -> null
             }
-            trimmed.length == 64 && trimmed.all { c -> c in '0'..'9' || c in 'a'..'f' } -> trimmed
-            else -> null
-        }
         if (pubkey != null) {
             onAddMember(pubkey)
             onDismiss()
@@ -75,65 +76,68 @@ fun AddMemberModal(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
+        properties =
+        DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.7f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null
+                    indication = null,
                 ) { onDismiss() }
                 .safeDrawingPadding(),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Card(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .widthIn(max = 440.dp)
                     .fillMaxWidth(0.9f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
+                        indication = null,
                     ) { /* consume click */ },
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
             ) {
                 Column(modifier = Modifier.padding(Spacing.xxl)) {
                     // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 imageVector = Icons.Default.PersonAdd,
                                 contentDescription = null,
                                 tint = NostrordColors.Primary,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(24.dp),
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = "Add Member",
                                 style = NostrordTypography.ServerHeader,
                                 color = NostrordColors.TextPrimary,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
                             )
                         }
                         IconButton(
                             onClick = onDismiss,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(32.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
                                 tint = NostrordColors.TextSecondary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
@@ -144,7 +148,7 @@ fun AddMemberModal(
                     Text(
                         text = "Enter the user's npub or hex public key to add them to this group.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = NostrordColors.TextSecondary
+                        color = NostrordColors.TextSecondary,
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -156,13 +160,15 @@ fun AddMemberModal(
                             input = it
                             error = null
                         },
-                        textStyle = TextStyle(
+                        textStyle =
+                        TextStyle(
                             color = Color.White,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
                         ),
                         singleLine = true,
                         cursorBrush = SolidColor(NostrordColors.Primary),
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .fillMaxWidth()
                             .background(NostrordColors.BackgroundDark, RoundedCornerShape(8.dp))
                             .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -174,7 +180,9 @@ fun AddMemberModal(
                                 } else if (event.key == Key.Escape && event.type == KeyEventType.KeyDown) {
                                     onDismiss()
                                     true
-                                } else false
+                                } else {
+                                    false
+                                }
                             },
                         decorationBox = { innerTextField ->
                             Box {
@@ -182,12 +190,12 @@ fun AddMemberModal(
                                     Text(
                                         text = "npub1... or hex pubkey",
                                         color = NostrordColors.TextMuted,
-                                        fontSize = 14.sp
+                                        fontSize = 14.sp,
                                     )
                                 }
                                 innerTextField()
                             }
-                        }
+                        },
                     )
 
                     // Error message
@@ -196,7 +204,7 @@ fun AddMemberModal(
                         Text(
                             text = error!!,
                             color = NostrordColors.Error,
-                            style = MaterialTheme.typography.labelSmall
+                            style = MaterialTheme.typography.labelSmall,
                         )
                     }
 
@@ -205,25 +213,26 @@ fun AddMemberModal(
                     // Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
+                        horizontalArrangement = Arrangement.End,
                     ) {
                         TextButton(
                             onClick = onDismiss,
-                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             Text(
                                 text = "Cancel",
-                                color = NostrordColors.TextSecondary
+                                color = NostrordColors.TextSecondary,
                             )
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = { submit() },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = NostrordColors.Primary
+                            colors =
+                            ButtonDefaults.buttonColors(
+                                containerColor = NostrordColors.Primary,
                             ),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             Text("Add Member")
                         }

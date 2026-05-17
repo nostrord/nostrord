@@ -68,7 +68,7 @@ actual fun PlatformVideoPlayer(
     thumbnailUrl: String?,
     aspectRatio: Float,
     onFallbackClick: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     val playerState = rememberVideoPlayerState()
     var isFullscreen by remember { mutableStateOf(false) }
@@ -90,19 +90,23 @@ actual fun PlatformVideoPlayer(
         hasStarted = hasStarted,
         aspectRatio = aspectRatio,
         isFullscreen = false,
-        onPlay = { hasStarted = true; playerState.play() },
+        onPlay = {
+            hasStarted = true
+            playerState.play()
+        },
         onFullscreenClick = { isFullscreen = true },
-        modifier = modifier.widthIn(max = 400.dp)
+        modifier = modifier.widthIn(max = 400.dp),
     )
 
     if (isFullscreen) {
         Dialog(
             onDismissRequest = { isFullscreen = false },
-            properties = DialogProperties(
+            properties =
+            DialogProperties(
                 usePlatformDefaultWidth = false,
                 dismissOnBackPress = true,
-                dismissOnClickOutside = false
-            )
+                dismissOnClickOutside = false,
+            ),
         ) {
             VideoPlayerBox(
                 playerState = playerState,
@@ -112,7 +116,7 @@ actual fun PlatformVideoPlayer(
                 isFullscreen = true,
                 onPlay = { playerState.play() },
                 onFullscreenClick = { isFullscreen = false },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }
@@ -127,7 +131,7 @@ private fun VideoPlayerBox(
     isFullscreen: Boolean,
     onPlay: () -> Unit,
     onFullscreenClick: () -> Unit,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     val hoverInteraction = remember { MutableInteractionSource() }
     val isHovered by hoverInteraction.collectIsHoveredAsState()
@@ -142,33 +146,41 @@ private fun VideoPlayerBox(
         }
     }
 
-    val sizeModifier = if (isFullscreen) Modifier
-    else Modifier.aspectRatio(aspectRatio, matchHeightConstraintsFirst = false)
+    val sizeModifier =
+        if (isFullscreen) {
+            Modifier
+        } else {
+            Modifier.aspectRatio(aspectRatio, matchHeightConstraintsFirst = false)
+        }
 
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .then(sizeModifier)
             .clip(RoundedCornerShape(8.dp))
             .background(Color.Black)
             .hoverable(hoverInteraction)
             .clickable {
-                if (!hasStarted) onPlay()
-                else if (playerState.isPlaying) playerState.pause()
-                else playerState.play()
-            }
-            .pointerHoverIcon(PointerIcon.Hand)
+                if (!hasStarted) {
+                    onPlay()
+                } else if (playerState.isPlaying) {
+                    playerState.pause()
+                } else {
+                    playerState.play()
+                }
+            }.pointerHoverIcon(PointerIcon.Hand),
     ) {
         if (hasStarted) {
             VideoPlayerSurface(
                 playerState = playerState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             )
         } else if (thumbnail != null) {
             Image(
                 bitmap = thumbnail,
                 contentDescription = "Video preview",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             )
         }
 
@@ -176,20 +188,21 @@ private fun VideoPlayerBox(
             visible = !playerState.isPlaying || !hasStarted,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.Center)
+            modifier = Modifier.align(Alignment.Center),
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(56.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.6f)),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = "Play",
                     tint = Color.White,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(36.dp),
                 )
             }
         }
@@ -199,12 +212,12 @@ private fun VideoPlayerBox(
                 visible = showControls && playerState.hasMedia,
                 enter = fadeIn(),
                 exit = fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter)
+                modifier = Modifier.align(Alignment.BottomCenter),
             ) {
                 VideoControls(
                     playerState = playerState,
                     isFullscreen = isFullscreen,
-                    onFullscreenClick = onFullscreenClick
+                    onFullscreenClick = onFullscreenClick,
                 )
             }
         }
@@ -215,7 +228,7 @@ private fun VideoPlayerBox(
 private fun VideoControls(
     playerState: VideoPlayerState,
     isFullscreen: Boolean,
-    onFullscreenClick: () -> Unit
+    onFullscreenClick: () -> Unit,
 ) {
     var isMuted by remember { mutableStateOf(false) }
     var localSlider by remember { mutableStateOf(0f) }
@@ -224,19 +237,20 @@ private fun VideoControls(
     val displayPos = if (isDragging) localSlider else playerState.sliderPos
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
+                    colors =
+                    listOf(
                         Color.Transparent,
                         Color.Black.copy(alpha = 0.4f),
-                        Color.Black.copy(alpha = 0.7f)
-                    )
-                )
-            )
-            .padding(horizontal = 8.dp)
-            .padding(top = 16.dp, bottom = 4.dp)
+                        Color.Black.copy(alpha = 0.7f),
+                    ),
+                ),
+            ).padding(horizontal = 8.dp)
+            .padding(top = 16.dp, bottom = 4.dp),
     ) {
         Slider(
             value = displayPos,
@@ -252,45 +266,55 @@ private fun VideoControls(
                 isDragging = false
             },
             valueRange = 0f..SLIDER_MAX,
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .align(Alignment.TopCenter)
                 .height(20.dp),
-            colors = SliderDefaults.colors(
+            colors =
+            SliderDefaults.colors(
                 thumbColor = Color.White,
                 activeTrackColor = Color.White,
-                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-            )
+                inactiveTrackColor = Color.White.copy(alpha = 0.3f),
+            ),
         )
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .padding(top = 20.dp)
+                .padding(top = 20.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ControlButton(
                     icon = if (playerState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = if (playerState.isPlaying) "Pause" else "Play",
                     onClick = {
-                        if (playerState.isPlaying) playerState.pause()
-                        else playerState.play()
-                    }
+                        if (playerState.isPlaying) {
+                            playerState.pause()
+                        } else {
+                            playerState.play()
+                        }
+                    },
                 )
 
                 Spacer(Modifier.width(4.dp))
 
                 ControlButton(
-                    icon = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff
-                           else Icons.AutoMirrored.Filled.VolumeUp,
+                    icon =
+                    if (isMuted) {
+                        Icons.AutoMirrored.Filled.VolumeOff
+                    } else {
+                        Icons.AutoMirrored.Filled.VolumeUp
+                    },
                     contentDescription = if (isMuted) "Unmute" else "Mute",
                     onClick = {
                         isMuted = !isMuted
                         playerState.volume = if (isMuted) 0f else 1f
-                    }
+                    },
                 )
 
                 Spacer(Modifier.width(8.dp))
@@ -298,14 +322,14 @@ private fun VideoControls(
                 Text(
                     text = "${playerState.positionText} / ${playerState.durationText}",
                     color = Color.White,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
                 )
             }
 
             ControlButton(
                 icon = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
                 contentDescription = if (isFullscreen) "Exit fullscreen" else "Fullscreen",
-                onClick = onFullscreenClick
+                onClick = onFullscreenClick,
             )
         }
     }
@@ -315,21 +339,22 @@ private fun VideoControls(
 private fun ControlButton(
     icon: ImageVector,
     contentDescription: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(28.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = Color.White,
-            modifier = Modifier.size(18.dp)
+            modifier = Modifier.size(18.dp),
         )
     }
 }

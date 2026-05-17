@@ -21,18 +21,21 @@ import kotlinx.coroutines.launch
 class RelayEventPipeline(
     val relayUrl: String,
     scope: CoroutineScope,
-    processMessage: (String) -> Unit
+    processMessage: (String) -> Unit,
 ) {
-    private val channel = Channel<String>(
-        capacity = 2000,
-        onBufferOverflow = BufferOverflow.DROP_LATEST
-    )
+    private val channel =
+        Channel<String>(
+            capacity = 2000,
+            onBufferOverflow = BufferOverflow.DROP_LATEST,
+        )
 
     init {
         scope.launch {
             for (msg in channel) {
-                try { processMessage(msg) }
-                catch (_: Exception) {}
+                try {
+                    processMessage(msg)
+                } catch (_: Exception) {
+                }
             }
         }
     }

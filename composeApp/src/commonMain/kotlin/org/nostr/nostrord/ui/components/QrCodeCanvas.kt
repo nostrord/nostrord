@@ -22,14 +22,15 @@ fun QrCode(
     lightColor: Color = Color.White,
 ) {
     Box(
-        modifier = modifier
+        modifier =
+        modifier
             .background(lightColor, RoundedCornerShape(8.dp))
-            .padding(quietZone)
+            .padding(quietZone),
     ) {
         Image(
             painter = rememberQrCodePainter(data),
             contentDescription = "QR Code",
-            modifier = Modifier.size(size)
+            modifier = Modifier.size(size),
         )
     }
 }

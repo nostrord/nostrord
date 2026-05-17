@@ -9,7 +9,7 @@ private val mathLowSurrogateToAscii: Map<Char, Char> by lazy {
     val ranges = arrayOf(
         intArrayOf(0x000, 0x019, 'A'.code), intArrayOf(0x01A, 0x033, 'a'.code), // Bold
         intArrayOf(0x034, 0x04D, 'A'.code), intArrayOf(0x04E, 0x054, 'a'.code), // Italic
-        intArrayOf(0x056, 0x067, 'i'.code),                                       // Italic small i-z (h gap)
+        intArrayOf(0x056, 0x067, 'i'.code), // Italic small i-z (h gap)
         intArrayOf(0x068, 0x081, 'A'.code), intArrayOf(0x082, 0x09B, 'a'.code), // Bold Italic
         intArrayOf(0x09C, 0x09C, 'A'.code), intArrayOf(0x09E, 0x09F, 'C'.code), // Script Capital
         intArrayOf(0x0A2, 0x0A2, 'G'.code), intArrayOf(0x0A5, 0x0A6, 'J'.code),
@@ -19,11 +19,11 @@ private val mathLowSurrogateToAscii: Map<Char, Char> by lazy {
         intArrayOf(0x0D0, 0x0E9, 'A'.code), intArrayOf(0x0EA, 0x103, 'a'.code), // Bold Script
         intArrayOf(0x104, 0x105, 'A'.code), intArrayOf(0x107, 0x10A, 'D'.code), // Fraktur Capital
         intArrayOf(0x10D, 0x114, 'J'.code), intArrayOf(0x116, 0x11C, 'S'.code),
-        intArrayOf(0x11E, 0x137, 'a'.code),                                       // Fraktur Small
+        intArrayOf(0x11E, 0x137, 'a'.code), // Fraktur Small
         intArrayOf(0x138, 0x139, 'A'.code), intArrayOf(0x13B, 0x13E, 'D'.code), // Double-Struck Capital
         intArrayOf(0x140, 0x144, 'I'.code), intArrayOf(0x146, 0x146, 'O'.code),
         intArrayOf(0x14A, 0x150, 'S'.code),
-        intArrayOf(0x152, 0x16B, 'a'.code),                                       // Double-Struck Small
+        intArrayOf(0x152, 0x16B, 'a'.code), // Double-Struck Small
         intArrayOf(0x16C, 0x185, 'A'.code), intArrayOf(0x186, 0x19F, 'a'.code), // Bold Fraktur
         intArrayOf(0x1A0, 0x1B9, 'A'.code), intArrayOf(0x1BA, 0x1D3, 'a'.code), // Sans-Serif
         intArrayOf(0x1D4, 0x1ED, 'A'.code), intArrayOf(0x1EE, 0x207, 'a'.code), // Sans-Serif Bold
@@ -63,12 +63,26 @@ fun String.normalizeForSearch(): String {
             c == '\uD835' && i + 1 < length -> {
                 val low = this[i + 1]
                 val ascii = mathLowSurrogateToAscii[low]
-                if (ascii != null) sb.append(ascii) else { sb.append(c); sb.append(low) }
+                if (ascii != null) {
+                    sb.append(ascii)
+                } else {
+                    sb.append(c)
+                    sb.append(low)
+                }
                 i += 2
             }
-            c.code in 0xFF21..0xFF3A -> { sb.append(('A'.code + c.code - 0xFF21).toChar()); i++ }
-            c.code in 0xFF41..0xFF5A -> { sb.append(('a'.code + c.code - 0xFF41).toChar()); i++ }
-            else -> { sb.append(smallCapsToAscii[c] ?: c); i++ }
+            c.code in 0xFF21..0xFF3A -> {
+                sb.append(('A'.code + c.code - 0xFF21).toChar())
+                i++
+            }
+            c.code in 0xFF41..0xFF5A -> {
+                sb.append(('a'.code + c.code - 0xFF41).toChar())
+                i++
+            }
+            else -> {
+                sb.append(smallCapsToAscii[c] ?: c)
+                i++
+            }
         }
     }
     return sb.toString().lowercase()

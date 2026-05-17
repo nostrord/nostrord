@@ -15,21 +15,21 @@ import org.nostr.nostrord.ui.theme.NostrordColors
  * Divider shown in chat to indicate where new (unread) messages begin.
  */
 @Composable
-fun NewMessagesDivider(
-    modifier: Modifier = Modifier
-) {
+fun NewMessagesDivider(modifier: Modifier = Modifier) {
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Left line
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .weight(1f)
                 .height(1.dp)
-                .background(NostrordColors.Error)
+                .background(NostrordColors.Error),
         )
 
         // Label
@@ -38,15 +38,16 @@ fun NewMessagesDivider(
             color = NostrordColors.Error,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 12.dp)
+            modifier = Modifier.padding(horizontal = 12.dp),
         )
 
         // Right line
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .weight(1f)
                 .height(1.dp)
-                .background(NostrordColors.Error)
+                .background(NostrordColors.Error),
         )
     }
 }

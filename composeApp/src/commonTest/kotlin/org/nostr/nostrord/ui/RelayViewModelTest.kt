@@ -15,7 +15,6 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RelayViewModelTest {
-
     private val testDispatcher = StandardTestDispatcher()
 
     @BeforeTest

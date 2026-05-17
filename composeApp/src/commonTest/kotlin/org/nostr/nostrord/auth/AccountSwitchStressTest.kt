@@ -4,13 +4,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.yield
 import org.nostr.nostrord.nostr.Event
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -30,7 +26,6 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AccountSwitchStressTest {
-
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
@@ -47,10 +42,16 @@ class AccountSwitchStressTest {
         )
     }
 
-    private val fakeEvent = Event(
-        id = null, pubkey = "a".repeat(64), createdAt = 0L,
-        kind = 1, tags = emptyList(), content = "", sig = null,
-    )
+    private val fakeEvent =
+        Event(
+            id = null,
+            pubkey = "a".repeat(64),
+            createdAt = 0L,
+            kind = 1,
+            tags = emptyList(),
+            content = "",
+            sig = null,
+        )
 
     // -------------------------------------------------------------------------
     // Rapid sequential switch — 100 accounts
@@ -160,9 +161,12 @@ class AccountSwitchStressTest {
             // Simulate a concurrent sign attempt from a coroutine that was
             // launched before the switch. Since TrackingSigner returns success
             // unless disposed, we check that no unexpected exception propagates.
-            val signResult = runCatching {
-                ActiveAccountManager.session.value?.signer?.signEvent(fakeEvent)
-            }
+            val signResult =
+                runCatching {
+                    ActiveAccountManager.session.value
+                        ?.signer
+                        ?.signEvent(fakeEvent)
+                }
             // Either succeeded (signer still alive) or was disposed (switch beat us).
             // In both cases the caller should handle it gracefully, not crash.
             assertTrue(signResult.isSuccess || signResult.exceptionOrNull() is NostrSigner.SigningException)
@@ -174,7 +178,9 @@ class AccountSwitchStressTest {
 // Test doubles
 // -------------------------------------------------------------------------
 
-private class TrackingSigner(override val pubkey: String) : NostrSigner {
+private class TrackingSigner(
+    override val pubkey: String,
+) : NostrSigner {
     var disposed = false
     var signCount = 0
 
@@ -184,5 +190,7 @@ private class TrackingSigner(override val pubkey: String) : NostrSigner {
         return event
     }
 
-    override fun dispose() { disposed = true }
+    override fun dispose() {
+        disposed = true
+    }
 }

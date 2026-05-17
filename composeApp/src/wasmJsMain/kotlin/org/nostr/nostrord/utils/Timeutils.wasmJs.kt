@@ -23,19 +23,17 @@ private external fun jsGetMinutes(millis: Double): Int
 @JsFun("(millis) => new Date(millis).getSeconds()")
 private external fun jsGetSeconds(millis: Double): Int
 
-actual fun epochMillis(): Long {
-    return jsDateNow().toLong()
-}
+actual fun epochMillis(): Long = jsDateNow().toLong()
 
 actual fun timestampToDateTime(epochSeconds: Long): SimpleDateTime {
     val millis = (epochSeconds * 1000).toDouble()
-    
+
     return SimpleDateTime(
         year = jsGetFullYear(millis),
         month = jsGetMonth(millis) + 1,
         day = jsGetDate(millis),
         hour = jsGetHours(millis),
         minute = jsGetMinutes(millis),
-        second = jsGetSeconds(millis)
+        second = jsGetSeconds(millis),
     )
 }

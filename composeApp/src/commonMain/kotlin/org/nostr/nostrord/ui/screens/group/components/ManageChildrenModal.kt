@@ -44,7 +44,7 @@ fun ManageChildrenModal(
     groupId: String,
     currentMetadata: GroupMetadata?,
     onDismiss: () -> Unit,
-    onSaved: () -> Unit
+    onSaved: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
 
@@ -83,8 +83,8 @@ fun ManageChildrenModal(
         properties = DialogProperties(
             dismissOnBackPress = !isSaving,
             dismissOnClickOutside = !isSaving,
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         Box(
             modifier = Modifier
@@ -92,10 +92,10 @@ fun ManageChildrenModal(
                 .background(Color.Black.copy(alpha = 0.7f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null
+                    indication = null,
                 ) { if (!isSaving) onDismiss() }
                 .safeDrawingPadding(),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Card(
                 modifier = Modifier
@@ -103,34 +103,34 @@ fun ManageChildrenModal(
                     .fillMaxWidth(0.9f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
-                        indication = null
+                        indication = null,
                     ) { /* consume click */ },
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface)
+                colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
             ) {
                 Column(
                     modifier = Modifier
                         .verticalScroll(rememberScrollState())
-                        .padding(Spacing.xxl)
+                        .padding(Spacing.xxl),
                 ) {
                     // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
+                        verticalAlignment = Alignment.Top,
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Manage Children",
                                 style = NostrordTypography.ServerHeader,
                                 color = NostrordColors.TextPrimary,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
                             )
                             Spacer(modifier = Modifier.height(Spacing.xs))
                             Text(
                                 text = "Children fall into three groups: bilaterally approved, confirmed by admin attestation, and pending claims. Only bilateral approval removes the ⚠ warning for other clients.",
                                 style = NostrordTypography.Caption,
-                                color = NostrordColors.TextSecondary
+                                color = NostrordColors.TextSecondary,
                             )
                         }
                         Spacer(modifier = Modifier.width(Spacing.sm))
@@ -139,13 +139,13 @@ fun ManageChildrenModal(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(CircleShape)
-                                .pointerHoverIcon(PointerIcon.Hand)
+                                .pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = "Close",
                                 tint = NostrordColors.TextSecondary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
@@ -157,13 +157,16 @@ fun ManageChildrenModal(
                         label = "Closed children",
                         description = "Only children listed below are accepted; all other parent claims are rejected.",
                         checked = closedChildren,
-                        onCheckedChange = { closedChildren = it }
+                        onCheckedChange = { closedChildren = it },
                     )
 
                     Spacer(modifier = Modifier.height(Spacing.md))
                     EditFieldLabel(
-                        if (acceptedChildren.isEmpty()) "Approved children — bilateral (none)"
-                        else "Approved children — bilateral (${acceptedChildren.size})"
+                        if (acceptedChildren.isEmpty()) {
+                            "Approved children — bilateral (none)"
+                        } else {
+                            "Approved children — bilateral (${acceptedChildren.size})"
+                        },
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
                     acceptedChildren.forEach { child ->
@@ -174,7 +177,7 @@ fun ManageChildrenModal(
                             isApproved = true,
                             onActionClick = {
                                 acceptedChildren = acceptedChildren.filterNot { it.id == child.id }
-                            }
+                            },
                         )
                         Spacer(modifier = Modifier.height(Spacing.xs))
                     }
@@ -186,7 +189,7 @@ fun ManageChildrenModal(
                         Text(
                             text = "Signed by an admin of this group — already valid. Pin to the bilateral list to make the relationship explicit.",
                             style = NostrordTypography.Caption,
-                            color = NostrordColors.TextMuted
+                            color = NostrordColors.TextMuted,
                         )
                         Spacer(modifier = Modifier.height(Spacing.xs))
                         attestedClaims.forEach { claim ->
@@ -197,7 +200,7 @@ fun ManageChildrenModal(
                                 actionLabel = "Pin",
                                 onActionClick = {
                                     acceptedChildren = acceptedChildren + DeclaredChild(id = claim.id)
-                                }
+                                },
                             )
                             Spacer(modifier = Modifier.height(Spacing.xs))
                         }
@@ -210,7 +213,7 @@ fun ManageChildrenModal(
                         Text(
                             text = "Unilateral claims — not signed by any current admin. Approve to list bilaterally.",
                             style = NostrordTypography.Caption,
-                            color = NostrordColors.TextMuted
+                            color = NostrordColors.TextMuted,
                         )
                         Spacer(modifier = Modifier.height(Spacing.xs))
                         pendingClaims.forEach { claim ->
@@ -220,7 +223,7 @@ fun ManageChildrenModal(
                                 isApproved = false,
                                 onActionClick = {
                                     acceptedChildren = acceptedChildren + DeclaredChild(id = claim.id)
-                                }
+                                },
                             )
                             Spacer(modifier = Modifier.height(Spacing.xs))
                         }
@@ -237,13 +240,13 @@ fun ManageChildrenModal(
                                 Text(
                                     "child-group-id",
                                     color = NostrordColors.TextMuted,
-                                    style = NostrordTypography.MessageBody
+                                    style = NostrordTypography.MessageBody,
                                 )
                             },
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             colors = editFieldColors(),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(8.dp),
                         )
                         Spacer(modifier = Modifier.width(Spacing.sm))
                         TextButton(
@@ -256,13 +259,13 @@ fun ManageChildrenModal(
                             },
                             enabled = newChildInput.isNotBlank() &&
                                 acceptedChildren.none { it.id == newChildInput } &&
-                                newChildInput != groupId
+                                newChildInput != groupId,
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Add,
                                 contentDescription = null,
                                 tint = NostrordColors.Primary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(16.dp),
                             )
                             Spacer(modifier = Modifier.width(Spacing.xs))
                             Text("Add", color = NostrordColors.Primary)
@@ -274,7 +277,7 @@ fun ManageChildrenModal(
                         Text(
                             text = errorMessage!!,
                             style = NostrordTypography.Caption,
-                            color = NostrordColors.Error
+                            color = NostrordColors.Error,
                         )
                     }
 
@@ -284,11 +287,11 @@ fun ManageChildrenModal(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.End),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         TextButton(
                             onClick = onDismiss,
-                            enabled = !isSaving
+                            enabled = !isSaving,
                         ) {
                             Text("Cancel", color = NostrordColors.TextSecondary)
                         }
@@ -301,14 +304,15 @@ fun ManageChildrenModal(
                                     val result = AppModule.nostrRepository.updateChildren(
                                         groupId = groupId,
                                         children = acceptedChildren,
-                                        closedChildren = closedChildren
+                                        closedChildren = closedChildren,
                                     )
                                     isSaving = false
                                     when (result) {
                                         is Result.Success -> onSaved()
-                                        is Result.Error -> errorMessage = result.error.cause?.message
-                                            ?: result.error.message
-                                            ?: "Failed to update children."
+                                        is Result.Error ->
+                                            errorMessage = result.error.cause?.message
+                                                ?: result.error.message
+                                                ?: "Failed to update children."
                                     }
                                 }
                             },
@@ -317,16 +321,16 @@ fun ManageChildrenModal(
                                 containerColor = NostrordColors.Primary,
                                 contentColor = Color.White,
                                 disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
-                                disabledContentColor = Color.White.copy(alpha = 0.5f)
+                                disabledContentColor = Color.White.copy(alpha = 0.5f),
                             ),
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             if (isSaving) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(16.dp),
                                     color = Color.White,
-                                    strokeWidth = 2.dp
+                                    strokeWidth = 2.dp,
                                 )
                                 Spacer(modifier = Modifier.width(Spacing.sm))
                             }

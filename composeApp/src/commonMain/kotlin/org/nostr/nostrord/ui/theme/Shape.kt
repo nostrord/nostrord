@@ -17,7 +17,6 @@ import androidx.compose.ui.unit.dp
  * Only large containers use 8dp or more.
  */
 object NostrordShapes {
-
     // ============================================
     // CORNER RADIUS VALUES
     // ============================================
@@ -113,12 +112,13 @@ object NostrordShapes {
     val messageActionsShape: Shape = RoundedCornerShape(radiusSmall)
 
     /** Bottom sheet shape (top corners only) */
-    val bottomSheetShape: Shape = RoundedCornerShape(
-        topStart = radiusLarge,
-        topEnd = radiusLarge,
-        bottomStart = radiusNone,
-        bottomEnd = radiusNone
-    )
+    val bottomSheetShape: Shape =
+        RoundedCornerShape(
+            topStart = radiusLarge,
+            topEnd = radiusLarge,
+            bottomStart = radiusNone,
+            bottomEnd = radiusNone,
+        )
 
     /** Image shape in messages */
     val imageShape: Shape = RoundedCornerShape(radiusMedium)
@@ -157,7 +157,7 @@ object NostrordShapes {
         topStart = radius,
         topEnd = radius,
         bottomStart = radiusNone,
-        bottomEnd = radiusNone
+        bottomEnd = radiusNone,
     )
 
     /**
@@ -167,7 +167,7 @@ object NostrordShapes {
         topStart = radiusNone,
         topEnd = radiusNone,
         bottomStart = radius,
-        bottomEnd = radius
+        bottomEnd = radius,
     )
 
     /**
@@ -177,7 +177,7 @@ object NostrordShapes {
         topStart = radius,
         topEnd = radiusNone,
         bottomStart = radius,
-        bottomEnd = radiusNone
+        bottomEnd = radiusNone,
     )
 
     /**
@@ -187,6 +187,6 @@ object NostrordShapes {
         topStart = radiusNone,
         topEnd = radius,
         bottomStart = radiusNone,
-        bottomEnd = radius
+        bottomEnd = radius,
     )
 }

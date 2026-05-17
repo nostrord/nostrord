@@ -12,13 +12,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.random.Random
 import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.getCurrentRelayUrlFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import kotlin.random.Random
 
 /**
  * Manages relay connections and connection pooling.
@@ -28,7 +28,7 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 class ConnectionManager(
     private val scope: CoroutineScope,
     private val connStats: ConnectionStats? = null,
-    private val adaptiveConfig: AdaptiveConfig? = null
+    private val adaptiveConfig: AdaptiveConfig? = null,
 ) {
     private var primaryClient: NostrGroupClient? = null
     private var reconnectJob: Job? = null
@@ -78,10 +78,19 @@ class ConnectionManager(
 
     sealed class ConnectionState {
         data object Disconnected : ConnectionState()
+
         data object Connecting : ConnectionState()
+
         data object Connected : ConnectionState()
-        data class Error(val message: String) : ConnectionState()
-        data class Reconnecting(val attempt: Int, val maxAttempts: Int) : ConnectionState()
+
+        data class Error(
+            val message: String,
+        ) : ConnectionState()
+
+        data class Reconnecting(
+            val attempt: Int,
+            val maxAttempts: Int,
+        ) : ConnectionState()
     }
 
     private var networkMonitorJob: Job? = null
@@ -92,29 +101,30 @@ class ConnectionManager(
      */
     fun startNetworkMonitor() {
         networkMonitorJob?.cancel()
-        networkMonitorJob = scope.launch {
-            createNetworkMonitorFlow().collect { event ->
-                when (event) {
-                    NetworkEvent.CHANGED -> {
-                        // IP changed — kill stale socket and reconnect immediately.
-                        if (primaryClient != null) {
-                            reconnectImmediate()
+        networkMonitorJob =
+            scope.launch {
+                createNetworkMonitorFlow().collect { event ->
+                    when (event) {
+                        NetworkEvent.CHANGED -> {
+                            // IP changed — kill stale socket and reconnect immediately.
+                            if (primaryClient != null) {
+                                reconnectImmediate()
+                            }
                         }
-                    }
-                    NetworkEvent.DISCONNECTED -> {
-                        // No point retrying while offline — save battery.
-                        autoReconnectEnabled = false
-                        reconnectJob?.cancel()
-                    }
-                    NetworkEvent.CONNECTED -> {
-                        autoReconnectEnabled = true
-                        if (primaryClient == null && _currentRelayUrl.value.isNotBlank()) {
-                            reconnectImmediate()
+                        NetworkEvent.DISCONNECTED -> {
+                            // No point retrying while offline — save battery.
+                            autoReconnectEnabled = false
+                            reconnectJob?.cancel()
+                        }
+                        NetworkEvent.CONNECTED -> {
+                            autoReconnectEnabled = true
+                            if (primaryClient == null && _currentRelayUrl.value.isNotBlank()) {
+                                reconnectImmediate()
+                            }
                         }
                     }
                 }
             }
-        }
     }
 
     /**
@@ -151,8 +161,12 @@ class ConnectionManager(
      */
     suspend fun loadSavedRelay() {
         val pubkey = ActiveAccountManager.currentPubkey
-        val savedRelayUrl = if (pubkey.isNullOrBlank()) null
-        else SecureStorage.getCurrentRelayUrlFor(pubkey)
+        val savedRelayUrl =
+            if (pubkey.isNullOrBlank()) {
+                null
+            } else {
+                SecureStorage.getCurrentRelayUrlFor(pubkey)
+            }
         _currentRelayUrl.value = savedRelayUrl?.normalizeRelayUrl().orEmpty()
     }
 
@@ -183,7 +197,7 @@ class ConnectionManager(
      */
     suspend fun connectPrimary(
         relayUrl: String = _currentRelayUrl.value,
-        onMessage: (String, NostrGroupClient) -> Unit
+        onMessage: (String, NostrGroupClient) -> Unit,
     ): Boolean = connectMutex.withLock {
         if (relayUrl.isBlank()) return@withLock false
         if (primaryClient != null) return@withLock false
@@ -228,7 +242,10 @@ class ConnectionManager(
             if (_currentRelayUrl.value == relayUrl.normalizeRelayUrl()) {
                 _connectionState.value = ConnectionState.Error(e.message ?: "Unknown error")
             }
-            primaryClient?.let { it.onConnectionLost = null; it.cancelAndClose() }
+            primaryClient?.let {
+                it.onConnectionLost = null
+                it.cancelAndClose()
+            }
             primaryClient = null
             connStats?.onConnectFailed(relayUrl)
             false
@@ -255,7 +272,7 @@ class ConnectionManager(
         }
 
         primaryClient = null
-        dead?.cancelAndClose()  // release HttpClient threads/pool, cancel lingering coroutines
+        dead?.cancelAndClose() // release HttpClient threads/pool, cancel lingering coroutines
         startReconnection()
     }
 
@@ -271,50 +288,52 @@ class ConnectionManager(
      */
     private fun startReconnection() {
         reconnectJob?.cancel()
-        reconnectJob = scope.launch {
-            // Phase 1: fast retries with exponential back-off
-            while (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && autoReconnectEnabled) {
-                reconnectAttempts++
-                _connectionState.value = ConnectionState.Reconnecting(reconnectAttempts, MAX_RECONNECT_ATTEMPTS)
+        reconnectJob =
+            scope.launch {
+                // Phase 1: fast retries with exponential back-off
+                while (reconnectAttempts < MAX_RECONNECT_ATTEMPTS && autoReconnectEnabled) {
+                    reconnectAttempts++
+                    _connectionState.value = ConnectionState.Reconnecting(reconnectAttempts, MAX_RECONNECT_ATTEMPTS)
 
-                val baseMs = minOf(
-                    INITIAL_RECONNECT_DELAY_MS * (1L shl (reconnectAttempts - 1)),
-                    MAX_RECONNECT_DELAY_MS
-                )
-                val jitter = (baseMs * Random.nextDouble(0.0, 0.25)).toLong()
-                delay(baseMs + jitter)
+                    val baseMs =
+                        minOf(
+                            INITIAL_RECONNECT_DELAY_MS * (1L shl (reconnectAttempts - 1)),
+                            MAX_RECONNECT_DELAY_MS,
+                        )
+                    val jitter = (baseMs * Random.nextDouble(0.0, 0.25)).toLong()
+                    delay(baseMs + jitter)
 
-                val handler = currentMessageHandler ?: break
-                val success = connectPrimary(_currentRelayUrl.value, handler)
+                    val handler = currentMessageHandler ?: break
+                    val success = connectPrimary(_currentRelayUrl.value, handler)
 
-                if (success) {
-                    reconnectAttempts = 0
-                    adaptiveConfig?.recordReconnect()
-                    primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
-                    return@launch
+                    if (success) {
+                        reconnectAttempts = 0
+                        adaptiveConfig?.recordReconnect()
+                        primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
+                        return@launch
+                    }
+                }
+
+                // Phase 2: persistent slow retry every 30 s — never give up.
+                // The UI already shows "Tap to retry" so the user can force an immediate attempt,
+                // but the background loop ensures automatic recovery without any user action.
+                _connectionState.value = ConnectionState.Error("Connection lost. Tap to retry.")
+
+                while (autoReconnectEnabled) {
+                    delay(MAX_RECONNECT_DELAY_MS)
+                    if (!autoReconnectEnabled) break
+
+                    val handler = currentMessageHandler ?: break
+                    val success = connectPrimary(_currentRelayUrl.value, handler)
+
+                    if (success) {
+                        reconnectAttempts = 0
+                        adaptiveConfig?.recordReconnect()
+                        primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
+                        return@launch
+                    }
                 }
             }
-
-            // Phase 2: persistent slow retry every 30 s — never give up.
-            // The UI already shows "Tap to retry" so the user can force an immediate attempt,
-            // but the background loop ensures automatic recovery without any user action.
-            _connectionState.value = ConnectionState.Error("Connection lost. Tap to retry.")
-
-            while (autoReconnectEnabled) {
-                delay(MAX_RECONNECT_DELAY_MS)
-                if (!autoReconnectEnabled) break
-
-                val handler = currentMessageHandler ?: break
-                val success = connectPrimary(_currentRelayUrl.value, handler)
-
-                if (success) {
-                    reconnectAttempts = 0
-                    adaptiveConfig?.recordReconnect()
-                    primaryClient?.let { client -> scope.launch { onReconnected?.invoke(client) } }
-                    return@launch
-                }
-            }
-        }
     }
 
     /**
@@ -364,7 +383,10 @@ class ConnectionManager(
      * state.  The new relay is then connected as the primary.  If the new relay
      * URL is already in the pool, that existing connection is promoted to primary.
      */
-    suspend fun switchRelay(newRelayUrl: String, onMessage: (String, NostrGroupClient) -> Unit): Boolean {
+    suspend fun switchRelay(
+        newRelayUrl: String,
+        onMessage: (String, NostrGroupClient) -> Unit,
+    ): Boolean {
         val normalizedNewUrl = newRelayUrl.normalizeRelayUrl()
         // Move the current primary into the pool instead of disconnecting it.
         val oldPrimary = primaryClient
@@ -433,7 +455,7 @@ class ConnectionManager(
      */
     suspend fun getOrConnectRelay(
         relayUrl: String,
-        onMessage: (String, NostrGroupClient) -> Unit
+        onMessage: (String, NostrGroupClient) -> Unit,
     ): NostrGroupClient? {
         val normalized = relayUrl.normalizeRelayUrl()
         // Check if we already have a connection
@@ -486,13 +508,18 @@ class ConnectionManager(
     /**
      * Send a message to multiple relays in the pool
      */
-    fun sendToRelays(relayUrls: List<String>, message: String, onMessage: (String, NostrGroupClient) -> Unit) {
+    fun sendToRelays(
+        relayUrls: List<String>,
+        message: String,
+        onMessage: (String, NostrGroupClient) -> Unit,
+    ) {
         relayUrls.forEach { relayUrl ->
             scope.launch {
                 try {
                     val client = getOrConnectRelay(relayUrl, onMessage)
                     client?.send(message)
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                }
             }
         }
     }
@@ -503,13 +530,14 @@ class ConnectionManager(
     suspend fun connectToRelaysParallel(
         relayUrls: List<String>,
         onMessage: (String, NostrGroupClient) -> Unit,
-        timeoutMs: Long = 2000
+        timeoutMs: Long = 2000,
     ) {
         relayUrls.map { relayUrl ->
             scope.launch {
                 try {
                     getOrConnectRelay(relayUrl, onMessage)
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                }
             }
         }
 
@@ -535,11 +563,15 @@ class ConnectionManager(
      * bookkeeping after the sub ID is reused.
      */
     suspend fun closeGroupListSubscriptionsOnAllClients() {
-        val clients = poolMutex.withLock { relayPool.values.toList() } +
-            listOfNotNull(primaryClient)
+        val clients =
+            poolMutex.withLock { relayPool.values.toList() } +
+                listOfNotNull(primaryClient)
         for (client in clients) {
             val subId = client.groupListSubscriptionId()
-            try { client.send("""["CLOSE","$subId"]""") } catch (_: Exception) {}
+            try {
+                client.send("""["CLOSE","$subId"]""")
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -551,15 +583,22 @@ class ConnectionManager(
         disconnectPrimary()
 
         // Get clients to disconnect while holding lock, then disconnect outside lock
-        val clientsToDisconnect = poolMutex.withLock {
-            val clients = relayPool.values.toList()
-            relayPool.clear()
-            clients
-        }
+        val clientsToDisconnect =
+            poolMutex.withLock {
+                val clients = relayPool.values.toList()
+                relayPool.clear()
+                clients
+            }
         // Parallel disconnect — avoids multiplying per-relay close latency
-        clientsToDisconnect.map { client ->
-            scope.launch { try { client.disconnect() } catch (_: Exception) {} }
-        }.forEach { it.join() }
+        clientsToDisconnect
+            .map { client ->
+                scope.launch {
+                    try {
+                        client.disconnect()
+                    } catch (_: Exception) {
+                    }
+                }
+            }.forEach { it.join() }
     }
 
     /**

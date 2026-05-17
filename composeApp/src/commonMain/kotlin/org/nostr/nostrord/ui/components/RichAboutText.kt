@@ -35,134 +35,138 @@ fun RichAboutText(
     modifier: Modifier = Modifier,
     style: TextStyle = TextStyle.Default,
     color: Color = NostrordColors.TextContent,
-    onMentionClick: ((String) -> Unit)? = null
+    onMentionClick: ((String) -> Unit)? = null,
 ) {
     val parts = remember(text) { MessageContentParser.parse(text) }
 
     // Fetch metadata for mentioned pubkeys not yet in the map
     LaunchedEffect(parts) {
-        val pubkeysToFetch = parts.filterIsInstance<MessageContentParser.ParsedPart.Mention>()
-            .mapNotNull { mention ->
-                when (val entity = mention.reference.entity) {
-                    is Nip19.Entity.Npub -> entity.pubkey
-                    is Nip19.Entity.Nprofile -> entity.pubkey
-                    else -> null
-                }
-            }
-            .filter { !userMetadata.containsKey(it) }
-            .toSet()
+        val pubkeysToFetch =
+            parts
+                .filterIsInstance<MessageContentParser.ParsedPart.Mention>()
+                .mapNotNull { mention ->
+                    when (val entity = mention.reference.entity) {
+                        is Nip19.Entity.Npub -> entity.pubkey
+                        is Nip19.Entity.Nprofile -> entity.pubkey
+                        else -> null
+                    }
+                }.filter { !userMetadata.containsKey(it) }
+                .toSet()
 
         if (pubkeysToFetch.isNotEmpty()) {
             AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
         }
     }
 
-    val annotatedString = remember(parts, userMetadata) {
-        buildAnnotatedString {
-            parts.forEach { part ->
-                when (part) {
-                    is MessageContentParser.ParsedPart.Link -> {
-                        withLink(
-                            LinkAnnotation.Url(
-                                url = part.url,
-                                styles = TextLinkStyles(
-                                    style = SpanStyle(color = NostrordColors.TextLink)
-                                )
-                            )
-                        ) {
-                            append(part.url)
-                        }
-                    }
-                    is MessageContentParser.ParsedPart.Mention -> {
-                        val displayText = getMentionDisplayText(part, userMetadata)
-                        val entity = part.reference.entity
-                        val pubkey = when (entity) {
-                            is Nip19.Entity.Npub -> entity.pubkey
-                            is Nip19.Entity.Nprofile -> entity.pubkey
-                            else -> null
-                        }
-                        if (pubkey != null && onMentionClick != null) {
-                            withLink(
-                                LinkAnnotation.Clickable(
-                                    tag = "mention_$pubkey",
-                                    styles = TextLinkStyles(
-                                        style = SpanStyle(
-                                            color = NostrordColors.MentionText,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    ),
-                                    linkInteractionListener = { onMentionClick(pubkey) }
-                                )
-                            ) {
-                                append(displayText)
-                            }
-                        } else {
+    val annotatedString =
+        remember(parts, userMetadata) {
+            buildAnnotatedString {
+                parts.forEach { part ->
+                    when (part) {
+                        is MessageContentParser.ParsedPart.Link -> {
                             withLink(
                                 LinkAnnotation.Url(
-                                    url = part.reference.uri,
-                                    styles = TextLinkStyles(
-                                        style = SpanStyle(
-                                            color = NostrordColors.MentionText,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    )
-                                )
+                                    url = part.url,
+                                    styles =
+                                    TextLinkStyles(
+                                        style = SpanStyle(color = NostrordColors.TextLink),
+                                    ),
+                                ),
                             ) {
-                                append(displayText)
+                                append(part.url)
                             }
                         }
-                    }
-                    else -> {
-                        // All other types (text, image, video, etc.) render as plain text
-                        append(partToPlainText(part))
+                        is MessageContentParser.ParsedPart.Mention -> {
+                            val displayText = getMentionDisplayText(part, userMetadata)
+                            val entity = part.reference.entity
+                            val pubkey =
+                                when (entity) {
+                                    is Nip19.Entity.Npub -> entity.pubkey
+                                    is Nip19.Entity.Nprofile -> entity.pubkey
+                                    else -> null
+                                }
+                            if (pubkey != null && onMentionClick != null) {
+                                withLink(
+                                    LinkAnnotation.Clickable(
+                                        tag = "mention_$pubkey",
+                                        styles =
+                                        TextLinkStyles(
+                                            style =
+                                            SpanStyle(
+                                                color = NostrordColors.MentionText,
+                                                fontWeight = FontWeight.Medium,
+                                            ),
+                                        ),
+                                        linkInteractionListener = { onMentionClick(pubkey) },
+                                    ),
+                                ) {
+                                    append(displayText)
+                                }
+                            } else {
+                                withLink(
+                                    LinkAnnotation.Url(
+                                        url = part.reference.uri,
+                                        styles =
+                                        TextLinkStyles(
+                                            style =
+                                            SpanStyle(
+                                                color = NostrordColors.MentionText,
+                                                fontWeight = FontWeight.Medium,
+                                            ),
+                                        ),
+                                    ),
+                                ) {
+                                    append(displayText)
+                                }
+                            }
+                        }
+                        else -> {
+                            // All other types (text, image, video, etc.) render as plain text
+                            append(partToPlainText(part))
+                        }
                     }
                 }
             }
         }
-    }
 
     BasicText(
         text = annotatedString,
         modifier = modifier,
-        style = style.copy(color = color)
+        style = style.copy(color = color),
     )
 }
 
 private fun getMentionDisplayText(
     mention: MessageContentParser.ParsedPart.Mention,
-    userMetadata: Map<String, UserMetadata>
-): String {
-    return when (val entity = mention.reference.entity) {
-        is Nip19.Entity.Npub -> {
-            val metadata = userMetadata[entity.pubkey]
-            val name = metadata?.displayName ?: metadata?.name
-            if (name != null) "@$name" else Nip19.getDisplayName(entity)
-        }
-        is Nip19.Entity.Nprofile -> {
-            val metadata = userMetadata[entity.pubkey]
-            val name = metadata?.displayName ?: metadata?.name
-            if (name != null) "@$name" else Nip19.getDisplayName(entity)
-        }
-        else -> Nip19.getDisplayName(entity)
+    userMetadata: Map<String, UserMetadata>,
+): String = when (val entity = mention.reference.entity) {
+    is Nip19.Entity.Npub -> {
+        val metadata = userMetadata[entity.pubkey]
+        val name = metadata?.displayName ?: metadata?.name
+        if (name != null) "@$name" else Nip19.getDisplayName(entity)
     }
+    is Nip19.Entity.Nprofile -> {
+        val metadata = userMetadata[entity.pubkey]
+        val name = metadata?.displayName ?: metadata?.name
+        if (name != null) "@$name" else Nip19.getDisplayName(entity)
+    }
+    else -> Nip19.getDisplayName(entity)
 }
 
-private fun partToPlainText(part: MessageContentParser.ParsedPart): String {
-    return when (part) {
-        is MessageContentParser.ParsedPart.Text -> part.content
-        is MessageContentParser.ParsedPart.Link -> part.url
-        is MessageContentParser.ParsedPart.Image -> part.url
-        is MessageContentParser.ParsedPart.Video -> part.url
-        is MessageContentParser.ParsedPart.Audio -> part.url
-        is MessageContentParser.ParsedPart.Relay -> part.url
-        is MessageContentParser.ParsedPart.Mention -> part.reference.bech32
-        is MessageContentParser.ParsedPart.CustomEmoji -> ":${part.shortcode}:"
-        is MessageContentParser.ParsedPart.Bold -> part.content
-        is MessageContentParser.ParsedPart.Italic -> part.content
-        is MessageContentParser.ParsedPart.Monospace -> part.content
-        is MessageContentParser.ParsedPart.CodeBlock -> part.code
-        is MessageContentParser.ParsedPart.Hashtag -> "#${part.tag}"
-        is MessageContentParser.ParsedPart.Cashu -> part.token
-        is MessageContentParser.ParsedPart.CashuRequest -> part.request
-    }
+private fun partToPlainText(part: MessageContentParser.ParsedPart): String = when (part) {
+    is MessageContentParser.ParsedPart.Text -> part.content
+    is MessageContentParser.ParsedPart.Link -> part.url
+    is MessageContentParser.ParsedPart.Image -> part.url
+    is MessageContentParser.ParsedPart.Video -> part.url
+    is MessageContentParser.ParsedPart.Audio -> part.url
+    is MessageContentParser.ParsedPart.Relay -> part.url
+    is MessageContentParser.ParsedPart.Mention -> part.reference.bech32
+    is MessageContentParser.ParsedPart.CustomEmoji -> ":${part.shortcode}:"
+    is MessageContentParser.ParsedPart.Bold -> part.content
+    is MessageContentParser.ParsedPart.Italic -> part.content
+    is MessageContentParser.ParsedPart.Monospace -> part.content
+    is MessageContentParser.ParsedPart.CodeBlock -> part.code
+    is MessageContentParser.ParsedPart.Hashtag -> "#${part.tag}"
+    is MessageContentParser.ParsedPart.Cashu -> part.token
+    is MessageContentParser.ParsedPart.CashuRequest -> part.request
 }

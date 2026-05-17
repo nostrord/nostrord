@@ -21,7 +21,7 @@ fun AppButton(
     text: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -30,25 +30,28 @@ fun AppButton(
         onClick = { if (enabled) onClick() },
         enabled = enabled,
         interactionSource = interactionSource,
-        colors = ButtonDefaults.buttonColors(
+        colors =
+        ButtonDefaults.buttonColors(
             containerColor = if (isHovered) NostrordColors.PrimaryVariant else NostrordColors.Primary,
             contentColor = Color.White,
             disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.4f),
-            disabledContentColor = NostrordColors.TextSecondary
+            disabledContentColor = NostrordColors.TextSecondary,
         ),
-        modifier = modifier
+        modifier =
+        modifier
             .hoverable(interactionSource)
             .pointerHoverIcon(
-                if (enabled) PointerIcon.Hand else PointerIcon.Default
-            )
+                if (enabled) PointerIcon.Hand else PointerIcon.Default,
+            ),
     ) {
         Text(
             text = text,
             style = NostrordTypography.Button,
-            modifier = Modifier.padding(
+            modifier =
+            Modifier.padding(
                 horizontal = Spacing.buttonSmallPaddingH,
-                vertical = Spacing.buttonSmallPaddingV
-            )
+                vertical = Spacing.buttonSmallPaddingV,
+            ),
         )
     }
 }

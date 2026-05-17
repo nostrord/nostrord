@@ -4,5 +4,5 @@ data class GroupInfo(
     val id: String,
     val name: String,
     val picture: String?,
-    val relay: String
+    val relay: String,
 )

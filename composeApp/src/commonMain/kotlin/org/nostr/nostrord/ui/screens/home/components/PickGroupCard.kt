@@ -40,7 +40,7 @@ private val btnShape = RoundedCornerShape(4.dp)
 fun PickGroupCard(
     group: GroupMetadata,
     isJoined: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -49,7 +49,8 @@ fun PickGroupCard(
     val borderColor = if (isHovered) NostrordColors.SurfaceVariant else Color.Transparent
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .clip(cardShape)
             .background(cardBg)
@@ -58,7 +59,7 @@ fun PickGroupCard(
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
             .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.Top,
     ) {
         // 44×44 rounded square icon
         GroupPickIcon(group = group, size = 44.dp)
@@ -74,7 +75,7 @@ fun PickGroupCard(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
 
             val about = group.about?.takeIf { it.isNotBlank() }
@@ -86,7 +87,7 @@ fun PickGroupCard(
                     fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    lineHeight = 17.sp
+                    lineHeight = 17.sp,
                 )
             }
 
@@ -95,26 +96,26 @@ fun PickGroupCard(
             // Badge row
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (!group.isPublic) {
                     PickBadge(
                         text = "private",
                         textColor = NostrordColors.Pink,
-                        bgColor = NostrordColors.Pink.copy(alpha = 0.15f)
+                        bgColor = NostrordColors.Pink.copy(alpha = 0.15f),
                     )
                 }
                 if (!group.isOpen) {
                     PickBadge(
                         text = "invite only",
                         textColor = NostrordColors.StatusIdle,
-                        bgColor = NostrordColors.StatusIdle.copy(alpha = 0.15f)
+                        bgColor = NostrordColors.StatusIdle.copy(alpha = 0.15f),
                     )
                 } else {
                     PickBadge(
                         text = "open",
                         textColor = NostrordColors.Success,
-                        bgColor = NostrordColors.Success.copy(alpha = 0.15f)
+                        bgColor = NostrordColors.Success.copy(alpha = 0.15f),
                     )
                 }
             }
@@ -123,36 +124,42 @@ fun PickGroupCard(
         Spacer(modifier = Modifier.width(8.dp))
 
         // Join / Joined / Request button
-        val btnLabel = when {
-            isJoined -> "Joined"
-            !group.isOpen -> "Request"
-            else -> "Join"
-        }
-        val btnBg = when {
-            isJoined -> NostrordColors.Success
-            else -> NostrordColors.Primary
-        }
+        val btnLabel =
+            when {
+                isJoined -> "Joined"
+                !group.isOpen -> "Request"
+                else -> "Join"
+            }
+        val btnBg =
+            when {
+                isJoined -> NostrordColors.Success
+                else -> NostrordColors.Primary
+            }
 
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .clip(btnShape)
                 .background(btnBg)
                 .then(if (!isJoined) Modifier.clickable(onClick = onClick).pointerHoverIcon(PointerIcon.Hand) else Modifier)
                 .padding(horizontal = 16.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = btnLabel,
                 color = Color.White,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
 }
 
 @Composable
-private fun GroupPickIcon(group: GroupMetadata, size: androidx.compose.ui.unit.Dp) {
+private fun GroupPickIcon(
+    group: GroupMetadata,
+    size: androidx.compose.ui.unit.Dp,
+) {
     val context = LocalPlatformContext.current
     val pictureUrl = group.picture
     var imageState by remember(pictureUrl) {
@@ -162,53 +169,62 @@ private fun GroupPickIcon(group: GroupMetadata, size: androidx.compose.ui.unit.D
     val displayName = group.name ?: group.id
 
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(iconShape)
             .background(if (!showImage) generateColorFromString(group.id) else NostrordColors.BackgroundDark),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         if (!showImage) {
             Text(
                 text = displayName.take(1).uppercase(),
                 color = Color.White,
                 fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
         if (!pictureUrl.isNullOrBlank()) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = displayName,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clip(iconShape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }
 }
 
 @Composable
-private fun PickBadge(text: String, textColor: Color, bgColor: Color) {
+private fun PickBadge(
+    text: String,
+    textColor: Color,
+    bgColor: Color,
+) {
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .clip(badgeShape)
             .background(bgColor)
-            .padding(horizontal = 7.dp, vertical = 2.dp)
+            .padding(horizontal = 7.dp, vertical = 2.dp),
     ) {
         Text(
             text = text,
             color = textColor,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,
-            letterSpacing = 0.01.sp
+            letterSpacing = 0.01.sp,
         )
     }
 }

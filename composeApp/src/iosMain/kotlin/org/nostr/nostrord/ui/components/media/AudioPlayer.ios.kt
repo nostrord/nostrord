@@ -21,9 +21,13 @@ actual class AudioPlayer actual constructor() {
     actual val durationMs: StateFlow<Long> = _durationMs
 
     actual fun play(url: String) { /* TODO: AVPlayer */ }
+
     actual fun pause() {}
+
     actual fun stop() {}
+
     actual fun seekTo(positionMs: Long) {}
+
     actual fun release() {}
 }
 

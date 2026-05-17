@@ -1,18 +1,22 @@
 @file:OptIn(ExperimentalWasmJsInterop::class)
+
 package org.nostr.nostrord.storage
 
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 import kotlin.js.ExperimentalWasmJsInterop
 
 @JsFun("(key) => localStorage.getItem(key)")
 private external fun jsGetItem(key: String): String?
 
 @JsFun("(key, value) => localStorage.setItem(key, value)")
-private external fun jsSetItem(key: String, value: String)
+private external fun jsSetItem(
+    key: String,
+    value: String,
+)
 
 @JsFun("(key) => localStorage.removeItem(key)")
 private external fun jsRemoveItem(key: String)
@@ -20,13 +24,16 @@ private external fun jsRemoveItem(key: String)
 @JsFun("() => localStorage.clear()")
 private external fun jsClear()
 
-@JsFun("(prefix) => { const keys = []; for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith(prefix)) keys.push(key); } return keys; }")
+@JsFun(
+    "(prefix) => { const keys = []; for (let i = 0; i < localStorage.length; i++) { const key = localStorage.key(i); if (key && key.startsWith(prefix)) keys.push(key); } return keys; }",
+)
 private external fun jsGetKeysWithPrefix(prefix: String): JsArray<JsString>
 
 // Opens IndexedDB, creates kv store if needed, stores the open DB in globalThis.__nostrordIdb,
 // reads all entries into globalThis.__nostrordIdbData (JSON string), and sets globalThis.__nostrordIdbReady.
 // Uses globalThis instead of window to work in all JS environments (Workers, bundlers, etc.).
-@JsFun("""
+@JsFun(
+    """
 () => {
     globalThis.__nostrordIdbReady = false;
     globalThis.__nostrordIdbData = '{}';
@@ -69,7 +76,8 @@ private external fun jsGetKeysWithPrefix(prefix: String): JsArray<JsString>
     };
     req.onerror = function() { globalThis.__nostrordIdbReady = true; };
 }
-""")
+""",
+)
 private external fun jsStartIdbPreload()
 
 // Returns true once jsStartIdbPreload() has finished and globalThis.__nostrordIdb is set.
@@ -81,7 +89,8 @@ private external fun jsIsIdbReady(): Boolean
 private external fun jsGetIdbData(): JsString
 
 // Write a value to the kv store using the already-open DB connection.
-@JsFun("""
+@JsFun(
+    """
 (key, value) => {
     var db = globalThis.__nostrordIdb;
     if (!db) return;
@@ -89,11 +98,16 @@ private external fun jsGetIdbData(): JsString
         db.transaction('kv', 'readwrite').objectStore('kv').put(value, key);
     } catch(e) {}
 }
-""")
-private external fun jsIdbWrite(key: String, value: String)
+""",
+)
+private external fun jsIdbWrite(
+    key: String,
+    value: String,
+)
 
 // Delete all keys that start with prefix.
-@JsFun("""
+@JsFun(
+    """
 (prefix) => {
     var db = globalThis.__nostrordIdb;
     if (!db) return;
@@ -109,7 +123,8 @@ private external fun jsIdbWrite(key: String, value: String)
         };
     } catch(e) {}
 }
-""")
+""",
+)
 private external fun jsIdbDeleteWithPrefix(prefix: String)
 
 // In-memory caches for IndexedDB-backed data (synchronous read access after preloadMetadata).
@@ -140,13 +155,9 @@ actual object SecureStorage {
         jsSetItem(PRIVATE_KEY_PREF, privateKeyHex)
     }
 
-    actual fun getPrivateKey(): String? {
-        return jsGetItem(PRIVATE_KEY_PREF)
-    }
+    actual fun getPrivateKey(): String? = jsGetItem(PRIVATE_KEY_PREF)
 
-    actual fun hasPrivateKey(): Boolean {
-        return jsGetItem(PRIVATE_KEY_PREF) != null
-    }
+    actual fun hasPrivateKey(): Boolean = jsGetItem(PRIVATE_KEY_PREF) != null
 
     actual fun clearPrivateKey() {
         jsRemoveItem(PRIVATE_KEY_PREF)
@@ -156,9 +167,7 @@ actual object SecureStorage {
         jsSetItem(CURRENT_RELAY_URL, relayUrl)
     }
 
-    actual fun getCurrentRelayUrl(): String? {
-        return jsGetItem(CURRENT_RELAY_URL)
-    }
+    actual fun getCurrentRelayUrl(): String? = jsGetItem(CURRENT_RELAY_URL)
 
     actual fun clearCurrentRelayUrl() {
         jsRemoveItem(CURRENT_RELAY_URL)
@@ -173,19 +182,29 @@ actual object SecureStorage {
         return if (raw.isBlank()) emptyList() else raw.split(",").filter { it.isNotBlank() }
     }
 
-    actual fun saveJoinedGroupsForRelay(pubkey: String, relayUrl: String, groupIds: Set<String>) {
+    actual fun saveJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+        groupIds: Set<String>,
+    ) {
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = groupIds.joinToString(",")
         jsSetItem(key, json)
     }
 
-    actual fun getJoinedGroupsForRelay(pubkey: String, relayUrl: String): Set<String> {
+    actual fun getJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+    ): Set<String> {
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         val json = jsGetItem(key) ?: return emptySet()
         return if (json.isBlank()) emptySet() else json.split(",").toSet()
     }
 
-    actual fun clearJoinedGroupsForRelay(pubkey: String, relayUrl: String) {
+    actual fun clearJoinedGroupsForRelay(
+        pubkey: String,
+        relayUrl: String,
+    ) {
         val key = JOINED_GROUPS_PREFIX + pubkey.hashCode() + "_" + relayUrl.hashCode()
         jsRemoveItem(key)
     }
@@ -202,13 +221,9 @@ actual object SecureStorage {
         jsSetItem(BUNKER_URL_PREF, bunkerUrl)
     }
 
-    actual fun getBunkerUrl(): String? {
-        return jsGetItem(BUNKER_URL_PREF)
-    }
+    actual fun getBunkerUrl(): String? = jsGetItem(BUNKER_URL_PREF)
 
-    actual fun hasBunkerUrl(): Boolean {
-        return jsGetItem(BUNKER_URL_PREF) != null
-    }
+    actual fun hasBunkerUrl(): Boolean = jsGetItem(BUNKER_URL_PREF) != null
 
     actual fun clearBunkerUrl() {
         jsRemoveItem(BUNKER_URL_PREF)
@@ -218,9 +233,7 @@ actual object SecureStorage {
         jsSetItem(BUNKER_USER_PUBKEY_PREF, pubkey)
     }
 
-    actual fun getBunkerUserPubkey(): String? {
-        return jsGetItem(BUNKER_USER_PUBKEY_PREF)
-    }
+    actual fun getBunkerUserPubkey(): String? = jsGetItem(BUNKER_USER_PUBKEY_PREF)
 
     actual fun clearBunkerUserPubkey() {
         jsRemoveItem(BUNKER_USER_PUBKEY_PREF)
@@ -230,9 +243,7 @@ actual object SecureStorage {
         jsSetItem(BUNKER_CLIENT_PRIVATE_KEY_PREF, privateKey)
     }
 
-    actual fun getBunkerClientPrivateKey(): String? {
-        return jsGetItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
-    }
+    actual fun getBunkerClientPrivateKey(): String? = jsGetItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
 
     actual fun clearBunkerClientPrivateKey() {
         jsRemoveItem(BUNKER_CLIENT_PRIVATE_KEY_PREF)
@@ -242,9 +253,7 @@ actual object SecureStorage {
         jsSetItem(NIP07_USER_PUBKEY_PREF, pubkey)
     }
 
-    actual fun getNip07UserPubkey(): String? {
-        return jsGetItem(NIP07_USER_PUBKEY_PREF)
-    }
+    actual fun getNip07UserPubkey(): String? = jsGetItem(NIP07_USER_PUBKEY_PREF)
 
     actual fun clearNip07UserPubkey() {
         jsRemoveItem(NIP07_USER_PUBKEY_PREF)
@@ -256,17 +265,27 @@ actual object SecureStorage {
         joinedGroupMetaIdbCache.clear()
     }
 
-    actual fun saveLastReadTimestamp(pubkey: String, groupId: String, timestamp: Long) {
+    actual fun saveLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+        timestamp: Long,
+    ) {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         jsSetItem(key, timestamp.toString())
     }
 
-    actual fun getLastReadTimestamp(pubkey: String, groupId: String): Long? {
+    actual fun getLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+    ): Long? {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         return jsGetItem(key)?.toLongOrNull()
     }
 
-    actual fun clearLastReadTimestamp(pubkey: String, groupId: String) {
+    actual fun clearLastReadTimestamp(
+        pubkey: String,
+        groupId: String,
+    ) {
         val key = LAST_READ_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         jsRemoveItem(key)
     }
@@ -285,7 +304,11 @@ actual object SecureStorage {
         return result
     }
 
-    actual fun saveLastViewedGroup(pubkey: String, groupId: String, groupName: String?) {
+    actual fun saveLastViewedGroup(
+        pubkey: String,
+        groupId: String,
+        groupName: String?,
+    ) {
         val key = LAST_VIEWED_GROUP_PREFIX + pubkey.hashCode()
         val value = "$groupId|${groupName ?: ""}"
         jsSetItem(key, value)
@@ -306,17 +329,27 @@ actual object SecureStorage {
         jsRemoveItem(key)
     }
 
-    actual fun saveMessagesForGroup(pubkey: String, groupId: String, messagesJson: String) {
+    actual fun saveMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+        messagesJson: String,
+    ) {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         jsSetItem(key, messagesJson)
     }
 
-    actual fun getMessagesForGroup(pubkey: String, groupId: String): String? {
+    actual fun getMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+    ): String? {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         return jsGetItem(key)
     }
 
-    actual fun clearMessagesForGroup(pubkey: String, groupId: String) {
+    actual fun clearMessagesForGroup(
+        pubkey: String,
+        groupId: String,
+    ) {
         val key = MESSAGES_PREFIX + pubkey.hashCode() + "_" + groupId.hashCode()
         jsRemoveItem(key)
     }
@@ -329,7 +362,10 @@ actual object SecureStorage {
         }
     }
 
-    actual fun savePendingEvents(pubkey: String, eventsJson: String) {
+    actual fun savePendingEvents(
+        pubkey: String,
+        eventsJson: String,
+    ) {
         val key = PENDING_EVENTS_PREFIX + pubkey.hashCode()
         jsSetItem(key, eventsJson)
     }
@@ -344,7 +380,10 @@ actual object SecureStorage {
         jsRemoveItem(key)
     }
 
-    actual fun saveGroupsForRelay(relayUrl: String, groupsJson: String) {
+    actual fun saveGroupsForRelay(
+        relayUrl: String,
+        groupsJson: String,
+    ) {
         val key = RELAY_GROUPS_PREFIX + relayUrl.hashCode()
         jsSetItem(key, groupsJson)
     }
@@ -360,20 +399,28 @@ actual object SecureStorage {
     }
 
     // Joined-group metadata — backed by IndexedDB, read via in-memory cache.
-    actual fun saveJoinedGroupMetadata(pubkey: String, relayUrl: String, groupsJson: String) {
+    actual fun saveJoinedGroupMetadata(
+        pubkey: String,
+        relayUrl: String,
+        groupsJson: String,
+    ) {
         val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
         joinedGroupMetaIdbCache[cacheKey] = groupsJson
         jsIdbWrite(IDB_JOINED_GROUP_META_PREFIX + cacheKey, groupsJson)
     }
 
-    actual fun getJoinedGroupMetadata(pubkey: String, relayUrl: String): String? {
+    actual fun getJoinedGroupMetadata(
+        pubkey: String,
+        relayUrl: String,
+    ): String? {
         val cacheKey = "${pubkey.hashCode()}_${relayUrl.hashCode()}"
         return joinedGroupMetaIdbCache[cacheKey]
     }
 
     actual fun clearAllJoinedGroupMetadataForAccount(pubkey: String) {
         val accountPrefix = "${pubkey.hashCode()}_"
-        joinedGroupMetaIdbCache.keys.filter { it.startsWith(accountPrefix) }
+        joinedGroupMetaIdbCache.keys
+            .filter { it.startsWith(accountPrefix) }
             .forEach { joinedGroupMetaIdbCache.remove(it) }
         jsIdbDeleteWithPrefix(IDB_JOINED_GROUP_META_PREFIX + accountPrefix)
     }
@@ -386,7 +433,10 @@ actual object SecureStorage {
 
     actual fun getRelayMetadata(): String? = relayMetaIdbCache
 
-    actual fun saveLiveCursors(relayUrl: String, json: String) {
+    actual fun saveLiveCursors(
+        relayUrl: String,
+        json: String,
+    ) {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         jsSetItem(key, json)
     }
@@ -401,30 +451,41 @@ actual object SecureStorage {
         jsRemoveItem(key)
     }
 
-    actual fun saveBooleanPref(key: String, value: Boolean) {
+    actual fun saveBooleanPref(
+        key: String,
+        value: Boolean,
+    ) {
         jsSetItem(key, if (value) "1" else "0")
     }
 
-    actual fun getBooleanPref(key: String, default: Boolean): Boolean {
+    actual fun getBooleanPref(
+        key: String,
+        default: Boolean,
+    ): Boolean {
         val raw = jsGetItem(key) ?: return default
         return raw == "1" || raw.equals("true", ignoreCase = true)
     }
 
-    actual fun saveStringPref(key: String, value: String) {
+    actual fun saveStringPref(
+        key: String,
+        value: String,
+    ) {
         jsSetItem(key, value)
     }
 
-    actual fun getStringPref(key: String, default: String): String {
-        return jsGetItem(key) ?: default
-    }
+    actual fun getStringPref(
+        key: String,
+        default: String,
+    ): String = jsGetItem(key) ?: default
 
-    actual fun saveSensitive(key: String, value: String) {
+    actual fun saveSensitive(
+        key: String,
+        value: String,
+    ) {
         jsSetItem(key, value)
     }
 
-    actual fun getSensitive(key: String): String? {
-        return jsGetItem(key)
-    }
+    actual fun getSensitive(key: String): String? = jsGetItem(key)
 
     actual fun clearSensitive(key: String) {
         jsRemoveItem(key)
@@ -458,6 +519,7 @@ actual object SecureStorage {
                     }
                 }
             }
-        } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+        }
     }
 }

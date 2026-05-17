@@ -45,12 +45,10 @@ val nip11RelayInfoMapSerializer: KSerializer<Map<String, Nip11RelayInfo>> =
     MapSerializer(String.serializer(), Nip11RelayInfo.serializer())
 
 /** Converts a WebSocket relay URL to its HTTPS equivalent for the NIP-11 fetch. */
-fun relayUrlToHttps(relayUrl: String): String =
-    relayUrl.replaceFirst("wss://", "https://").replaceFirst("ws://", "http://")
+fun relayUrlToHttps(relayUrl: String): String = relayUrl.replaceFirst("wss://", "https://").replaceFirst("ws://", "http://")
 
 /** Returns true if the icon URL is non-blank and uses HTTPS. */
-fun isValidIconUrl(url: String?): Boolean =
-    !url.isNullOrBlank() && url.startsWith("https://")
+fun isValidIconUrl(url: String?): Boolean = !url.isNullOrBlank() && url.startsWith("https://")
 
 /**
  * Fetches NIP-11 relay info for [relayUrl].
@@ -71,10 +69,11 @@ suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
     val httpUrl = relayUrlToHttps(relayUrl)
     val client = createNip11HttpClient()
     return try {
-        val response = client.get(httpUrl) {
-            header(HttpHeaders.Accept, "application/nostr+json")
-            header(HttpHeaders.UserAgent, "Nostrord/1.0 (Nostr client)")
-        }
+        val response =
+            client.get(httpUrl) {
+                header(HttpHeaders.Accept, "application/nostr+json")
+                header(HttpHeaders.UserAgent, "Nostrord/1.0 (Nostr client)")
+            }
         if (!response.status.isSuccess()) {
             return null
         }
@@ -84,29 +83,43 @@ suspend fun fetchNip11RelayInfo(relayUrl: String): Nip11RelayInfo? {
             return null
         }
         val body = response.bodyAsText()
-        val obj = try {
-            Json.parseToJsonElement(body).jsonObject
-        } catch (e: Exception) {
-            return null
-        }
+        val obj =
+            try {
+                Json.parseToJsonElement(body).jsonObject
+            } catch (e: Exception) {
+                return null
+            }
         val limitation = obj["limitation"]?.jsonObject
         val rawIcon = obj["icon"]?.jsonPrimitive?.contentOrNull
         val icon = rawIcon?.takeIf { isValidIconUrl(it) }
         if (rawIcon != null && icon == null) {
         }
-        val info = Nip11RelayInfo(
-            name = obj["name"]?.jsonPrimitive?.contentOrNull,
-            description = obj["description"]?.jsonPrimitive?.contentOrNull,
-            icon = icon,
-            pubkey = obj["pubkey"]?.jsonPrimitive?.contentOrNull,
-            contact = obj["contact"]?.jsonPrimitive?.contentOrNull,
-            supportedNips = obj["supported_nips"]?.jsonArray
-                ?.mapNotNull { it.jsonPrimitive.intOrNull } ?: emptyList(),
-            software = obj["software"]?.jsonPrimitive?.contentOrNull,
-            version = obj["version"]?.jsonPrimitive?.contentOrNull,
-            authRequired = limitation?.get("auth_required")?.jsonPrimitive?.content?.toBooleanStrictOrNull(),
-            paymentRequired = limitation?.get("payment_required")?.jsonPrimitive?.content?.toBooleanStrictOrNull(),
-        )
+        val info =
+            Nip11RelayInfo(
+                name = obj["name"]?.jsonPrimitive?.contentOrNull,
+                description = obj["description"]?.jsonPrimitive?.contentOrNull,
+                icon = icon,
+                pubkey = obj["pubkey"]?.jsonPrimitive?.contentOrNull,
+                contact = obj["contact"]?.jsonPrimitive?.contentOrNull,
+                supportedNips =
+                obj["supported_nips"]
+                    ?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.intOrNull } ?: emptyList(),
+                software = obj["software"]?.jsonPrimitive?.contentOrNull,
+                version = obj["version"]?.jsonPrimitive?.contentOrNull,
+                authRequired =
+                limitation
+                    ?.get("auth_required")
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.toBooleanStrictOrNull(),
+                paymentRequired =
+                limitation
+                    ?.get("payment_required")
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.toBooleanStrictOrNull(),
+            )
         info
     } catch (e: Exception) {
         null

@@ -5,8 +5,9 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
 
-class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
-
+class HomeViewModel(
+    private val repo: NostrRepositoryApi,
+) : ViewModel() {
     val groups = repo.groups
     val groupsByRelay = repo.groupsByRelay
     val loadingRelays = repo.loadingRelays
@@ -40,7 +41,10 @@ class HomeViewModel(private val repo: NostrRepositoryApi) : ViewModel() {
         }
     }
 
-    fun forgetGroup(groupId: String, relayUrl: String) {
+    fun forgetGroup(
+        groupId: String,
+        relayUrl: String,
+    ) {
         viewModelScope.launch { repo.forgetGroup(groupId, relayUrl) }
     }
 }

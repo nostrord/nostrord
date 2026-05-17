@@ -4,7 +4,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class StringUtilsTest {
-
     @Test
     fun `bold fraktur normalizes to ascii`() {
         assertEquals("settoshi", "𝖘𝖊𝖙𝖙𝖔𝖘𝖍𝖎".normalizeForSearch())

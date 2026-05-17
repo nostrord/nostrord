@@ -2,13 +2,11 @@ package org.nostr.nostrord.ui.components.accounts
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -140,9 +138,10 @@ fun MeMenu(
         }
         Column(modifier = Modifier.padding(vertical = 4.dp)) {
             accounts.forEach { account ->
-                val unread = remember(account.pubkey, activeId, activeNotifications) {
-                    AppModule.notificationHistoryStore.unreadCountFor(account.pubkey)
-                }
+                val unread =
+                    remember(account.pubkey, activeId, activeNotifications) {
+                        AppModule.notificationHistoryStore.unreadCountFor(account.pubkey)
+                    }
                 AccountRow(
                     account = account,
                     metadata = userMetadata[account.pubkey],
@@ -158,13 +157,19 @@ fun MeMenu(
         ActionRow(
             icon = Icons.Default.Add,
             label = "Add account",
-            onClick = { onDismiss(); onAddAccount() },
+            onClick = {
+                onDismiss()
+                onAddAccount()
+            },
         )
         HorizontalDivider(color = NostrordColors.BackgroundDark)
         ActionRow(
             icon = Icons.Default.Settings,
             label = "Settings",
-            onClick = { onDismiss(); onSettings() },
+            onClick = {
+                onDismiss()
+                onSettings()
+            },
         )
         HorizontalDivider(color = NostrordColors.BackgroundDark)
         ActionRow(
@@ -186,14 +191,18 @@ fun MeMenu(
         val isActiveTarget = target.id == activeId
         // Same fallback the AccountManager will pick, surfaced in the copy
         // so the user knows which identity they'll land on after confirming.
-        val fallback = if (isActiveTarget) {
-            accounts.filter { it.id != target.id }.maxByOrNull { it.addedAt }
-        } else null
-        val fallbackLabel = fallback?.let { fb ->
-            userMetadata[fb.pubkey]?.displayName?.takeIf { it.isNotBlank() }
-                ?: userMetadata[fb.pubkey]?.name?.takeIf { it.isNotBlank() }
-                ?: fb.label
-        }
+        val fallback =
+            if (isActiveTarget) {
+                accounts.filter { it.id != target.id }.maxByOrNull { it.addedAt }
+            } else {
+                null
+            }
+        val fallbackLabel =
+            fallback?.let { fb ->
+                userMetadata[fb.pubkey]?.displayName?.takeIf { it.isNotBlank() }
+                    ?: userMetadata[fb.pubkey]?.name?.takeIf { it.isNotBlank() }
+                    ?: fb.label
+            }
         RemoveAccountDialog(
             account = target,
             isActive = isActiveTarget,
@@ -261,13 +270,22 @@ private fun MobileMeMenu(
 }
 
 @Composable
-private fun MeHeader(account: Account, metadata: UserMetadata?) {
-    val displayName = metadata?.displayName?.takeIf { it.isNotBlank() }
-        ?: metadata?.name?.takeIf { it.isNotBlank() }
-        ?: account.label
-    val npub = remember(account.pubkey) {
-        try { Nip19.encodeNpub(account.pubkey) } catch (_: Exception) { account.pubkey }
-    }
+private fun MeHeader(
+    account: Account,
+    metadata: UserMetadata?,
+) {
+    val displayName =
+        metadata?.displayName?.takeIf { it.isNotBlank() }
+            ?: metadata?.name?.takeIf { it.isNotBlank() }
+            ?: account.label
+    val npub =
+        remember(account.pubkey) {
+            try {
+                Nip19.encodeNpub(account.pubkey)
+            } catch (_: Exception) {
+                account.pubkey
+            }
+        }
     val copy = rememberClipboardWriter()
     var copied by remember { mutableStateOf(false) }
     LaunchedEffect(copied) {
@@ -299,12 +317,12 @@ private fun MeHeader(account: Account, metadata: UserMetadata?) {
             )
             Spacer(Modifier.height(4.dp))
             Row(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .clickable {
                         copy(npub)
                         copied = true
-                    }
-                    .background(NostrordColors.BackgroundDark, RoundedCornerShape(12.dp))
+                    }.background(NostrordColors.BackgroundDark, RoundedCornerShape(12.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -335,12 +353,14 @@ private fun AccountRow(
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val profileName = metadata?.displayName?.takeIf { it.isNotBlank() }
-        ?: metadata?.name?.takeIf { it.isNotBlank() }
+    val profileName =
+        metadata?.displayName?.takeIf { it.isNotBlank() }
+            ?: metadata?.name?.takeIf { it.isNotBlank() }
     val displayName = profileName ?: account.label
 
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .clickable(enabled = !isBusy && !isActive, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -356,7 +376,8 @@ private fun AccountRow(
             if (unreadCount > 0) {
                 UnreadBadge(
                     count = unreadCount,
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .align(Alignment.TopEnd)
                         .offset(x = 6.dp, y = (-4).dp),
                 )
@@ -399,7 +420,8 @@ private fun ActionRow(
     tint: Color = Color.White,
 ) {
     Row(
-        modifier = Modifier
+        modifier =
+        Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 20.dp, vertical = 14.dp),
@@ -422,17 +444,18 @@ private fun RemoveAccountDialog(
 ) {
     // Body varies by whether this is the active account and whether a fallback
     // identity exists.
-    val body = when {
-        isActive && fallbackLabel != null ->
-            "Credentials and local data for \"${account.label}\" will be erased on " +
-                "this device. You'll switch to \"$fallbackLabel\"."
-        isActive ->
-            "Credentials and local data for \"${account.label}\" will be erased on " +
-                "this device. You'll need to sign in again to continue."
-        else ->
-            "Credentials and local data for \"${account.label}\" will be erased on " +
-                "this device."
-    }
+    val body =
+        when {
+            isActive && fallbackLabel != null ->
+                "Credentials and local data for \"${account.label}\" will be erased on " +
+                    "this device. You'll switch to \"$fallbackLabel\"."
+            isActive ->
+                "Credentials and local data for \"${account.label}\" will be erased on " +
+                    "this device. You'll need to sign in again to continue."
+            else ->
+                "Credentials and local data for \"${account.label}\" will be erased on " +
+                    "this device."
+        }
     val title = if (isActive) "Sign out of \"${account.label}\"?" else "Remove account?"
     val confirmLabel = if (isActive) "Sign out" else "Remove"
     val busyLabel = if (isActive) "Signing out…" else "Removing…"

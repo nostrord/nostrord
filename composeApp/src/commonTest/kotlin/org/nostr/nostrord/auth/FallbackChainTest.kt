@@ -7,14 +7,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FallbackChainTest {
-
     @Test
     fun `empty list returns null without invoking activator`() = runTest {
         var calls = 0
-        val result = pickFirstSuccess(emptyList<String>()) {
-            calls++
-            true
-        }
+        val result =
+            pickFirstSuccess(emptyList<String>()) {
+                calls++
+                true
+            }
         assertNull(result)
         assertEquals(0, calls)
     }
@@ -22,10 +22,11 @@ class FallbackChainTest {
     @Test
     fun `all candidates fail returns null and tries every one`() = runTest {
         val attempted = mutableListOf<String>()
-        val result = pickFirstSuccess(listOf("a", "b", "c")) { candidate ->
-            attempted += candidate
-            false
-        }
+        val result =
+            pickFirstSuccess(listOf("a", "b", "c")) { candidate ->
+                attempted += candidate
+                false
+            }
         assertNull(result)
         assertEquals(listOf("a", "b", "c"), attempted)
     }
@@ -33,10 +34,11 @@ class FallbackChainTest {
     @Test
     fun `first success short-circuits iteration`() = runTest {
         val attempted = mutableListOf<String>()
-        val result = pickFirstSuccess(listOf("a", "b", "c")) { candidate ->
-            attempted += candidate
-            true
-        }
+        val result =
+            pickFirstSuccess(listOf("a", "b", "c")) { candidate ->
+                attempted += candidate
+                true
+            }
         assertEquals("a", result)
         assertEquals(listOf("a"), attempted)
     }
@@ -45,10 +47,11 @@ class FallbackChainTest {
     fun `Nth candidate accepted after N-1 rejections`() = runTest {
         val attempted = mutableListOf<String>()
         val candidates = listOf("a", "b", "c", "d")
-        val result = pickFirstSuccess(candidates) { candidate ->
-            attempted += candidate
-            candidate == "c"
-        }
+        val result =
+            pickFirstSuccess(candidates) { candidate ->
+                attempted += candidate
+                candidate == "c"
+            }
         assertEquals("c", result)
         assertEquals(listOf("a", "b", "c"), attempted)
         assertTrue("d" !in attempted, "Must not call activator after success")

@@ -6,8 +6,10 @@ import kotlinx.coroutines.flow.StateFlow
 enum class NotificationPermission {
     /** User hasn't decided yet — the app may prompt. */
     Default,
+
     /** User granted permission; notify() can display notifications. */
     Granted,
+
     /** User blocked notifications; notify() must not prompt again. */
     Denied,
 }
@@ -43,7 +45,9 @@ expect class NotificationService() {
     val notificationClicks: SharedFlow<NotificationClick>
 
     fun isSupported(): Boolean
+
     fun requestPermission()
+
     fun notify(request: NotificationRequest)
 
     /**

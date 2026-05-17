@@ -6,9 +6,10 @@ package org.nostr.nostrord.nostr
  */
 object Bech32 {
     private const val CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-    private val CHARSET_REV = IntArray(128) { -1 }.apply {
-        CHARSET.forEachIndexed { i, c -> this[c.code] = i }
-    }
+    private val CHARSET_REV =
+        IntArray(128) { -1 }.apply {
+            CHARSET.forEachIndexed { i, c -> this[c.code] = i }
+        }
 
     private fun polymod(values: IntArray): Int {
         val generator = intArrayOf(0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3)
@@ -34,11 +35,15 @@ object Bech32 {
         return result
     }
 
-    private fun verifyChecksum(hrp: String, data: IntArray): Boolean {
-        return polymod(hrpExpand(hrp) + data) == 1
-    }
+    private fun verifyChecksum(
+        hrp: String,
+        data: IntArray,
+    ): Boolean = polymod(hrpExpand(hrp) + data) == 1
 
-    private fun createChecksum(hrp: String, data: IntArray): IntArray {
+    private fun createChecksum(
+        hrp: String,
+        data: IntArray,
+    ): IntArray {
         val values = hrpExpand(hrp) + data + intArrayOf(0, 0, 0, 0, 0, 0)
         val polymod = polymod(values) xor 1
         return IntArray(6) { i -> (polymod shr (5 * (5 - i))) and 31 }
@@ -47,7 +52,10 @@ object Bech32 {
     /**
      * Encode data to bech32 string
      */
-    fun encode(hrp: String, data: ByteArray): String {
+    fun encode(
+        hrp: String,
+        data: ByteArray,
+    ): String {
         val data5bit = convertBits(data, 8, 5, true)
         val checksum = createChecksum(hrp, data5bit)
         val combined = data5bit + checksum
@@ -79,7 +87,12 @@ object Bech32 {
         return Pair(hrp, converted.map { it.toByte() }.toByteArray())
     }
 
-    private fun convertBits(data: IntArray, fromBits: Int, toBits: Int, pad: Boolean): IntArray {
+    private fun convertBits(
+        data: IntArray,
+        fromBits: Int,
+        toBits: Int,
+        pad: Boolean,
+    ): IntArray {
         var acc = 0
         var bits = 0
         val result = mutableListOf<Int>()
@@ -103,7 +116,18 @@ object Bech32 {
         return result.toIntArray()
     }
 
-    private fun convertBits(data: ByteArray, fromBits: Int, toBits: Int, pad: Boolean): IntArray {
-        return convertBits(data.map { it.toInt() and 0xFF }.toIntArray(), fromBits, toBits, pad)
-    }
+    private fun convertBits(
+        data: ByteArray,
+        fromBits: Int,
+        toBits: Int,
+        pad: Boolean,
+    ): IntArray = convertBits(
+        data
+            .map {
+                it.toInt() and 0xFF
+            }.toIntArray(),
+        fromBits,
+        toBits,
+        pad,
+    )
 }

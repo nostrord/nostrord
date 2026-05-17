@@ -7,5 +7,5 @@ import androidx.compose.ui.Modifier
 expect fun WindowDraggableArea(
     modifier: Modifier = Modifier,
     onDoubleClick: (() -> Unit)? = null,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 )

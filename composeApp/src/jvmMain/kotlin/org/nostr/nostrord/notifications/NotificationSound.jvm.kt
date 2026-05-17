@@ -27,10 +27,11 @@ actual fun playNotificationSound() {
     }
 }
 
-private inline fun <T : Player, R> T.use(block: (T) -> R): R {
-    return try {
-        block(this)
-    } finally {
-        try { close() } catch (_: Throwable) {}
+private inline fun <T : Player, R> T.use(block: (T) -> R): R = try {
+    block(this)
+} finally {
+    try {
+        close()
+    } catch (_: Throwable) {
     }
 }

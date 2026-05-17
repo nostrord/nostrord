@@ -28,7 +28,6 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,41 +61,43 @@ fun GroupQuickSwitchBar(
     onCreateGroupClick: () -> Unit,
     modifier: Modifier = Modifier,
     avatarSize: Dp = 44.dp,
-    unreadCounts: Map<String, Int> = emptyMap()
+    unreadCounts: Map<String, Int> = emptyMap(),
 ) {
     val scrollState = rememberScrollState()
 
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .background(NostrordColors.BackgroundDark)
             .padding(horizontal = 8.dp, vertical = 8.dp)
             .horizontalScroll(scrollState),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Home button
         QuickSwitchItem(
             isActive = activeGroupId == null,
             onClick = onHomeClick,
             size = avatarSize,
-            tooltip = "Home"
+            tooltip = "Home",
         ) {
             Icon(
                 imageVector = Icons.Default.Home,
                 contentDescription = "Home",
                 tint = if (activeGroupId == null) NostrordColors.Primary else Color.White,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(24.dp),
             )
         }
 
         // Divider
         if (joinedGroups.isNotEmpty()) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .width(2.dp)
                     .height(avatarSize * 0.6f)
-                    .background(NostrordColors.Divider, RoundedCornerShape(1.dp))
+                    .background(NostrordColors.Divider, RoundedCornerShape(1.dp)),
             )
         }
 
@@ -112,13 +113,13 @@ fun GroupQuickSwitchBar(
                 onClick = { onGroupClick(groupId, group?.name) },
                 size = avatarSize,
                 tooltip = groupName,
-                unreadCount = unreadCount
+                unreadCount = unreadCount,
             ) {
                 GroupAvatar(
                     groupId = groupId,
                     groupName = groupName,
                     pictureUrl = group?.picture,
-                    size = avatarSize - 4.dp // Account for border padding
+                    size = avatarSize - 4.dp, // Account for border padding
                 )
             }
         }
@@ -131,72 +132,73 @@ fun GroupQuickSwitchBar(
                 onClick = { addMenuExpanded = true },
                 size = avatarSize,
                 tooltip = "Add Group",
-                showActiveRing = false
+                showActiveRing = false,
             ) {
                 Box(
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(avatarSize - 4.dp)
                         .background(NostrordColors.SurfaceVariant, CircleShape),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add Group",
                         tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }
             DropdownMenu(
                 expanded = addMenuExpanded,
                 onDismissRequest = { addMenuExpanded = false },
-                containerColor = NostrordColors.SurfaceVariant
+                containerColor = NostrordColors.SurfaceVariant,
             ) {
                 DropdownMenuItem(
                     text = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Search,
                                 contentDescription = null,
                                 tint = NostrordColors.TextSecondary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(16.dp),
                             )
                             Text(
                                 "Explore Groups",
-                                color = NostrordColors.TextPrimary
+                                color = NostrordColors.TextPrimary,
                             )
                         }
                     },
                     onClick = {
                         addMenuExpanded = false
                         onExploreClick()
-                    }
+                    },
                 )
                 DropdownMenuItem(
                     text = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Create,
                                 contentDescription = null,
                                 tint = NostrordColors.Primary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(16.dp),
                             )
                             Text(
                                 "Create Group",
-                                color = NostrordColors.Primary
+                                color = NostrordColors.Primary,
                             )
                         }
                     },
                     onClick = {
                         addMenuExpanded = false
                         onCreateGroupClick()
-                    }
+                    },
                 )
             }
         }
@@ -211,10 +213,11 @@ private fun QuickSwitchItem(
     tooltip: String,
     showActiveRing: Boolean = true,
     unreadCount: Int = 0,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     Box(
-        modifier = Modifier
+        modifier =
+        Modifier
             .size(size)
             .clip(CircleShape)
             .then(
@@ -222,11 +225,10 @@ private fun QuickSwitchItem(
                     Modifier.border(2.dp, NostrordColors.Primary, CircleShape)
                 } else {
                     Modifier
-                }
-            )
-            .clickable(onClick = onClick)
+                },
+            ).clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         content()
 
@@ -234,10 +236,11 @@ private fun QuickSwitchItem(
         if (unreadCount > 0 && !isActive) {
             UnreadBadge(
                 count = unreadCount,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .align(Alignment.TopEnd)
                     .offset(x = Spacing.xxs, y = -Spacing.xxs),
-                size = Spacing.badgeSize
+                size = Spacing.badgeSize,
             )
         }
     }
@@ -248,33 +251,35 @@ private fun GroupAvatar(
     groupId: String,
     groupName: String,
     pictureUrl: String?,
-    size: Dp
+    size: Dp,
 ) {
     val context = LocalPlatformContext.current
 
     Box(
         modifier = Modifier.size(size),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
-        val showPlaceholder = pictureUrl.isNullOrBlank() ||
-            imageState is AsyncImagePainter.State.Loading ||
-            imageState is AsyncImagePainter.State.Error
+        val showPlaceholder =
+            pictureUrl.isNullOrBlank() ||
+                imageState is AsyncImagePainter.State.Loading ||
+                imageState is AsyncImagePainter.State.Error
 
         // Show placeholder when no URL, loading, or error
         if (showPlaceholder) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(size)
                     .background(generateColorFromString(groupId), CircleShape),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = groupName.take(1).uppercase(),
                     color = Color.White,
                     fontSize = (size.value * 0.4f).sp,
                     fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
                 )
             }
         }
@@ -282,18 +287,21 @@ private fun GroupAvatar(
         // Only attempt to load image if URL is provided and not in error state
         if (!pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
             AsyncImage(
-                model = ImageRequest.Builder(context)
+                model =
+                ImageRequest
+                    .Builder(context)
                     .data(pictureUrl)
                     .crossfade(true)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
                 contentDescription = groupName,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(size)
                     .clip(CircleShape),
                 contentScale = ContentScale.Crop,
-                onState = { imageState = it }
+                onState = { imageState = it },
             )
         }
     }

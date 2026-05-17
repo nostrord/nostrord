@@ -18,7 +18,6 @@ import org.nostr.nostrord.utils.Result
  * Individual tests can override the `Mutable*` fields or provide lambdas to control behavior.
  */
 class FakeNostrRepository : NostrRepositoryApi {
-
     // -------------------------------------------------------------------------
     // Mutable state exposed for test setup
     // -------------------------------------------------------------------------
@@ -47,8 +46,14 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     // Configurable behaviour
     var initializeAction: suspend () -> Unit = { _isInitialized.value = true }
-    var loginSuspendAction: suspend (String, String) -> Result<Unit> = { _, _ -> _isLoggedIn.value = true; Result.Success(Unit) }
-    var loginWithNip07Action: suspend (String) -> Result<Unit> = { _isLoggedIn.value = true; Result.Success(Unit) }
+    var loginSuspendAction: suspend (String, String) -> Result<Unit> = { _, _ ->
+        _isLoggedIn.value = true
+        Result.Success(Unit)
+    }
+    var loginWithNip07Action: suspend (String) -> Result<Unit> = {
+        _isLoggedIn.value = true
+        Result.Success(Unit)
+    }
     var loginWithBunkerAction: suspend (String) -> Result<String> = { Result.Success("pubkey") }
     var leaveGroupAction: suspend (String, String?) -> Result<Unit> = { _, _ -> Result.Success(Unit) }
     var sendMessageAction: suspend (String, String, String?, Map<String, String>, String?) -> Result<Unit> =
@@ -94,18 +99,35 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadata
     override val loadingMembers: StateFlow<Set<String>> = _loadingMembers
 
-    override fun forceInitialized() { _isInitialized.value = true }
-    override suspend fun initialize() { calls += "initialize"; initializeAction() }
+    override fun forceInitialized() {
+        _isInitialized.value = true
+    }
 
-    override fun clearAuthUrl() { _authUrl.value = null }
+    override suspend fun initialize() {
+        calls += "initialize"
+        initializeAction()
+    }
+
+    override fun clearAuthUrl() {
+        _authUrl.value = null
+    }
+
     override fun getPublicKey(): String? = fakePublicKey
+
     override fun getPrivateKey(): String? = fakePrivateKey
+
     override fun isUsingBunker(): Boolean = false
+
     override fun isBunkerReady(): Boolean = false
+
     override suspend fun ensureBunkerConnected(): Boolean = true
+
     override fun forgetBunkerConnection() {}
 
-    override suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit> {
+    override suspend fun loginSuspend(
+        privKey: String,
+        pubKey: String,
+    ): Result<Unit> {
         calls += "loginSuspend"
         return loginSuspendAction(privKey, pubKey)
     }
@@ -120,34 +142,78 @@ class FakeNostrRepository : NostrRepositoryApi {
         return loginWithBunkerAction(bunkerUrl)
     }
 
-    override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, Nip46Client> =
-        error("createNostrConnectSession not implemented in fake")
+    override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, Nip46Client> = error("createNostrConnectSession not implemented in fake")
 
-    override suspend fun completeNostrConnectLogin(client: Nip46Client, relays: List<String>): String =
-        error("completeNostrConnectLogin not implemented in fake")
+    override suspend fun completeNostrConnectLogin(
+        client: Nip46Client,
+        relays: List<String>,
+    ): String = error("completeNostrConnectLogin not implemented in fake")
 
-    override suspend fun logout() { calls += "logout"; _isLoggedIn.value = false }
-    override suspend fun reloadForActiveAccount() { calls += "reloadForActiveAccount" }
+    override suspend fun logout() {
+        calls += "logout"
+        _isLoggedIn.value = false
+    }
+
+    override suspend fun reloadForActiveAccount() {
+        calls += "reloadForActiveAccount"
+    }
 
     var removeRelayAction: suspend (String) -> Unit = { url ->
         _joinedGroupsByRelay.update { it - url }
     }
 
     override suspend fun connect() {}
+
     override suspend fun reconnect(): Boolean = true
+
     override fun triggerReconnect() {}
-    override suspend fun switchRelay(newRelayUrl: String) { _currentRelayUrl.value = newRelayUrl }
-    override suspend fun removeRelay(url: String) { calls += "removeRelay:$url"; removeRelayAction(url) }
+
+    override suspend fun switchRelay(newRelayUrl: String) {
+        _currentRelayUrl.value = newRelayUrl
+    }
+
+    override suspend fun removeRelay(url: String) {
+        calls += "removeRelay:$url"
+        removeRelayAction(url)
+    }
+
     override suspend fun disconnect() {}
 
-    override suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String?, customGroupId: String?): Result<String> =
-        Result.Success(customGroupId ?: "fake-group-id")
-    override suspend fun createSubgroup(parentGroupId: String, name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String?, customGroupId: String?): Result<String> =
-        Result.Success(customGroupId ?: "fake-subgroup-id")
+    override suspend fun createGroup(
+        name: String,
+        about: String?,
+        relayUrl: String,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        picture: String?,
+        customGroupId: String?,
+    ): Result<String> = Result.Success(customGroupId ?: "fake-group-id")
 
-    override suspend fun joinGroup(groupId: String, inviteCode: String?): Result<Unit> = Result.Success(Unit)
-    override suspend fun leaveGroup(groupId: String, reason: String?): Result<Unit> = leaveGroupAction(groupId, reason)
-    override suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit> {
+    override suspend fun createSubgroup(
+        parentGroupId: String,
+        name: String,
+        about: String?,
+        relayUrl: String,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        picture: String?,
+        customGroupId: String?,
+    ): Result<String> = Result.Success(customGroupId ?: "fake-subgroup-id")
+
+    override suspend fun joinGroup(
+        groupId: String,
+        inviteCode: String?,
+    ): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun leaveGroup(
+        groupId: String,
+        reason: String?,
+    ): Result<Unit> = leaveGroupAction(groupId, reason)
+
+    override suspend fun forgetGroup(
+        groupId: String,
+        relayUrl: String,
+    ): Result<Unit> {
         calls += "forgetGroup:$groupId:$relayUrl"
         _joinedGroups.value = _joinedGroups.value - groupId
         _joinedGroupsByRelay.update { current ->
@@ -156,75 +222,187 @@ class FakeNostrRepository : NostrRepositoryApi {
         }
         return Result.Success(Unit)
     }
+
     override val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>> =
         MutableStateFlow(emptyMap())
-    override suspend fun editGroup(groupId: String, name: String, about: String?, isPrivate: Boolean, isClosed: Boolean, picture: String?, parentOp: org.nostr.nostrord.network.managers.GroupManager.ParentOp?, childrenEdit: org.nostr.nostrord.network.managers.GroupManager.ChildrenEdit?): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun editGroup(
+        groupId: String,
+        name: String,
+        about: String?,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        picture: String?,
+        parentOp: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
+        childrenEdit: org.nostr.nostrord.network.managers.GroupManager.ChildrenEdit?,
+    ): Result<Unit> = Result.Success(Unit)
+
     override suspend fun deleteGroup(groupId: String): Result<Unit> = Result.Success(Unit)
+
     override suspend fun updateGroupTopology(
         groupId: String,
-        parent: org.nostr.nostrord.network.managers.GroupManager.ParentOp?
+        parent: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
     ): Result<Unit> = Result.Success(Unit)
+
     override suspend fun updateChildren(
         groupId: String,
         children: List<DeclaredChild>,
-        closedChildren: Boolean
+        closedChildren: Boolean,
     ): Result<Unit> = Result.Success(Unit)
+
     override fun isGroupJoined(groupId: String): Boolean = joinedGroups.value.contains(groupId)
-    override suspend fun requestGroupMessages(groupId: String, channel: String?) {}
+
+    override suspend fun requestGroupMessages(
+        groupId: String,
+        channel: String?,
+    ) {}
+
     override suspend fun requestGroupMembers(groupId: String) {}
+
     override suspend fun requestGroupAdmins(groupId: String) {}
+
     override suspend fun refreshGroupMetadata(groupId: String) {}
+
     override val childrenByParent: StateFlow<Map<String, Set<String>>> = MutableStateFlow(emptyMap())
     override val unverifiedChildren: StateFlow<Set<String>> = MutableStateFlow(emptySet())
-    override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean = false
-    override suspend fun sendMessage(groupId: String, content: String, channel: String?, mentions: Map<String, String>, replyToMessageId: String?, extraTags: List<List<String>>): Result<Unit> =
-        sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
 
-    override suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit> = Result.Success(Unit)
+    override suspend fun loadMoreMessages(
+        groupId: String,
+        channel: String?,
+    ): Boolean = false
 
-    override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> =
-        messages.value[groupId] ?: emptyList()
+    override suspend fun sendMessage(
+        groupId: String,
+        content: String,
+        channel: String?,
+        mentions: Map<String, String>,
+        replyToMessageId: String?,
+        extraTags: List<List<String>>,
+    ): Result<Unit> = sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
+
+    override suspend fun deleteMessage(
+        groupId: String,
+        messageId: String,
+    ): Result<Unit> = Result.Success(Unit)
+
+    override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> = messages.value[groupId] ?: emptyList()
 
     override fun markGroupAsRead(groupId: String) {}
+
     override fun getUnreadCount(groupId: String): Int = unreadCounts.value[groupId] ?: 0
+
     override fun getLastReadTimestamp(groupId: String): Long? = null
 
     override suspend fun requestUserMetadata(pubkeys: Set<String>) {}
-    override suspend fun updateProfileMetadata(displayName: String?, name: String?, about: String?, picture: String?, banner: String?, nip05: String?, lud16: String?, website: String?): Result<Unit> =
-        updateProfileMetadataAction(displayName, name, about, picture, banner, nip05, lud16, website)
 
-    override suspend fun requestEventById(eventId: String, relayHints: List<String>, author: String?) {}
-    override suspend fun requestAddressableEvent(kind: Int, pubkey: String, identifier: String, relays: List<String>) {}
+    override suspend fun updateProfileMetadata(
+        displayName: String?,
+        name: String?,
+        about: String?,
+        picture: String?,
+        banner: String?,
+        nip05: String?,
+        lud16: String?,
+        website: String?,
+    ): Result<Unit> = updateProfileMetadataAction(displayName, name, about, picture, banner, nip05, lud16, website)
+
+    override suspend fun requestEventById(
+        eventId: String,
+        relayHints: List<String>,
+        author: String?,
+    ) {}
+
+    override suspend fun requestAddressableEvent(
+        kind: Int,
+        pubkey: String,
+        identifier: String,
+        relays: List<String>,
+    ) {}
+
     override suspend fun requestQuotedEvent(eventId: String) {}
+
     override suspend fun requestRelayLists(pubkeys: Set<String>) {}
+
     override fun getRelayListForPubkey(pubkey: String): List<Nip65Relay>? = null
-    override fun selectOutboxRelays(authors: List<String>, taggedPubkeys: List<String>, explicitRelays: List<String>): List<String> = emptyList()
+
+    override fun selectOutboxRelays(
+        authors: List<String>,
+        taggedPubkeys: List<String>,
+        explicitRelays: List<String>,
+    ): List<String> = emptyList()
 
     override suspend fun addRelay(url: String) {}
+
     override fun dismissDeepLinkRelay() {}
+
     override fun onForeground() {}
+
     override fun onBackground() {}
+
     override fun onDestroy() {}
+
     override fun setActiveGroup(groupId: String?) {}
-    override suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String>): Result<Unit> = Result.Success(Unit)
-    override suspend fun removeUser(groupId: String, targetPubkey: String): Result<Unit> = Result.Success(Unit)
-    override suspend fun rejectJoinRequest(groupId: String, joinRequestEventId: String): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun addUser(
+        groupId: String,
+        targetPubkey: String,
+        roles: List<String>,
+    ): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun removeUser(
+        groupId: String,
+        targetPubkey: String,
+    ): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun rejectJoinRequest(
+        groupId: String,
+        joinRequestEventId: String,
+    ): Result<Unit> = Result.Success(Unit)
+
     override suspend fun createInviteCode(groupId: String): Result<String> = Result.Success("fake-invite")
-    override suspend fun revokeInviteCode(groupId: String, eventId: String): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun revokeInviteCode(
+        groupId: String,
+        eventId: String,
+    ): Result<Unit> = Result.Success(Unit)
+
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = MutableStateFlow(emptyMap())
     override val restrictedGroups: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
-    override suspend fun sendReaction(groupId: String, targetEventId: String, targetPubkey: String, emoji: String): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun sendReaction(
+        groupId: String,
+        targetEventId: String,
+        targetPubkey: String,
+        emoji: String,
+    ): Result<Unit> = Result.Success(Unit)
+
     override suspend fun publishRelayList(relays: List<Nip65Relay>): Result<Unit> = Result.Success(Unit)
+
     override val isDiscoveringRelays: StateFlow<Boolean> = MutableStateFlow(false)
     override val pendingDeepLinkRelay: StateFlow<String?> = MutableStateFlow(null)
     override val loadingRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
     override val restrictedRelays: StateFlow<Map<String, String>> = MutableStateFlow(emptyMap())
     override val kind10009Relays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
     override val groupTagRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
-    override suspend fun fetchGroupPreview(groupId: String, relayUrl: String) {}
+
+    override suspend fun fetchGroupPreview(
+        groupId: String,
+        relayUrl: String,
+    ) {}
+
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
-    override fun setGroupFetchLazy(relayUrl: String, lazy: Boolean) {}
+
+    override fun setGroupFetchLazy(
+        relayUrl: String,
+        lazy: Boolean,
+    ) {}
+
     override fun isGroupFetchLazy(relayUrl: String): Boolean = false
+
     override suspend fun requestFullGroupListForRelay(relayUrl: String) {}
-    override suspend fun fetchGroupMessageById(groupId: String, messageId: String) {}
+
+    override suspend fun fetchGroupMessageById(
+        groupId: String,
+        messageId: String,
+    ) {}
 }

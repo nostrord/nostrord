@@ -5,10 +5,12 @@ import kotlinx.coroutines.flow.Flow
 enum class NetworkEvent {
     /** Device network became available after being offline. */
     CONNECTED,
+
     /** Device lost all network connectivity. */
     DISCONNECTED,
+
     /** Network interface or IP changed (e.g. WiFi → cellular, VPN toggle). */
-    CHANGED
+    CHANGED,
 }
 
 /**

@@ -5,29 +5,39 @@ package org.nostr.nostrord.nostr
  * Supports npub, nsec, note, nprofile, nevent, naddr
  */
 object Nip19 {
-
     /**
      * Decoded Nostr entity
      */
     sealed class Entity {
-        data class Npub(val pubkey: String) : Entity()
-        data class Nsec(val privkey: String) : Entity()
-        data class Note(val eventId: String) : Entity()
+        data class Npub(
+            val pubkey: String,
+        ) : Entity()
+
+        data class Nsec(
+            val privkey: String,
+        ) : Entity()
+
+        data class Note(
+            val eventId: String,
+        ) : Entity()
+
         data class Nprofile(
             val pubkey: String,
-            val relays: List<String> = emptyList()
+            val relays: List<String> = emptyList(),
         ) : Entity()
+
         data class Nevent(
             val eventId: String,
             val relays: List<String> = emptyList(),
             val author: String? = null,
-            val kind: Int? = null
+            val kind: Int? = null,
         ) : Entity()
+
         data class Naddr(
             val identifier: String,
             val pubkey: String,
             val kind: Int,
-            val relays: List<String> = emptyList()
+            val relays: List<String> = emptyList(),
         ) : Entity()
     }
 
@@ -40,14 +50,21 @@ object Nip19 {
     /**
      * Encode a public key to npub
      */
-    fun encodeNpub(pubkeyHex: String): String {
-        return Bech32.encode("npub", pubkeyHex.hexToByteArray())
-    }
+    fun encodeNpub(pubkeyHex: String): String = Bech32.encode("npub", pubkeyHex.hexToByteArray())
 
     // pubkeyHex: relay's own pubkey from NIP-11; falls back to 32 zero bytes if unknown.
-    fun encodeNaddr(identifier: String, relay: String, kind: Int = 39000, pubkeyHex: String? = null): String {
+    fun encodeNaddr(
+        identifier: String,
+        relay: String,
+        kind: Int = 39000,
+        pubkeyHex: String? = null,
+    ): String {
         val tlv = mutableListOf<Byte>()
-        fun addTLV(type: Int, value: ByteArray) {
+
+        fun addTLV(
+            type: Int,
+            value: ByteArray,
+        ) {
             tlv.add(type.toByte())
             tlv.add(value.size.toByte())
             tlv.addAll(value.toList())
@@ -56,28 +73,27 @@ object Nip19 {
         addTLV(TLV_SPECIAL, identifier.encodeToByteArray())
         addTLV(TLV_RELAY, relay.encodeToByteArray())
         addTLV(TLV_AUTHOR, authorBytes)
-        addTLV(TLV_KIND, byteArrayOf(
-            (kind shr 24).toByte(),
-            (kind shr 16).toByte(),
-            (kind shr 8).toByte(),
-            kind.toByte()
-        ))
+        addTLV(
+            TLV_KIND,
+            byteArrayOf(
+                (kind shr 24).toByte(),
+                (kind shr 16).toByte(),
+                (kind shr 8).toByte(),
+                kind.toByte(),
+            ),
+        )
         return Bech32.encode("naddr", tlv.toByteArray())
     }
 
     /**
      * Encode a private key to nsec
      */
-    fun encodeNsec(privkeyHex: String): String {
-        return Bech32.encode("nsec", privkeyHex.hexToByteArray())
-    }
+    fun encodeNsec(privkeyHex: String): String = Bech32.encode("nsec", privkeyHex.hexToByteArray())
 
     /**
      * Encode an event ID to note
      */
-    fun encodeNote(eventIdHex: String): String {
-        return Bech32.encode("note", eventIdHex.hexToByteArray())
-    }
+    fun encodeNote(eventIdHex: String): String = Bech32.encode("note", eventIdHex.hexToByteArray())
 
     /**
      * Decode any NIP-19 bech32 entity
@@ -159,28 +175,24 @@ object Nip19 {
      * Extract the display-friendly identifier from a nostr: URI
      * Returns the pubkey/eventId in short form or the original if parsing fails
      */
-    fun getDisplayName(entity: Entity): String {
-        return when (entity) {
-            is Entity.Npub -> "@${entity.pubkey.take(8)}..."
-            is Entity.Nsec -> "nsec:${entity.privkey.take(8)}..."
-            is Entity.Note -> "note:${entity.eventId.take(8)}..."
-            is Entity.Nprofile -> "@${entity.pubkey.take(8)}..."
-            is Entity.Nevent -> "event:${entity.eventId.take(8)}..."
-            is Entity.Naddr -> "addr:${entity.identifier.take(12)}..."
-        }
+    fun getDisplayName(entity: Entity): String = when (entity) {
+        is Entity.Npub -> "@${entity.pubkey.take(8)}..."
+        is Entity.Nsec -> "nsec:${entity.privkey.take(8)}..."
+        is Entity.Note -> "note:${entity.eventId.take(8)}..."
+        is Entity.Nprofile -> "@${entity.pubkey.take(8)}..."
+        is Entity.Nevent -> "event:${entity.eventId.take(8)}..."
+        is Entity.Naddr -> "addr:${entity.identifier.take(12)}..."
     }
 
     /**
      * Get the primary identifier (pubkey or event ID) from an entity
      */
-    fun getPrimaryId(entity: Entity): String {
-        return when (entity) {
-            is Entity.Npub -> entity.pubkey
-            is Entity.Nsec -> entity.privkey
-            is Entity.Note -> entity.eventId
-            is Entity.Nprofile -> entity.pubkey
-            is Entity.Nevent -> entity.eventId
-            is Entity.Naddr -> entity.pubkey
-        }
+    fun getPrimaryId(entity: Entity): String = when (entity) {
+        is Entity.Npub -> entity.pubkey
+        is Entity.Nsec -> entity.privkey
+        is Entity.Note -> entity.eventId
+        is Entity.Nprofile -> entity.pubkey
+        is Entity.Nevent -> entity.eventId
+        is Entity.Naddr -> entity.pubkey
     }
 }

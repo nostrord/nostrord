@@ -5,7 +5,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class ConnectionStatsTest {
-
     // ========================================================================
     // 2. Resilience — request avoidance tracking (Checklist item 2)
     // ========================================================================

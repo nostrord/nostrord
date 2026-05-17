@@ -5,14 +5,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.EmojiEmotions
-import androidx.compose.material.icons.outlined.EmojiNature
-import androidx.compose.material.icons.outlined.EmojiFoodBeverage
-import androidx.compose.material.icons.outlined.EmojiTransportation
 import androidx.compose.material.icons.outlined.EmojiEvents
+import androidx.compose.material.icons.outlined.EmojiFoodBeverage
+import androidx.compose.material.icons.outlined.EmojiNature
 import androidx.compose.material.icons.outlined.EmojiObjects
-import androidx.compose.material.icons.outlined.EmojiSymbols
-import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.EmojiPeople
+import androidx.compose.material.icons.outlined.EmojiSymbols
+import androidx.compose.material.icons.outlined.EmojiTransportation
+import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,7 +23,11 @@ import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 
-enum class EmojiGroup(val label: String, val icon: ImageVector, val groupKey: String) {
+enum class EmojiGroup(
+    val label: String,
+    val icon: ImageVector,
+    val groupKey: String,
+) {
     RECENT("Recent", Icons.Outlined.Schedule, ""),
     SMILEYS("Smileys", Icons.Outlined.EmojiEmotions, "Smileys & Emotion"),
     PEOPLE("People", Icons.Outlined.EmojiPeople, "People & Body"),
@@ -40,7 +44,7 @@ enum class EmojiGroup(val label: String, val icon: ImageVector, val groupKey: St
 fun EmojiCategoryBar(
     activeCategory: EmojiGroup,
     onCategoryClick: (EmojiGroup) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val hasRecents = RecentEmojiStore.recents.isNotEmpty()
 
@@ -50,14 +54,18 @@ fun EmojiCategoryBar(
 
             IconButton(
                 onClick = { onCategoryClick(group) },
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(36.dp),
             ) {
                 Icon(
                     imageVector = group.icon,
                     contentDescription = group.label,
-                    tint = if (activeCategory == group) NostrordColors.Primary
-                           else NostrordColors.TextMuted,
-                    modifier = Modifier.size(Spacing.iconMd)
+                    tint =
+                    if (activeCategory == group) {
+                        NostrordColors.Primary
+                    } else {
+                        NostrordColors.TextMuted
+                    },
+                    modifier = Modifier.size(Spacing.iconMd),
                 )
             }
         }

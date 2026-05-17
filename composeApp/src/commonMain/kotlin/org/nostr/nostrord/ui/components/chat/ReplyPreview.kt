@@ -23,8 +23,8 @@ import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -40,19 +40,17 @@ private val NOSTR_EVENT_REGEX = Regex("""nostr:(nevent1[a-zA-Z0-9]+|note1[a-zA-Z
  *
  * Returns both hex event IDs and naddr coordinates (kind:pubkey:identifier format).
  */
-fun extractEmbeddedEventIds(content: String): Set<String> {
-    return NOSTR_EVENT_REGEX.findAll(content)
-        .mapNotNull { match ->
-            val bech32 = match.groupValues[1]
-            when (val entity = Nip19.decode(bech32)) {
-                is Nip19.Entity.Nevent -> entity.eventId
-                is Nip19.Entity.Note -> entity.eventId
-                is Nip19.Entity.Naddr -> "${entity.kind}:${entity.pubkey}:${entity.identifier}"
-                else -> null
-            }
+fun extractEmbeddedEventIds(content: String): Set<String> = NOSTR_EVENT_REGEX
+    .findAll(content)
+    .mapNotNull { match ->
+        val bech32 = match.groupValues[1]
+        when (val entity = Nip19.decode(bech32)) {
+            is Nip19.Entity.Nevent -> entity.eventId
+            is Nip19.Entity.Note -> entity.eventId
+            is Nip19.Entity.Naddr -> "${entity.kind}:${entity.pubkey}:${entity.identifier}"
+            else -> null
         }
-        .toSet()
-}
+    }.toSet()
 
 /**
  * Extract the parent event ID from a message's tags for REPLY threading.
@@ -78,9 +76,10 @@ fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
 
     // 1. Check for "q" tag (quoted reply)
     // Can be either 64-char hex event ID or naddr coordinate (kind:pubkey:identifier)
-    val qTag = message.tags.find { tag ->
-        tag.size >= 2 && tag[0] == "q" && tag[1].isNotBlank()
-    }
+    val qTag =
+        message.tags.find { tag ->
+            tag.size >= 2 && tag[0] == "q" && tag[1].isNotBlank()
+        }
     if (qTag != null) {
         val reference = qTag[1]
         // Skip if already embedded in content (will be shown as inline quote)
@@ -100,9 +99,10 @@ fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
     }
 
     // 2. Check for "e" tag with "reply" marker (legacy format)
-    val replyMarkerTag = message.tags.find { tag ->
-        tag.size >= 4 && tag[0] == "e" && tag[3] == "reply"
-    }
+    val replyMarkerTag =
+        message.tags.find { tag ->
+            tag.size >= 4 && tag[0] == "e" && tag[3] == "reply"
+        }
     if (replyMarkerTag != null) {
         val eventId = replyMarkerTag[1]
         if (eventId in embeddedEventIds) {
@@ -114,9 +114,10 @@ fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
     }
 
     // 3. Check for plain "e" tag (fallback)
-    val eTag = message.tags.find { tag ->
-        tag.size >= 2 && tag[0] == "e" && tag[1].length == 64
-    }
+    val eTag =
+        message.tags.find { tag ->
+            tag.size >= 2 && tag[0] == "e" && tag[1].length == 64
+        }
     if (eTag != null) {
         val eventId = eTag[1]
         if (eventId in embeddedEventIds) {
@@ -131,9 +132,7 @@ fun getReplyParentId(message: NostrGroupClient.NostrMessage): String? {
 /**
  * Check if a message is a reply to another message.
  */
-fun isReply(message: NostrGroupClient.NostrMessage): Boolean {
-    return getReplyParentId(message) != null
-}
+fun isReply(message: NostrGroupClient.NostrMessage): Boolean = getReplyParentId(message) != null
 
 /**
  * Compact reply preview shown above a message that is replying to another message.
@@ -145,47 +144,50 @@ fun ReplyPreview(
     parentMetadata: UserMetadata?,
     resolveMetadata: (String) -> UserMetadata? = { null },
     onReplyClick: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     if (parentMessage == null) {
         // Parent message not found - show placeholder
         ReplyPreviewContainer(
             onClick = onReplyClick,
-            modifier = modifier
+            modifier = modifier,
         ) {
             Text(
                 text = "Replying to a message...",
                 color = NostrordColors.TextMuted,
                 style = NostrordTypography.Caption,
-                maxLines = 1
+                maxLines = 1,
             )
         }
         return
     }
 
-    val authorName = parentMetadata?.displayName
-        ?: parentMetadata?.name
-        ?: parentMessage.pubkey.take(8) + "..."
+    val authorName =
+        parentMetadata?.displayName
+            ?: parentMetadata?.name
+            ?: parentMessage.pubkey.take(8) + "..."
 
     // Request metadata for any pubkeys mentioned in the content
     LaunchedEffect(parentMessage.content) {
-        val pubkeysToFetch = extractPubkeysFromContent(parentMessage.content)
-            .filter { resolveMetadata(it) == null }
-            .toSet()
+        val pubkeysToFetch =
+            extractPubkeysFromContent(parentMessage.content)
+                .filter { resolveMetadata(it) == null }
+                .toSet()
         if (pubkeysToFetch.isNotEmpty()) {
             AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
         }
     }
 
     // Process mentions in content to show @name instead of nostr:npub...
-    val processedContent = remember(parentMessage.content) {
-        processMentionsInContent(parentMessage.content, resolveMetadata)
-            .replace('\n', ' ')
-    }
+    val processedContent =
+        remember(parentMessage.content) {
+            processMentionsInContent(parentMessage.content, resolveMetadata)
+                .replace('\n', ' ')
+        }
 
     ReplyPreviewContainer(
         onClick = onReplyClick,
-        modifier = modifier
+        modifier = modifier,
     ) {
         // Author name
         Text(
@@ -194,7 +196,7 @@ fun ReplyPreview(
             style = NostrordTypography.Caption,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
 
         Spacer(modifier = Modifier.height(2.dp))
@@ -205,7 +207,7 @@ fun ReplyPreview(
             color = NostrordColors.TextSecondary,
             style = NostrordTypography.Caption,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -217,36 +219,39 @@ fun ReplyPreview(
 private fun ReplyPreviewContainer(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     Row(
-        modifier = modifier
+        modifier =
+        modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(4.dp))
             .background(NostrordColors.Surface.copy(alpha = 0.5f))
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand, overrideDescendants = true)
             .padding(vertical = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Left accent bar
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .width(3.dp)
                 .height(32.dp)
                 .background(
                     color = NostrordColors.Primary,
-                    shape = RoundedCornerShape(1.5.dp)
-                )
+                    shape = RoundedCornerShape(1.5.dp),
+                ),
         )
 
         Spacer(modifier = Modifier.width(Spacing.sm))
 
         // Content
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .weight(1f)
-                .padding(end = Spacing.sm)
+                .padding(end = Spacing.sm),
         ) {
             content()
         }

@@ -31,7 +31,7 @@ actual fun AnimatedImage(
     modifier: Modifier,
     contentScale: ContentScale,
     onClick: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
     var loadError by remember(url) { mutableStateOf(false) }
@@ -39,7 +39,9 @@ actual fun AnimatedImage(
     if (loadError) return
 
     AsyncImage(
-        model = ImageRequest.Builder(context)
+        model =
+        ImageRequest
+            .Builder(context)
             .data(getImageUrl(url))
             .crossfade(false)
             .memoryCachePolicy(CachePolicy.ENABLED)
@@ -53,6 +55,6 @@ actual fun AnimatedImage(
                 loadError = true
                 onError()
             }
-        }
+        },
     )
 }

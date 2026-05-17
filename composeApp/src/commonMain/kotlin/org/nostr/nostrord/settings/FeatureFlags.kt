@@ -14,9 +14,10 @@ import org.nostr.nostrord.storage.SecureStorage
  * but UI entry points stay hidden until the user opts in.
  */
 class FeatureFlags {
-    private val _subgroupsEnabled = MutableStateFlow(
-        SecureStorage.getBooleanPref(KEY_SUBGROUPS_ENABLED, default = false)
-    )
+    private val _subgroupsEnabled =
+        MutableStateFlow(
+            SecureStorage.getBooleanPref(KEY_SUBGROUPS_ENABLED, default = false),
+        )
 
     /** NIP-29 subgroups (draft) — parent/child hierarchy, create subgroup, manage children. */
     val subgroupsEnabled: StateFlow<Boolean> = _subgroupsEnabled.asStateFlow()

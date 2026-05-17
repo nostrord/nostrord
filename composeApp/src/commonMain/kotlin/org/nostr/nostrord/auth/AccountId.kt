@@ -9,6 +9,8 @@ import kotlin.jvm.JvmInline
  * an account ID is expected at the call site.
  */
 @JvmInline
-value class AccountId(val value: String) {
+value class AccountId(
+    val value: String,
+) {
     override fun toString(): String = value
 }

@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -22,37 +24,34 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
-import org.nostr.nostrord.utils.rememberClipboardWriter
-import org.nostr.nostrord.utils.rememberTextSharer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import org.nostr.nostrord.ui.components.chat.DateSeparator
 import org.nostr.nostrord.ui.components.chat.ImageViewerModal
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
@@ -61,13 +60,14 @@ import org.nostr.nostrord.ui.components.chat.MessageItem
 import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
 import org.nostr.nostrord.ui.components.chat.ZapEventItem
-import org.nostr.nostrord.ui.util.buildShareMessageLink
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
-import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.util.buildShareMessageLink
+import org.nostr.nostrord.utils.rememberClipboardWriter
+import org.nostr.nostrord.utils.rememberTextSharer
 
 /**
  * Messages list with infinite scroll pagination.
@@ -98,7 +98,7 @@ fun MessagesList(
     onReachedBottom: () -> Unit = {},
     targetMessageId: String? = null,
     onTargetConsumed: () -> Unit = {},
-    onFetchTargetById: (String) -> Unit = {}
+    onFetchTargetById: (String) -> Unit = {},
 ) {
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
@@ -119,13 +119,14 @@ fun MessagesList(
 
     // Initialize at the bottom so the chat opens at the newest messages.
     val hasItems = chatItems.isNotEmpty()
-    val listState = remember(groupId, hasItems) {
-        if (hasItems) {
-            LazyListState(firstVisibleItemIndex = chatItems.lastIndex)
-        } else {
-            LazyListState()
+    val listState =
+        remember(groupId, hasItems) {
+            if (hasItems) {
+                LazyListState(firstVisibleItemIndex = chatItems.lastIndex)
+            } else {
+                LazyListState()
+            }
         }
-    }
 
     val scrollStateHolder = rememberScrollStateHolder(groupId)
 
@@ -150,7 +151,7 @@ fun MessagesList(
         items = chatItems,
         stateHolder = scrollStateHolder,
         getItemKey = ::getItemKey,
-        initialScrollToEnd = !isSeekingTarget
+        initialScrollToEnd = !isSeekingTarget,
     )
 
     AutoScrollEffect(
@@ -162,7 +163,7 @@ fun MessagesList(
             item is ChatItem.Message &&
                 currentUserPubkey != null &&
                 item.message.pubkey == currentUserPubkey
-        }
+        },
     )
 
     // Fetch by ID immediately — covers cursor-drift misses independently of pagination.
@@ -207,7 +208,11 @@ fun MessagesList(
     // hasMoreMessages and isLoadingMore are keys so the effect re-fires on the
     // InitialLoading→HasMore transition (state change without chatItems.size changing).
     LaunchedEffect(chatItems.size, targetMessageId, hasMoreMessages, isLoadingMore) {
-        val id = targetMessageId ?: run { seekScrollApplied = false; return@LaunchedEffect }
+        val id =
+            targetMessageId ?: run {
+                seekScrollApplied = false
+                return@LaunchedEffect
+            }
         val idx = chatItems.indexOfFirst { it is ChatItem.Message && it.message.id == id }
         when {
             idx >= 0 -> {
@@ -270,12 +275,10 @@ fun MessagesList(
             val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: Int.MAX_VALUE
             val totalItems = layoutInfo.totalItemsCount
             Triple(firstVisibleItem, totalItems, currentHasMore && !currentIsLoadingMore && totalItems > 0)
-        }
-            .distinctUntilChanged()
+        }.distinctUntilChanged()
             .filter { (firstVisible, _, canLoad) ->
                 firstVisible <= 5 && canLoad
-            }
-            .collect {
+            }.collect {
                 currentOnLoadMore()
             }
     }
@@ -289,8 +292,7 @@ fun MessagesList(
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             val total = layoutInfo.totalItemsCount
             lastVisible >= 0 && total > 0 && lastVisible >= total - 2
-        }
-            .distinctUntilChanged()
+        }.distinctUntilChanged()
             .debounce(500)
             .filter { it }
             .collect { currentOnReachedBottom() }
@@ -298,253 +300,265 @@ fun MessagesList(
 
     CompositionLocalProvider(
         LocalAnimatedImageHidden provides (parentHidden || imageViewerUrl.value != null),
-        LocalImageViewerUrl provides imageViewerUrl
+        LocalImageViewerUrl provides imageViewerUrl,
     ) {
-    when {
-        isPendingApproval || isGroupRestricted -> {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = null,
-                    tint = NostrordColors.TextMuted,
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    if (isPendingApproval) "Awaiting admin approval" else "Private group",
-                    color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    if (isPendingApproval)
-                        "Messages will appear once an admin approves your request."
-                    else
-                        "You need an invite code or admin approval to see messages.",
-                    color = NostrordColors.TextMuted,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-        isInitialLoading && chatItems.isEmpty() -> {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(32.dp),
-                        color = NostrordColors.Primary,
-                        strokeWidth = 2.5.dp
+        when {
+            isPendingApproval || isGroupRestricted -> {
+                Column(
+                    modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = NostrordColors.TextMuted,
+                        modifier = Modifier.size(40.dp),
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Loading messages…",
+                        if (isPendingApproval) "Awaiting admin approval" else "Private group",
+                        color = NostrordColors.TextSecondary,
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        if (isPendingApproval) {
+                            "Messages will appear once an admin approves your request."
+                        } else {
+                            "You need an invite code or admin approval to see messages."
+                        },
                         color = NostrordColors.TextMuted,
-                        fontSize = 13.sp
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
-        }
-        chatItems.isEmpty() -> {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    "No messages yet",
-                    color = NostrordColors.TextSecondary,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    if (isJoined) "Be the first to send a message!" else "Join the group to participate!",
-                    color = NostrordColors.TextMuted,
-                    style = MaterialTheme.typography.bodySmall
-                )
+            isInitialLoading && chatItems.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(32.dp),
+                            color = NostrordColors.Primary,
+                            strokeWidth = 2.5.dp,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Loading messages…",
+                            color = NostrordColors.TextMuted,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
             }
-        }
-        else -> {
-            SelectionContainer {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = Spacing.sm),
-                        verticalArrangement = Arrangement.spacedBy(0.dp)
-                    ) {
-                        itemsIndexed(
-                            items = chatItems,
-                            key = { _, item -> getItemKey(item) },
-                            contentType = { _, item ->
+            chatItems.isEmpty() -> {
+                Column(
+                    modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text(
+                        "No messages yet",
+                        color = NostrordColors.TextSecondary,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        if (isJoined) "Be the first to send a message!" else "Join the group to participate!",
+                        color = NostrordColors.TextMuted,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            else -> {
+                SelectionContainer {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(vertical = Spacing.sm),
+                            verticalArrangement = Arrangement.spacedBy(0.dp),
+                        ) {
+                            itemsIndexed(
+                                items = chatItems,
+                                key = { _, item -> getItemKey(item) },
+                                contentType = { _, item ->
+                                    when (item) {
+                                        is ChatItem.DateSeparator -> "date_separator"
+                                        is ChatItem.NewMessagesDivider -> "new_messages_divider"
+                                        is ChatItem.SystemEvent -> "system_event"
+                                        is ChatItem.Message -> "message"
+                                        is ChatItem.ZapEvent -> "zap_event"
+                                    }
+                                },
+                            ) { _, item ->
                                 when (item) {
-                                    is ChatItem.DateSeparator -> "date_separator"
-                                    is ChatItem.NewMessagesDivider -> "new_messages_divider"
-                                    is ChatItem.SystemEvent -> "system_event"
-                                    is ChatItem.Message -> "message"
-                                    is ChatItem.ZapEvent -> "zap_event"
+                                    is ChatItem.DateSeparator -> DateSeparator(item.date)
+                                    is ChatItem.NewMessagesDivider -> NewMessagesDivider()
+                                    is ChatItem.SystemEvent ->
+                                        SystemEventItem(
+                                            pubkey = item.pubkey,
+                                            action = item.action,
+                                            createdAt = item.createdAt,
+                                            metadata = userMetadata[item.pubkey],
+                                            additionalUsers = item.additionalUsers,
+                                            allUserMetadata = userMetadata,
+                                        )
+                                    is ChatItem.Message ->
+                                        MessageItem(
+                                            message = item.message,
+                                            metadata = userMetadata[item.message.pubkey],
+                                            resolveReplyMessage = { id -> messages.find { it.id == id } },
+                                            resolveMetadata = { pubkey -> userMetadata[pubkey] },
+                                            isFirstInGroup = item.isFirstInGroup,
+                                            isLastInGroup = item.isLastInGroup,
+                                            reactions = reactions[item.message.id] ?: emptyMap(),
+                                            isAuthor = currentUserPubkey != null && item.message.pubkey == currentUserPubkey,
+                                            currentUserPubkey = currentUserPubkey,
+                                            currentGroupId = groupId,
+                                            currentRelayUrl = currentRelayUrl,
+                                            onUsernameClick = currentOnUsernameClick,
+                                            onReplyClick = { currentOnReplyClick(item.message) },
+                                            onReactionClick = { reactingToMessageId = item.message.id },
+                                            onDeleteMessage = { onDeleteMessage(item.message) },
+                                            onReactionBadgeClick = { emoji ->
+                                                onReactionBadgeClick(item.message.id, emoji)
+                                            },
+                                            onScrollToMessage = { id -> internalScrollTarget = id },
+                                            onNavigateToGroup = onNavigateToGroup,
+                                            isHighlighted = item.message.id == highlightedMessageId,
+                                            onCopyLink = {
+                                                val relay = currentRelayUrl ?: return@MessageItem
+                                                copyToClipboard(buildShareMessageLink(relay, groupId, item.message.id))
+                                            },
+                                            onShareLink = {
+                                                val relay = currentRelayUrl ?: return@MessageItem
+                                                shareText(buildShareMessageLink(relay, groupId, item.message.id))
+                                            },
+                                            onCopyJson = {
+                                                val msg = item.message
+                                                val json =
+                                                    buildJsonObject {
+                                                        put("id", msg.id)
+                                                        put("pubkey", msg.pubkey)
+                                                        put("created_at", msg.createdAt)
+                                                        put("kind", msg.kind)
+                                                        put(
+                                                            "tags",
+                                                            buildJsonArray {
+                                                                msg.tags.forEach { tag ->
+                                                                    add(
+                                                                        buildJsonArray {
+                                                                            tag.forEach { add(JsonPrimitive(it)) }
+                                                                        },
+                                                                    )
+                                                                }
+                                                            },
+                                                        )
+                                                        put("content", msg.content)
+                                                    }.toString()
+                                                copyToClipboard(json)
+                                            },
+                                        )
+                                    is ChatItem.ZapEvent ->
+                                        ZapEventItem(
+                                            senderPubkey = item.senderPubkey,
+                                            recipientPubkey = item.recipientPubkey,
+                                            amount = item.amount,
+                                            content = item.content,
+                                            senderMetadata = userMetadata[item.senderPubkey],
+                                            recipientMetadata = userMetadata[item.recipientPubkey],
+                                            onSenderClick = currentOnUsernameClick,
+                                            onRecipientClick = currentOnUsernameClick,
+                                        )
                                 }
                             }
-                        ) { _, item ->
-                            when (item) {
-                                is ChatItem.DateSeparator -> DateSeparator(item.date)
-                                is ChatItem.NewMessagesDivider -> NewMessagesDivider()
-                                is ChatItem.SystemEvent -> SystemEventItem(
-                                    pubkey = item.pubkey,
-                                    action = item.action,
-                                    createdAt = item.createdAt,
-                                    metadata = userMetadata[item.pubkey],
-                                    additionalUsers = item.additionalUsers,
-                                    allUserMetadata = userMetadata
+                        }
+
+                        VerticalScrollbarWrapper(
+                            listState = listState,
+                            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
+                        )
+
+                        AnimatedVisibility(
+                            visible = isLoadingMore && hasMoreMessages,
+                            enter = fadeIn(),
+                            exit = fadeOut(),
+                            modifier = Modifier.align(Alignment.TopCenter),
+                        ) {
+                            Row(
+                                modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(NostrordColors.Background.copy(alpha = 0.85f))
+                                    .padding(vertical = 6.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    color = NostrordColors.TextMuted,
+                                    strokeWidth = 1.5.dp,
                                 )
-                                is ChatItem.Message -> MessageItem(
-                                    message = item.message,
-                                    metadata = userMetadata[item.message.pubkey],
-                                    resolveReplyMessage = { id -> messages.find { it.id == id } },
-                                    resolveMetadata = { pubkey -> userMetadata[pubkey] },
-                                    isFirstInGroup = item.isFirstInGroup,
-                                    isLastInGroup = item.isLastInGroup,
-                                    reactions = reactions[item.message.id] ?: emptyMap(),
-                                    isAuthor = currentUserPubkey != null && item.message.pubkey == currentUserPubkey,
-                                    currentUserPubkey = currentUserPubkey,
-                                    currentGroupId = groupId,
-                                    currentRelayUrl = currentRelayUrl,
-                                    onUsernameClick = currentOnUsernameClick,
-                                    onReplyClick = { currentOnReplyClick(item.message) },
-                                    onReactionClick = { reactingToMessageId = item.message.id },
-                                    onDeleteMessage = { onDeleteMessage(item.message) },
-                                    onReactionBadgeClick = { emoji ->
-                                        onReactionBadgeClick(item.message.id, emoji)
-                                    },
-                                    onScrollToMessage = { id -> internalScrollTarget = id },
-                                    onNavigateToGroup = onNavigateToGroup,
-                                    isHighlighted = item.message.id == highlightedMessageId,
-                                    onCopyLink = {
-                                        val relay = currentRelayUrl ?: return@MessageItem
-                                        copyToClipboard(buildShareMessageLink(relay, groupId, item.message.id))
-                                    },
-                                    onShareLink = {
-                                        val relay = currentRelayUrl ?: return@MessageItem
-                                        shareText(buildShareMessageLink(relay, groupId, item.message.id))
-                                    },
-                                    onCopyJson = {
-                                        val msg = item.message
-                                        val json = buildJsonObject {
-                                            put("id", msg.id)
-                                            put("pubkey", msg.pubkey)
-                                            put("created_at", msg.createdAt)
-                                            put("kind", msg.kind)
-                                            put("tags", buildJsonArray {
-                                                msg.tags.forEach { tag ->
-                                                    add(buildJsonArray {
-                                                        tag.forEach { add(JsonPrimitive(it)) }
-                                                    })
-                                                }
-                                            })
-                                            put("content", msg.content)
-                                        }.toString()
-                                        copyToClipboard(json)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Loading messages…",
+                                    color = NostrordColors.TextMuted,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = scrollStateHolder.isScrolledAway,
+                            enter = fadeIn(),
+                            exit = fadeOut(),
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
+                        ) {
+                            SmallFloatingActionButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        val lastIndex = chatItems.lastIndex
+                                        val distance = lastIndex - listState.firstVisibleItemIndex
+                                        if (distance <= 30) {
+                                            listState.animateScrollToItem(lastIndex)
+                                        } else {
+                                            listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+                                        }
                                     }
-                                )
-                                is ChatItem.ZapEvent -> ZapEventItem(
-                                    senderPubkey = item.senderPubkey,
-                                    recipientPubkey = item.recipientPubkey,
-                                    amount = item.amount,
-                                    content = item.content,
-                                    senderMetadata = userMetadata[item.senderPubkey],
-                                    recipientMetadata = userMetadata[item.recipientPubkey],
-                                    onSenderClick = currentOnUsernameClick,
-                                    onRecipientClick = currentOnUsernameClick
+                                },
+                                containerColor = NostrordColors.Primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Jump to latest message",
                                 )
                             }
                         }
                     }
-
-                    VerticalScrollbarWrapper(
-                        listState = listState,
-                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-                    )
-
-                    AnimatedVisibility(
-                        visible = isLoadingMore && hasMoreMessages,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(NostrordColors.Background.copy(alpha = 0.85f))
-                                .padding(vertical = 6.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                color = NostrordColors.TextMuted,
-                                strokeWidth = 1.5.dp
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Loading messages…",
-                                color = NostrordColors.TextMuted,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-
-                    AnimatedVisibility(
-                        visible = scrollStateHolder.isScrolledAway,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp)
-                    ) {
-                        SmallFloatingActionButton(
-                            onClick = {
-                                coroutineScope.launch {
-                                    val lastIndex = chatItems.lastIndex
-                                    val distance = lastIndex - listState.firstVisibleItemIndex
-                                    if (distance <= 30) {
-                                        listState.animateScrollToItem(lastIndex)
-                                    } else {
-                                        listState.scrollToItem(lastIndex, Int.MAX_VALUE)
-                                    }
-                                }
-                            },
-                            containerColor = NostrordColors.Primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Jump to latest message"
-                            )
-                        }
-                    }
-
                 }
             }
         }
-    }
     } // CompositionLocalProvider
 
     // Image viewer modal — rendered at MessagesList level so ALL animated images are hidden
     imageViewerUrl.value?.let { url ->
         ImageViewerModal(
             imageUrl = url,
-            onDismiss = { imageViewerUrl.value = null }
+            onDismiss = { imageViewerUrl.value = null },
         )
     }
 
@@ -553,20 +567,22 @@ fun MessagesList(
         Popup(
             alignment = Alignment.Center,
             onDismissRequest = { reactingToMessageId = null },
-            properties = PopupProperties(
+            properties =
+            PopupProperties(
                 focusable = true,
                 dismissOnClickOutside = false,
-                dismissOnBackPress = true
-            )
+                dismissOnBackPress = true,
+            ),
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = { reactingToMessageId = null }
-                    )
+                        onClick = { reactingToMessageId = null },
+                    ),
             ) {
                 EmojiPicker(
                     onEmojiSelect = { emoji ->
@@ -577,7 +593,7 @@ fun MessagesList(
                         reactingToMessageId = null
                     },
                     onDismiss = { reactingToMessageId = null },
-                    modifier = Modifier.align(Alignment.Center)
+                    modifier = Modifier.align(Alignment.Center),
                 )
             }
         }

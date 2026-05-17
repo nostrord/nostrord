@@ -4,24 +4,18 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.nostr.nostrord.nostr.Event
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ActiveAccountManagerTest {
-
     @AfterTest
     fun teardown() {
         // Ensure each test starts with a clean slate. runTest is synchronous
@@ -32,7 +26,10 @@ class ActiveAccountManagerTest {
     // Helpers
     // -------------------------------------------------------------------------
 
-    private fun makeSession(pubkey: String, token: Long = 1L): AccountSession {
+    private fun makeSession(
+        pubkey: String,
+        token: Long = 1L,
+    ): AccountSession {
         val signer = FakeSigner(pubkey)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         return AccountSession(
@@ -164,7 +161,9 @@ class ActiveAccountManagerTest {
 // Test doubles
 // -------------------------------------------------------------------------
 
-private class FakeSigner(override val pubkey: String) : NostrSigner {
+private class FakeSigner(
+    override val pubkey: String,
+) : NostrSigner {
     var disposed = false
     var signingThrows: Exception? = null
 
@@ -174,5 +173,7 @@ private class FakeSigner(override val pubkey: String) : NostrSigner {
         return event
     }
 
-    override fun dispose() { disposed = true }
+    override fun dispose() {
+        disposed = true
+    }
 }

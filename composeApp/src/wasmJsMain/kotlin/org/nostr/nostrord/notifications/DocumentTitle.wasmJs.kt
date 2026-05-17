@@ -1,4 +1,5 @@
 @file:OptIn(ExperimentalWasmJsInterop::class)
+
 package org.nostr.nostrord.notifications
 
 import kotlin.js.ExperimentalWasmJsInterop

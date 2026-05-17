@@ -6,18 +6,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.js.ExperimentalWasmJsInterop
 
 // Stores the File object in a JS-side cache (__nc) and returns just a key.
 // This avoids reading the file into Kotlin/Wasm memory entirely, preventing
 // the 6-8x memory amplification that occurs with the base64 round-trip.
-@JsFun("""(accept) => new Promise((resolve) => {
+@JsFun(
+    """(accept) => new Promise((resolve) => {
     if (!globalThis.__nc) { globalThis.__nc = new Map(); globalThis.__ncSeq = 0; }
     const SUPPORTED = new Set([
         'image/jpeg','image/png','image/gif','image/webp','image/avif',
@@ -47,10 +48,13 @@ import kotlinx.serialization.json.jsonPrimitive
 
     document.body.appendChild(input);
     input.click();
-})""")
+})""",
+)
 private external fun jsPickFile(accept: JsString): kotlin.js.Promise<JsString?>
 
-actual class MediaPickerLauncher(private val doLaunch: () -> Unit) {
+actual class MediaPickerLauncher(
+    private val doLaunch: () -> Unit,
+) {
     actual fun launch() = doLaunch()
 }
 
@@ -59,16 +63,17 @@ actual fun rememberMediaPickerLauncher(
     accept: MediaAccept,
     onPickStart: () -> Unit,
     onError: (String) -> Unit,
-    onFilePicked: (ByteArray, String) -> Unit
+    onFilePicked: (ByteArray, String) -> Unit,
 ): MediaPickerLauncher {
     val scope = rememberCoroutineScope()
     val currentCallback = rememberUpdatedState(onFilePicked)
     val currentPickStart = rememberUpdatedState(onPickStart)
     val currentOnError = rememberUpdatedState(onError)
-    val acceptAttr = when (accept) {
-        MediaAccept.Images            -> "image/*"
-        MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,video/webm,audio/*"
-    }.toJsString()
+    val acceptAttr =
+        when (accept) {
+            MediaAccept.Images -> "image/*"
+            MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,video/webm,audio/*"
+        }.toJsString()
     return remember(acceptAttr) {
         MediaPickerLauncher {
             scope.launch {
@@ -80,19 +85,24 @@ actual fun rememberMediaPickerLauncher(
                     if (error != null) {
                         when (error) {
                             "unsupported_type" -> currentOnError.value("This file type is not supported.\n\n$SUPPORTED_FORMATS_MESSAGE")
-                            "too_large"        -> currentOnError.value("This file is too large. The maximum upload size is 20 MB.")
+                            "too_large" -> currentOnError.value("This file is too large. The maximum upload size is 20 MB.")
                         }
                         return@launch
                     }
                     currentPickStart.value()
                     val name = json["name"]?.jsonPrimitive?.contentOrNull ?: return@launch
                     val mime = json["mime"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream"
-                    val key  = json["key"]?.jsonPrimitive?.contentOrNull ?: return@launch
+                    val key = json["key"]?.jsonPrimitive?.contentOrNull ?: return@launch
                     currentCallback.value(ByteArray(0), blobRef(mime, name, key))
-                } catch (_: Throwable) {}
+                } catch (_: Throwable) {
+                }
             }
         }
     }
 }
 
-internal fun blobRef(mime: String, name: String, key: String) = "nostrord-blob|$mime|$name|$key"
+internal fun blobRef(
+    mime: String,
+    name: String,
+    key: String,
+) = "nostrord-blob|$mime|$name|$key"

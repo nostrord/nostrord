@@ -9,7 +9,7 @@ import androidx.compose.ui.Modifier
 @Composable
 actual fun VerticalScrollbarWrapper(
     listState: LazyListState,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     // No-op on iOS - native scrolling handles this
 }
@@ -17,7 +17,7 @@ actual fun VerticalScrollbarWrapper(
 @Composable
 actual fun VerticalScrollbarWrapper(
     scrollState: ScrollState,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     // No-op on iOS
 }
@@ -25,7 +25,7 @@ actual fun VerticalScrollbarWrapper(
 @Composable
 actual fun VerticalScrollbarWrapper(
     gridState: LazyGridState,
-    modifier: Modifier
+    modifier: Modifier,
 ) {
     // No-op on iOS
 }

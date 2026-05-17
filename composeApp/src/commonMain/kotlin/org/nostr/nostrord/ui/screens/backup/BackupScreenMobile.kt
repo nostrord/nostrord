@@ -27,15 +27,16 @@ fun BackupScreenMobile(
     publicKey: String?,
     showCopiedMessage: Boolean,
     onCopyPublicKey: () -> Unit,
-    onCopyPrivateKey: () -> Unit
+    onCopyPrivateKey: () -> Unit,
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Backup Keys", color = Color.White) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = NostrordColors.BackgroundDark
-                )
+                colors =
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = NostrordColors.BackgroundDark,
+                ),
             )
         },
         containerColor = NostrordColors.Background,
@@ -43,45 +44,47 @@ fun BackupScreenMobile(
             if (showCopiedMessage) {
                 Snackbar(
                     modifier = Modifier.padding(16.dp),
-                    containerColor = NostrordColors.Success
+                    containerColor = NostrordColors.Success,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Default.Check,
                             contentDescription = "Success",
                             tint = Color.White,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(16.dp),
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Copied to clipboard", color = Color.White, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-        }
+        },
     ) { paddingValues ->
         Column(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Warning icon
             Icon(
                 Icons.Default.Warning,
                 contentDescription = "Warning",
                 tint = NostrordColors.WarningOrange,
-                modifier = Modifier
+                modifier =
+                Modifier
                     .size(48.dp)
-                    .padding(8.dp)
+                    .padding(8.dp),
             )
 
             Text(
                 "Backup Your Keys",
                 color = Color.White,
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -101,7 +104,7 @@ fun BackupScreenMobile(
                     buttonText = "Copy Public Key",
                     buttonColor = NostrordColors.Primary,
                     onCopy = onCopyPublicKey,
-                    isCompact = true
+                    isCompact = true,
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -117,7 +120,7 @@ fun BackupScreenMobile(
                     buttonColor = NostrordColors.Error,
                     onCopy = onCopyPrivateKey,
                     isCompact = true,
-                    showSecretBadge = true
+                    showSecretBadge = true,
                 )
             } else {
                 NoKeyCard()
@@ -130,11 +133,12 @@ fun BackupScreenMobile(
                 title = "Security Tips",
                 titleColor = NostrordColors.Warning,
                 icon = Icons.Default.Lightbulb,
-                content = "1. Write it down and store safely\n" +
-                        "2. Use a password manager\n" +
-                        "3. Never store in plain text\n" +
-                        "4. Never send via messages",
-                isCompact = true
+                content =
+                "1. Write it down and store safely\n" +
+                    "2. Use a password manager\n" +
+                    "3. Never store in plain text\n" +
+                    "4. Never send via messages",
+                isCompact = true,
             )
         }
     }

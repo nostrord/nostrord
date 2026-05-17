@@ -2,8 +2,8 @@
 
 package org.nostr.nostrord.nostr
 
-import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.coroutines.await
+import kotlin.js.ExperimentalWasmJsInterop
 
 @JsFun("() => typeof window !== 'undefined' && typeof window.nostr !== 'undefined' && window.nostr !== null")
 private external fun jsIsNip07Available(): Boolean
@@ -15,7 +15,6 @@ private external fun jsGetPublicKey(): kotlin.js.Promise<JsString>
 private external fun jsSignEvent(eventJson: String): kotlin.js.Promise<JsString>
 
 actual object Nip07 {
-
     actual fun isAvailable(): Boolean = jsIsNip07Available()
 
     actual suspend fun getPublicKey(): String {

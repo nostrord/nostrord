@@ -10,19 +10,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.ConnectionStats
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
-import org.nostr.nostrord.network.managers.ConnectionStats
 import org.nostr.nostrord.network.managers.OutboxManager
 import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.RelayReconnectScheduler
@@ -30,11 +31,9 @@ import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
-import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearCurrentRelayUrlFor
-import org.nostr.nostrord.storage.clearRelayListFor
 import org.nostr.nostrord.storage.getLastActiveAt
 import org.nostr.nostrord.storage.isGroupFetchLazy
 import org.nostr.nostrord.storage.loadRelayListFor
@@ -66,7 +65,7 @@ class NostrRepository(
     private val liveCursorStore: LiveCursorStore? = null,
     private val connStats: ConnectionStats = ConnectionStats(),
     private val notificationHistoryStore: org.nostr.nostrord.notifications.NotificationHistoryStore? = null,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
 ) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -153,7 +152,7 @@ class NostrRepository(
             } else {
                 false
             }
-        }
+        },
     )
 
     private val _isInitialized = MutableStateFlow(false)
@@ -201,6 +200,7 @@ class NostrRepository(
     // Expose unread state
     override val unreadCounts: StateFlow<Map<String, Int>> = unreadManager.unreadCounts
     override val latestMessageTimestamps: StateFlow<Map<String, Long>> = unreadManager.latestMessageTimestamps
+
     // Filtered to relays the UI can actually show (rail's source list:
     // kind:10009 ∪ group-tag relays ∪ current). Without this, joined groups
     // on relays the user can't navigate to would silently inflate the title
@@ -260,7 +260,8 @@ class NostrRepository(
         scope.launch {
             connectionManager.connectionState.collect { state ->
                 if (state is ConnectionManager.ConnectionState.Error ||
-                    state is ConnectionManager.ConnectionState.Reconnecting) {
+                    state is ConnectionManager.ConnectionState.Reconnecting
+                ) {
                     val relay = connectionManager.currentRelayUrl.value
                     if (relay.isNotBlank()) {
                         groupManager.markRelayLoaded(relay)
@@ -453,7 +454,8 @@ class NostrRepository(
             }
             connectToRelayBackground(relayUrl)
             val client = connectionManager.getClientForRelay(relayUrl) ?: run {
-                delay(100); continue
+                delay(100)
+                continue
             }
             try {
                 if (client.isConnected()) client.awaitAuthOrTimeout()
@@ -467,27 +469,23 @@ class NostrRepository(
         sessionManager.clearAuthUrl()
     }
 
-    override suspend fun loginWithBunker(bunkerUrl: String): Result<String> {
-        return try {
-            val previousPubkey = sessionManager.getPublicKey()
-            if (connectionManager.currentRelayUrl.value.isBlank()) {
-                _isDiscoveringRelays.value = true
-            }
-            val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
-            finishLoginInit(previousPubkey, userPubkey)
-            Result.Success(userPubkey)
-        } catch (e: Exception) {
-            Result.Error(AppError.Auth.BunkerError(e.message ?: "Bunker connection failed", e))
+    override suspend fun loginWithBunker(bunkerUrl: String): Result<String> = try {
+        val previousPubkey = sessionManager.getPublicKey()
+        if (connectionManager.currentRelayUrl.value.isBlank()) {
+            _isDiscoveringRelays.value = true
         }
+        val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
+        finishLoginInit(previousPubkey, userPubkey)
+        Result.Success(userPubkey)
+    } catch (e: Exception) {
+        Result.Error(AppError.Auth.BunkerError(e.message ?: "Bunker connection failed", e))
     }
 
-    override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, org.nostr.nostrord.nostr.Nip46Client> {
-        return sessionManager.createNostrConnectSession(relays)
-    }
+    override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, org.nostr.nostrord.nostr.Nip46Client> = sessionManager.createNostrConnectSession(relays)
 
     override suspend fun completeNostrConnectLogin(
         client: org.nostr.nostrord.nostr.Nip46Client,
-        relays: List<String>
+        relays: List<String>,
     ): String {
         val previousPubkey = sessionManager.getPublicKey()
         if (connectionManager.currentRelayUrl.value.isBlank()) {
@@ -498,32 +496,28 @@ class NostrRepository(
         return userPubkey
     }
 
-    override suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit> {
-        return try {
-            val previousPubkey = sessionManager.getPublicKey()
-            if (connectionManager.currentRelayUrl.value.isBlank()) {
-                _isDiscoveringRelays.value = true
-            }
-            sessionManager.loginWithPrivateKey(privKey, pubKey)
-            finishLoginInit(previousPubkey, pubKey)
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
+    override suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit> = try {
+        val previousPubkey = sessionManager.getPublicKey()
+        if (connectionManager.currentRelayUrl.value.isBlank()) {
+            _isDiscoveringRelays.value = true
         }
+        sessionManager.loginWithPrivateKey(privKey, pubKey)
+        finishLoginInit(previousPubkey, pubKey)
+        Result.Success(Unit)
+    } catch (e: Exception) {
+        Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
     }
 
-    override suspend fun loginWithNip07(pubkey: String): Result<Unit> {
-        return try {
-            val previousPubkey = sessionManager.getPublicKey()
-            if (connectionManager.currentRelayUrl.value.isBlank()) {
-                _isDiscoveringRelays.value = true
-            }
-            sessionManager.loginWithNip07(pubkey)
-            finishLoginInit(previousPubkey, pubkey)
-            Result.Success(Unit)
-        } catch (e: Exception) {
-            Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
+    override suspend fun loginWithNip07(pubkey: String): Result<Unit> = try {
+        val previousPubkey = sessionManager.getPublicKey()
+        if (connectionManager.currentRelayUrl.value.isBlank()) {
+            _isDiscoveringRelays.value = true
         }
+        sessionManager.loginWithNip07(pubkey)
+        finishLoginInit(previousPubkey, pubkey)
+        Result.Success(Unit)
+    } catch (e: Exception) {
+        Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
     }
 
     /**
@@ -575,7 +569,9 @@ class NostrRepository(
         relayPipelines.clear()
         connectionManager.clearCurrentRelay()
 
-        try { connectionManager.clearAll() } catch (_: Exception) {}
+        try {
+            connectionManager.clearAll()
+        } catch (_: Exception) {}
         connectedPoolRelays.clear()
         sessionManager.logout()
     }
@@ -599,8 +595,10 @@ class NostrRepository(
         if (lastActiveAt > 0L || newestNotif > 0L) {
             val now = epochSeconds()
             val candidate = listOf(lastActiveAt, newestNotif).filter { it > 0L }.min()
-            val capped = maxOf(candidate - LiveCursorStore.RECONNECT_OVERLAP_S,
-                                now - LiveCursorStore.MAX_SINCE_AGE_S)
+            val capped = maxOf(
+                candidate - LiveCursorStore.RECONNECT_OVERLAP_S,
+                now - LiveCursorStore.MAX_SINCE_AGE_S,
+            )
             groupManager.setCatchUpSince(capped)
             // Also pin UnreadManager's "first seen" fallback to the same value
             // so events arriving via catch-up qualify (otherwise they're
@@ -644,11 +642,15 @@ class NostrRepository(
             triggerReconnect()
         }
         scope.launch {
-            try { ensureJoinedRelaysConnected(activeRelay.takeIf { it.isNotBlank() }) } catch (_: Exception) {}
+            try {
+                ensureJoinedRelaysConnected(activeRelay.takeIf { it.isNotBlank() })
+            } catch (_: Exception) {}
             // Safety net for the active relay and any joined relay not covered
             // above: applies the catch-up `since` set earlier so events missed
             // while inactive arrive across every relay.
-            try { groupManager.refreshLiveSubscriptions() } catch (_: Exception) {}
+            try {
+                groupManager.refreshLiveSubscriptions()
+            } catch (_: Exception) {}
         }
     }
 
@@ -662,7 +664,7 @@ class NostrRepository(
                 // Track bootstrap relays for reconnection so metadata fetches
                 // keep working if a bootstrap relay drops mid-session.
                 connectedPoolRelays.addAll(outboxManager.bootstrapRelays)
-            }
+            },
         )
     }
 
@@ -703,11 +705,13 @@ class NostrRepository(
                 // Only force reconnect if fully disconnected (no auto-reconnect running).
                 // Error state means auto-reconnect exhausted Phase 1 — force a fresh attempt.
                 is ConnectionManager.ConnectionState.Disconnected,
-                is ConnectionManager.ConnectionState.Error -> reconnect()
+                is ConnectionManager.ConnectionState.Error,
+                -> reconnect()
 
                 // Auto-reconnect or initial connect in progress — don't interrupt.
                 is ConnectionManager.ConnectionState.Reconnecting,
-                is ConnectionManager.ConnectionState.Connecting -> {
+                is ConnectionManager.ConnectionState.Connecting,
+                -> {
                     reconnectDroppedNip29PoolRelays()
                 }
 
@@ -781,15 +785,17 @@ class NostrRepository(
             val latestInMemory = groupManager.getLatestMessageTimestamp(groupId)
 
             val gapDetected = when {
-                latestInMemory == null -> false  // no messages loaded yet — normal cold start
-                latestInMemory < lastKnown - GAP_THRESHOLD_S -> true  // memory is stale
+                latestInMemory == null -> false // no messages loaded yet — normal cold start
+                latestInMemory < lastKnown - GAP_THRESHOLD_S -> true // memory is stale
                 else -> false
             }
 
             if (gapDetected) {
                 val gapSec = lastKnown - (latestInMemory ?: 0)
                 scope.launch {
-                    try { groupManager.requestGroupMessages(groupId) } catch (_: Exception) {}
+                    try {
+                        groupManager.requestGroupMessages(groupId)
+                    } catch (_: Exception) {}
                 }
             }
         }
@@ -808,7 +814,8 @@ class NostrRepository(
     private suspend fun requestGroupsForRelay(client: NostrGroupClient, relayUrl: String) {
         if (SecureStorage.isGroupFetchLazy(relayUrl)) {
             val otherGroupsOpen = SecureStorage.getBooleanPref(
-                "sidebar_other_expanded_$relayUrl", default = true
+                "sidebar_other_expanded_$relayUrl",
+                default = true,
             )
             if (!otherGroupsOpen) {
                 // OTHER GROUPS is closed — only fetch joined group metadata.
@@ -922,7 +929,8 @@ class NostrRepository(
 
         // Skip if already on this relay — avoids unnecessary disconnect/reconnect/AUTH cycle.
         if (newRelayUrl == connectionManager.currentRelayUrl.value &&
-            connectionManager.getPrimaryClient()?.isConnected() == true) {
+            connectionManager.getPrimaryClient()?.isConnected() == true
+        ) {
             return
         }
 
@@ -1074,9 +1082,7 @@ class NostrRepository(
         SecureStorage.saveGroupFetchLazy(relayUrl, lazy)
     }
 
-    override fun isGroupFetchLazy(relayUrl: String): Boolean {
-        return SecureStorage.isGroupFetchLazy(relayUrl)
-    }
+    override fun isGroupFetchLazy(relayUrl: String): Boolean = SecureStorage.isGroupFetchLazy(relayUrl)
 
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> =
         groupManager.fullGroupListFetchedRelays
@@ -1182,7 +1188,7 @@ class NostrRepository(
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
             publishJoinedGroups = { publishJoinedGroupsList() },
-            inviteCode = inviteCode
+            inviteCode = inviteCode,
         )
         if (result is Result.Success) {
             // Joining a group may have introduced a new joined relay — ensure it's
@@ -1200,7 +1206,7 @@ class NostrRepository(
         isPrivate: Boolean,
         isClosed: Boolean,
         picture: String?,
-        customGroupId: String?
+        customGroupId: String?,
     ): Result<String> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -1217,7 +1223,7 @@ class NostrRepository(
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
-            publishJoinedGroups = { publishJoinedGroupsList() }
+            publishJoinedGroups = { publishJoinedGroupsList() },
         )
         if (result is Result.Success) {
             scope.launch { ensureJoinedRelaysConnected(connectionManager.currentRelayUrl.value) }
@@ -1233,14 +1239,14 @@ class NostrRepository(
         isPrivate: Boolean,
         isClosed: Boolean,
         picture: String?,
-        customGroupId: String?
+        customGroupId: String?,
     ): Result<String> {
         val created = createGroup(name, about, relayUrl, isPrivate, isClosed, picture, customGroupId)
         if (created !is Result.Success) return created
         // Attach to parent via kind:9002.
         val topology = updateGroupTopology(
             groupId = created.data,
-            parent = GroupManager.ParentOp.SetTo(parentGroupId)
+            parent = GroupManager.ParentOp.SetTo(parentGroupId),
         )
         return when (topology) {
             is Result.Success -> created
@@ -1257,7 +1263,7 @@ class NostrRepository(
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             reason = reason,
             signEvent = { sessionManager.signEvent(it) },
-            publishJoinedGroups = { publishJoinedGroupsList() }
+            publishJoinedGroups = { publishJoinedGroupsList() },
         )
     }
 
@@ -1351,7 +1357,7 @@ class NostrRepository(
         isClosed: Boolean,
         picture: String?,
         parentOp: GroupManager.ParentOp?,
-        childrenEdit: GroupManager.ChildrenEdit?
+        childrenEdit: GroupManager.ChildrenEdit?,
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -1366,7 +1372,7 @@ class NostrRepository(
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
             parentOp = parentOp,
-            childrenEdit = childrenEdit
+            childrenEdit = childrenEdit,
         )
         if (result is Result.Success) refreshGroupMetadata(groupId)
         return result
@@ -1380,13 +1386,13 @@ class NostrRepository(
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },
-            publishJoinedGroups = { publishJoinedGroupsList() }
+            publishJoinedGroups = { publishJoinedGroupsList() },
         )
     }
 
     override suspend fun updateGroupTopology(
         groupId: String,
-        parent: GroupManager.ParentOp?
+        parent: GroupManager.ParentOp?,
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -1395,14 +1401,14 @@ class NostrRepository(
             parent = parent,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
     override suspend fun updateChildren(
         groupId: String,
         children: List<org.nostr.nostrord.network.DeclaredChild>,
-        closedChildren: Boolean
+        closedChildren: Boolean,
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -1412,13 +1418,11 @@ class NostrRepository(
             closedChildren = closedChildren,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
-    override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean {
-        return groupManager.loadMoreMessages(groupId, channel)
-    }
+    override suspend fun loadMoreMessages(groupId: String, channel: String?): Boolean = groupManager.loadMoreMessages(groupId, channel)
 
     override suspend fun fetchGroupMessageById(groupId: String, messageId: String) {
         groupManager.fetchGroupMessageById(groupId, messageId)
@@ -1435,7 +1439,7 @@ class NostrRepository(
             mentions = mentions,
             replyToMessageId = replyToMessageId,
             extraTags = extraTags,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
@@ -1448,7 +1452,7 @@ class NostrRepository(
             roles = roles,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
@@ -1460,7 +1464,7 @@ class NostrRepository(
             targetPubkey = targetPubkey,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
@@ -1472,7 +1476,7 @@ class NostrRepository(
             joinRequestEventId = joinRequestEventId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
@@ -1483,7 +1487,7 @@ class NostrRepository(
             groupId = groupId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
@@ -1495,7 +1499,7 @@ class NostrRepository(
             eventId = eventId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
@@ -1506,7 +1510,7 @@ class NostrRepository(
             groupId = groupId,
             messageId = messageId,
             pubKey = pubKey,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
@@ -1519,13 +1523,11 @@ class NostrRepository(
             targetPubkey = targetPubkey,
             emoji = emoji,
             pubKey = pubKey,
-            signEvent = { sessionManager.signEvent(it) }
+            signEvent = { sessionManager.signEvent(it) },
         )
     }
 
-    override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> {
-        return groupManager.getMessagesForGroup(groupId)
-    }
+    override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> = groupManager.getMessagesForGroup(groupId)
 
     // Unread message operations
     override fun markGroupAsRead(groupId: String) {
@@ -1534,8 +1536,7 @@ class NostrRepository(
 
     override fun getUnreadCount(groupId: String): Int = unreadManager.getUnreadCount(groupId)
 
-    override fun getLastReadTimestamp(groupId: String): Long? =
-        unreadManager.getLastReadTimestamp(groupId)
+    override fun getLastReadTimestamp(groupId: String): Long? = unreadManager.getLastReadTimestamp(groupId)
 
     // Metadata operations
     private val metadataMessageHandler: (String, NostrGroupClient) -> Unit = { msg, client ->
@@ -1576,9 +1577,13 @@ class NostrRepository(
             createdAt = org.nostr.nostrord.utils.epochMillis() / 1000,
             kind = 27235,
             tags = listOf(listOf("u", url), listOf("method", method)),
-            content = ""
+            content = "",
         )
-        val signed = try { sessionManager.signEvent(event) } catch (_: Throwable) { return null }
+        val signed = try {
+            sessionManager.signEvent(event)
+        } catch (_: Throwable) {
+            return null
+        }
         val json = signed.toJsonObject().toString()
         val encoded = kotlin.io.encoding.Base64.encode(json.encodeToByteArray())
         return "Nostr $encoded"
@@ -1595,7 +1600,7 @@ class NostrRepository(
         banner: String?,
         nip05: String?,
         lud16: String?,
-        website: String?
+        website: String?,
     ): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
@@ -1615,7 +1620,11 @@ class NostrRepository(
             }
 
             val base: Map<String, JsonElement> = existing?.rawContentJson?.let { raw ->
-                try { Json.parseToJsonElement(raw).jsonObject.toMap() } catch (_: Exception) { null }
+                try {
+                    Json.parseToJsonElement(raw).jsonObject.toMap()
+                } catch (_: Exception) {
+                    null
+                }
             } ?: emptyMap()
 
             val merged = buildJsonObject {
@@ -1636,7 +1645,7 @@ class NostrRepository(
                 createdAt = org.nostr.nostrord.utils.epochSeconds(),
                 kind = 0,
                 tags = emptyList(),
-                content = content
+                content = content,
             )
 
             // Sign the event
@@ -1662,7 +1671,9 @@ class NostrRepository(
             }
             clients.forEach { client ->
                 scope.launch {
-                    try { client.sendAndAwaitOk(message, eventId) } catch (_: Exception) {}
+                    try {
+                        client.sendAndAwaitOk(message, eventId)
+                    } catch (_: Exception) {}
                 }
             }
 
@@ -1674,7 +1685,7 @@ class NostrRepository(
                 about = about ?: existing?.about,
                 nip05 = nip05 ?: existing?.nip05,
                 banner = existing?.banner,
-                rawContentJson = content
+                rawContentJson = content,
             )
             metadataManager.updateLocalMetadata(pubKey, updatedMetadata)
 
@@ -1693,7 +1704,7 @@ class NostrRepository(
                 createdAt = org.nostr.nostrord.utils.epochSeconds(),
                 kind = 10002,
                 tags = relays.map { it.toTag() },
-                content = ""
+                content = "",
             )
             val signedEvent = sessionManager.signEvent(event)
             val eventId = signedEvent.id ?: return Result.Error(AppError.Unknown("Event has no id after signing", null))
@@ -1715,7 +1726,9 @@ class NostrRepository(
             }
             clients.forEach { client ->
                 scope.launch {
-                    try { client.sendAndAwaitOk(message, eventId) } catch (_: Exception) {}
+                    try {
+                        client.sendAndAwaitOk(message, eventId)
+                    } catch (_: Exception) {}
                 }
             }
 
@@ -1740,7 +1753,7 @@ class NostrRepository(
         kind: Int,
         pubkey: String,
         identifier: String,
-        relays: List<String>
+        relays: List<String>,
     ) {
         metadataManager.requestAddressableEvent(kind, pubkey, identifier, relays) { msg, client ->
             handleRelayMessage(msg, client)
@@ -1766,22 +1779,18 @@ class NostrRepository(
         }
     }
 
-    override fun getRelayListForPubkey(pubkey: String): List<Nip65Relay> {
-        return outboxManager.getCachedRelayList(pubkey)
-    }
+    override fun getRelayListForPubkey(pubkey: String): List<Nip65Relay> = outboxManager.getCachedRelayList(pubkey)
 
     override fun selectOutboxRelays(
         authors: List<String>,
         taggedPubkeys: List<String>,
-        explicitRelays: List<String>
-    ): List<String> {
-        return outboxManager.selectOutboxRelays(
-            authors = authors,
-            taggedPubkeys = taggedPubkeys,
-            explicitRelays = explicitRelays,
-            currentNip29Relay = connectionManager.currentRelayUrl.value
-        )
-    }
+        explicitRelays: List<String>,
+    ): List<String> = outboxManager.selectOutboxRelays(
+        authors = authors,
+        taggedPubkeys = taggedPubkeys,
+        explicitRelays = explicitRelays,
+        currentNip29Relay = connectionManager.currentRelayUrl.value,
+    )
 
     private suspend fun publishJoinedGroupsList() {
         val pubKey = sessionManager.getPublicKey() ?: return
@@ -1794,7 +1803,7 @@ class NostrRepository(
      */
     private suspend fun publishJoinedGroupsListWith(
         pubKey: String,
-        nip29Relays: List<String> = outboxManager.kind10009Relays.value.toList()
+        nip29Relays: List<String> = outboxManager.kind10009Relays.value.toList(),
     ): Result<Unit> {
         val perRelay = groupManager.joinedGroupsByRelay.value
         return outboxManager.publishJoinedGroupsList(
@@ -1802,7 +1811,7 @@ class NostrRepository(
             joinedGroupsByRelay = perRelay,
             nip29Relays = nip29Relays,
             signEvent = { sessionManager.signEvent(it) },
-            messageHandler = { msg, client -> handleRelayMessage(msg, client) }
+            messageHandler = { msg, client -> handleRelayMessage(msg, client) },
         )
     }
 
@@ -1841,7 +1850,9 @@ class NostrRepository(
         // Parse once — every downstream handler reuses this JsonArray.
         val arr = try {
             json.parseToJsonElement(msg).jsonArray
-        } catch (_: Exception) { return }
+        } catch (_: Exception) {
+            return
+        }
 
         val msgType = arr.getOrNull(0)?.jsonPrimitive?.contentOrNull ?: return
 
@@ -1887,7 +1898,7 @@ class NostrRepository(
                                 groupManager.pruneRelaysNotIn(authoritativeRelays)
                             }
                         },
-                        messageHandler = { m, c -> enqueueToRelayPipeline(m, c) }
+                        messageHandler = { m, c -> enqueueToRelayPipeline(m, c) },
                     )
                 }
                 return
@@ -1966,8 +1977,11 @@ class NostrRepository(
                         subId.startsWith("e_") ||
                         subId.startsWith("a_") ||
                         subId.startsWith("reactions_") ||
-                        subId.startsWith("event_")) {
-                        try { client.send("""["CLOSE","$subId"]""") } catch (_: Exception) {}
+                        subId.startsWith("event_")
+                    ) {
+                        try {
+                            client.send("""["CLOSE","$subId"]""")
+                        } catch (_: Exception) {}
                     }
                 }
             }
@@ -2048,12 +2062,17 @@ class NostrRepository(
 
                 // Re-open the mux subscription when the relay closes it for non-auth reasons.
                 // pyramid.fiatjaf.com and similar relays drop idle subs without closing the WS.
-                if (!isAuthRequired && !isRestricted &&
-                    (subId.startsWith("mux_chat_") || subId.startsWith("mux_reactions_") ||
-                     subId.startsWith("mux_meta_"))) {
+                if (!isAuthRequired &&
+                    !isRestricted &&
+                    (
+                        subId.startsWith("mux_chat_") ||
+                            subId.startsWith("mux_reactions_") ||
+                            subId.startsWith("mux_meta_")
+                        )
+                ) {
                     val relayUrl = client.getRelayUrl()
                     scope.launch {
-                        delay(2_000)  // brief back-off before re-opening
+                        delay(2_000) // brief back-off before re-opening
                         groupManager.refreshMuxDebounced(relayUrl)
                     }
                     metadataRefreshJob?.cancel()
@@ -2151,9 +2170,10 @@ class NostrRepository(
                             val isForSelf = when {
                                 reaction.targetAuthorPubkey != null ->
                                     reaction.targetAuthorPubkey == currentPubkey
-                                else -> groupManager
-                                    .findMessageByIdAcrossGroups(reaction.targetEventId)
-                                    ?.second?.pubkey == currentPubkey
+                                else ->
+                                    groupManager
+                                        .findMessageByIdAcrossGroups(reaction.targetEventId)
+                                        ?.second?.pubkey == currentPubkey
                             }
                             if (isForSelf && groupId != null) {
                                 unreadManager.onReactionReceived(groupId, reaction)
@@ -2244,7 +2264,7 @@ class NostrRepository(
                                     groupManager.pruneRelaysNotIn(authoritativeRelays)
                                 }
                             },
-                            messageHandler = { m, c -> enqueueToRelayPipeline(m, c) }
+                            messageHandler = { m, c -> enqueueToRelayPipeline(m, c) },
                         )
                     }
                     return
@@ -2305,10 +2325,11 @@ class NostrRepository(
             scope.launch {
                 val existing = connectionManager.getClientForRelay(relayUrl)
                 if (existing == null) {
-                    val priority = if (relayUrl == activeRelayUrl)
+                    val priority = if (relayUrl == activeRelayUrl) {
                         RelayReconnectScheduler.Priority.ACTIVE
-                    else
+                    } else {
                         RelayReconnectScheduler.Priority.BACKGROUND
+                    }
                     relayReconnectScheduler.schedule(relayUrl, priority = priority)
                 }
             }
@@ -2447,14 +2468,13 @@ class NostrRepository(
             groupManager.requestGroupMessages(groupId)
         }
     }
-
 }
 
 // Helper function for parsing bunker URLs
 data class BunkerInfo(
     val pubkey: String,
     val relays: List<String>,
-    val secret: String?
+    val secret: String?,
 )
 
 fun parseBunkerUrl(url: String): BunkerInfo {

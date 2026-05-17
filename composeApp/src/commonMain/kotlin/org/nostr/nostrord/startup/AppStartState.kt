@@ -14,7 +14,6 @@ import org.nostr.nostrord.ui.Screen
  * 3. Default home screen - fallback
  */
 sealed class AppStartState {
-
     /**
      * Application is still initializing.
      * UI should show a loading indicator and wait.
@@ -39,6 +38,6 @@ sealed class AppStartState {
         val restoredFromPersistence: Boolean = false,
         val deepLinkRelayUrl: String? = null,
         val deepLinkInviteCode: String? = null,
-        val deepLinkMessageId: String? = null
+        val deepLinkMessageId: String? = null,
     ) : AppStartState()
 }

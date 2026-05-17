@@ -6,7 +6,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class RelayUrlTest {
-
     @Test
     fun `toRelayUrl adds wss to bare public host`() {
         assertEquals("wss://relay.damus.io", "relay.damus.io".toRelayUrl())

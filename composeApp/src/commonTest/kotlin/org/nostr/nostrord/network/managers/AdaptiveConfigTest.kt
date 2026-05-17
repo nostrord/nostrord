@@ -12,7 +12,6 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdaptiveConfigTest {
-
     /**
      * Helper: creates an AdaptiveConfig with a TestScope, runs assertions,
      * then cancels the background adaptation loop to avoid UncompletedCoroutinesError.

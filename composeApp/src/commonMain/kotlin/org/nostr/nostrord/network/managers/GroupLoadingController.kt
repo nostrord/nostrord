@@ -6,7 +6,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -30,45 +29,45 @@ sealed class GroupLoadingState {
     /** Initial message request sent, waiting for EOSE */
     data class InitialLoading(
         val subscriptionId: String,
-        val startedAt: Long = epochMillis()
+        val startedAt: Long = epochMillis(),
     ) : GroupLoadingState()
 
     /** Messages loaded, more available for pagination */
     data class HasMore(
-        val cursor: PaginationCursor
+        val cursor: PaginationCursor,
     ) : GroupLoadingState()
 
     /** Pagination request in flight */
     data class Paginating(
         val subscriptionId: String,
         val cursor: PaginationCursor,
-        val startedAt: Long = epochMillis()
+        val startedAt: Long = epochMillis(),
     ) : GroupLoadingState()
 
     /** All messages loaded, feed exhausted */
     data class Exhausted(
-        val cursor: PaginationCursor
+        val cursor: PaginationCursor,
     ) : GroupLoadingState()
 
     /** Loading failed, can retry */
     data class Error(
         val cursor: PaginationCursor?,
         val reason: ErrorReason,
-        val retryCount: Int = 0
+        val retryCount: Int = 0,
     ) : GroupLoadingState()
 
     /** Retry in progress after error */
     data class Retrying(
         val cursor: PaginationCursor?,
         val subscriptionId: String,
-        val attemptNumber: Int
+        val attemptNumber: Int,
     ) : GroupLoadingState()
 
     enum class ErrorReason {
         TIMEOUT,
         SEND_FAILED,
         DISCONNECTED,
-        RELAY_ERROR
+        RELAY_ERROR,
     }
 
     // Helper properties for UI consumption
@@ -91,14 +90,14 @@ data class PaginationCursor(
     /** Total messages received across all pages */
     val totalReceived: Int,
     /** Number of pages loaded */
-    val pageNumber: Int
+    val pageNumber: Int,
 ) {
     companion object {
         fun initial() = PaginationCursor(
             untilTimestamp = Long.MAX_VALUE,
             lastEventId = null,
             totalReceived = 0,
-            pageNumber = 0
+            pageNumber = 0,
         )
     }
 
@@ -109,12 +108,12 @@ data class PaginationCursor(
     fun advance(
         oldestTimestamp: Long,
         oldestEventId: String,
-        messagesReceived: Int
+        messagesReceived: Int,
     ): PaginationCursor = PaginationCursor(
         untilTimestamp = oldestTimestamp - 1, // Handle < vs <= relay differences
         lastEventId = oldestEventId,
         totalReceived = totalReceived + messagesReceived,
-        pageNumber = pageNumber + 1
+        pageNumber = pageNumber + 1,
     )
 }
 
@@ -131,7 +130,7 @@ data class SubscriptionTracker(
     var messageCount: Int = 0,
     var oldestTimestamp: Long = Long.MAX_VALUE,
     var oldestEventId: String? = null,
-    val timeoutJob: Job? = null
+    val timeoutJob: Job? = null,
 ) {
     fun trackMessage(timestamp: Long, eventId: String) {
         messageCount++
@@ -141,9 +140,7 @@ data class SubscriptionTracker(
         }
     }
 
-    fun isComplete(quorumSize: Int = 1): Boolean {
-        return receivedEose.size >= quorumSize
-    }
+    fun isComplete(quorumSize: Int = 1): Boolean = receivedEose.size >= quorumSize
 }
 
 /**
@@ -155,7 +152,7 @@ class GroupLoadingController(
     private val scope: CoroutineScope,
     private val pageSize: Int = 50,
     private val timeoutMs: Long = 10_000L,
-    private val maxRetries: Int = 3
+    private val maxRetries: Int = 3,
 ) {
     private val mutex = Mutex()
 
@@ -175,12 +172,13 @@ class GroupLoadingController(
         // Only start from Idle or Error states
         when (currentState) {
             is GroupLoadingState.Idle,
-            is GroupLoadingState.Error -> {
+            is GroupLoadingState.Error,
+            -> {
                 val subId = "msg_${groupId.take(8)}_${epochMillis()}"
                 val tracker = SubscriptionTracker(
                     subscriptionId = subId,
                     groupId = groupId,
-                    isInitialLoad = true
+                    isInitialLoad = true,
                 )
                 currentTracker = tracker
 
@@ -207,7 +205,7 @@ class GroupLoadingController(
                 val tracker = SubscriptionTracker(
                     subscriptionId = subId,
                     groupId = groupId,
-                    isInitialLoad = false
+                    isInitialLoad = false,
                 )
                 currentTracker = tracker
 
@@ -266,7 +264,7 @@ class GroupLoadingController(
                 (getCurrentCursor() ?: PaginationCursor.initial()).advance(
                     oldestTimestamp = tracker.oldestTimestamp,
                     oldestEventId = tracker.oldestEventId!!,
-                    messagesReceived = messagesReceived
+                    messagesReceived = messagesReceived,
                 )
             } else {
                 // No messages received - exhausted
@@ -302,7 +300,7 @@ class GroupLoadingController(
             _state.value = GroupLoadingState.Error(
                 cursor = getCurrentCursor(),
                 reason = GroupLoadingState.ErrorReason.SEND_FAILED,
-                retryCount = existingRetryCount
+                retryCount = existingRetryCount,
             )
             currentTracker = null
         }
@@ -311,12 +309,10 @@ class GroupLoadingController(
     /**
      * Get current retry count from state (for preserving across transitions).
      */
-    private fun getRetryCount(): Int {
-        return when (val s = _state.value) {
-            is GroupLoadingState.Retrying -> s.attemptNumber
-            is GroupLoadingState.Error -> s.retryCount
-            else -> 0
-        }
+    private fun getRetryCount(): Int = when (val s = _state.value) {
+        is GroupLoadingState.Retrying -> s.attemptNumber
+        is GroupLoadingState.Error -> s.retryCount
+        else -> 0
     }
 
     /**
@@ -351,14 +347,14 @@ class GroupLoadingController(
                 val tracker = SubscriptionTracker(
                     subscriptionId = subId,
                     groupId = groupId,
-                    isInitialLoad = currentState.cursor == null
+                    isInitialLoad = currentState.cursor == null,
                 )
                 currentTracker = tracker
 
                 _state.value = GroupLoadingState.Retrying(
                     cursor = currentState.cursor,
                     subscriptionId = subId,
-                    attemptNumber = currentState.retryCount + 1
+                    attemptNumber = currentState.retryCount + 1,
                 )
                 startTimeout(subId, isInitial = currentState.cursor == null)
 
@@ -387,15 +383,13 @@ class GroupLoadingController(
         currentTracker?.subscriptionId == subscriptionId
     }
 
-    private fun getCurrentCursor(): PaginationCursor? {
-        return when (val s = _state.value) {
-            is GroupLoadingState.HasMore -> s.cursor
-            is GroupLoadingState.Paginating -> s.cursor
-            is GroupLoadingState.Exhausted -> s.cursor
-            is GroupLoadingState.Error -> s.cursor
-            is GroupLoadingState.Retrying -> s.cursor
-            else -> null
-        }
+    private fun getCurrentCursor(): PaginationCursor? = when (val s = _state.value) {
+        is GroupLoadingState.HasMore -> s.cursor
+        is GroupLoadingState.Paginating -> s.cursor
+        is GroupLoadingState.Exhausted -> s.cursor
+        is GroupLoadingState.Error -> s.cursor
+        is GroupLoadingState.Retrying -> s.cursor
+        else -> null
     }
 
     private fun startTimeout(subscriptionId: String, isInitial: Boolean) {
@@ -423,9 +417,11 @@ class GroupLoadingController(
                     (cursor ?: PaginationCursor.initial()).advance(
                         oldestTimestamp = tracker.oldestTimestamp,
                         oldestEventId = tracker.oldestEventId!!,
-                        messagesReceived = tracker.messageCount
+                        messagesReceived = tracker.messageCount,
                     )
-                } else cursor
+                } else {
+                    cursor
+                }
 
                 // Got some messages, assume more might be available
                 _state.value = GroupLoadingState.HasMore(newCursor ?: PaginationCursor.initial())
@@ -434,7 +430,7 @@ class GroupLoadingController(
                 _state.value = GroupLoadingState.Error(
                     cursor = cursor,
                     reason = GroupLoadingState.ErrorReason.TIMEOUT,
-                    retryCount = existingRetryCount
+                    retryCount = existingRetryCount,
                 )
             }
 
@@ -450,7 +446,7 @@ class GroupLoadingController(
 class GroupLoadingRegistry(
     private val scope: CoroutineScope,
     private val pageSize: Int = 50,
-    private val timeoutMs: Long = 10_000L
+    private val timeoutMs: Long = 10_000L,
 ) {
     private val mutex = Mutex()
     private val controllers = mutableMapOf<String, GroupLoadingController>()
@@ -497,9 +493,7 @@ class GroupLoadingRegistry(
     /**
      * Get state for a group (for UI binding).
      */
-    suspend fun getState(groupId: String): StateFlow<GroupLoadingState> {
-        return getController(groupId).state
-    }
+    suspend fun getState(groupId: String): StateFlow<GroupLoadingState> = getController(groupId).state
 
     /**
      * Remove a group's controller (on leave/clear).
@@ -552,7 +546,7 @@ class GroupLoadingRegistry(
      */
     suspend fun handleDisconnectAll() {
         val snapshot = mutex.withLock {
-            subscriptionToController.clear()  // Clear all pending subscriptions
+            subscriptionToController.clear() // Clear all pending subscriptions
             controllers.values.toList()
         }
         snapshot.forEach { it.handleDisconnect() }

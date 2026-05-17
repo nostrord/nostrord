@@ -6,7 +6,6 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class ParseBunkerUrlTest {
-
     // ============================================================================
     // Valid URLs
     // ============================================================================

@@ -10,7 +10,7 @@ data class SimpleDateTime(
     val day: Int,
     val hour: Int,
     val minute: Int,
-    val second: Int
+    val second: Int,
 )
 
 expect fun timestampToDateTime(epochSeconds: Long): SimpleDateTime
@@ -56,7 +56,7 @@ fun formatTime(timestamp: Long): String {
 fun formatTimestamp(timestamp: Long): String {
     val now = epochSeconds()
     val diff = now - timestamp
-    
+
     return when {
         diff < 60 -> "just now"
         diff < 3600 -> "${diff / 60}m ago"
@@ -65,10 +65,13 @@ fun formatTimestamp(timestamp: Long): String {
     }
 }
 
-private fun calculateDaysDiff(date1: SimpleDateTime, date2: SimpleDateTime): Int {
+private fun calculateDaysDiff(
+    date1: SimpleDateTime,
+    date2: SimpleDateTime,
+): Int {
     // Simple day difference calculation
     val days1 = date1.year * 365 + date1.month * 30 + date1.day
     val days2 = date2.year * 365 + date2.month * 30 + date2.day
-    
+
     return kotlin.math.abs(days1 - days2)
 }

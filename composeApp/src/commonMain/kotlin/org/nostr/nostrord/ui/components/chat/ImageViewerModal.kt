@@ -45,7 +45,7 @@ import org.nostr.nostrord.utils.isAnimatedImageUrl
 @Composable
 fun ImageViewerModal(
     imageUrl: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalPlatformContext.current
@@ -59,19 +59,21 @@ fun ImageViewerModal(
 
     val animatedScale by animateFloatAsState(
         targetValue = scale,
-        animationSpec = tween(150)
+        animationSpec = tween(150),
     )
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
+        properties =
+        DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         Box(
-            modifier = Modifier
+            modifier =
+            Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.9f))
                 .pointerInput(Unit) {
@@ -85,13 +87,14 @@ fun ImageViewerModal(
                             } else {
                                 scale = 2.5f
                             }
-                        }
+                        },
                     )
                 },
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Box(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .fillMaxSize()
                     .pointerInput(Unit) {
                         detectTransformGestures { _, pan, zoom, _ ->
@@ -104,29 +107,31 @@ fun ImageViewerModal(
                                 offsetY = 0f
                             }
                         }
-                    }
-                    .graphicsLayer(
+                    }.graphicsLayer(
                         scaleX = animatedScale,
                         scaleY = animatedScale,
                         translationX = offsetX,
-                        translationY = offsetY
+                        translationY = offsetY,
                     ),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 if (isAnimated) {
                     AnimatedImage(
                         url = imageUrl,
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .widthIn(max = 1200.dp)
                             .fillMaxWidth(0.95f)
                             .fillMaxHeight(0.85f)
                             .clip(RoundedCornerShape(12.dp)),
                         contentScale = ContentScale.Fit,
-                        onClick = { }
+                        onClick = { },
                     )
                 } else {
                     AsyncImage(
-                        model = ImageRequest.Builder(context)
+                        model =
+                        ImageRequest
+                            .Builder(context)
                             .data(getImageUrl(imageUrl))
                             .crossfade(true)
                             .size(Size(1920, 1920)) // Cap decode size — display max is 1200dp
@@ -136,16 +141,17 @@ fun ImageViewerModal(
                         contentDescription = "Full size image",
                         contentScale = ContentScale.Fit,
                         filterQuality = FilterQuality.High,
-                        modifier = Modifier
+                        modifier =
+                        Modifier
                             .widthIn(max = 1200.dp)
                             .fillMaxWidth(0.95f)
                             .fillMaxHeight(0.85f)
                             .clip(RoundedCornerShape(12.dp))
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
-                                indication = null
+                                indication = null,
                             ) { },
-                        onState = { imageState = it }
+                        onState = { imageState = it },
                     )
                 }
             }
@@ -154,49 +160,53 @@ fun ImageViewerModal(
                 CircularProgressIndicator(
                     modifier = Modifier.size(48.dp),
                     color = NostrordColors.Primary,
-                    strokeWidth = 4.dp
+                    strokeWidth = 4.dp,
                 )
             }
 
             Row(
-                modifier = Modifier
+                modifier =
+                Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 IconButton(
                     onClick = {
                         try {
                             uriHandler.openUri(imageUrl)
-                        } catch (_: Exception) {}
+                        } catch (_: Exception) {
+                        }
                     },
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.5f))
-                        .pointerHoverIcon(PointerIcon.Hand)
+                        .pointerHoverIcon(PointerIcon.Hand),
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = "Open in browser",
                         tint = Color.White,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(20.dp),
                     )
                 }
 
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier
+                    modifier =
+                    Modifier
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.5f))
-                        .pointerHoverIcon(PointerIcon.Hand)
+                        .pointerHoverIcon(PointerIcon.Hand),
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Close",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }

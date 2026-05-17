@@ -7,16 +7,17 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import kotlin.js.ExperimentalWasmJsInterop
 import kotlinx.coroutines.await
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.js.ExperimentalWasmJsInterop
 
 actual class ClipboardImageReader {
     actual fun hasImage(): Boolean = false
+
     actual suspend fun read(): Pair<ByteArray, String>? = null
 }
 
@@ -26,7 +27,8 @@ actual fun rememberClipboardImageReader(): ClipboardImageReader = remember { Cli
 // Stores the pasted File in the JS-side cache (__nc) and returns just a key.
 // Avoids reading clipboard data into Kotlin/Wasm memory, preventing the 6-8x
 // memory amplification of the base64 round-trip.
-@JsFun("""() => new Promise((resolve) => {
+@JsFun(
+    """() => new Promise((resolve) => {
     const SUPPORTED = new Set([
         'image/jpeg','image/png','image/gif','image/webp','image/avif',
         'video/mp4','video/quicktime','video/webm',
@@ -59,38 +61,44 @@ actual fun rememberClipboardImageReader(): ClipboardImageReader = remember { Cli
             return;
         }
     });
-})""")
+})""",
+)
 private external fun jsAwaitNextPaste(): kotlin.js.Promise<JsString?>
 
 @Composable
-actual fun PasteMediaEffect(onMediaPasted: (ByteArray, String) -> Unit, onError: (String) -> Unit) {
+actual fun PasteMediaEffect(
+    onMediaPasted: (ByteArray, String) -> Unit,
+    onError: (String) -> Unit,
+) {
     val currentCallback = rememberUpdatedState(onMediaPasted)
-    val currentOnError  = rememberUpdatedState(onError)
+    val currentOnError = rememberUpdatedState(onError)
     val scope = rememberCoroutineScope()
     DisposableEffect(Unit) {
         var active = true
-        val job = scope.launch {
-            while (active) {
-                val result: JsString? = jsAwaitNextPaste().await()
-                if (!active) break
-                val jsonStr = result?.toString() ?: continue
-                try {
-                    val json = Json.parseToJsonElement(jsonStr).jsonObject
-                    val error = json["error"]?.jsonPrimitive?.contentOrNull
-                    if (error != null) {
-                        when (error) {
-                            "too_large"        -> currentOnError.value("This file is too large. The maximum upload size is 20 MB.")
-                            "unsupported_type" -> currentOnError.value("This file type is not supported.\n\n$SUPPORTED_FORMATS_MESSAGE")
+        val job =
+            scope.launch {
+                while (active) {
+                    val result: JsString? = jsAwaitNextPaste().await()
+                    if (!active) break
+                    val jsonStr = result?.toString() ?: continue
+                    try {
+                        val json = Json.parseToJsonElement(jsonStr).jsonObject
+                        val error = json["error"]?.jsonPrimitive?.contentOrNull
+                        if (error != null) {
+                            when (error) {
+                                "too_large" -> currentOnError.value("This file is too large. The maximum upload size is 20 MB.")
+                                "unsupported_type" -> currentOnError.value("This file type is not supported.\n\n$SUPPORTED_FORMATS_MESSAGE")
+                            }
+                            continue
                         }
-                        continue
+                        val name = json["name"]?.jsonPrimitive?.contentOrNull ?: continue
+                        val mime = json["mime"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream"
+                        val key = json["key"]?.jsonPrimitive?.contentOrNull ?: continue
+                        currentCallback.value(ByteArray(0), blobRef(mime, name, key))
+                    } catch (_: Throwable) {
                     }
-                    val name = json["name"]?.jsonPrimitive?.contentOrNull ?: continue
-                    val mime = json["mime"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream"
-                    val key  = json["key"]?.jsonPrimitive?.contentOrNull ?: continue
-                    currentCallback.value(ByteArray(0), blobRef(mime, name, key))
-                } catch (_: Throwable) {}
+                }
             }
-        }
         onDispose {
             active = false
             job.cancel()

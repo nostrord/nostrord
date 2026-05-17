@@ -10,7 +10,9 @@ import org.w3c.dom.HTMLInputElement
 import org.w3c.files.FileReader
 import org.w3c.files.get
 
-actual class MediaPickerLauncher(private val doLaunch: () -> Unit) {
+actual class MediaPickerLauncher(
+    private val doLaunch: () -> Unit,
+) {
     actual fun launch() = doLaunch()
 }
 
@@ -19,15 +21,16 @@ actual fun rememberMediaPickerLauncher(
     accept: MediaAccept,
     onPickStart: () -> Unit,
     onError: (String) -> Unit,
-    onFilePicked: (ByteArray, String) -> Unit
+    onFilePicked: (ByteArray, String) -> Unit,
 ): MediaPickerLauncher {
     val currentCallback = rememberUpdatedState(onFilePicked)
     val currentErrorCallback = rememberUpdatedState(onError)
     val currentPickStart = rememberUpdatedState(onPickStart)
-    val acceptAttr = when (accept) {
-        MediaAccept.Images            -> "image/*"
-        MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,video/webm,audio/*"
-    }
+    val acceptAttr =
+        when (accept) {
+            MediaAccept.Images -> "image/*"
+            MediaAccept.ImagesVideosAudio -> "image/*,video/mp4,video/quicktime,video/webm,audio/*"
+        }
     return remember(acceptAttr) {
         MediaPickerLauncher {
             val input = document.createElement("input") as HTMLInputElement
@@ -36,7 +39,10 @@ actual fun rememberMediaPickerLauncher(
             input.style.cssText = "display:none;position:fixed;top:-9999px;left:-9999px"
 
             fun cleanup() {
-                try { document.body?.removeChild(input) } catch (_: Throwable) {}
+                try {
+                    document.body?.removeChild(input)
+                } catch (_: Throwable) {
+                }
             }
 
             input.addEventListener("cancel", { cleanup() })
@@ -59,9 +65,10 @@ actual fun rememberMediaPickerLauncher(
                             // Copy via asDynamic() — Int8Array.get(index) operator resolution
                             // is unreliable across Kotlin/JS versions; unsafeCast<ByteArray>()
                             // may produce a raw JS object that Ktor's multipart writer rejects.
-                            val bytes = ByteArray(int8.length).also { arr ->
-                                for (i in arr.indices) arr[i] = int8.asDynamic()[i]
-                            }
+                            val bytes =
+                                ByteArray(int8.length).also { arr ->
+                                    for (i in arr.indices) arr[i] = int8.asDynamic()[i]
+                                }
                             currentCallback.value(bytes, file.name)
                             cleanup()
                         }

@@ -17,7 +17,6 @@ private const val RELAY_B = "wss://other.relay"
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class GroupManagerRemoveRelayTest {
-
     private fun makeManager(scope: TestScope): GroupManager {
         val connManager = ConnectionManager(scope)
         return GroupManager(connectionManager = connManager, scope = scope)
@@ -31,13 +30,13 @@ class GroupManagerRemoveRelayTest {
         manager.prePopulateRelayList(listOf(RELAY_A))
         assertTrue(
             manager.groupsByRelay.value.containsKey(RELAY_A),
-            "groupsByRelay should contain the relay after pre-population; keys=${manager.groupsByRelay.value.keys}"
+            "groupsByRelay should contain the relay after pre-population; keys=${manager.groupsByRelay.value.keys}",
         )
 
         manager.removeRelayEntry(RELAY_A)
         assertFalse(
             manager.groupsByRelay.value.containsKey(RELAY_A),
-            "groupsByRelay should not contain the relay after removal"
+            "groupsByRelay should not contain the relay after removal",
         )
 
         scope.cancel()
@@ -51,24 +50,24 @@ class GroupManagerRemoveRelayTest {
         manager.updateAllRelayJoinedGroups(
             mapOf(
                 RELAY_A to setOf("group-1", "group-2"),
-                RELAY_B to setOf("group-3")
-            )
+                RELAY_B to setOf("group-3"),
+            ),
         )
 
         assertTrue(
             manager.joinedGroupsByRelay.value.containsKey(RELAY_A),
-            "Relay should be present before removal; keys=${manager.joinedGroupsByRelay.value.keys}"
+            "Relay should be present before removal; keys=${manager.joinedGroupsByRelay.value.keys}",
         )
 
         manager.removeRelayEntry(RELAY_A)
 
         assertFalse(
             manager.joinedGroupsByRelay.value.containsKey(RELAY_A),
-            "joinedGroupsByRelay should not contain the removed relay"
+            "joinedGroupsByRelay should not contain the removed relay",
         )
         assertTrue(
             manager.joinedGroupsByRelay.value.containsKey(RELAY_B),
-            "Other relay should remain untouched"
+            "Other relay should remain untouched",
         )
 
         scope.cancel()
@@ -86,7 +85,7 @@ class GroupManagerRemoveRelayTest {
 
         assertNull(
             manager.joinedGroupsByRelay.value[RELAY_A],
-            "Relay entry should be gone regardless of trailing slash"
+            "Relay entry should be gone regardless of trailing slash",
         )
 
         scope.cancel()
@@ -103,7 +102,7 @@ class GroupManagerRemoveRelayTest {
 
         assertTrue(
             manager.joinedGroupsByRelay.value.containsKey(RELAY_B),
-            "Other relays should not be affected by removal of an unknown relay"
+            "Other relays should not be affected by removal of an unknown relay",
         )
 
         scope.cancel()

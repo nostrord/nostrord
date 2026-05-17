@@ -37,109 +37,139 @@ fun OnboardingScreen(onAddRelay: () -> Unit, onAddRelayCustomUrl: () -> Unit = o
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(NostrordColors.Background)
+            .background(NostrordColors.Background),
     ) {
         BoxWithConstraints(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
-        val isCompact = maxWidth < 912.dp
+            val isCompact = maxWidth < 912.dp
 
-        val logoSize: Dp = if (isCompact) 64.dp else 88.dp
-        val logoRadius: Dp = if (isCompact) 16.dp else 20.dp
-        val titleSize: TextUnit = if (isCompact) 20.sp else 24.sp
-        val descSize: TextUnit = if (isCompact) 14.sp else 15.sp
-        val hPad: Dp = if (isCompact) 20.dp else 24.dp
-        val vPad: Dp = if (isCompact) 24.dp else 40.dp
+            val logoSize: Dp = if (isCompact) 64.dp else 88.dp
+            val logoRadius: Dp = if (isCompact) 16.dp else 20.dp
+            val titleSize: TextUnit = if (isCompact) 20.sp else 24.sp
+            val descSize: TextUnit = if (isCompact) 14.sp else 15.sp
+            val hPad: Dp = if (isCompact) 20.dp else 24.dp
+            val vPad: Dp = if (isCompact) 24.dp else 40.dp
 
-        Column(
-            modifier = Modifier
-                .widthIn(max = if (isCompact) maxWidth else 520.dp)
-                .fillMaxHeight()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = hPad, vertical = vPad),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Image(
-                painter = painterResource(Res.drawable.nostrord_logo),
-                contentDescription = "Nostrord",
+            Column(
                 modifier = Modifier
-                    .size(logoSize)
-                    .clip(RoundedCornerShape(logoRadius))
-            )
+                    .widthIn(max = if (isCompact) maxWidth else 520.dp)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = hPad, vertical = vPad),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Image(
+                    painter = painterResource(Res.drawable.nostrord_logo),
+                    contentDescription = "Nostrord",
+                    modifier = Modifier
+                        .size(logoSize)
+                        .clip(RoundedCornerShape(logoRadius)),
+                )
 
-            Spacer(Modifier.height(if (isCompact) 16.dp else 20.dp))
+                Spacer(Modifier.height(if (isCompact) 16.dp else 20.dp))
 
-            Text(
-                text = "Welcome to Nostrord",
-                color = NostrordColors.TextPrimary,
-                fontSize = titleSize,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
+                Text(
+                    text = "Welcome to Nostrord",
+                    color = NostrordColors.TextPrimary,
+                    fontSize = titleSize,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
 
-            Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(8.dp))
 
-            Text(
-                text = "Group messaging on Nostr. Connect to relays, join communities, and chat — open, decentralized, and without any central server.",
-                color = NostrordColors.TextMuted,
-                fontSize = descSize,
-                lineHeight = descSize * 1.55,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 400.dp)
-            )
+                Text(
+                    text = "Group messaging on Nostr. Connect to relays, join communities, and chat — open, decentralized, and without any central server.",
+                    color = NostrordColors.TextMuted,
+                    fontSize = descSize,
+                    lineHeight = descSize * 1.55,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(max = 400.dp),
+                )
 
-            Spacer(Modifier.height(if (isCompact) 20.dp else 28.dp))
+                Spacer(Modifier.height(if (isCompact) 20.dp else 28.dp))
 
-            // Steps — row on desktop, column on compact
-            if (isCompact) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    OnboardingStep("1", "Add a Relay", "Connect to a Nostr relay that hosts groups",
-                        modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(), compact = true)
-                    OnboardingStep("2", "Browse Groups", "Explore available groups on the relay",
-                        modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(), compact = true)
-                    OnboardingStep("3", "Start Chatting", "Join groups and chat with the community",
-                        modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(), compact = true)
+                // Steps — row on desktop, column on compact
+                if (isCompact) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        OnboardingStep(
+                            "1",
+                            "Add a Relay",
+                            "Connect to a Nostr relay that hosts groups",
+                            modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(),
+                            compact = true,
+                        )
+                        OnboardingStep(
+                            "2",
+                            "Browse Groups",
+                            "Explore available groups on the relay",
+                            modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(),
+                            compact = true,
+                        )
+                        OnboardingStep(
+                            "3",
+                            "Start Chatting",
+                            "Join groups and chat with the community",
+                            modifier = Modifier.widthIn(max = 280.dp).fillMaxWidth(),
+                            compact = true,
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        OnboardingStep(
+                            "1",
+                            "Add a Relay",
+                            "Connect to a Nostr relay that hosts groups",
+                            modifier = Modifier.weight(1f),
+                            compact = false,
+                        )
+                        OnboardingStep(
+                            "2",
+                            "Browse Groups",
+                            "Explore available groups on the relay",
+                            modifier = Modifier.weight(1f),
+                            compact = false,
+                        )
+                        OnboardingStep(
+                            "3",
+                            "Start Chatting",
+                            "Join groups and chat with the community",
+                            modifier = Modifier.weight(1f),
+                            compact = false,
+                        )
+                    }
                 }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    OnboardingStep("1", "Add a Relay", "Connect to a Nostr relay that hosts groups",
-                        modifier = Modifier.weight(1f), compact = false)
-                    OnboardingStep("2", "Browse Groups", "Explore available groups on the relay",
-                        modifier = Modifier.weight(1f), compact = false)
-                    OnboardingStep("3", "Start Chatting", "Join groups and chat with the community",
-                        modifier = Modifier.weight(1f), compact = false)
-                }
+
+                Spacer(Modifier.height(if (isCompact) 20.dp else 28.dp))
+
+                OnboardingButton(
+                    text = "Add Your First Relay",
+                    primary = true,
+                    fullWidth = isCompact,
+                    onClick = onAddRelay,
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                OnboardingButton(
+                    text = "I already have a relay URL",
+                    primary = false,
+                    fullWidth = isCompact,
+                    onClick = onAddRelayCustomUrl,
+                )
             }
-
-            Spacer(Modifier.height(if (isCompact) 20.dp else 28.dp))
-
-            OnboardingButton(
-                text = "Add Your First Relay",
-                primary = true,
-                fullWidth = isCompact,
-                onClick = onAddRelay
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            OnboardingButton(
-                text = "I already have a relay URL",
-                primary = false,
-                fullWidth = isCompact,
-                onClick = onAddRelayCustomUrl
-            )
         }
-    }
     }
 }
 
@@ -149,7 +179,7 @@ private fun OnboardingStep(
     title: String,
     description: String,
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
 ) {
     if (compact) {
         // Horizontal layout on mobile: number badge + text side by side
@@ -159,14 +189,14 @@ private fun OnboardingStep(
                 .background(NostrordColors.BackgroundDark)
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Box(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(CircleShape)
                     .background(NostrordColors.Primary),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Text(number, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
@@ -183,21 +213,31 @@ private fun OnboardingStep(
                 .background(NostrordColors.BackgroundDark)
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Box(
                 modifier = Modifier
                     .size(32.dp)
                     .clip(CircleShape)
                     .background(NostrordColors.Primary),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Text(number, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
-            Text(title, color = NostrordColors.TextPrimary, fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
-            Text(description, color = NostrordColors.TextMuted, fontSize = 12.sp,
-                lineHeight = 16.sp, textAlign = TextAlign.Center)
+            Text(
+                title,
+                color = NostrordColors.TextPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                description,
+                color = NostrordColors.TextMuted,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
@@ -207,7 +247,7 @@ private fun OnboardingButton(
     text: String,
     primary: Boolean,
     fullWidth: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -228,13 +268,13 @@ private fun OnboardingButton(
 
     Box(
         modifier = buttonModifier,
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
             color = NostrordColors.TextPrimary,
             fontSize = if (primary) 14.sp else 13.sp,
-            fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium
+            fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium,
         )
     }
 }

@@ -6,9 +6,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class MentionPopupTest {
-
-    private fun member(displayName: String, pubkey: String = "aabbccdd") =
-        MemberInfo(pubkey = pubkey, displayName = displayName, picture = null)
+    private fun member(
+        displayName: String,
+        pubkey: String = "aabbccdd",
+    ) = MemberInfo(pubkey = pubkey, displayName = displayName, picture = null)
 
     @Test
     fun `bold fraktur name found by plain query`() {

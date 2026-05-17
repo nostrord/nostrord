@@ -13,7 +13,6 @@ import org.nostr.nostrord.utils.Result
  * Allows ViewModels to be tested with a fake implementation.
  */
 interface NostrRepositoryApi {
-
     // --- Auth state ---
     val isInitialized: StateFlow<Boolean>
     val isLoggedIn: StateFlow<Boolean>
@@ -25,6 +24,7 @@ interface NostrRepositoryApi {
     val currentRelayUrl: StateFlow<String>
     val connectionState: StateFlow<ConnectionManager.ConnectionState>
     val isDiscoveringRelays: StateFlow<Boolean>
+
     /** Non-null when a deep link opened a relay not in the user's saved list. */
     val pendingDeepLinkRelay: StateFlow<String?>
 
@@ -35,8 +35,10 @@ interface NostrRepositoryApi {
     val joinedGroups: StateFlow<Set<String>>
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
     val loadingRelays: StateFlow<Set<String>>
+
     /** Relays (in LAZY mode) whose full group list has been fetched this session. */
     val fullGroupListFetchedRelays: StateFlow<Set<String>>
+
     /** Relays that returned CLOSED "restricted" — access permanently denied. */
     val restrictedRelays: StateFlow<Map<String, String>>
     val isLoadingMore: StateFlow<Map<String, Boolean>>
@@ -46,6 +48,7 @@ interface NostrRepositoryApi {
     val groupAdmins: StateFlow<Map<String, List<String>>>
     val groupRoles: StateFlow<Map<String, List<RoleDefinition>>>
     val loadingMembers: StateFlow<Set<String>>
+
     /** Groups whose subscriptions were CLOSED with "restricted" — private group, non-member. */
     val restrictedGroups: StateFlow<Map<String, String>>
 
@@ -53,6 +56,7 @@ interface NostrRepositoryApi {
     val userMetadata: StateFlow<Map<String, UserMetadata>>
     val cachedEvents: StateFlow<Map<String, CachedEvent>>
     val unreadCounts: StateFlow<Map<String, Int>>
+
     /**
      * High-water mark per group: `created_at` (seconds) of the newest message
      * the client has processed. Persisted across sessions via `UnreadManager`.
@@ -63,28 +67,49 @@ interface NostrRepositoryApi {
     val unreadByRelay: StateFlow<Map<String, Int>>
     val userRelayList: StateFlow<List<Nip65Relay>>
     val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>>
+
     /** Relay URLs present as explicit "r" tags in the user's kind:10009 event. */
     val kind10009Relays: StateFlow<Set<String>>
+
     /** Relay URLs from "group" tags that have no "r" tag — implicit, never persisted. */
     val groupTagRelays: StateFlow<Set<String>>
 
     // --- Initialization ---
     fun forceInitialized()
+
     suspend fun initialize()
 
     // --- Auth operations ---
     fun clearAuthUrl()
+
     fun getPublicKey(): String?
+
     fun getPrivateKey(): String?
+
     fun isUsingBunker(): Boolean
+
     fun isBunkerReady(): Boolean
+
     suspend fun ensureBunkerConnected(): Boolean
+
     fun forgetBunkerConnection()
-    suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit>
+
+    suspend fun loginSuspend(
+        privKey: String,
+        pubKey: String,
+    ): Result<Unit>
+
     suspend fun loginWithNip07(pubkey: String): Result<Unit>
+
     suspend fun loginWithBunker(bunkerUrl: String): Result<String>
+
     suspend fun createNostrConnectSession(relays: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")): Pair<String, Nip46Client>
-    suspend fun completeNostrConnectLogin(client: Nip46Client, relays: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")): String
+
+    suspend fun completeNostrConnectLogin(
+        client: Nip46Client,
+        relays: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol"),
+    ): String
+
     suspend fun logout()
 
     /**
@@ -96,29 +121,45 @@ interface NostrRepositoryApi {
 
     // --- Connection operations ---
     suspend fun connect()
+
     suspend fun reconnect(): Boolean
+
     /** Fire-and-forget reconnect — safe to call from non-suspend contexts. */
     fun triggerReconnect()
+
     suspend fun switchRelay(newRelayUrl: String)
+
     suspend fun removeRelay(url: String)
+
     suspend fun disconnect()
 
     // --- Per-relay fetch mode ---
+
     /** Set whether a relay uses lazy fetch mode (only joined-group metadata on connect). */
-    fun setGroupFetchLazy(relayUrl: String, lazy: Boolean)
+    fun setGroupFetchLazy(
+        relayUrl: String,
+        lazy: Boolean,
+    )
+
     fun isGroupFetchLazy(relayUrl: String): Boolean
+
     /** Fetch the full group list for a relay — used when the user expands OTHER GROUPS on a lazy relay. */
     suspend fun requestFullGroupListForRelay(relayUrl: String)
+
     /** Add a relay to the user's saved list and publish kind:10009. */
     suspend fun addRelay(url: String)
+
     /** Dismiss the deep link relay prompt without saving. */
     fun dismissDeepLinkRelay()
 
     // --- Lifecycle ---
+
     /** Called when the app returns to the foreground. Re-establishes connections and refreshes subscriptions. */
     fun onForeground()
+
     /** Called when the app moves to the background. Persists live cursors to storage. */
     fun onBackground()
+
     /** Called when the app process is about to be destroyed. Persists all state and disconnects. */
     fun onDestroy()
 
@@ -130,7 +171,16 @@ interface NostrRepositoryApi {
     fun setActiveGroup(groupId: String?)
 
     // --- Group operations ---
-    suspend fun createGroup(name: String, about: String?, relayUrl: String, isPrivate: Boolean, isClosed: Boolean, picture: String? = null, customGroupId: String? = null): Result<String>
+    suspend fun createGroup(
+        name: String,
+        about: String?,
+        relayUrl: String,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        picture: String? = null,
+        customGroupId: String? = null,
+    ): Result<String>
+
     /**
      * Create a group and immediately declare [parentGroupId] as its parent
      * (chained kind:9007 + kind:9002).
@@ -143,19 +193,33 @@ interface NostrRepositoryApi {
         isPrivate: Boolean,
         isClosed: Boolean,
         picture: String? = null,
-        customGroupId: String? = null
+        customGroupId: String? = null,
     ): Result<String>
-    suspend fun joinGroup(groupId: String, inviteCode: String? = null): Result<Unit>
-    suspend fun leaveGroup(groupId: String, reason: String? = null): Result<Unit>
+
+    suspend fun joinGroup(
+        groupId: String,
+        inviteCode: String? = null,
+    ): Result<Unit>
+
+    suspend fun leaveGroup(
+        groupId: String,
+        reason: String? = null,
+    ): Result<Unit>
+
     /**
      * Locally remove a joined group that no longer has a `kind:39000` on the
      * relay (deleted while offline, or never existed anymore). Does NOT send
      * `kind:9022` — the group is gone, so there's no relay-side state to leave.
      * Republishes `kind:10009` so other devices drop the stale pin too.
      */
-    suspend fun forgetGroup(groupId: String, relayUrl: String): Result<Unit>
+    suspend fun forgetGroup(
+        groupId: String,
+        relayUrl: String,
+    ): Result<Unit>
+
     /** Joined groups on a relay that have no corresponding `kind:39000` metadata. */
     val orphanedJoinedByRelay: StateFlow<Map<String, Set<String>>>
+
     /**
      * Edit a group in one kind:9002 event. [parentOp] and [childrenEdit]
      * are optional — omit them to leave those fields unchanged
@@ -169,17 +233,20 @@ interface NostrRepositoryApi {
         isClosed: Boolean,
         picture: String? = null,
         parentOp: GroupManager.ParentOp? = null,
-        childrenEdit: GroupManager.ChildrenEdit? = null
+        childrenEdit: GroupManager.ChildrenEdit? = null,
     ): Result<Unit>
+
     suspend fun deleteGroup(groupId: String): Result<Unit>
+
     /**
      * Publish a kind:9002 to re-parent a group or promote it to root.
      * See [GroupManager.updateGroupTopology].
      */
     suspend fun updateGroupTopology(
         groupId: String,
-        parent: GroupManager.ParentOp?
+        parent: GroupManager.ParentOp?,
     ): Result<Unit>
+
     /**
      * Publish a kind:9002 that declares the parent's accepted children
      * (`["child", id, order?, flags?]`) and, optionally, `["closed-children"]`.
@@ -189,15 +256,25 @@ interface NostrRepositoryApi {
     suspend fun updateChildren(
         groupId: String,
         children: List<DeclaredChild>,
-        closedChildren: Boolean
+        closedChildren: Boolean,
     ): Result<Unit>
+
     fun isGroupJoined(groupId: String): Boolean
-    suspend fun requestGroupMessages(groupId: String, channel: String? = null)
+
+    suspend fun requestGroupMessages(
+        groupId: String,
+        channel: String? = null,
+    )
+
     suspend fun requestGroupMembers(groupId: String)
+
     suspend fun requestGroupAdmins(groupId: String)
+
     suspend fun refreshGroupMetadata(groupId: String)
+
     /** Observable parent→children map derived from `parent` tags in kind:39000. */
     val childrenByParent: StateFlow<Map<String, Set<String>>>
+
     /**
      * Subgroups whose declared parent neither lists them via `["child", ...]` nor
      * attests via an admin pubkey currently in the parent's `kind:39001`. Per NIP-29
@@ -206,33 +283,114 @@ interface NostrRepositoryApi {
      * to root and do not appear here.
      */
     val unverifiedChildren: StateFlow<Set<String>>
+
     /** Connect to a relay in the background and fetch kind 39000 metadata for a group preview. */
-    suspend fun fetchGroupPreview(groupId: String, relayUrl: String)
-    suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean
-    suspend fun fetchGroupMessageById(groupId: String, messageId: String)
-    suspend fun sendMessage(groupId: String, content: String, channel: String? = null, mentions: Map<String, String> = emptyMap(), replyToMessageId: String? = null, extraTags: List<List<String>> = emptyList()): Result<Unit>
-    suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String> = emptyList()): Result<Unit>
-    suspend fun removeUser(groupId: String, targetPubkey: String): Result<Unit>
-    suspend fun rejectJoinRequest(groupId: String, joinRequestEventId: String): Result<Unit>
+    suspend fun fetchGroupPreview(
+        groupId: String,
+        relayUrl: String,
+    )
+
+    suspend fun loadMoreMessages(
+        groupId: String,
+        channel: String? = null,
+    ): Boolean
+
+    suspend fun fetchGroupMessageById(
+        groupId: String,
+        messageId: String,
+    )
+
+    suspend fun sendMessage(
+        groupId: String,
+        content: String,
+        channel: String? = null,
+        mentions: Map<String, String> = emptyMap(),
+        replyToMessageId: String? = null,
+        extraTags: List<List<String>> = emptyList(),
+    ): Result<Unit>
+
+    suspend fun addUser(
+        groupId: String,
+        targetPubkey: String,
+        roles: List<String> = emptyList(),
+    ): Result<Unit>
+
+    suspend fun removeUser(
+        groupId: String,
+        targetPubkey: String,
+    ): Result<Unit>
+
+    suspend fun rejectJoinRequest(
+        groupId: String,
+        joinRequestEventId: String,
+    ): Result<Unit>
+
     suspend fun createInviteCode(groupId: String): Result<String>
-    suspend fun revokeInviteCode(groupId: String, eventId: String): Result<Unit>
-    suspend fun deleteMessage(groupId: String, messageId: String): Result<Unit>
-    suspend fun sendReaction(groupId: String, targetEventId: String, targetPubkey: String, emoji: String): Result<Unit>
+
+    suspend fun revokeInviteCode(
+        groupId: String,
+        eventId: String,
+    ): Result<Unit>
+
+    suspend fun deleteMessage(
+        groupId: String,
+        messageId: String,
+    ): Result<Unit>
+
+    suspend fun sendReaction(
+        groupId: String,
+        targetEventId: String,
+        targetPubkey: String,
+        emoji: String,
+    ): Result<Unit>
+
     fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage>
+
     fun markGroupAsRead(groupId: String)
+
     fun getUnreadCount(groupId: String): Int
+
     fun getLastReadTimestamp(groupId: String): Long?
 
     // --- Metadata operations ---
     suspend fun requestUserMetadata(pubkeys: Set<String>)
-    suspend fun updateProfileMetadata(displayName: String? = null, name: String? = null, about: String? = null, picture: String? = null, banner: String? = null, nip05: String? = null, lud16: String? = null, website: String? = null): Result<Unit>
+
+    suspend fun updateProfileMetadata(
+        displayName: String? = null,
+        name: String? = null,
+        about: String? = null,
+        picture: String? = null,
+        banner: String? = null,
+        nip05: String? = null,
+        lud16: String? = null,
+        website: String? = null,
+    ): Result<Unit>
+
     suspend fun publishRelayList(relays: List<Nip65Relay>): Result<Unit>
 
     // --- Event operations ---
-    suspend fun requestEventById(eventId: String, relayHints: List<String> = emptyList(), author: String? = null)
-    suspend fun requestAddressableEvent(kind: Int, pubkey: String, identifier: String, relays: List<String> = emptyList())
+    suspend fun requestEventById(
+        eventId: String,
+        relayHints: List<String> = emptyList(),
+        author: String? = null,
+    )
+
+    suspend fun requestAddressableEvent(
+        kind: Int,
+        pubkey: String,
+        identifier: String,
+        relays: List<String> = emptyList(),
+    )
+
     suspend fun requestQuotedEvent(eventId: String)
+
     suspend fun requestRelayLists(pubkeys: Set<String>)
+
     fun getRelayListForPubkey(pubkey: String): List<Nip65Relay>?
-    fun selectOutboxRelays(authors: List<String> = emptyList(), taggedPubkeys: List<String> = emptyList(), explicitRelays: List<String> = emptyList()): List<String>
+
+    fun selectOutboxRelays(
+        authors: List<String> = emptyList(),
+        taggedPubkeys: List<String> = emptyList(),
+        explicitRelays: List<String> = emptyList(),
+    ): List<String>
 }

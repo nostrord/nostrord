@@ -8,9 +8,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.storage.SecureStorage
-import org.nostr.nostrord.storage.savePrivateKeyFor
-import org.nostr.nostrord.storage.saveBunkerUrlFor
 import org.nostr.nostrord.storage.saveBunkerClientPrivateKeyFor
+import org.nostr.nostrord.storage.saveBunkerUrlFor
+import org.nostr.nostrord.storage.savePrivateKeyFor
 import org.nostr.nostrord.utils.epochMillis
 
 /**
@@ -21,7 +21,6 @@ import org.nostr.nostrord.utils.epochMillis
  * in separate pubkey-keyed slots (see SecureStorage `*For(pubkey)` APIs).
  */
 class AccountStore {
-
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _accounts = MutableStateFlow(loadAccounts())
@@ -42,11 +41,15 @@ class AccountStore {
      * Returns the canonical [Account] now stored.
      */
     fun upsert(account: Account): Account {
-        val merged = _accounts.updateAndGet { current ->
-            val existing = current.firstOrNull { it.id == account.id }
-            if (existing == null) current + account
-            else current.map { if (it.id == account.id) account else it }
-        }
+        val merged =
+            _accounts.updateAndGet { current ->
+                val existing = current.firstOrNull { it.id == account.id }
+                if (existing == null) {
+                    current + account
+                } else {
+                    current.map { if (it.id == account.id) account else it }
+                }
+            }
         persistAccounts(merged)
         return account
     }
@@ -57,14 +60,15 @@ class AccountStore {
      */
     fun remove(id: String) {
         var didRemove = false
-        val updated = _accounts.updateAndGet { current ->
-            if (current.none { it.id == id }) {
-                current
-            } else {
-                didRemove = true
-                current.filterNot { it.id == id }
+        val updated =
+            _accounts.updateAndGet { current ->
+                if (current.none { it.id == id }) {
+                    current
+                } else {
+                    didRemove = true
+                    current.filterNot { it.id == id }
+                }
             }
-        }
         if (!didRemove) return
         persistAccounts(updated)
         if (_activeId.value == id) {
@@ -119,12 +123,13 @@ class AccountStore {
         // NIP-07 → bunker → local private key.
         val nip07Pubkey = SecureStorage.getNip07UserPubkey()
         if (!nip07Pubkey.isNullOrBlank()) {
-            val account = Account(
-                pubkey = nip07Pubkey,
-                label = "Account 1",
-                authMethod = AuthMethod.NIP07,
-                addedAt = now,
-            )
+            val account =
+                Account(
+                    pubkey = nip07Pubkey,
+                    label = "Account 1",
+                    authMethod = AuthMethod.NIP07,
+                    addedAt = now,
+                )
             upsert(account)
             setActive(account.id)
             return
@@ -137,12 +142,13 @@ class AccountStore {
             SecureStorage.getBunkerClientPrivateKey()?.let { client ->
                 SecureStorage.saveBunkerClientPrivateKeyFor(bunkerPubkey, client)
             }
-            val account = Account(
-                pubkey = bunkerPubkey,
-                label = "Account 1",
-                authMethod = AuthMethod.BUNKER,
-                addedAt = now,
-            )
+            val account =
+                Account(
+                    pubkey = bunkerPubkey,
+                    label = "Account 1",
+                    authMethod = AuthMethod.BUNKER,
+                    addedAt = now,
+                )
             upsert(account)
             setActive(account.id)
             return
@@ -150,18 +156,20 @@ class AccountStore {
 
         val privKey = SecureStorage.getPrivateKey()
         if (!privKey.isNullOrBlank()) {
-            val derivedPubkey = try {
-                KeyPair.fromPrivateKeyHex(privKey).publicKeyHex
-            } catch (_: Exception) {
-                return
-            }
+            val derivedPubkey =
+                try {
+                    KeyPair.fromPrivateKeyHex(privKey).publicKeyHex
+                } catch (_: Exception) {
+                    return
+                }
             SecureStorage.savePrivateKeyFor(derivedPubkey, privKey)
-            val account = Account(
-                pubkey = derivedPubkey,
-                label = "Account 1",
-                authMethod = AuthMethod.LOCAL,
-                addedAt = now,
-            )
+            val account =
+                Account(
+                    pubkey = derivedPubkey,
+                    label = "Account 1",
+                    authMethod = AuthMethod.LOCAL,
+                    addedAt = now,
+                )
             upsert(account)
             setActive(account.id)
         }

@@ -48,21 +48,26 @@ class MainActivity : ComponentActivity() {
     private fun handleShareIntent(intent: Intent?) {
         if (intent == null) return
         @Suppress("DEPRECATION")
-        val uris: List<Uri> = when (intent.action) {
-            Intent.ACTION_SEND -> listOfNotNull(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                else
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM)
-            )
-            Intent.ACTION_SEND_MULTIPLE -> (
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
-                else
-                    intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
-            )?.toList() ?: emptyList()
-            else -> emptyList()
-        }
+        val uris: List<Uri> =
+            when (intent.action) {
+                Intent.ACTION_SEND ->
+                    listOfNotNull(
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                        } else {
+                            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                        },
+                    )
+                Intent.ACTION_SEND_MULTIPLE ->
+                    (
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                        } else {
+                            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+                        }
+                        )?.toList() ?: emptyList()
+                else -> emptyList()
+            }
         if (uris.isNotEmpty()) ShareMediaQueue.offer(uris)
     }
 
@@ -74,17 +79,18 @@ class MainActivity : ComponentActivity() {
         val inviteCode = uri.getQueryParameter("code")?.takeIf { it.isNotBlank() }
         val messageId = uri.getQueryParameter("e")?.takeIf { it.isNotBlank() }
 
-        val context = if (groupId != null) {
-            ExternalLaunchContext.OpenGroup(
-                groupId = groupId,
-                groupName = null,
-                relayUrl = relayUrl,
-                inviteCode = inviteCode,
-                messageId = messageId
-            )
-        } else {
-            ExternalLaunchContext.OpenRelay(relayUrl)
-        }
+        val context =
+            if (groupId != null) {
+                ExternalLaunchContext.OpenGroup(
+                    groupId = groupId,
+                    groupName = null,
+                    relayUrl = relayUrl,
+                    inviteCode = inviteCode,
+                    messageId = messageId,
+                )
+            } else {
+                ExternalLaunchContext.OpenRelay(relayUrl)
+            }
         StartupResolver.setExternalLaunchContext(context)
     }
 }

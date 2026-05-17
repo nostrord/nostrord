@@ -27,7 +27,7 @@ actual fun StaticImage(
     modifier: Modifier,
     contentScale: ContentScale,
     onClick: () -> Unit,
-    onError: () -> Unit
+    onError: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
     val optimizedUrl = remember(url) { getImageUrl(url) }
@@ -36,7 +36,9 @@ actual fun StaticImage(
     val dataUrl = if (useOriginal) url else optimizedUrl
 
     AsyncImage(
-        model = ImageRequest.Builder(context)
+        model =
+        ImageRequest
+            .Builder(context)
             .data(dataUrl)
             .crossfade(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
@@ -54,6 +56,6 @@ actual fun StaticImage(
                     onError()
                 }
             }
-        }
+        },
     )
 }
