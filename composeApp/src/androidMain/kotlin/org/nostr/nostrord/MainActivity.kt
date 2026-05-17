@@ -14,11 +14,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import org.nostr.nostrord.network.upload.ShareMediaQueue
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.ui.components.media.FullscreenVideoController
+import org.nostr.nostrord.ui.components.media.FullscreenVideoOverlay
+import org.nostr.nostrord.ui.components.media.LocalFullscreenVideoController
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.toRelayUrl
 
@@ -31,9 +36,16 @@ class MainActivity : ComponentActivity() {
         handleDeepLink(intent)
         handleShareIntent(intent)
         setContent {
-            Box(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
-                Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
-                    App()
+            val fullscreenVideoController = remember { FullscreenVideoController() }
+            CompositionLocalProvider(LocalFullscreenVideoController provides fullscreenVideoController) {
+                Box(modifier = Modifier.fillMaxSize().background(NostrordColors.Background)) {
+                    Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
+                        App()
+                    }
+                    // Rendered outside the safe-area Box so the fullscreen overlay covers
+                    // status/navigation bars too. Lives outside App() so it survives any
+                    // unmount of the chat composable that triggered the fullscreen.
+                    FullscreenVideoOverlay(fullscreenVideoController)
                 }
             }
         }
