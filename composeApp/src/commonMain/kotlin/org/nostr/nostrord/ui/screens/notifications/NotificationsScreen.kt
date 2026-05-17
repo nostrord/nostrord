@@ -122,27 +122,28 @@ fun NotificationsScreen(
         },
         containerColor = NostrordColors.Background
     ) { padding ->
-        if (entries.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Default.Notifications,
-                        contentDescription = null,
-                        tint = NostrordColors.TextMuted,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text("No notifications yet", color = NostrordColors.TextMuted, fontSize = 15.sp)
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (entries.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.Notifications,
+                            contentDescription = null,
+                            tint = NostrordColors.TextMuted,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("No notifications yet", color = NostrordColors.TextMuted, fontSize = 15.sp)
+                    }
                 }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(vertical = 8.dp)
-            ) {
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
                 items(entries, key = { it.id }) { entry ->
                     val meta = userMetadata[entry.actorPubkey]
                     val authorName = meta?.displayName?.takeIf { it.isNotBlank() }
@@ -187,6 +188,7 @@ fun NotificationsScreen(
                     )
                     HorizontalDivider(color = NostrordColors.BackgroundDark, thickness = 1.dp)
                 }
+            }
             }
         }
     }

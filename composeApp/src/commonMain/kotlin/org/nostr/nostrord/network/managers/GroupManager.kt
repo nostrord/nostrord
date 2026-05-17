@@ -425,16 +425,42 @@ class GroupManager(
         const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
     }
 
-    // Current user pubkey for storage scoping
     private var currentPubkey: String? = null
 
-    /**
-     * Set the current user pubkey for storage scoping.
-     * Should be called after login.
-     */
     fun setCurrentPubkey(pubkey: String?) {
         currentPubkey = pubkey
     }
+
+    // Catch-up `since` for the first mux refresh after an account switch.
+    // Lets the now-active account fetch events that happened while it was
+    // inactive. Expires automatically after [CATCH_UP_TTL_S] so it never
+    // re-applies on a later reconnect of the same session.
+    @kotlin.concurrent.Volatile
+    private var catchUpSinceSeconds: Long? = null
+    @kotlin.concurrent.Volatile
+    private var catchUpSetAtSeconds: Long = 0L
+    private val CATCH_UP_TTL_S = 60L
+
+    /**
+     * Set a one-shot catch-up `since` to apply on the next mux refresh(es).
+     * Pass null to clear. Used by [reloadForActiveAccount] right after an
+     * account switch so notification-bearing events that happened while this
+     * account was inactive still arrive.
+     */
+    fun setCatchUpSince(unixSeconds: Long?) {
+        catchUpSinceSeconds = unixSeconds
+        catchUpSetAtSeconds = if (unixSeconds != null) epochSeconds() else 0L
+    }
+
+    private fun activeCatchUpSince(): Long? {
+        val s = catchUpSinceSeconds ?: return null
+        if (epochSeconds() - catchUpSetAtSeconds > CATCH_UP_TTL_S) {
+            catchUpSinceSeconds = null
+            return null
+        }
+        return s
+    }
+
 
     // Mutex for message list updates (separate from loading state)
     private val messageMutex = Mutex()
@@ -551,6 +577,11 @@ class GroupManager(
                 val muxJob = scope.launch { refreshMuxSubscriptionsForRelay(url) }
 
                 if (client != null && client.isConnected()) {
+                    // Wait for NIP-42 AUTH before the direct REQs. Closed/private
+                    // groups answer with CLOSED "auth-required" if these race ahead,
+                    // and the 39002 never arrives, leaving the screen stuck on
+                    // "Awaiting admin approval" for an already-approved member.
+                    client.awaitAuthOrTimeout()
                     // Direct requests for the ACTIVE group — fast-lane.
                     // Mux provides breadth; these provide speed for the group the user is looking at.
                     // Duplicates are handled by the event deduplicator.
@@ -616,8 +647,14 @@ class GroupManager(
         // chat for *every* joined group so notifications/sound/unread fire cross-relay
         // — the user isn't browsing them, so the on-demand fallback to _activeGroupId
         // (which lives on a different relay) would silence them entirely.
+        //
+        // Exception: during a switch-in catch-up window, the primary relay also
+        // subscribes to chat for ALL joined groups. Without this, an account that
+        // landed on the home screen would only receive notifications for groups
+        // it manually opened, defeating the whole point of the catch-up since.
+        val catchUp = activeCatchUpSince()
         val isPrimary = relayUrl.normalizeRelayUrl() == currentRelayUrl?.normalizeRelayUrl()
-        val chatGroupIds = if (isPrimary) {
+        val chatGroupIds = if (isPrimary && catchUp == null) {
             _openedGroupIds.value
                 .filter { it in allGroupIds }
                 .ifEmpty {
@@ -628,10 +665,19 @@ class GroupManager(
             allGroupIds
         }
 
-        val chatSince = if (chatGroupIds.isNotEmpty()) {
+        val baseChatSince = if (chatGroupIds.isNotEmpty()) {
             liveCursorStore.getMinSince(relayUrl, chatGroupIds)
         } else {
             0L
+        }
+        // After a switch-in, regress `since` (one-shot, TTL-bounded) so the
+        // mux replays anything the now-active account missed while inactive.
+        // `MuxSubscriptionTracker.needsRefresh` already treats a regressed
+        // `since` as a refresh trigger, so the CLOSE+REQ cycle fires here.
+        val chatSince = when {
+            catchUp == null -> baseChatSince
+            chatGroupIds.isEmpty() -> baseChatSince
+            else -> minOf(baseChatSince, catchUp)
         }
 
         val desired = MuxSubscriptionTracker.MuxState(
@@ -1772,57 +1818,49 @@ class GroupManager(
      * CRITICAL: This must be called from a coroutine context to ensure
      * proper ordering with message tracking.
      */
-    suspend fun handleEoseSuspend(subscriptionId: String): Boolean {
-        // Handle both the legacy "group-list" ID and new relay-specific IDs
-        // ("group-list-<hashCode>"). Map the sub ID back to the relay URL by
-        // scanning pool and primary clients so we mark the *correct* relay as
-        // having completed its initial load.
+    /**
+     * Handle an EOSE from [sourceRelayUrl]'s socket. Passing the source relay
+     * explicitly (rather than reverse-mapping from the sub ID) avoids
+     * mis-attributing a late EOSE from a torn-down relay to whichever relay is
+     * currently primary — previously such a misattribution could mark the
+     * current relay as fully fetched and prune its groups even though it had
+     * never received its own EOSE.
+     */
+    suspend fun handleEoseSuspend(subscriptionId: String, sourceRelayUrl: String): Boolean {
         if (subscriptionId == "group-list" || subscriptionId.startsWith("group-list-")) {
-            val relay = if (subscriptionId == "group-list") {
-                currentRelayUrl
-            } else {
-                findRelayForGroupListSubId(subscriptionId) ?: currentRelayUrl
+            // Reject obviously-stale frames: a relay-specific sub ID must
+            // match the source socket. Legacy "group-list" (no hash) is
+            // single-relay and trusted as-is.
+            if (subscriptionId.startsWith("group-list-") &&
+                subscriptionId != "group-list-${sourceRelayUrl.hashCode().toUInt()}") {
+                return true
             }
-            if (relay != null) {
-                val normalizedRelay = relay.normalizeRelayUrl()
-                _completeGroupLoadRelays.update { it + normalizedRelay }
-                _loadingRelays.update { it - normalizedRelay }
-                val now = epochSeconds()
-                val isFull = pendingFullFetchRelays.remove(normalizedRelay)
-                if (isFull) {
-                    // Full unfiltered fetch — save dedicated full-list timestamp so
-                    // hasFullGroupListBeenFetched() returns true after an app restart.
-                    _fullGroupListFetchedRelays.update { it + normalizedRelay }
-                    try { SecureStorage.saveFullGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
-                    // Prune stale groups: keep only those seen in this fetch, plus joined
-                    // groups (which become orphans the user can manually forget).
-                    val seenIds = pendingFetchSeenGroups.remove(normalizedRelay) ?: emptySet()
-                    val joinedIds = _joinedGroupsByRelay.value[normalizedRelay] ?: emptySet()
-                    _groupsByRelay.update { current ->
-                        val pruned = (current[normalizedRelay] ?: emptyList())
-                            .filter { it.id in seenIds || it.id in joinedIds }
-                        current + (normalizedRelay to pruned)
-                    }
+            val normalizedRelay = sourceRelayUrl.normalizeRelayUrl()
+            _completeGroupLoadRelays.update { it + normalizedRelay }
+            _loadingRelays.update { it - normalizedRelay }
+            val now = epochSeconds()
+            val isFull = pendingFullFetchRelays.remove(normalizedRelay)
+            if (isFull) {
+                // Save the dedicated full-list timestamp so hasFullGroupListBeenFetched()
+                // returns true after an app restart.
+                _fullGroupListFetchedRelays.update { it + normalizedRelay }
+                try { SecureStorage.saveFullGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
+                // Prune stale groups: keep only those seen in this fetch, plus joined
+                // groups (which become orphans the user can manually forget).
+                val seenIds = pendingFetchSeenGroups.remove(normalizedRelay) ?: emptySet()
+                val joinedIds = _joinedGroupsByRelay.value[normalizedRelay] ?: emptySet()
+                _groupsByRelay.update { current ->
+                    val pruned = (current[normalizedRelay] ?: emptyList())
+                        .filter { it.id in seenIds || it.id in joinedIds }
+                    current + (normalizedRelay to pruned)
                 }
-                // Always update the general cache timestamp (used by hasCachedGroupsForRelay).
-                try { SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
-                refreshMuxSubscriptionsForRelay(normalizedRelay)
             }
+            try { SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
+            refreshMuxSubscriptionsForRelay(normalizedRelay)
             return true
         }
         awaitTrackingForSubscription(subscriptionId)
         return loadingRegistry.handleEose(subscriptionId)
-    }
-
-    /**
-     * Find the relay URL whose group-list subscription ID matches the given subId.
-     * The subscription ID format is "group-list-<unsignedHashCode>" where the hash
-     * is derived from the relay URL.
-     */
-    private fun findRelayForGroupListSubId(subscriptionId: String): String? {
-        return _groupsByRelay.value.keys.firstOrNull { relayUrl ->
-            "group-list-${relayUrl.hashCode().toUInt()}" == subscriptionId
-        }
     }
 
     /**
@@ -2359,6 +2397,16 @@ class GroupManager(
             onApprovalDetected(members.groupId)
         }
 
+        // A confirmed membership contradicts any persisted restricted marker.
+        // The marker can survive 7 days in SecureStorage, so a stale CLOSED
+        // "restricted" from a past auth race would otherwise keep the group
+        // showing the "Private group / invite code" placeholder forever, even
+        // after the relay returned 39002 listing self as a member.
+        if (self != null && self in members.members &&
+            members.groupId in _restrictedGroups.value) {
+            clearGroupRestricted(members.groupId)
+        }
+
         return members.members
     }
 
@@ -2597,6 +2645,11 @@ class GroupManager(
      * Called by [EventOrderingBuffer] after its debounce window expires.
      */
     private fun flushBatchToState(groupId: String, messages: List<NostrGroupClient.NostrMessage>) {
+        // Guard: currentPubkey is nulled in clear() before a switch. Any flush
+        // that arrives after clear() but before setCurrentPubkey() is discarded
+        // here to prevent cross-account message contamination.
+        if (currentPubkey == null) return
+
         val chatMessages = messages.filter { it.kind == 9 }
         if (chatMessages.isNotEmpty()) {
         }
@@ -2856,6 +2909,14 @@ class GroupManager(
         // instead of relying on stale data from a previous visit.
         _completeGroupLoadRelays.value = emptySet()
 
+        // Without clearing this, an in-flight full fetch on the previous relay
+        // leaves that relay flagged "pending"; if its late EOSE then arrives
+        // the relay would be marked complete with an empty seen-set, pruning
+        // its OTHER GROUPS to just the joined entries. Cleared here (alongside
+        // [clear] which covers logout) so every relay switch resets the bookkeeping.
+        pendingFullFetchRelays.clear()
+        pendingFetchSeenGroups.clear()
+
         // MUST be synchronous (not scope.launch). If this is async, requestGroupMessages
         // called immediately after switchRelay sees stale HasMore/Exhausted state from the
         // previous relay and startInitialLoad() returns null — group silently never loads.
@@ -2880,12 +2941,67 @@ class GroupManager(
      * Use on logout or full account reset.
      */
     suspend fun clear() {
+        // Null out currentPubkey BEFORE flushing so any in-flight flush that
+        // fires during or after the clear is discarded by flushBatchToState's
+        // null guard. This prevents stale messages from a previous account
+        // writing into _messages after a switch.
+        currentPubkey = null
         eventOrderingBuffer.flushAll()
         _completeGroupLoadRelays.value = emptySet()
         _fullGroupListFetchedRelays.value = emptySet()
         _loadingRelays.value = emptySet()
+        // Without clearing this, an in-flight full fetch from the previous account
+        // leaves the relay flagged as "pending", and the new account's expand of
+        // OTHER GROUPS is silently skipped by requestFullGroupListForRelay's guard.
+        pendingFullFetchRelays.clear()
+        pendingFetchSeenGroups.clear()
         _groupsByRelay.value = emptyMap()
         _openedGroupIds.value = emptySet()
+        // Messages from the previous account must NOT survive into the new
+        // session. flushBatchToState rebuilds messageIdIndex from _messages,
+        // so leaving an event id behind makes the next account's catch-up
+        // REQ silently drop it — newMessages stays empty, onNewMessagesFlushed
+        // never fires, and UnreadManager never sees the event. Cleared here
+        // (not in clearForRelaySwitch) because relay switch must preserve the
+        // user's message history for the active account.
+        _messages.value = emptyMap()
+        _latestMessageRelayByGroup.value = emptyMap()
+        // Joined-group sets and restricted-group markers are pubkey-scoped.
+        // Leaving them in place lets isJoined() / isRestricted() report the
+        // PREVIOUS account's data while the new account's flow is still
+        // settling. Concretely: a kind:9 buffered in the ordering buffer (or
+        // arriving on a still-open socket) flushes a few hundred ms after the
+        // switch, UnreadManager.isJoined() returns true on the stale set, and
+        // the notification lands in the new account's history.
+        _joinedGroupsByRelay.value = emptyMap()
+        _restrictedGroups.value = emptyMap()
+        // Per-group state from the previous account must be cleared too.
+        // Without this, an account switch leaves stale kind:39002/39001/39003
+        // caches that don't include the new account's pubkey, so opening a
+        // closed group falls straight into the "Awaiting admin approval" branch
+        // in GroupScreen. memberEventTimestamps must also be reset, otherwise a
+        // fresh 39002 with the same createdAt is treated as stale and the cache
+        // never updates.
+        _groupMembers.value = emptyMap()
+        _groupAdmins.value = emptyMap()
+        _groupRoles.value = emptyMap()
+        _loadingMembers.value = emptySet()
+        memberEventTimestamps.clear()
+        adminEventTimestamps.clear()
+        roleEventTimestamps.clear()
+        pendingApprovalSince.clear()
+        recentlyLeftAt.clear()
+        // The mux tracker remembers what was last sent per relay. Without
+        // clearing it on identity swap, refreshMuxSubscriptionsForRelay can
+        // see "no change" and skip the REQ. Private-group 39002 then never
+        // arrives on the new identity's session and the chat is stuck on
+        // "Awaiting admin approval" until the user restarts the app.
+        muxTracker.clearAll()
+        // Same idea for the 2s request cooldown: a recent REQ from the
+        // previous account would otherwise block an equivalent REQ from
+        // the new account during the swap window.
+        recentRequests.clear()
+        _activeGroupId = null
         clearForRelaySwitch()
     }
 

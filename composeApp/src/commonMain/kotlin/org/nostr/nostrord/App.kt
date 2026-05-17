@@ -32,6 +32,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.AppStartState
 import org.nostr.nostrord.startup.StartupResolver
@@ -49,6 +50,7 @@ import org.nostr.nostrord.ui.components.notifications.NotificationPermissionBann
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import org.nostr.nostrord.ui.navigation.BrowserNavigationHandler
+import org.nostr.nostrord.ui.navigation.NavEntry
 import org.nostr.nostrord.ui.navigation.NavigationHistory
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.navigation.browserGoBack
@@ -221,8 +223,11 @@ private fun AuthenticatedApp(
     val groupTagRelays by AppModule.nostrRepository.groupTagRelays.collectAsState()
     val isLoggedIn by AppModule.nostrRepository.isLoggedIn.collectAsState()
 
-    // Get pubKey reactively (needed for persistScreenState)
-    val pubKey = remember(isLoggedIn) { AppModule.nostrRepository.getPublicKey() }
+    // Reactive pubkey from the active AccountSession so the UI follows the
+    // new identity immediately after a switch.
+    val activeSessionForRoot by ActiveAccountManager.session.collectAsState()
+    val pubKey = activeSessionForRoot?.pubkey
+        ?: if (isLoggedIn) AppModule.nostrRepository.getPublicKey() else null
 
     // Remember scroll states across navigation
     val homeGridState = rememberLazyGridState()
@@ -307,6 +312,25 @@ private fun AuthenticatedApp(
         org.nostr.nostrord.notifications.installPlatformFocusListeners(AppModule.focusTracker)
     }
 
+    // Account switch: resolve a fresh initial screen for the new identity so the
+    // previous account's open group does not bleed into the new session. The
+    // first emission is the boot pubkey — already reflected in [initialScreen] —
+    // so we only act on subsequent transitions.
+    var lastSeenPubkey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pubKey) {
+        val current = pubKey ?: return@LaunchedEffect
+        val prev = lastSeenPubkey
+        lastSeenPubkey = current
+        if (prev == null || prev == current) return@LaunchedEffect
+
+        val resolved = StartupResolver.resolveInitialScreen(current)
+        navHistory.reset(NavEntry(resolved.screen, ""))
+        persistScreenState(resolved.screen)
+        AppModule.nostrRepository.setActiveGroup(
+            if (resolved.screen is Screen.Group) resolved.screen.groupId else null
+        )
+    }
+
     // Pending invite code from deep link or browser navigation.
     // Passed to GroupScreen which handles auto-join and consumption.
     var pendingInviteCode by remember { mutableStateOf(deepLinkInviteCode) }
@@ -317,6 +341,18 @@ private fun AuthenticatedApp(
     var showAddRelayModal by remember { mutableStateOf(false) }
     var addRelayInitialTab by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }
+    var showMeMenu by remember { mutableStateOf(false) }
+    var showAddAccount by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
+
+    // Bunker revoke / NIP-07 disconnect / other involuntary deauth events.
+    // AppModule fires a system message after attempting fallback so the
+    // user always sees what happened, whether or not we kept them in-app.
+    LaunchedEffect(snackbarHostState) {
+        AppModule.systemMessages.collect { msg ->
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
 
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -638,14 +674,14 @@ private fun AuthenticatedApp(
                     onCreateGroupClick = { showCreateGroupModal = true },
                     onJoinGroupClick = { showJoinGroupModal = true },
                     onAddRelayFromSidebar = if (hasNoRelays) {{ addRelayInitialTab = 0; showAddRelayModal = true }} else null,
-                    onUserClick = { showSettings = true },
-                    isProfileActive = showSettings,
+                    onUserClick = { showMeMenu = true },
+                    isProfileActive = showSettings || showMeMenu,
                     onNotificationsClick = { onNavigate(Screen.Notifications) },
                     isNotificationsActive = currentScreen is Screen.Notifications,
                     hideGroupsSidebar = currentScreen is Screen.Notifications,
                     modifier = Modifier.weight(1f)
                 ) {
-                    val hideAnimatedImages = showSettings || showCreateGroupModal || showAddRelayModal
+                    val hideAnimatedImages = showSettings || showCreateGroupModal || showAddRelayModal || showMeMenu || showAddAccount
                     CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
                         DesktopContent(
                             currentScreen = currentScreen,
@@ -717,7 +753,7 @@ private fun AuthenticatedApp(
                             }} else null,
                             onUserClick = {
                                 scope.launch { drawerState.close() }
-                                showSettings = true
+                                showMeMenu = true
                             },
                             isNotificationsActive = currentScreen is Screen.Notifications,
                             onNotificationsClick = {
@@ -728,7 +764,7 @@ private fun AuthenticatedApp(
                     }
                 }
             ) {
-                val hideAnimatedImages = drawerState.targetValue == DrawerValue.Open || showCreateGroupModal || showAddRelayModal || showSettings
+                val hideAnimatedImages = drawerState.targetValue == DrawerValue.Open || showCreateGroupModal || showAddRelayModal || showSettings || showMeMenu || showAddAccount
                 CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
                     MobileContent(
                         currentScreen = currentScreen,
@@ -764,15 +800,51 @@ private fun AuthenticatedApp(
             onNavigate = onNavigate,
             onLogout = {
                 scope.launch {
-                    AppModule.nostrRepository.logout()
+                    val activeId = AppModule.accountStore.activeId.value
+                    if (activeId != null) {
+                        AppModule.accountManager.removeAccount(activeId)
+                    } else {
+                        AppModule.nostrRepository.logout()
+                    }
                 }
             }
         )
     }
 
+    // Account menu — opened from the rail avatar / mobile drawer avatar /
+    // notifications header chip. Replaces the standalone accounts screen.
+    org.nostr.nostrord.ui.components.accounts.MeMenu(
+        visible = showMeMenu,
+        onDismiss = { showMeMenu = false },
+        onAddAccount = {
+            showMeMenu = false
+            showAddAccount = true
+        },
+        onSettings = {
+            showMeMenu = false
+            showSettings = true
+        },
+    )
+
+    org.nostr.nostrord.ui.components.accounts.AddAccountSheet(
+        visible = showAddAccount,
+        onDismiss = { showAddAccount = false },
+        onAdded = { displayLabel ->
+            showAddAccount = false
+            scope.launch {
+                snackbarHostState.showSnackbar("Switched to $displayLabel")
+            }
+        },
+    )
+
     // Floating prompt to enable desktop notifications. Mounted at the root so it
     // persists across navigation; renders only when supported + permission Default.
     NotificationPermissionBanner(modifier = Modifier.align(Alignment.TopCenter))
+
+    androidx.compose.material3.SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = Modifier.align(Alignment.BottomCenter),
+    )
     } // Box
 }
 
@@ -997,7 +1069,9 @@ private fun MobileDrawerContent(
         orphanedJoinedByRelay[activeRelayUrl] ?: emptySet()
     }
 
-    val pubKey = remember { AppModule.nostrRepository.getPublicKey() }
+    // Reactive pubkey so the avatar/rail re-renders when the active account changes.
+    val activeSession by ActiveAccountManager.session.collectAsState()
+    val pubKey = activeSession?.pubkey
     val currentUserMetadata = remember(pubKey, userMetadata) {
         pubKey?.let { userMetadata[it] }
     }

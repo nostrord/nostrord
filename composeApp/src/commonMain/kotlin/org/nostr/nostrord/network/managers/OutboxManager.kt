@@ -17,7 +17,9 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.loadKind10009Timestamp
+import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveKind10009Timestamp
+import org.nostr.nostrord.storage.saveRelayListFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
@@ -65,21 +67,24 @@ class OutboxManager(
     }
 
     /**
-     * Seed [kind10009Relays] from the locally-persisted relay list so the sidebar
-     * shows all joined relays instantly on startup, without waiting for the kind:10009
-     * network fetch. The network fetch still runs and overwrites this with fresh data.
+     * Seed [kind10009Relays] from the locally-persisted relay list for [pubKey]
+     * so the sidebar shows all joined relays instantly on startup, without
+     * waiting for the kind:10009 network fetch. The network fetch still runs
+     * and overwrites this with fresh data.
+     *
+     * Pubkey-scoped: a blank pubkey (no active session) starts with an empty
+     * set so a freshly added account never inherits another account's relays.
      */
-    fun seedFromCache() {
-        val saved = SecureStorage.loadRelayList()
+    fun seedFromCache(pubKey: String) {
+        val saved = if (pubKey.isBlank()) emptySet()
+        else SecureStorage.loadRelayListFor(pubKey)
             .map { it.normalizeRelayUrl() }
             .filter { it.isNotBlank() }
             .toSet()
-        if (saved.isNotEmpty()) {
-            _kind10009Relays.value = saved
-        }
-        // Timestamp is now pubkey-scoped (see initialize()). seedFromCache runs
-        // before login so we don't know the pubkey yet — just start at 0 and
-        // let initialize() rehydrate the right scope when login completes.
+        _kind10009Relays.value = saved
+        // Timestamp is pubkey-scoped (see initialize()). seedFromCache may run
+        // before login so we don't always know the pubkey yet — just start at
+        // 0 and let initialize() rehydrate the right scope when login completes.
         latestKind10009CreatedAt = 0
     }
 
@@ -271,6 +276,14 @@ class OutboxManager(
         onRelayGroupsUpdated: (Map<String, Set<String>>) -> Unit = {},
         messageHandler: (String, NostrGroupClient) -> Unit = { _, _ -> }
     ) {
+        // Author guard: relays may deliver kind:10009 events for the *previous*
+        // account if a subscription stayed open across an account switch. The
+        // event's `r` tags would then be persisted under the new account's
+        // slot, e.g. fresh accounts inheriting groups.0xchat.com from the
+        // account that was active before the switch. Drop mismatches outright.
+        val eventPubkey = event["pubkey"]?.jsonPrimitive?.content
+        if (pubKey.isBlank() || eventPubkey != pubKey) return
+
         kind10009Received = true
         val tags = event["tags"]?.jsonArray ?: return
 
@@ -319,9 +332,9 @@ class OutboxManager(
         _kind10009Relays.value = allNip29RelaysSet
         refreshGroupTagRelays()
 
-        val previouslySaved = SecureStorage.loadRelayList().map { it.normalizeRelayUrl() }.toSet()
+        val previouslySaved = SecureStorage.loadRelayListFor(pubKey).map { it.normalizeRelayUrl() }.toSet()
         if (allNip29RelaysSet != previouslySaved) {
-            SecureStorage.saveRelayList(allNip29Relays)
+            SecureStorage.saveRelayListFor(pubKey, allNip29Relays)
         }
 
         val newlyRestoredRelays = allNip29Relays.filter { it !in previouslySaved }

@@ -45,4 +45,12 @@ expect class NotificationService() {
     fun isSupported(): Boolean
     fun requestPermission()
     fun notify(request: NotificationRequest)
+
+    /**
+     * Dismiss every notification this app has currently surfaced. Called on
+     * account switch so a popup scheduled for the previous account does not
+     * stay visible (or land) after the new account is active. No-op on
+     * platforms where the OS doesn't expose programmatic dismissal.
+     */
+    fun cancelAllPending()
 }

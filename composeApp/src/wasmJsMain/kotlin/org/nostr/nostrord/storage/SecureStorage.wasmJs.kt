@@ -418,6 +418,18 @@ actual object SecureStorage {
         return jsGetItem(key) ?: default
     }
 
+    actual fun saveSensitive(key: String, value: String) {
+        jsSetItem(key, value)
+    }
+
+    actual fun getSensitive(key: String): String? {
+        return jsGetItem(key)
+    }
+
+    actual fun clearSensitive(key: String) {
+        jsRemoveItem(key)
+    }
+
     // Opens IndexedDB (storing the connection in globalThis.__nostrordIdb) and reads all kv entries
     // into globalThis.__nostrordIdbData. Polls until ready, then populates in-memory caches.
     // Avoids passing Kotlin lambdas to JS — uses a global ready-flag instead.

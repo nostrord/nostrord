@@ -13,7 +13,6 @@ import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
-import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.epochMillis
 
@@ -84,7 +83,10 @@ class MetadataManager(
         // from "fetched during this call" for stale refresh scenarios.
         val fetchStartedAt = epochMillis()
 
-        val nip29Relays = SecureStorage.loadRelayList().toSet() +
+        // Source the active account's relay list from OutboxManager (in-memory,
+        // pubkey-scoped) instead of SecureStorage. The on-disk slot used to be
+        // global and would leak another account's relays into this filter.
+        val nip29Relays = outboxManager.kind10009Relays.value +
             connectionManager.currentRelayUrl.value
 
         val candidates = outboxManager.bootstrapRelays

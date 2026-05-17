@@ -127,6 +127,7 @@ class FakeNostrRepository : NostrRepositoryApi {
         error("completeNostrConnectLogin not implemented in fake")
 
     override suspend fun logout() { calls += "logout"; _isLoggedIn.value = false }
+    override suspend fun reloadForActiveAccount() { calls += "reloadForActiveAccount" }
 
     var removeRelayAction: suspend (String) -> Unit = { url ->
         _joinedGroupsByRelay.update { it - url }

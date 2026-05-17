@@ -269,6 +269,7 @@ fun SettingsScreen(
                 onBack = { showMobilePanel = false },
                 onClose = onClose,
                 onLogout = onLogout,
+                onNavigate = onNavigate,
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
@@ -282,6 +283,7 @@ fun SettingsScreen(
                 onSelectSection = { activeSection = it },
                 onClose = onClose,
                 onLogout = onLogout,
+                onNavigate = onNavigate,
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
@@ -306,6 +308,7 @@ private fun DesktopSettings(
     onSelectSection: (SettingsSection) -> Unit,
     onClose: () -> Unit,
     onLogout: () -> Unit,
+    onNavigate: (Screen) -> Unit,
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
@@ -360,7 +363,7 @@ private fun DesktopSettings(
                     SettingsSidebar(
                         activeSection = activeSection,
                         onSelectSection = onSelectSection,
-                        onLogout = onLogout
+                        onLogout = onLogout,
                     )
                 }
 
@@ -394,6 +397,7 @@ private fun MobileSettings(
     onBack: () -> Unit,
     onClose: () -> Unit,
     onLogout: () -> Unit,
+    onNavigate: (Screen) -> Unit,
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
@@ -416,7 +420,7 @@ private fun MobileSettings(
                     activeSection = activeSection,
                     onSelectSection = onSelectSection,
                     onLogout = onLogout,
-                    compact = true
+                    compact = true,
                 )
             }
         }

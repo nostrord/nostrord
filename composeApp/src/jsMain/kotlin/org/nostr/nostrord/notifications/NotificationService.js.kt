@@ -42,7 +42,7 @@ private fun jsShowNotification(
     tag: String,
     iconUrl: String,
     onClick: () -> Unit,
-) {
+): dynamic {
     val opts = js("({})")
     opts.body = body
     opts.tag = tag
@@ -53,6 +53,11 @@ private fun jsShowNotification(
         notification.close()
         onClick()
     }
+    return notification
+}
+
+private fun jsCloseNotification(handle: dynamic) {
+    try { handle.close() } catch (_: Throwable) {}
 }
 
 actual class NotificationService actual constructor() {
@@ -61,6 +66,12 @@ actual class NotificationService actual constructor() {
 
     private val _clicks = MutableSharedFlow<NotificationClick>(extraBufferCapacity = 8)
     actual val notificationClicks: SharedFlow<NotificationClick> = _clicks.asSharedFlow()
+
+    // Tracks notifications currently surfaced so [cancelAllPending] can close
+    // them on account switch. Bounded so a long-running session can't grow it
+    // without limit; oldest entries fall off when the list crosses MAX_TRACKED.
+    private val activeNotifications = ArrayDeque<dynamic>()
+    private val MAX_TRACKED = 100
 
     init {
         if (jsSupported()) {
@@ -83,12 +94,21 @@ actual class NotificationService actual constructor() {
     actual fun notify(request: NotificationRequest) {
         if (!jsSupported()) return
         if (_permission.value != NotificationPermission.Granted) return
-        jsShowNotification(
+        val handle = jsShowNotification(
             request.title,
             request.body,
             request.tag,
             request.iconUrl ?: "",
         ) { _clicks.tryEmit(NotificationClick(request.relayUrl, request.groupId, request.messageId)) }
+        activeNotifications.addLast(handle)
+        while (activeNotifications.size > MAX_TRACKED) activeNotifications.removeFirst()
+    }
+
+    actual fun cancelAllPending() {
+        if (!jsSupported()) return
+        val snapshot = activeNotifications.toList()
+        activeNotifications.clear()
+        snapshot.forEach { jsCloseNotification(it) }
     }
 
     private fun readPermission(): NotificationPermission {

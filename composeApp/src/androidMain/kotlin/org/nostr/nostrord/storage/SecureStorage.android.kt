@@ -393,5 +393,20 @@ actual object SecureStorage {
         return prefs.getString(key, default) ?: default
     }
 
+    actual fun saveSensitive(key: String, value: String) {
+        ensureInitialized()
+        prefs.edit().putString(key, value).apply()
+    }
+
+    actual fun getSensitive(key: String): String? {
+        ensureInitialized()
+        return prefs.getString(key, null)
+    }
+
+    actual fun clearSensitive(key: String) {
+        ensureInitialized()
+        prefs.edit().remove(key).apply()
+    }
+
     actual suspend fun preloadMetadata() {}
 }
