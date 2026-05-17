@@ -3,6 +3,8 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.nostr.nostrord.utils.epochMillis
 
 /**
@@ -49,6 +51,11 @@ class AdaptiveConfig(
 
     // ── Signal tracking ──────────────────────────────────────────────────
 
+    // Signal stores are mutated from multiple coroutines on Dispatchers.Default
+    // (every WebSocket frame handler can record an event/latency/reconnect).
+    // Without serialization, ArrayList.add races during grow produced an
+    // ArrayIndexOutOfBoundsException ("Index 1 out of bounds for length 0").
+    private val mutex = Mutex()
     private val reconnectTimestamps = mutableListOf<Long>()
     private val eventTimestamps = mutableListOf<Long>()
     private val relayLatencies = mutableMapOf<String, MutableList<Long>>()
@@ -72,48 +79,75 @@ class AdaptiveConfig(
     }
 
     // ── Signal recording (called by ConnectionManager, GroupManager) ─────
+    //
+    // Recording is non-suspending so callers stay simple, but the underlying
+    // list mutation is dispatched into [scope] and serialized through [mutex].
+    // Fire-and-forget: for adaptive stats, eventual ordering is sufficient.
 
     /** Record a successful reconnect event for frequency tracking. */
     fun recordReconnect() {
-        reconnectTimestamps.add(epochMillis())
+        val now = epochMillis()
+        scope.launch { mutex.withLock { reconnectTimestamps.add(now) } }
     }
 
     /** Record a batch of events arriving for throughput tracking. */
     fun recordEventBurst(count: Int) {
         if (count <= 0) return
         val now = epochMillis()
+        val n = count.coerceAtMost(50)
         // Compact: store one timestamp per burst, not per event
-        repeat(count.coerceAtMost(50)) { eventTimestamps.add(now) }
+        scope.launch { mutex.withLock { repeat(n) { eventTimestamps.add(now) } } }
     }
 
     /** Record observed relay response latency (connect time or REQ→EVENT). */
     fun recordRelayLatency(relayUrl: String, latencyMs: Long) {
-        val window = relayLatencies.getOrPut(relayUrl) { mutableListOf() }
-        window.add(latencyMs)
-        if (window.size > LATENCY_WINDOW_SIZE) window.removeFirst()
+        scope.launch {
+            mutex.withLock {
+                val window = relayLatencies.getOrPut(relayUrl) { mutableListOf() }
+                window.add(latencyMs)
+                if (window.size > LATENCY_WINDOW_SIZE) window.removeFirst()
+            }
+        }
     }
 
     // ── Relay scoring ────────────────────────────────────────────────────
 
     /** Average latency for a relay, or [Long.MAX_VALUE] if unknown. */
-    fun getRelayLatency(relayUrl: String): Long {
+    suspend fun getRelayLatency(relayUrl: String): Long = mutex.withLock {
         val samples = relayLatencies[relayUrl]
-        return if (samples.isNullOrEmpty()) Long.MAX_VALUE
+        if (samples.isNullOrEmpty()) Long.MAX_VALUE
         else samples.average().toLong()
     }
 
     /** Returns the relay with the lowest average latency from the given set. */
-    fun fastestRelay(relayUrls: Collection<String>): String? {
-        return relayUrls.minByOrNull { getRelayLatency(it) }
+    suspend fun fastestRelay(relayUrls: Collection<String>): String? = mutex.withLock {
+        relayUrls.minByOrNull { url ->
+            val samples = relayLatencies[url]
+            if (samples.isNullOrEmpty()) Long.MAX_VALUE
+            else samples.average().toLong()
+        }
     }
 
     // ── Core adaptation logic ────────────────────────────────────────────
 
-    private fun recompute() {
+    private suspend fun recompute() {
         val now = epochMillis()
 
-        // Reconnect frequency in the last 60 seconds
-        val recentReconnects = reconnectTimestamps.count { now - it < 60_000 }
+        // Snapshot the three counters under the mutex so we never iterate a
+        // list that's being mutated by a concurrent recordEventBurst /
+        // recordReconnect / recordRelayLatency.
+        data class Snapshot(val reconnects: Int, val events: Int, val avgLatency: Long)
+        val snap = mutex.withLock {
+            Snapshot(
+                reconnects = reconnectTimestamps.count { now - it < 60_000 },
+                events = eventTimestamps.count { now - it < 10_000 },
+                avgLatency = relayLatencies.values
+                    .flatMap { it.takeLast(5) }
+                    .let { if (it.isEmpty()) 200L else it.average().toLong() }
+            )
+        }
+
+        val recentReconnects = snap.reconnects
 
         // Network stability classification
         networkStability = when {
@@ -123,14 +157,10 @@ class AdaptiveConfig(
             else -> Stability.GOOD
         }
 
-        // Average relay latency across all relays (last 5 samples each)
-        val avgLatency = relayLatencies.values
-            .flatMap { it.takeLast(5) }
-            .let { if (it.isEmpty()) 200L else it.average().toLong() }
+        val avgLatency = snap.avgLatency
 
         // Event throughput (events in last 10 seconds)
-        val recentEvents = eventTimestamps.count { now - it < 10_000 }
-        val eventsPerSecond = recentEvents / 10.0
+        val eventsPerSecond = snap.events / 10.0
 
         // ── Adapt request cooldown ───────────────────────────────────
         requestCooldownMs = when (networkStability) {
@@ -167,10 +197,12 @@ class AdaptiveConfig(
         }
     }
 
-    private fun evictStaleSignals() {
+    private suspend fun evictStaleSignals() {
         val cutoff = epochMillis() - SIGNAL_TTL_MS
-        reconnectTimestamps.removeAll { it < cutoff }
-        eventTimestamps.removeAll { it < cutoff }
+        mutex.withLock {
+            reconnectTimestamps.removeAll { it < cutoff }
+            eventTimestamps.removeAll { it < cutoff }
+        }
     }
 
     companion object {
