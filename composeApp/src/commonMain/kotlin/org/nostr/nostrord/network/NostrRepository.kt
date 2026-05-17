@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
@@ -88,6 +90,16 @@ class NostrRepository(
      * connect() already sent one within the last 10 seconds.
      */
     private val lastRequestGroupsAt = mutableMapOf<String, Long>()
+
+    /**
+     * Relays for which the UI requested the full OTHER GROUPS list while the
+     * corresponding client wasn't yet primary/connected/AUTHed. Drained by
+     * [drainFullFetchRequest] from connect()/switchRelay()/resubscribeAfterAuth
+     * once the client is ready, so the user-triggered click is honoured
+     * without a polling wait.
+     */
+    private val pendingFullFetchRequests = mutableSetOf<String>()
+    private val pendingFullFetchMutex = Mutex()
 
     /**
      * Relay URL of the group currently open on screen — used to promote reconnect priority.
@@ -866,6 +878,7 @@ class NostrRepository(
                     // Cache hit — no EOSE will arrive, so clear the early loading mark.
                     groupManager.markRelayLoaded(relayUrl)
                 }
+                drainFullFetchRequest(client, relayUrl)
                 // After AUTH (or if no AUTH needed), request metadata for private
                 // groups that are in the joined list (kind 10009) but not in the
                 // group cache. The general kind 39000 listing omits private groups.
@@ -970,10 +983,24 @@ class NostrRepository(
                 // AUTH happened while it was a pool client and requestGroups()
                 // was never sent.
                 requestGroupsForRelay(client, newRelayUrl)
+            } else if (
+                SecureStorage.isGroupFetchLazy(newRelayUrl) &&
+                !groupManager.hasFullGroupListBeenFetched(newRelayUrl) &&
+                SecureStorage.getBooleanPref("sidebar_other_expanded_$newRelayUrl", default = true)
+            ) {
+                // Cache holds only the joined-group subset (from a previous lazy
+                // fetch) but OTHER GROUPS is open and this session hasn't
+                // received a full EOSE — fire the full fetch so the sidebar
+                // populates instead of flashing "no other groups". Mirrors the
+                // equivalent branch in connect().
+                groupManager.markPendingFullFetch(newRelayUrl)
+                groupManager.markRelayLoading(newRelayUrl)
+                client.requestGroups()
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
             }
+            drainFullFetchRequest(client, newRelayUrl)
             // Request metadata for private groups not in the cache (kind 10009 joined
             // but not returned by the general kind 39000 listing), and for the active
             // group if navigated via URL before the relay was connected.
@@ -1062,31 +1089,51 @@ class NostrRepository(
 
         val normalizedTarget = relayUrl.normalizeRelayUrl()
 
-        // Wait up to 30 s for a CONNECTED client whose relayUrl matches the target.
         // We must NOT fall back to the current primary: the sidebar triggers this
         // right after selectedRelayUrl changes, BEFORE switchRelay() has made the
         // new relay primary. Falling back would send requestGroups() on the old
         // primary's WebSocket, polluting that relay's _groupsByRelay cache with
         // unrelated kind:39000 events — surfacing as OTHER GROUPS auto-populating
         // on a collapsed relay the next time the user switches back to it.
-        val client = withTimeoutOrNull(30_000L) {
-            while (true) {
-                val c = connectionManager.getClientForRelay(normalizedTarget)
-                if (c != null &&
-                    c.isConnected() &&
-                    c.getRelayUrl().normalizeRelayUrl() == normalizedTarget
-                ) {
-                    return@withTimeoutOrNull c
-                }
-                delay(100)
-            }
-            @Suppress("UNREACHABLE_CODE") null
-        } ?: return
+        //
+        // If the target client isn't ready yet (typically: still connecting / awaiting
+        // AUTH during a relay switch), enqueue the request and let
+        // [drainFullFetchRequest] fire it from the connect/switchRelay/resubscribeAfterAuth
+        // post-AUTH path — avoiding the previous 30 s polling wait that was
+        // particularly painful on Android.
+        val client = connectionManager.getClientForRelay(normalizedTarget)
+        val ready = client != null &&
+            client.isConnected() &&
+            client.getRelayUrl().normalizeRelayUrl() == normalizedTarget
+        if (!ready) {
+            pendingFullFetchMutex.withLock { pendingFullFetchRequests.add(normalizedTarget) }
+            // Mark loading right away so the sidebar shows the spinner from the
+            // moment the user clicks — instead of flashing "no other groups"
+            // until the post-AUTH drain fires the REQ.
+            groupManager.markRelayLoading(relayUrl)
+            return
+        }
 
-        // Re-check after waiting — connect()/switchRelay may have already sent
-        // the full REQ for this relay.
+        groupManager.markPendingFullFetch(relayUrl)
+        groupManager.markRelayLoading(relayUrl)
+        client!!.requestGroups()
+    }
+
+    /**
+     * Fire any pending full-fetch request the UI enqueued for [relayUrl] while
+     * [client] wasn't ready. Called from connect()/switchRelay()/resubscribeAfterAuth
+     * after AUTH completes. No-op if no pending request, if the connect-path
+     * already fired the REQ (hasPendingFullFetch), or if [client] mismatches.
+     */
+    private suspend fun drainFullFetchRequest(client: NostrGroupClient, relayUrl: String) {
+        val normalized = relayUrl.normalizeRelayUrl()
+        val requested = pendingFullFetchMutex.withLock {
+            pendingFullFetchRequests.remove(normalized)
+        }
+        if (!requested) return
         if (groupManager.hasPendingFullFetch(relayUrl)) return
-
+        if (!client.isConnected()) return
+        if (client.getRelayUrl().normalizeRelayUrl() != normalized) return
         groupManager.markPendingFullFetch(relayUrl)
         groupManager.markRelayLoading(relayUrl)
         client.requestGroups()
@@ -2353,6 +2400,7 @@ class NostrRepository(
                 groupManager.markRelayLoading(relayUrl)
                 requestGroupsForRelay(client, relayUrl)
             }
+            drainFullFetchRequest(client, relayUrl)
         }
 
         // Reset loading states for opened + auth-closed groups.
