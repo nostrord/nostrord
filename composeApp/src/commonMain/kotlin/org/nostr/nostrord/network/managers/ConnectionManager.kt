@@ -529,6 +529,21 @@ class ConnectionManager(
     }
 
     /**
+     * Close the relay-scoped group-list subscription on every open socket
+     * (primary + pool). Called on account switch so a late EOSE from the
+     * previous account's REQ cannot poison the new account's full-fetch
+     * bookkeeping after the sub ID is reused.
+     */
+    suspend fun closeGroupListSubscriptionsOnAllClients() {
+        val clients = poolMutex.withLock { relayPool.values.toList() } +
+            listOfNotNull(primaryClient)
+        for (client in clients) {
+            val subId = client.groupListSubscriptionId()
+            try { client.send("""["CLOSE","$subId"]""") } catch (_: Exception) {}
+        }
+    }
+
+    /**
      * Clear all connections, disconnecting pool clients in parallel.
      */
     suspend fun clearAll() {

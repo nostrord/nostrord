@@ -484,6 +484,12 @@ object AppModule {
         // Cancel any OS popups still in flight from the previous account so a
         // notification scheduled for A doesn't surface after B is active.
         try { notificationService.cancelAllPending() } catch (_: Throwable) {}
+        // Close the old account's group-list subscriptions on every open
+        // socket — the sub ID is a function of the relay URL alone, so the
+        // new account would otherwise reuse it and a late EOSE from A's REQ
+        // would consume B's pendingFullFetchRelays entry, falsely marking
+        // the relay fully fetched and pruning partial data.
+        try { connectionManager.closeGroupListSubscriptionsOnAllClients() } catch (_: Throwable) {}
         groupManager.clear()
         unreadManager.clear()
         notificationHistoryStore.clear()
