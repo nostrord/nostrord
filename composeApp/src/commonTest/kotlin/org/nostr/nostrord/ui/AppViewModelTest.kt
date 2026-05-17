@@ -25,6 +25,11 @@ class AppViewModelTest {
 
     @AfterTest
     fun tearDown() {
+        // Drain any coroutines launched on Dispatchers.Main (e.g. viewModelScope
+        // jobs from AppViewModel.init) before resetMain — otherwise an unrun
+        // task can race with the dispatcher swap and surface as
+        // UncaughtExceptionsBeforeTest in a later test.
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 

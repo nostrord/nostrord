@@ -4,6 +4,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -109,6 +110,7 @@ class AdaptiveConfigTest {
         config.recordRelayLatency("wss://slow.relay", 500)
         config.recordRelayLatency("wss://fast.relay", 50)
         config.recordRelayLatency("wss://medium.relay", 200)
+        testScheduler.runCurrent()
 
         val fastest = config.fastestRelay(listOf("wss://slow.relay", "wss://fast.relay", "wss://medium.relay"))
         assertEquals("wss://fast.relay", fastest)
@@ -119,6 +121,7 @@ class AdaptiveConfigTest {
         config.recordRelayLatency("wss://relay.test", 100)
         config.recordRelayLatency("wss://relay.test", 200)
         config.recordRelayLatency("wss://relay.test", 300)
+        testScheduler.runCurrent()
 
         val avg = config.getRelayLatency("wss://relay.test")
         assertEquals(200, avg) // (100+200+300)/3 = 200
