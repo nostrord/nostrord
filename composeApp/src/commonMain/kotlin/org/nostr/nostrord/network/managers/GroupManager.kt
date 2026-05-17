@@ -1818,57 +1818,49 @@ class GroupManager(
      * CRITICAL: This must be called from a coroutine context to ensure
      * proper ordering with message tracking.
      */
-    suspend fun handleEoseSuspend(subscriptionId: String): Boolean {
-        // Handle both the legacy "group-list" ID and new relay-specific IDs
-        // ("group-list-<hashCode>"). Map the sub ID back to the relay URL by
-        // scanning pool and primary clients so we mark the *correct* relay as
-        // having completed its initial load.
+    /**
+     * Handle an EOSE from [sourceRelayUrl]'s socket. Passing the source relay
+     * explicitly (rather than reverse-mapping from the sub ID) avoids
+     * mis-attributing a late EOSE from a torn-down relay to whichever relay is
+     * currently primary — previously such a misattribution could mark the
+     * current relay as fully fetched and prune its groups even though it had
+     * never received its own EOSE.
+     */
+    suspend fun handleEoseSuspend(subscriptionId: String, sourceRelayUrl: String): Boolean {
         if (subscriptionId == "group-list" || subscriptionId.startsWith("group-list-")) {
-            val relay = if (subscriptionId == "group-list") {
-                currentRelayUrl
-            } else {
-                findRelayForGroupListSubId(subscriptionId) ?: currentRelayUrl
+            // Reject obviously-stale frames: a relay-specific sub ID must
+            // match the source socket. Legacy "group-list" (no hash) is
+            // single-relay and trusted as-is.
+            if (subscriptionId.startsWith("group-list-") &&
+                subscriptionId != "group-list-${sourceRelayUrl.hashCode().toUInt()}") {
+                return true
             }
-            if (relay != null) {
-                val normalizedRelay = relay.normalizeRelayUrl()
-                _completeGroupLoadRelays.update { it + normalizedRelay }
-                _loadingRelays.update { it - normalizedRelay }
-                val now = epochSeconds()
-                val isFull = pendingFullFetchRelays.remove(normalizedRelay)
-                if (isFull) {
-                    // Full unfiltered fetch — save dedicated full-list timestamp so
-                    // hasFullGroupListBeenFetched() returns true after an app restart.
-                    _fullGroupListFetchedRelays.update { it + normalizedRelay }
-                    try { SecureStorage.saveFullGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
-                    // Prune stale groups: keep only those seen in this fetch, plus joined
-                    // groups (which become orphans the user can manually forget).
-                    val seenIds = pendingFetchSeenGroups.remove(normalizedRelay) ?: emptySet()
-                    val joinedIds = _joinedGroupsByRelay.value[normalizedRelay] ?: emptySet()
-                    _groupsByRelay.update { current ->
-                        val pruned = (current[normalizedRelay] ?: emptyList())
-                            .filter { it.id in seenIds || it.id in joinedIds }
-                        current + (normalizedRelay to pruned)
-                    }
+            val normalizedRelay = sourceRelayUrl.normalizeRelayUrl()
+            _completeGroupLoadRelays.update { it + normalizedRelay }
+            _loadingRelays.update { it - normalizedRelay }
+            val now = epochSeconds()
+            val isFull = pendingFullFetchRelays.remove(normalizedRelay)
+            if (isFull) {
+                // Save the dedicated full-list timestamp so hasFullGroupListBeenFetched()
+                // returns true after an app restart.
+                _fullGroupListFetchedRelays.update { it + normalizedRelay }
+                try { SecureStorage.saveFullGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
+                // Prune stale groups: keep only those seen in this fetch, plus joined
+                // groups (which become orphans the user can manually forget).
+                val seenIds = pendingFetchSeenGroups.remove(normalizedRelay) ?: emptySet()
+                val joinedIds = _joinedGroupsByRelay.value[normalizedRelay] ?: emptySet()
+                _groupsByRelay.update { current ->
+                    val pruned = (current[normalizedRelay] ?: emptyList())
+                        .filter { it.id in seenIds || it.id in joinedIds }
+                    current + (normalizedRelay to pruned)
                 }
-                // Always update the general cache timestamp (used by hasCachedGroupsForRelay).
-                try { SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
-                refreshMuxSubscriptionsForRelay(normalizedRelay)
             }
+            try { SecureStorage.saveGroupListEoseTimestamp(normalizedRelay, now) } catch (_: Exception) {}
+            refreshMuxSubscriptionsForRelay(normalizedRelay)
             return true
         }
         awaitTrackingForSubscription(subscriptionId)
         return loadingRegistry.handleEose(subscriptionId)
-    }
-
-    /**
-     * Find the relay URL whose group-list subscription ID matches the given subId.
-     * The subscription ID format is "group-list-<unsignedHashCode>" where the hash
-     * is derived from the relay URL.
-     */
-    private fun findRelayForGroupListSubId(subscriptionId: String): String? {
-        return _groupsByRelay.value.keys.firstOrNull { relayUrl ->
-            "group-list-${relayUrl.hashCode().toUInt()}" == subscriptionId
-        }
     }
 
     /**
@@ -2916,6 +2908,14 @@ class GroupManager(
         // Invalidate group-list cache so the next relay fetches all kind:39000
         // instead of relying on stale data from a previous visit.
         _completeGroupLoadRelays.value = emptySet()
+
+        // Without clearing this, an in-flight full fetch on the previous relay
+        // leaves that relay flagged "pending"; if its late EOSE then arrives
+        // the relay would be marked complete with an empty seen-set, pruning
+        // its OTHER GROUPS to just the joined entries. Cleared here (alongside
+        // [clear] which covers logout) so every relay switch resets the bookkeeping.
+        pendingFullFetchRelays.clear()
+        pendingFetchSeenGroups.clear()
 
         // MUST be synchronous (not scope.launch). If this is async, requestGroupMessages
         // called immediately after switchRelay sees stale HasMore/Exhausted state from the

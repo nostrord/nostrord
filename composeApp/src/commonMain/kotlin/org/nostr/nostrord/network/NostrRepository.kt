@@ -1889,9 +1889,10 @@ class NostrRepository(
                 // yield() before EOSE so pending message-tracking coroutines (scope.launch
                 // blocks queued by handleMessage) get scheduled first, reducing the race
                 // window where messageCount is read before all tracking completes.
+                val sourceRelayUrl = client.getRelayUrl()
                 scope.launch {
                     yield()
-                    groupManager.handleEoseSuspend(subId)
+                    groupManager.handleEoseSuspend(subId, sourceRelayUrl)
                     // After the mux chat subscription delivers its backlog, detect any gaps
                     // (groups whose cursor expected events that never arrived from this relay).
                     if (subId.startsWith("mux_chat_")) {
@@ -1995,7 +1996,8 @@ class NostrRepository(
                 }
 
                 // Unblock any pending state-machine load (transitions InitialLoading → Exhausted)
-                scope.launch { groupManager.handleEoseSuspend(subId) }
+                val sourceRelayUrl = client.getRelayUrl()
+                scope.launch { groupManager.handleEoseSuspend(subId, sourceRelayUrl) }
 
                 // Re-open the mux subscription when the relay closes it for non-auth reasons.
                 // pyramid.fiatjaf.com and similar relays drop idle subs without closing the WS.
