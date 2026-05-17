@@ -460,6 +460,7 @@ object AppModule {
      */
     suspend fun activateSessionForActiveAccount() {
         val account = accountStore.active ?: return
+        if (ActiveAccountManager.session.value?.accountId?.value == account.id) return
         val session = accountSessionFactory.build(account, authManager) ?: return
         ActiveAccountManager.activate(session)
     }
