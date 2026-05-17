@@ -158,6 +158,7 @@ class AuthManager(
         }
 
         val userPubkey = newNip46Client.getPublicKey()
+        rejectIfBunkerSwap(userPubkey, bunkerUrl)
 
         nip46Client = newNip46Client
         bunkerUserPubkey = userPubkey
@@ -177,6 +178,28 @@ class AuthManager(
         _authUrl.value = null
 
         return userPubkey
+    }
+
+    /**
+     * Defense-in-depth against a signer claiming a pubkey we already track
+     * under a different bunker URL. The pubkey-keyed credential slots
+     * (SecureStorage.*For(pubkey)) trust this returned pubkey, so a swap here
+     * would silently re-point an existing account at a foreign signer.
+     */
+    private fun rejectIfBunkerSwap(returnedPubkey: String, bunkerUrl: String) {
+        val existing = accountStore.get(returnedPubkey) ?: return
+        if (existing.authMethod != AuthMethod.BUNKER) {
+            throw IllegalStateException(
+                "Account $returnedPubkey is already registered with a different sign-in method."
+            )
+        }
+        val savedUrl = SecureStorage.getBunkerUrlFor(returnedPubkey)
+        if (!savedUrl.isNullOrBlank() && savedUrl != bunkerUrl) {
+            throw IllegalStateException(
+                "Account $returnedPubkey already exists with a different bunker. " +
+                "Remove the existing account before reconnecting."
+            )
+        }
     }
 
     /**
@@ -206,14 +229,16 @@ class AuthManager(
 
         val userPubkey = client.getPublicKey()
 
+        // Build a bunker:// URL for session persistence (also used by the
+        // swap-guard below to compare against any saved URL for this pubkey).
+        val relayParams = relays.joinToString("&") { "relay=$it" }
+        val bunkerUrl = "bunker://$signerPubkey?$relayParams"
+        rejectIfBunkerSwap(userPubkey, bunkerUrl)
+
         nip46Client = client
         bunkerUserPubkey = userPubkey
         isBunkerLogin = true
         zeroAndClearKeyPair()
-
-        // Build a bunker:// URL for session persistence
-        val relayParams = relays.joinToString("&") { "relay=$it" }
-        val bunkerUrl = "bunker://$signerPubkey?$relayParams"
 
         SecureStorage.saveBunkerUrl(bunkerUrl)
         SecureStorage.saveBunkerUserPubkey(userPubkey)
@@ -479,7 +504,28 @@ class AuthManager(
             client.backgroundConnect(
                 secret = info.secret,
                 onSuccess = {
-                    if (nip46Client === client) _isBunkerVerifying.value = false
+                    if (nip46Client !== client) return@backgroundConnect
+                    // Confirm the signer actually controls the pubkey this account
+                    // claims. Without this, a malicious bunker (or a slot whose
+                    // contents leaked across accounts) could sign under a key the
+                    // user does not own. See SecureStorage credential slot fix.
+                    authScope.launch {
+                        val signerPubkey = try {
+                            client.getPublicKey()
+                        } catch (_: Exception) {
+                            if (nip46Client === client) _isBunkerVerifying.value = false
+                            return@launch
+                        }
+                        if (nip46Client !== client) return@launch
+                        if (!signerPubkey.equals(userPubkey, ignoreCase = true)) {
+                            // Signer identity does not match — refuse the session.
+                            handlePermissionDenied()
+                            delay(1500)
+                            _isBunkerVerifying.value = false
+                            return@launch
+                        }
+                        _isBunkerVerifying.value = false
+                    }
                 },
                 onRevoked = {
                     if (nip46Client !== client) return@backgroundConnect
