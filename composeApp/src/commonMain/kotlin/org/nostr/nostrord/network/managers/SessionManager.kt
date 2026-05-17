@@ -139,14 +139,25 @@ class SessionManager(
      * Handle NIP-42 AUTH challenge from relay.
      * Deduplicates: if we're already processing a challenge for this relay, the new one is ignored.
      */
-    suspend fun handleAuthChallenge(client: NostrGroupClient, challenge: String) {
+    /**
+     * Sign the relay's NIP-42 challenge and send the response.
+     *
+     * Returns true when this call actually drove the AUTH cycle (signed and
+     * sent), false when it was deduped (another coroutine is already handling
+     * AUTH for this relay) or the client disconnected mid-way. The caller uses
+     * the return value to decide whether to fire the post-AUTH side effects
+     * (notifyAuthCompleted, resubscribeAfterAuth): chatty/broken relays that
+     * re-send AUTH frames in tight loops would otherwise multiply the
+     * resubscribe storm across every duplicate frame.
+     */
+    suspend fun handleAuthChallenge(client: NostrGroupClient, challenge: String): Boolean {
         val relayUrl = client.getRelayUrl()
-        if (!client.isConnected()) return  // race-condition loser: already disconnected
-        if (!authInProgress.add(relayUrl)) return  // already in progress for this relay
+        if (!client.isConnected()) return false  // race-condition loser: already disconnected
+        if (!authInProgress.add(relayUrl)) return false  // already in progress for this relay
 
-        val pubKey = getPublicKey() ?: run { authInProgress.remove(relayUrl); return }
+        val pubKey = getPublicKey() ?: run { authInProgress.remove(relayUrl); return false }
 
-        try {
+        return try {
             val authEvent = Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
@@ -171,7 +182,9 @@ class SessionManager(
             // requestGroups() is handled by the caller (resubscribeAfterAuth) so it only
             // fires when this client is the primary relay.
             kotlinx.coroutines.delay(500)
+            true
         } catch (_: Throwable) {
+            false
         } finally {
             authInProgress.remove(relayUrl)
         }

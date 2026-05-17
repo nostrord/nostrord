@@ -1860,11 +1860,18 @@ class NostrRepository(
             "AUTH" -> {
                 val authChallenge = client.parseAuthChallenge(arr) ?: return
                 scope.launch {
-                    sessionManager.handleAuthChallenge(client, authChallenge)
-                    // Signal that AUTH is done so connect()/switchRelay() can
-                    // proceed with requestGroups() after the relay accepted auth.
-                    client.notifyAuthCompleted()
-                    resubscribeAfterAuth(client)
+                    // Only run post-AUTH side effects when we actually signed and sent
+                    // the response. handleAuthChallenge dedupes per relay; a chatty
+                    // relay that resends AUTH frames in tight succession (observed on
+                    // chat.wisp.talk) would otherwise re-fire notifyAuthCompleted and
+                    // resubscribeAfterAuth for every duplicate frame, flooding the
+                    // relay with redundant subscriptions.
+                    if (sessionManager.handleAuthChallenge(client, authChallenge)) {
+                        // Signal that AUTH is done so connect()/switchRelay() can
+                        // proceed with requestGroups() after the relay accepted auth.
+                        client.notifyAuthCompleted()
+                        resubscribeAfterAuth(client)
+                    }
                 }
             }
 
