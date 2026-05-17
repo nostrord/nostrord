@@ -7,4 +7,20 @@ plugins {
     alias(libs.plugins.composeMultiplatform) apply false
     alias(libs.plugins.composeCompiler) apply false
     alias(libs.plugins.kotlinMultiplatform) apply false
+    alias(libs.plugins.spotless)
+}
+
+// Pin ktlint engine to avoid transitive upgrades changing the rule set unexpectedly.
+val ktlintVersion = libs.versions.ktlint.get()
+
+spotless {
+    kotlin {
+        target("composeApp/src/**/*.kt")
+        targetExclude("**/build/**", "**/generated/**")
+        ktlint(ktlintVersion)
+    }
+    kotlinGradle {
+        target("*.gradle.kts", "composeApp/*.gradle.kts")
+        ktlint(ktlintVersion)
+    }
 }
