@@ -58,6 +58,7 @@ import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
 import org.nostr.nostrord.ui.components.cards.KeyCard
 import org.nostr.nostrord.ui.components.cards.WarningCard
+import org.nostr.nostrord.ui.components.layout.responsiveDimension
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
@@ -286,7 +287,7 @@ fun SettingsScreen(
                 }
             },
     ) {
-        if (!forceDesktop && maxWidth < 912.dp) {
+        if (!forceDesktop && responsiveDimension < 912.dp) {
             MobileSettings(
                 activeSection = activeSection,
                 showPanel = showMobilePanel,

@@ -44,6 +44,7 @@ import org.nostr.nostrord.storage.saveLastGroupForRelay
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.components.layout.DesktopShell
+import org.nostr.nostrord.ui.components.layout.responsiveDimension
 import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
 import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.navigation.ServerRail
@@ -663,7 +664,7 @@ private fun AuthenticatedApp(
 
     Box(modifier = Modifier.fillMaxSize()) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize().then(keyEventModifier)) {
-            val isDesktop = maxWidth >= 912.dp
+            val isDesktop = responsiveDimension >= 912.dp
 
             val hasNoRelays = relayList.isEmpty() && !isDiscoveringRelays
 

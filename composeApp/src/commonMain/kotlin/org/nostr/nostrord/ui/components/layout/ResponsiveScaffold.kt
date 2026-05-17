@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.layout
 
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.BoxWithConstraintsScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -13,6 +14,18 @@ enum class ScreenSize {
     Large, // Desktop: > 1200dp
 }
 
+/**
+ * Use the smallest available dimension (analogous to Android's `sw600dp` resource qualifier)
+ * to decide mobile-vs-desktop layouts. Width alone would mis-classify a phone in landscape
+ * as desktop, because the phone is suddenly wider than 912dp but the user still wants a
+ * mobile layout.
+ *
+ * If the container has unbounded height (e.g. inside a vertical scroll), falls back to
+ * maxWidth so we don't divide by infinity.
+ */
+val BoxWithConstraintsScope.responsiveDimension: Dp
+    get() = if (maxHeight == Dp.Infinity) maxWidth else minOf(maxWidth, maxHeight)
+
 @Composable
 fun ResponsiveScaffold(
     compactBreakpoint: Dp = 912.dp,
@@ -21,7 +34,7 @@ fun ResponsiveScaffold(
     desktop: @Composable () -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        if (maxWidth < compactBreakpoint) {
+        if (responsiveDimension < compactBreakpoint) {
             mobile()
         } else {
             desktop()
@@ -36,10 +49,11 @@ fun ResponsiveScaffold(
     content: @Composable (screenSize: ScreenSize, gridColumns: Int) -> Unit,
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val dim = responsiveDimension
         val screenSize =
             when {
-                maxWidth < compactBreakpoint -> ScreenSize.Compact
-                maxWidth < mediumBreakpoint -> ScreenSize.Medium
+                dim < compactBreakpoint -> ScreenSize.Compact
+                dim < mediumBreakpoint -> ScreenSize.Medium
                 else -> ScreenSize.Large
             }
         val gridColumns =
