@@ -180,19 +180,10 @@ class NostrGroupClient(
     // Track if this was a graceful disconnect
     private var isDisconnecting = false
 
-    // Timestamp of the last WebSocket frame received — used by the heartbeat to detect
-    // relays that stop sending events without closing the connection ("frozen" relays).
-    private var lastMessageReceivedAt = 0L
-
     // Open subscription IDs tracked for diagnostic logging.
     // Updated in send() on every REQ/CLOSE. Not synchronised — count may be off by ±1
     // under concurrent sends, which is acceptable for logging purposes.
     private val openSubscriptions = mutableSetOf<String>()
-
-    companion object {
-        private const val HEARTBEAT_CHECK_INTERVAL_MS = 20_000L
-        private const val HEARTBEAT_STALE_MS = 90_000L
-    }
 
     fun getRelayUrl(): String = relayUrl
 
@@ -221,7 +212,6 @@ class NostrGroupClient(
         isDisconnecting = false
         authCompleted = CompletableDeferred()
         connectionJob = clientScope.launch {
-            lastMessageReceivedAt = epochMillis()
             try {
                 client.webSocket(relayUrl) {
                     session = this
@@ -229,46 +219,20 @@ class NostrGroupClient(
                     // Signal that connection is ready
                     connectionResult.complete(true)
 
-                    // Heartbeat: detect relays that stop sending without closing the WebSocket.
-                    // Ktor handles WebSocket-level ping/pong, but some relays freeze at the
-                    // application layer — the socket stays open but events stop arriving.
-                    // If no frame arrives for HEARTBEAT_STALE_MS, close gracefully so that
-                    // onConnectionLost fires and the reconnect loop re-establishes the session.
-                    //
-                    // Application-level keepalive: browser WebSocket doesn't expose ping/pong,
-                    // so we send a cheap REQ+CLOSE probe every check interval when idle for
-                    // more than 60s. The EOSE/CLOSED response resets lastMessageReceivedAt,
-                    // preventing false-positive stale detection on quiet relays.
-                    val wsSession = this
-                    launch {
-                        while (isActive) {
-                            delay(HEARTBEAT_CHECK_INTERVAL_MS)
-                            val idleMs = epochMillis() - lastMessageReceivedAt
-                            if (idleMs > HEARTBEAT_STALE_MS) {
-                                wsSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "heartbeat-stale"))
-                                break
-                            }
-                            // Probe: if idle for >60s, send a minimal REQ+CLOSE to provoke
-                            // a relay response (EOSE or CLOSED) that resets the heartbeat.
-                            if (idleMs > 60_000L) {
-                                try {
-                                    val probeId = "_hb"
-                                    wsSession.send(Frame.Text("""["REQ","$probeId",{"kinds":[0],"limit":1}]"""))
-                                    wsSession.send(Frame.Text("""["CLOSE","$probeId"]"""))
-                                } catch (_: Exception) {
-                                    // Send failed — connection is dead, next tick will close it.
-                                }
-                            }
-                        }
-                    }
+                    // Liveness detection is delegated to the engine. JVM/Android
+                    // Ktor clients are configured with WebSocket pingInterval, so
+                    // a frozen relay drops out on ping/pong failure and surfaces
+                    // here as a closed incoming channel. Browsers handle their
+                    // own keepalive at the network layer. The previous synthetic
+                    // REQ+CLOSE probe was removed: it added relay load, could
+                    // false-positive on healthy-but-quiet relays, and conflated
+                    // "no EOSE" with "relay dead" — neither of which is a valid
+                    // protocol signal.
 
                     // Listen to incoming messages
                     for (frame in incoming) {
                         when (frame) {
-                            is Frame.Text -> {
-                                lastMessageReceivedAt = epochMillis()
-                                onMessage(frame.readText())
-                            }
+                            is Frame.Text -> onMessage(frame.readText())
                             is Frame.Close -> {} // CLOSED event below captures code + reason
                             else -> {} // ping/pong handled by Ktor
                         }
