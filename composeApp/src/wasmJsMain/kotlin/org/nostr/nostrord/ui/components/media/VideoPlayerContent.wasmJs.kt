@@ -55,6 +55,7 @@ actual fun PlatformVideoPlayer(
                     style.setProperty("object-fit", "contain")
                     style.setProperty("background-color", "#000")
                     style.display = "block"
+                    attachPositionRestore()
                 }
             },
             modifier =

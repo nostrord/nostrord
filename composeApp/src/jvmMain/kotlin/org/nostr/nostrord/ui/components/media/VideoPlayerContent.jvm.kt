@@ -35,6 +35,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -84,6 +87,39 @@ actual fun PlatformVideoPlayer(
         playerState.openUri(url, InitialPlayerState.PAUSE)
     }
 
+    // `rememberVideoPlayerState()` doesn't pause on composition exit, so the player
+    // would keep streaming audio after the user navigates away. The dispose hook covers
+    // navigation; the layout-coordinates check below covers in-screen scroll where the
+    // composable is clipped to zero size but not unmounted (non-lazy parent containers).
+    DisposableEffect(playerState) {
+        onDispose { playerState.pause() }
+    }
+
+    LaunchedEffect(url, playerState.isPlaying) {
+        if (!playerState.isPlaying) return@LaunchedEffect
+        while (true) {
+            delay(1000)
+            VideoViewedPositionCache.put(url, (playerState.currentTime * 1000).toLong())
+        }
+    }
+
+    // The library exposes seek as a 0..SLIDER_MAX slider position, so we need duration
+    // in ms to compute the target slider value.
+    val durationMs = playerState.metadata.duration
+    var hasRestored by remember(url) { mutableStateOf(false) }
+    LaunchedEffect(url, durationMs) {
+        if (durationMs != null && durationMs > 0 && !hasRestored) {
+            val saved = VideoViewedPositionCache.get(url)
+            if (saved != null &&
+                saved > VideoViewedPositionCache.RESUME_THRESHOLD_MS &&
+                saved < durationMs - VideoViewedPositionCache.RESUME_THRESHOLD_MS
+            ) {
+                playerState.seekTo((saved.toFloat() / durationMs.toFloat()) * SLIDER_MAX)
+            }
+            hasRestored = true
+        }
+    }
+
     VideoPlayerBox(
         playerState = playerState,
         thumbnail = thumbnail,
@@ -95,7 +131,13 @@ actual fun PlatformVideoPlayer(
             playerState.play()
         },
         onFullscreenClick = { isFullscreen = true },
-        modifier = modifier.widthIn(max = 400.dp),
+        modifier = modifier
+            .widthIn(max = 400.dp)
+            .onGloballyPositioned { coords ->
+                if (coords.boundsInWindow().height == 0f && playerState.isPlaying) {
+                    playerState.pause()
+                }
+            },
     )
 
     if (isFullscreen) {
