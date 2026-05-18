@@ -10,10 +10,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,92 +21,65 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 
 /**
- * State carried into the fullscreen overlay. [startPositionMs] lets the overlay resume from
- * wherever the inline player was, so toggling fullscreen feels seamless.
- */
-data class FullscreenVideoRequest(
-    val url: String,
-    val startPositionMs: Long,
-)
-
-/**
  * Hoists the fullscreen video state out of the chat composable tree. Without this, the
  * fullscreen Dialog was a child of [PlatformVideoPlayer], so any recomposition that
  * unmounted the inline player (scroll, navigation, layout breakpoint switch) destroyed
  * the dialog too — fullscreen would snap shut mid-watch.
+ *
+ * Ownership model: inline borrows the player to the overlay. The inline composable
+ * normally owns release; while fullscreen is active, inline's onDispose defers release
+ * to the overlay, which calls [onCloseListener] on dismiss with whether inline is still
+ * around to take the player back.
  */
 class FullscreenVideoController {
-    var active: FullscreenVideoRequest? by mutableStateOf(null)
+    var active: ExoPlayer? by mutableStateOf(null)
         private set
 
-    private var onCloseListener: ((Long) -> Unit)? = null
+    private var onCloseListener: (() -> Unit)? = null
 
     fun open(
-        url: String,
-        startPositionMs: Long,
-        onClose: (Long) -> Unit,
+        player: ExoPlayer,
+        onClose: () -> Unit,
     ) {
-        active = FullscreenVideoRequest(url, startPositionMs)
+        active = player
         onCloseListener = onClose
     }
 
-    fun close(currentPositionMs: Long) {
+    fun close() {
         val cb = onCloseListener
         onCloseListener = null
         active = null
-        cb?.invoke(currentPositionMs)
+        cb?.invoke()
     }
 }
 
-val LocalFullscreenVideoController = compositionLocalOf<FullscreenVideoController> {
-    error(
-        "FullscreenVideoController not provided. Wrap content with " +
-            "CompositionLocalProvider(LocalFullscreenVideoController provides controller).",
-    )
-}
+/** Null when unprovided — callers fall back to no-op so @Preview and other entrypoints don't crash. */
+val LocalFullscreenVideoController = staticCompositionLocalOf<FullscreenVideoController?> { null }
 
 @Composable
 fun FullscreenVideoOverlay(controller: FullscreenVideoController) {
-    val request = controller.active ?: return
+    val player = controller.active ?: return
     FullscreenVideoOverlayContent(
-        url = request.url,
-        startPositionMs = request.startPositionMs,
-        onClose = { positionMs -> controller.close(positionMs) },
+        exoPlayer = player,
+        onClose = { controller.close() },
     )
 }
 
 @OptIn(UnstableApi::class)
 @Composable
 private fun FullscreenVideoOverlayContent(
-    url: String,
-    startPositionMs: Long,
-    onClose: (positionMs: Long) -> Unit,
+    exoPlayer: ExoPlayer,
+    onClose: () -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
 
-    val exoPlayer =
-        remember(url) {
-            ExoPlayer.Builder(context).build().apply {
-                setMediaItem(MediaItem.fromUri(url))
-                prepare()
-                seekTo(startPositionMs)
-                playWhenReady = true
-            }
-        }
-
-    DisposableEffect(url) {
-        onDispose { exoPlayer.release() }
-    }
-
-    // Hide system bars while fullscreen is active; restore on dismiss.
     DisposableEffect(activity) {
         val window = activity?.window
         val insetsController =
@@ -121,7 +93,7 @@ private fun FullscreenVideoOverlayContent(
         }
     }
 
-    BackHandler { onClose(exoPlayer.currentPosition) }
+    BackHandler { onClose() }
 
     Box(
         modifier =
@@ -147,7 +119,7 @@ private fun FullscreenVideoOverlayContent(
                     controllerShowTimeoutMs = 3000
                     controllerHideOnTouch = true
                     setFullscreenButtonState(true)
-                    setFullscreenButtonClickListener { _ -> onClose(exoPlayer.currentPosition) }
+                    setFullscreenButtonClickListener { _ -> onClose() }
                 }
             },
             update = { it.player = exoPlayer },

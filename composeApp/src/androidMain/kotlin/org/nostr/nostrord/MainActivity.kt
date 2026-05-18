@@ -42,9 +42,6 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize().safeDrawingPadding()) {
                         App()
                     }
-                    // Rendered outside the safe-area Box so the fullscreen overlay covers
-                    // status/navigation bars too. Lives outside App() so it survives any
-                    // unmount of the chat composable that triggered the fullscreen.
                     FullscreenVideoOverlay(fullscreenVideoController)
                 }
             }
