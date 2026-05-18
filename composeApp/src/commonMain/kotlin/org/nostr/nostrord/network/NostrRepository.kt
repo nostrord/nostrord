@@ -1,6 +1,8 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1669,12 +1671,18 @@ class NostrRepository(
             if (clients.isEmpty()) {
                 return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
             }
-            clients.forEach { client ->
-                scope.launch {
+            val results = clients.map { client ->
+                scope.async {
                     try {
                         client.sendAndAwaitOk(message, eventId)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        PublishResult.Error(eventId, e)
+                    }
                 }
+            }.awaitAll()
+            if (results.none { it is PublishResult.Success }) {
+                return Result.Error(AppError.Network.PublishRejected(summarizePublishFailures(results)))
             }
 
             val updatedMetadata = UserMetadata(
@@ -1724,12 +1732,18 @@ class NostrRepository(
             if (clients.isEmpty()) {
                 return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
             }
-            clients.forEach { client ->
-                scope.launch {
+            val results = clients.map { client ->
+                scope.async {
                     try {
                         client.sendAndAwaitOk(message, eventId)
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        PublishResult.Error(eventId, e)
+                    }
                 }
+            }.awaitAll()
+            if (results.none { it is PublishResult.Success }) {
+                return Result.Error(AppError.Network.PublishRejected(summarizePublishFailures(results)))
             }
 
             outboxManager.updateMyRelayList(pubKey, relays)
@@ -2467,6 +2481,21 @@ class NostrRepository(
             groupManager.requestGroupMessages(groupId)
         }
     }
+}
+
+private fun summarizePublishFailures(results: List<PublishResult>): String {
+    val rejected = results.count { it is PublishResult.Rejected }
+    val timeout = results.count { it is PublishResult.Timeout }
+    val errors = results.count { it is PublishResult.Error }
+    val firstReason = results.firstNotNullOfOrNull { r ->
+        when (r) {
+            is PublishResult.Rejected -> r.reason
+            is PublishResult.Error -> r.exception.message
+            is PublishResult.Timeout -> "timeout"
+            else -> null
+        }
+    } ?: "unknown"
+    return "rejected=$rejected timeout=$timeout error=$errors first=$firstReason"
 }
 
 // Helper function for parsing bunker URLs
