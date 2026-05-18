@@ -894,9 +894,10 @@ class NostrRepository(
                 // Also request metadata for the active group if the user navigated
                 // directly via URL (e.g. invite link) and the group isn't known yet.
                 scope.launch {
-                    // Small delay to let the group-list EOSE populate the cache first,
-                    // so we only target genuinely missing (private) groups.
-                    delay(2_000)
+                    // Wait for the group-list EOSE so we only request kind:39000 for
+                    // groups genuinely missing from the public listing. Bounded fallback
+                    // keeps slow relays from blocking the targeted fetches indefinitely.
+                    groupManager.awaitGroupListEose(relayUrl)
                     groupManager.requestPrivateGroupData(relayUrl)
                     groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
                 }
@@ -1015,7 +1016,9 @@ class NostrRepository(
             // but not returned by the general kind 39000 listing), and for the active
             // group if navigated via URL before the relay was connected.
             scope.launch {
-                delay(2_000)
+                // Wait for the group-list EOSE before requesting per-group metadata —
+                // see the equivalent block in connect() for rationale.
+                groupManager.awaitGroupListEose(newRelayUrl)
                 groupManager.requestPrivateGroupData(newRelayUrl)
                 groupManager.requestActiveGroupMetadataIfMissing(newRelayUrl)
             }
