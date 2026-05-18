@@ -47,7 +47,7 @@ actual class Nip46Client actual constructor(
                     try {
                         val cleanUrl = relayUrl.trimEnd('/')
                         val client = NostrGroupClient(cleanUrl)
-                        client.connect { msg -> handleMessage(msg) }
+                        client.connect { msg -> handleMessage(msg, client) }
                         client.waitForConnection()
                         client
                     } catch (_: Exception) {
@@ -281,11 +281,35 @@ actual class Nip46Client actual constructor(
         }
     }
 
-    private fun handleMessage(msg: String) {
+    private fun handleMessage(msg: String, source: NostrGroupClient) {
         try {
             val json = nip46Json
             val arr = json.parseToJsonElement(msg).jsonArray
             val msgType = arr.getOrNull(0)?.jsonPrimitive?.contentOrNull ?: return
+
+            when (msgType) {
+                "OK" -> {
+                    // Route relay's publish ACK into the source client so that
+                    // sendAndAwaitOk completes with the actual relay verdict
+                    // instead of timing out. OK false → PublishResult.Rejected.
+                    val parsed = source.parseOkMessage(arr) ?: return
+                    val (eventId, success, message) = parsed
+                    clientScope.launch { source.handleOkResponse(eventId, success, message) }
+                    return
+                }
+                "NOTICE" -> {
+                    val notice = arr.getOrNull(1)?.jsonPrimitive?.contentOrNull
+                    if (!notice.isNullOrBlank()) {
+                        println("[Nip46Client] NOTICE from ${source.getRelayUrl()}: $notice")
+                    }
+                    return
+                }
+                "EOSE" -> {
+                    // Catch-up boundary for the listening sub. No state to
+                    // advance yet, but the frame is no longer silently dropped.
+                    return
+                }
+            }
 
             if (msgType == "EVENT" && arr.size >= 3) {
                 val eventObj = arr[2].jsonObject
