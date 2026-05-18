@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Auto-format staged Kotlin files via spotless before the commit lands.
+# Skip when no Kotlin files are staged so trivial commits (docs, scripts)
+# don't pay the ~15s Gradle startup cost.
+
+set -e
+
+STAGED_KT=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.kts?$' || true)
+if [ -z "$STAGED_KT" ]; then
+    exit 0
+fi
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+echo "pre-commit: running spotlessApply..."
+./gradlew --quiet spotlessApply
+
+# Re-stage anything spotless touched among the files we already had staged.
+# Files staged that no longer exist (renames, deletes) are silently skipped.
+while IFS= read -r file; do
+    [ -f "$file" ] && git add "$file"
+done <<< "$STAGED_KT"
+
+# spotlessApply can leave residual violations on the first pass (multi-line
+# wrapping rules sometimes need a second). Verify before letting the commit
+# through.
+echo "pre-commit: verifying with spotlessCheck..."
+./gradlew --quiet spotlessCheck

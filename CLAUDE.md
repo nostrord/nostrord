@@ -2,6 +2,14 @@
 
 Nostr NIP-29 group messaging client. Kotlin Multiplatform targeting Android, JVM Desktop, JS, and WebAssembly.
 
+## First-time setup
+
+```bash
+./scripts/install-hooks.sh
+```
+
+Points `core.hooksPath` at the repo-tracked hooks (covers all worktrees of this clone). The `pre-commit` hook runs `spotlessApply` on staged Kotlin files and then `spotlessCheck` to guarantee CI won't fail on formatting.
+
 ## Build Commands
 
 ```bash
