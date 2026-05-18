@@ -128,26 +128,14 @@ actual class Nip46Client actual constructor(
             pendingRequests["_incoming_connect"]
                 ?: throw Exception("Not listening. Call startListeningForConnection first.")
 
-        try {
-            return withTimeout(120_000) { connectDeferred.await() }
+        return try {
+            // No wall-clock timeout: the QR sheet lifecycle drives cancellation
+            // via the calling coroutine. The listen subscription stays open
+            // until disconnect(), so a late scanner still completes instead of
+            // being killed by a 120s deadline.
+            connectDeferred.await()
         } finally {
             pendingRequests.remove("_incoming_connect")
-            listenSubscriptionId?.let { subId ->
-                val closeMessage =
-                    buildJsonArray {
-                        add("CLOSE")
-                        add(subId)
-                    }.toString()
-                withContext(NonCancellable) {
-                    relayClients.forEach {
-                        try {
-                            it.send(closeMessage)
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
-            }
-            listenSubscriptionId = null
         }
     }
 
