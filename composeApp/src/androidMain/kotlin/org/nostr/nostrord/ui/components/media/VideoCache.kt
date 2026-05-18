@@ -63,8 +63,7 @@ object VideoCache {
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
     }
 
-    fun dataSourceFactory(): CacheDataSource.Factory =
-        factory ?: error("VideoCache not initialized — call VideoCache.initialize() in Application.onCreate")
+    fun dataSourceFactory(): CacheDataSource.Factory = factory ?: error("VideoCache not initialized — call VideoCache.initialize() in Application.onCreate")
 
     private fun calculateCacheSize(cacheDir: File): Long {
         val available = runCatching { StatFs(cacheDir.absolutePath).availableBytes }.getOrDefault(0L)

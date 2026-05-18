@@ -1,7 +1,7 @@
 package org.nostr.nostrord.ui.components.media
 
-import kotlin.time.TimeSource
 import org.w3c.dom.HTMLVideoElement
+import kotlin.time.TimeSource
 
 private const val SAVE_THROTTLE_MS = 1_000L
 

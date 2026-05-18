@@ -124,13 +124,12 @@ actual fun PlatformVideoPlayer(
  * kick-in (~750ms). Pattern from Amethyst's `ExoPlayerBuilder.feedTunedLoadControl`.
  */
 @OptIn(UnstableApi::class)
-private fun feedTunedLoadControl(): DefaultLoadControl =
-    DefaultLoadControl
-        .Builder()
-        .setBufferDurationsMs(
-            10_000, // minBufferMs
-            15_000, // maxBufferMs
-            750, // bufferForPlaybackMs
-            2_000, // bufferForPlaybackAfterRebufferMs
-        ).setPrioritizeTimeOverSizeThresholds(true)
-        .build()
+private fun feedTunedLoadControl(): DefaultLoadControl = DefaultLoadControl
+    .Builder()
+    .setBufferDurationsMs(
+        10_000, // minBufferMs
+        15_000, // maxBufferMs
+        750, // bufferForPlaybackMs
+        2_000, // bufferForPlaybackAfterRebufferMs
+    ).setPrioritizeTimeOverSizeThresholds(true)
+    .build()
