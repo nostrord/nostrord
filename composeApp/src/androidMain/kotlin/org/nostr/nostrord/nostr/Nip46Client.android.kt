@@ -3,6 +3,7 @@ package org.nostr.nostrord.nostr
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.NostrGroupClient
+import org.nostr.nostrord.network.PublishResult
 import org.nostr.nostrord.utils.epochMillis
 import kotlin.random.Random
 
@@ -20,7 +21,7 @@ actual class Nip46Client actual constructor(
     private var relayClients: MutableList<NostrGroupClient> = mutableListOf()
     private var relayUrls: List<String> = emptyList()
     private val pendingRequests: MutableMap<String, CompletableDeferred<String>> = java.util.concurrent.ConcurrentHashMap()
-    private var listenSubscriptionId: String? = null
+    private var responseSubscriptionId: String? = null
     private var nostrConnectSecret: String? = null
 
     private val clientScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -50,6 +51,7 @@ actual class Nip46Client actual constructor(
                         val client = NostrGroupClient(cleanUrl)
                         client.connect { msg -> handleMessage(msg, client) }
                         client.waitForConnection()
+                        openResponseSubscription(client)
                         client
                     } catch (e: Exception) {
                         null
@@ -57,6 +59,32 @@ actual class Nip46Client actual constructor(
                 }
             }.awaitAll()
             .filterNotNull()
+    }
+
+    /**
+     * Opens the durable NIP-46 response subscription on [client]. The filter
+     * (`kinds:[24133], #p:[clientPubkey]`) covers both incoming `connect`
+     * requests (nostrconnect:// flow) and signer replies (bunker:// flow), so
+     * one stable subscription replaces the previous per-request ephemeral REQs.
+     */
+    private suspend fun openResponseSubscription(client: NostrGroupClient) {
+        val subId = responseSubscriptionId
+            ?: "nip46-resp-${clientKeyPair.publicKeyHex.take(8)}".also { responseSubscriptionId = it }
+        val since = (epochMillis() / 1000) - 10
+        val filter = buildJsonObject {
+            putJsonArray("kinds") { add(24133) }
+            putJsonArray("#p") { add(clientKeyPair.publicKeyHex) }
+            put("since", since)
+        }
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(filter)
+        }.toString()
+        try {
+            client.send(req)
+        } catch (_: Exception) {
+        }
     }
 
     private suspend fun ensureRelaysConnected() {
@@ -97,31 +125,10 @@ actual class Nip46Client actual constructor(
         if (relayClients.isEmpty()) {
             throw Exception("Failed to connect to any relay")
         }
+        // The durable response subscription opened in connectRelaysParallel
+        // already filters kind:24133 #p:clientPubkey, so it doubles as the
+        // nostrconnect listening sub — no extra REQ needed here.
 
-        val subscriptionId = "nip46-listen-${generateRequestId().take(8)}"
-        listenSubscriptionId = subscriptionId
-        val since = (epochMillis() / 1000) - 10
-        val filter =
-            buildJsonObject {
-                putJsonArray("kinds") { add(24133) }
-                putJsonArray("#p") { add(clientKeyPair.publicKeyHex) }
-                put("since", since)
-            }
-        val subMessage =
-            buildJsonArray {
-                add("REQ")
-                add(subscriptionId)
-                add(filter)
-            }.toString()
-
-        relayClients.forEach {
-            try {
-                it.send(subMessage)
-            } catch (e: Exception) {
-            }
-        }
-
-        // Set up the deferred for the incoming connect
         pendingRequests["_incoming_connect"] = CompletableDeferred()
     }
 
@@ -216,36 +223,10 @@ actual class Nip46Client actual constructor(
             )
 
         val signedEvent = event.sign(clientKeyPair)
+        val eventId = signedEvent.id
+            ?: throw Exception("Failed to sign NIP-46 request event")
         val responseDeferred = CompletableDeferred<String>()
         pendingRequests[requestId] = responseDeferred
-
-        val subscriptionId = "nip46-${requestId.take(8)}"
-        val since = (epochMillis() / 1000) - 120
-
-        val filter =
-            buildJsonObject {
-                putJsonArray("kinds") { add(24133) }
-                putJsonArray("#p") { add(clientKeyPair.publicKeyHex) }
-                put("since", since)
-            }
-
-        val subMessage =
-            buildJsonArray {
-                add("REQ")
-                add(subscriptionId)
-                add(filter)
-            }.toString()
-
-        var sentToAny = false
-        relayClients.forEach { client ->
-            try {
-                client.send(subMessage)
-                sentToAny = true
-            } catch (_: Exception) {
-            }
-        }
-
-        delay(100)
 
         val eventMessage =
             buildJsonArray {
@@ -253,36 +234,34 @@ actual class Nip46Client actual constructor(
                 add(signedEvent.toJsonObject())
             }.toString()
 
-        relayClients.forEach { client ->
-            try {
-                client.send(eventMessage)
-                sentToAny = true
-            } catch (_: Exception) {
-            }
-        }
-
-        if (!sentToAny) {
-            pendingRequests.remove(requestId)
-            throw Exception("Failed to send signing request to any relay")
-        }
-
         try {
+            // Publish in parallel via sendAndAwaitOk so a relay-side rejection
+            // surfaces immediately. The response sub opened on connect routes
+            // the signer's reply back into responseDeferred.
+            val publishResults = relayClients.map { client ->
+                async {
+                    try {
+                        client.sendAndAwaitOk(eventMessage, eventId)
+                    } catch (e: Exception) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                        PublishResult.Error(eventId, e)
+                    }
+                }
+            }.awaitAll()
+            if (publishResults.none { it is PublishResult.Success }) {
+                val reason = publishResults.firstNotNullOfOrNull { r ->
+                    when (r) {
+                        is PublishResult.Rejected -> r.reason
+                        is PublishResult.Error -> r.exception.message
+                        is PublishResult.Timeout -> "publish timeout"
+                        else -> null
+                    }
+                } ?: "no relay accepted request"
+                throw Exception("Failed to publish NIP-46 request: $reason")
+            }
             responseDeferred.await()
         } finally {
             pendingRequests.remove(requestId)
-            val closeMessage =
-                buildJsonArray {
-                    add("CLOSE")
-                    add(subscriptionId)
-                }.toString()
-            withContext(NonCancellable) {
-                relayClients.forEach {
-                    try {
-                        it.send(closeMessage)
-                    } catch (_: Exception) {
-                    }
-                }
-            }
         }
     }
 
