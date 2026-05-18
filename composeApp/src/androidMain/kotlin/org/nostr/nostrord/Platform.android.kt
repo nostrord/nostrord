@@ -9,3 +9,4 @@ class AndroidPlatform : Platform {
 actual fun getPlatform(): Platform = AndroidPlatform()
 
 actual val isAndroid: Boolean = true
+actual val isHandheldPlatform: Boolean = true

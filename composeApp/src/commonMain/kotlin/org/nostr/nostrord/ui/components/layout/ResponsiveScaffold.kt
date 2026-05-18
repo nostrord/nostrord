@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import org.nostr.nostrord.isHandheldPlatform
 
 enum class ScreenSize {
     Compact, // Mobile: < 912dp
@@ -15,16 +16,18 @@ enum class ScreenSize {
 }
 
 /**
- * Use the smallest available dimension (analogous to Android's `sw600dp` resource qualifier)
- * to decide mobile-vs-desktop layouts. Width alone would mis-classify a phone in landscape
- * as desktop, because the phone is suddenly wider than 912dp but the user still wants a
- * mobile layout.
+ * On handheld platforms (Android, iOS) the window IS the device, so use the smallest
+ * dimension (sw600dp-style) — rotating shouldn't flip mobile↔desktop layout. On desktop
+ * platforms the user resizes the window deliberately, so width is the right signal.
  *
- * If the container has unbounded height (e.g. inside a vertical scroll), falls back to
- * maxWidth so we don't divide by infinity.
+ * If maxHeight is unbounded (e.g. inside a vertical scroll), fall back to maxWidth.
  */
 val BoxWithConstraintsScope.responsiveDimension: Dp
-    get() = if (maxHeight == Dp.Infinity) maxWidth else minOf(maxWidth, maxHeight)
+    get() = when {
+        maxHeight == Dp.Infinity -> maxWidth
+        isHandheldPlatform -> minOf(maxWidth, maxHeight)
+        else -> maxWidth
+    }
 
 @Composable
 fun ResponsiveScaffold(
