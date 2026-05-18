@@ -1,5 +1,6 @@
 package org.nostr.nostrord.network.managers
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -9,6 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
@@ -41,6 +43,9 @@ class MetadataManager(
 
         /** Coalesce window for metadata StateFlow emissions (ms). */
         const val METADATA_FLUSH_DELAY_MS = 100L
+
+        /** Wall-clock fallback if a relay never emits EOSE for a metadata batch. */
+        const val EOSE_FALLBACK_MS = 5_000L
     }
 
     /**
@@ -61,6 +66,20 @@ class MetadataManager(
     private val inFlightMutex = Mutex()
     private val inFlightEvents = mutableSetOf<String>()
     private val inFlightEventsMutex = Mutex()
+
+    /**
+     * Per-batch state for EOSE-driven completion of [batchFetch]. Each batch
+     * waits on its [deferred] until every relay in [pendingRelays] has emitted
+     * EOSE for the batch subscription id, or the wall-clock fallback fires.
+     */
+    private data class MetadataBatch(
+        val pendingRelays: MutableSet<String>,
+        val deferred: CompletableDeferred<Unit>,
+    )
+
+    private val metadataBatches = mutableMapOf<String, MetadataBatch>()
+    private val metadataBatchesMutex = Mutex()
+    private var metadataBatchCounter = 0L
 
     private val _userMetadata = MutableStateFlow<Map<String, UserMetadata>>(emptyMap())
     val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata.asStateFlow()
@@ -118,25 +137,26 @@ class MetadataManager(
                 }
             if (missing.isEmpty()) return
 
-            var sent =
-                candidates.count { relayUrl ->
-                    try {
-                        val client = connectionManager.getClientForRelay(relayUrl)
-                        if (client != null && client.isConnected()) {
-                            missing.chunked(BATCH_SIZE).forEach { chunk ->
-                                client.requestMetadata(chunk)
-                            }
-                            true
-                        } else {
-                            false
+            val subId = metadataBatchesMutex.withLock {
+                "metadata_batch_${++metadataBatchCounter}_$attempt"
+            }
+            val sentRelays = mutableSetOf<String>()
+
+            candidates.forEach { relayUrl ->
+                try {
+                    val client = connectionManager.getClientForRelay(relayUrl)
+                    if (client != null && client.isConnected()) {
+                        missing.chunked(BATCH_SIZE).forEach { chunk ->
+                            client.requestMetadata(chunk, subId)
                         }
-                    } catch (_: Exception) {
-                        false
+                        sentRelays.add(relayUrl)
                     }
+                } catch (_: Exception) {
                 }
+            }
 
             // All bootstrap relays offline — try to reconnect one.
-            if (sent == 0) {
+            if (sentRelays.isEmpty()) {
                 val handler = messageHandler
                 if (handler != null) {
                     for (relayUrl in candidates) {
@@ -144,9 +164,9 @@ class MetadataManager(
                             val client = connectionManager.getOrConnectRelay(relayUrl, handler)
                             if (client != null && client.isConnected()) {
                                 missing.chunked(BATCH_SIZE).forEach { chunk ->
-                                    client.requestMetadata(chunk)
+                                    client.requestMetadata(chunk, subId)
                                 }
-                                sent = 1
+                                sentRelays.add(relayUrl)
                                 break
                             }
                         } catch (_: Exception) {
@@ -155,8 +175,16 @@ class MetadataManager(
                 }
             }
 
-            if (sent > 0) {
-                delay(if (attempt == 0) 2_000L else 3_500L)
+            if (sentRelays.isNotEmpty()) {
+                val deferred = CompletableDeferred<Unit>()
+                metadataBatchesMutex.withLock {
+                    metadataBatches[subId] = MetadataBatch(sentRelays.toMutableSet(), deferred)
+                }
+                // Wait for EOSE from every relay we sent to; bounded fallback in
+                // case a relay never EOSEs so we don't hang the next attempt.
+                withTimeoutOrNull(EOSE_FALLBACK_MS) { deferred.await() }
+                metadataBatchesMutex.withLock { metadataBatches.remove(subId) }
+
                 val allFresh =
                     pubkeys.all { pk ->
                         val at = metadataCache.get(pk)?.fetchedAt
@@ -164,9 +192,25 @@ class MetadataManager(
                     }
                 if (allFresh) return
             } else if (attempt < MAX_FETCH_ATTEMPTS - 1) {
-                delay(if (attempt == 0) 2_000L else 4_000L)
+                // No bootstrap relay was reachable — back off briefly before retry.
+                delay(2_000L)
             }
         }
+    }
+
+    /**
+     * Marks [sourceRelayUrl] as done for the given batch [subId]. When every
+     * relay we dispatched the batch to has EOSEd, the batch's deferred
+     * completes and [batchFetch] proceeds to the next attempt (or returns).
+     */
+    suspend fun notifyMetadataEose(subId: String, sourceRelayUrl: String) {
+        if (!subId.startsWith("metadata_batch_")) return
+        val toComplete = metadataBatchesMutex.withLock {
+            val batch = metadataBatches[subId] ?: return@withLock null
+            batch.pendingRelays.remove(sourceRelayUrl)
+            if (batch.pendingRelays.isEmpty()) batch.deferred else null
+        }
+        toComplete?.complete(Unit)
     }
 
     suspend fun requestEventById(

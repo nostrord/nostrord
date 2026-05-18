@@ -1387,19 +1387,19 @@ class NostrGroupClient(
         "⚠️ Failed to parse: $message (${e.message})"
     }
 
-    suspend fun requestMetadata(pubkeys: List<String>) {
+    suspend fun requestMetadata(pubkeys: List<String>, subId: String? = null) {
         if (pubkeys.isEmpty()) return
-        val subId = "metadata_${pubkeys.first().take(8)}"
+        val effectiveSubId = subId ?: "metadata_${pubkeys.first().take(8)}"
         // CLOSE any previous subscription for this pubkey before re-subscribing
         sendJson(
             buildJsonArray {
                 add("CLOSE")
-                add(subId)
+                add(effectiveSubId)
             },
         )
         val req = buildJsonArray {
             add("REQ")
-            add(subId)
+            add(effectiveSubId)
             add(
                 buildJsonObject {
                     putJsonArray("kinds") { add(0) } // kind 0 = metadata
