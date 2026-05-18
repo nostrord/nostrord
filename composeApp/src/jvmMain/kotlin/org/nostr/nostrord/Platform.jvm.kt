@@ -7,3 +7,4 @@ class JVMPlatform : Platform {
 actual fun getPlatform(): Platform = JVMPlatform()
 
 actual val isAndroid: Boolean = false
+actual val isHandheldPlatform: Boolean = false

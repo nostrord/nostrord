@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
+import org.nostr.nostrord.ui.components.layout.responsiveDimension
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 @Composable
@@ -43,7 +44,7 @@ fun OnboardingScreen(onAddRelay: () -> Unit, onAddRelayCustomUrl: () -> Unit = o
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentAlignment = Alignment.Center,
         ) {
-            val isCompact = maxWidth < 912.dp
+            val isCompact = responsiveDimension < 912.dp
 
             val logoSize: Dp = if (isCompact) 64.dp else 88.dp
             val logoRadius: Dp = if (isCompact) 16.dp else 20.dp

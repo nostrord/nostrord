@@ -7,3 +7,4 @@ class WasmPlatform : Platform {
 actual fun getPlatform(): Platform = WasmPlatform()
 
 actual val isAndroid: Boolean = false
+actual val isHandheldPlatform: Boolean = false
