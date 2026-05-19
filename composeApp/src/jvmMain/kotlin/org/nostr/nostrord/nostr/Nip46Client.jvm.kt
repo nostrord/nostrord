@@ -64,6 +64,67 @@ actual class Nip46Client actual constructor(
     }
 
     /**
+     * First-relay-wins variant of [connectRelaysParallel]. Returns as soon as
+     * one relay's WebSocket is open and the durable response sub is sent.
+     * Remaining relays continue connecting in [clientScope] and are appended
+     * to [relayClients] as they become ready, so the listening sub spans all
+     * relays even when this function has already returned. Throws only if
+     * every relay fails — partial failure is acceptable.
+     */
+    private suspend fun connectRelaysFirstWins(relays: List<String>) {
+        if (relays.isEmpty()) throw Exception("Failed to connect to any relay")
+        val firstReady = CompletableDeferred<Unit>()
+        val total = relays.size
+        val failures = java.util.concurrent.atomic.AtomicInteger(0)
+
+        for (relayUrl in relays) {
+            clientScope.launch {
+                try {
+                    val cleanUrl = relayUrl.trimEnd('/')
+                    val client = NostrGroupClient(cleanUrl)
+                    client.connect { msg -> handleMessage(msg, client) }
+                    client.waitForConnection()
+                    openResponseSubscription(client)
+                    synchronized(relayClients) { relayClients.add(client) }
+                    firstReady.complete(Unit)
+                } catch (_: Exception) {
+                    if (failures.incrementAndGet() == total && !firstReady.isCompleted) {
+                        firstReady.completeExceptionally(Exception("Failed to connect to any relay"))
+                    }
+                }
+            }
+        }
+
+        firstReady.await()
+    }
+
+    /**
+     * Fire `get_public_key` in the background and cache the in-flight
+     * [CompletableDeferred] under [pendingRequests]'s special slot. Subsequent
+     * calls to [getPublicKey] await this deferred instead of starting a fresh
+     * round trip. Safe to call multiple times — putIfAbsent ensures only the
+     * first call kicks off the RPC.
+     */
+    private fun prefetchUserPubkey() {
+        val deferred = CompletableDeferred<String>()
+        val existing = pendingRequests.putIfAbsent("_pending_user_pubkey", deferred)
+        if (existing != null) return
+        clientScope.launch {
+            // No extra timeout here: the signer-side delay is often a user-tap
+            // approval prompt that can legitimately take tens of seconds. The
+            // underlying sendRequest already caps at 120s, which is the right
+            // ceiling for an interactive flow — a 10s wall here would mistake
+            // a slow human for a failed signer and abort the entire login.
+            try {
+                val pk = sendRequest(generateRequestId(), "get_public_key", emptyList())
+                deferred.complete(pk)
+            } catch (e: Exception) {
+                deferred.completeExceptionally(e)
+            }
+        }
+    }
+
+    /**
      * Opens the durable NIP-46 response subscription on [client]. The filter
      * (`kinds:[24133], #p:[clientPubkey]`) covers both incoming `connect`
      * requests (nostrconnect:// flow) and signer replies (bunker:// flow), so
@@ -132,16 +193,15 @@ actual class Nip46Client actual constructor(
         nostrConnectSecret = secret ?: generateRequestId().take(16)
         this.relayUrls = relays.map { it.trimEnd('/') }
 
-        relayClients.addAll(connectRelaysParallel(relays))
-
-        if (relayClients.isEmpty()) {
-            throw Exception("Failed to connect to any relay")
-        }
-        // The durable response subscription opened in connectRelaysParallel
-        // already filters kind:24133 #p:clientPubkey, so it doubles as the
-        // nostrconnect listening sub — no extra REQ needed here.
-
+        // Install the listening deferred BEFORE launching connects so that
+        // handleMessage can complete it as soon as the first relay starts
+        // delivering events — first-relay-wins must not race the dispatch.
         pendingRequests["_incoming_connect"] = CompletableDeferred()
+
+        // Return as soon as one relay is listening. Remaining relays finish
+        // in background; the durable sub on each picks up late-arriving
+        // signer events thanks to the `since = now - 10s` filter.
+        connectRelaysFirstWins(relays)
     }
 
     actual suspend fun awaitIncomingConnection(): String {
@@ -187,9 +247,13 @@ actual class Nip46Client actual constructor(
     }
 
     actual suspend fun getPublicKey(): String {
+        // In the nostrconnect:// flow, handleMessage pre-fires get_public_key
+        // the moment the signer's connect event arrives, so this await almost
+        // always returns the cached result instead of paying another full
+        // signer round trip.
+        pendingRequests["_pending_user_pubkey"]?.let { return it.await() }
         val requestId = generateRequestId()
-        val response = sendRequest(requestId, "get_public_key", emptyList())
-        return response
+        return sendRequest(requestId, "get_public_key", emptyList())
     }
 
     actual suspend fun signEvent(eventJson: String): String {
@@ -359,6 +423,14 @@ actual class Nip46Client actual constructor(
                             }
                         }
 
+                        // Pipeline get_public_key: kick it off the instant the
+                        // signer connects so the caller's subsequent
+                        // getPublicKey() returns the cached result instead of
+                        // paying another full signer round trip. putIfAbsent
+                        // guards against duplicate fires when multiple relays
+                        // deliver the same connect event.
+                        prefetchUserPubkey()
+
                         val deferred = pendingRequests["_incoming_connect"]
                         deferred?.complete(eventPubkey)
                         return
@@ -372,6 +444,7 @@ actual class Nip46Client actual constructor(
                             result == nostrConnectSecret
                     if (isConnectResponse) {
                         remoteSignerPubkey = eventPubkey
+                        prefetchUserPubkey()
                         pendingRequests["_incoming_connect"]?.complete(eventPubkey)
                         return
                     }
