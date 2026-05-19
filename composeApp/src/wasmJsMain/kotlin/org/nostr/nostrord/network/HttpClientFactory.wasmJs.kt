@@ -25,6 +25,11 @@ actual fun createHttpClient(): HttpClient = HttpClient(Js) {
     }
 }
 
+// Browser WebSocket API does not expose ping/pong frames, so the engine
+// cannot send keepalive on its own — NostrGroupClient runs a best-effort
+// REQ/CLOSE probe for browser targets.
+actual fun hasEngineWebSocketPing(): Boolean = false
+
 actual fun createNip11HttpClient(): HttpClient = HttpClient(Js) {
     install(HttpTimeout) {
         requestTimeoutMillis = 8_000

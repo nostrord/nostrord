@@ -68,6 +68,10 @@ sealed class AppError(
         data class Disconnected(
             val relayUrl: String,
         ) : Network("Disconnected from relay: $relayUrl")
+
+        data class PublishRejected(
+            val reason: String,
+        ) : Network("Publish rejected by all relays: $reason")
     }
 
     /** Authentication errors */

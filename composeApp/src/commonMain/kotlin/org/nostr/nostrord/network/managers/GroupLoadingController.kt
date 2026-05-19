@@ -64,7 +64,11 @@ sealed class GroupLoadingState {
     ) : GroupLoadingState()
 
     enum class ErrorReason {
+        /** Relay never emitted EOSE and no messages arrived in the window. */
         TIMEOUT,
+
+        /** Relay sent some messages then went silent without EOSE — cursor preserved. */
+        PARTIAL_TIMEOUT,
         SEND_FAILED,
         DISCONNECTED,
         RELAY_ERROR,
@@ -405,14 +409,15 @@ class GroupLoadingController(
             val tracker = currentTracker ?: return@withLock
             if (tracker.subscriptionId != subscriptionId) return@withLock
 
-            // Timeout occurred - transition to error state
             val cursor = getCurrentCursor()
-
-            // Preserve retry count from current state
             val existingRetryCount = getRetryCount()
 
-            // If we received some messages, treat as partial success
-            if (tracker.messageCount > 0) {
+            // A timeout is always a degraded relay signal — never a substitute
+            // for EOSE. Even when messages did arrive, we surface this as an
+            // explicit PARTIAL_TIMEOUT error (carrying the advanced cursor) so
+            // the UI does not auto-paginate against a flaky relay assuming
+            // "more history exists". Caller can retry via [retry] to resume.
+            val (reason, advancedCursor) = if (tracker.messageCount > 0) {
                 val newCursor = if (tracker.oldestEventId != null) {
                     (cursor ?: PaginationCursor.initial()).advance(
                         oldestTimestamp = tracker.oldestTimestamp,
@@ -422,17 +427,16 @@ class GroupLoadingController(
                 } else {
                     cursor
                 }
-
-                // Got some messages, assume more might be available
-                _state.value = GroupLoadingState.HasMore(newCursor ?: PaginationCursor.initial())
+                GroupLoadingState.ErrorReason.PARTIAL_TIMEOUT to newCursor
             } else {
-                // No messages at all - error state with preserved retry count
-                _state.value = GroupLoadingState.Error(
-                    cursor = cursor,
-                    reason = GroupLoadingState.ErrorReason.TIMEOUT,
-                    retryCount = existingRetryCount,
-                )
+                GroupLoadingState.ErrorReason.TIMEOUT to cursor
             }
+
+            _state.value = GroupLoadingState.Error(
+                cursor = advancedCursor,
+                reason = reason,
+                retryCount = existingRetryCount,
+            )
 
             currentTracker = null
         }

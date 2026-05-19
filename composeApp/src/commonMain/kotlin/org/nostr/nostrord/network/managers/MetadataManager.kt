@@ -1,7 +1,11 @@
 package org.nostr.nostrord.network.managers
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -9,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
@@ -41,6 +46,9 @@ class MetadataManager(
 
         /** Coalesce window for metadata StateFlow emissions (ms). */
         const val METADATA_FLUSH_DELAY_MS = 100L
+
+        /** Wall-clock fallback if a relay never emits EOSE for a metadata batch. */
+        const val EOSE_FALLBACK_MS = 5_000L
     }
 
     /**
@@ -61,6 +69,20 @@ class MetadataManager(
     private val inFlightMutex = Mutex()
     private val inFlightEvents = mutableSetOf<String>()
     private val inFlightEventsMutex = Mutex()
+
+    /**
+     * Per-batch state for EOSE-driven completion of [batchFetch]. Each batch
+     * waits on its [deferred] until every relay in [pendingRelays] has emitted
+     * EOSE for the batch subscription id, or the wall-clock fallback fires.
+     */
+    private data class MetadataBatch(
+        val pendingRelays: MutableSet<String>,
+        val deferred: CompletableDeferred<Unit>,
+    )
+
+    private val metadataBatches = mutableMapOf<String, MetadataBatch>()
+    private val metadataBatchesMutex = Mutex()
+    private var metadataBatchCounter = 0L
 
     private val _userMetadata = MutableStateFlow<Map<String, UserMetadata>>(emptyMap())
     val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata.asStateFlow()
@@ -118,55 +140,90 @@ class MetadataManager(
                 }
             if (missing.isEmpty()) return
 
-            var sent =
-                candidates.count { relayUrl ->
-                    try {
-                        val client = connectionManager.getClientForRelay(relayUrl)
-                        if (client != null && client.isConnected()) {
-                            missing.chunked(BATCH_SIZE).forEach { chunk ->
-                                client.requestMetadata(chunk)
-                            }
-                            true
-                        } else {
-                            false
-                        }
-                    } catch (_: Exception) {
-                        false
+            // Register the batch BEFORE sending any REQ so a fast relay's EOSE
+            // is not dropped between dispatch and registration.
+            val deferred = CompletableDeferred<Unit>()
+            val (subId, pendingRelays) = metadataBatchesMutex.withLock {
+                val id = "metadata_batch_${++metadataBatchCounter}_$attempt"
+                val relays = mutableSetOf<String>()
+                metadataBatches[id] = MetadataBatch(relays, deferred)
+                id to relays
+            }
+
+            suspend fun trySendOn(client: NostrGroupClient?, relayUrl: String): Boolean {
+                if (client == null || !client.isConnected()) return false
+                metadataBatchesMutex.withLock { pendingRelays.add(relayUrl) }
+                return try {
+                    missing.chunked(BATCH_SIZE).forEach { chunk ->
+                        client.requestMetadata(chunk, subId)
                     }
+                    true
+                } catch (_: Exception) {
+                    val complete = metadataBatchesMutex.withLock {
+                        pendingRelays.remove(relayUrl) && pendingRelays.isEmpty()
+                    }
+                    if (complete) deferred.complete(Unit)
+                    false
                 }
+            }
+
+            // Dispatch in parallel so we don't pay per-relay round-trip latency
+            // serially — all REQs go in flight before we start waiting on EOSE.
+            coroutineScope {
+                candidates.map { relayUrl ->
+                    async { trySendOn(connectionManager.getClientForRelay(relayUrl), relayUrl) }
+                }.awaitAll()
+            }
 
             // All bootstrap relays offline — try to reconnect one.
-            if (sent == 0) {
+            val anySent = metadataBatchesMutex.withLock { pendingRelays.isNotEmpty() }
+            if (!anySent) {
                 val handler = messageHandler
                 if (handler != null) {
-                    for (relayUrl in candidates) {
-                        try {
-                            val client = connectionManager.getOrConnectRelay(relayUrl, handler)
-                            if (client != null && client.isConnected()) {
-                                missing.chunked(BATCH_SIZE).forEach { chunk ->
-                                    client.requestMetadata(chunk)
-                                }
-                                sent = 1
-                                break
-                            }
-                        } catch (_: Exception) {
-                        }
+                    candidates.firstOrNull { relayUrl ->
+                        runCatching {
+                            trySendOn(connectionManager.getOrConnectRelay(relayUrl, handler), relayUrl)
+                        }.getOrDefault(false)
                     }
                 }
             }
 
-            if (sent > 0) {
-                delay(if (attempt == 0) 2_000L else 3_500L)
+            val finalSent = metadataBatchesMutex.withLock { pendingRelays.isNotEmpty() }
+            if (finalSent) {
+                // Wait for EOSE from every relay we sent to; bounded fallback in
+                // case a relay never EOSEs so we don't hang the next attempt.
+                withTimeoutOrNull(EOSE_FALLBACK_MS) { deferred.await() }
+                metadataBatchesMutex.withLock { metadataBatches.remove(subId) }
+
                 val allFresh =
                     pubkeys.all { pk ->
                         val at = metadataCache.get(pk)?.fetchedAt
                         at != null && at >= fetchStartedAt
                     }
                 if (allFresh) return
-            } else if (attempt < MAX_FETCH_ATTEMPTS - 1) {
-                delay(if (attempt == 0) 2_000L else 4_000L)
+            } else {
+                metadataBatchesMutex.withLock { metadataBatches.remove(subId) }
+                if (attempt < MAX_FETCH_ATTEMPTS - 1) {
+                    // No bootstrap relay was reachable — back off briefly before retry.
+                    delay(2_000L)
+                }
             }
         }
+    }
+
+    /**
+     * Marks [sourceRelayUrl] as done for the given batch [subId]. When every
+     * relay we dispatched the batch to has EOSEd, the batch's deferred
+     * completes and [batchFetch] proceeds to the next attempt (or returns).
+     */
+    suspend fun notifyMetadataEose(subId: String, sourceRelayUrl: String) {
+        if (!subId.startsWith("metadata_batch_")) return
+        val toComplete = metadataBatchesMutex.withLock {
+            val batch = metadataBatches[subId] ?: return@withLock null
+            batch.pendingRelays.remove(sourceRelayUrl)
+            if (batch.pendingRelays.isEmpty()) batch.deferred else null
+        }
+        toComplete?.complete(Unit)
     }
 
     suspend fun requestEventById(

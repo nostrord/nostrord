@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupAdmins
@@ -233,6 +234,24 @@ class GroupManager(
 
     fun markRelayLoaded(relayUrl: String) {
         _loadingRelays.update { it - relayUrl.normalizeRelayUrl() }
+    }
+
+    /**
+     * Suspends until the relay's `group-list` EOSE has arrived (i.e. it appears
+     * in [_completeGroupLoadRelays]), or until [timeoutMs] elapses. Returns true
+     * if EOSE was observed, false if the relay timed out without emitting one.
+     *
+     * Used by callers that need to act on the populated group cache after
+     * `requestGroups()` — preferred over a fixed `delay(N)` so fast relays
+     * proceed immediately and slow relays still get bounded latency.
+     */
+    suspend fun awaitGroupListEose(relayUrl: String, timeoutMs: Long = 5_000): Boolean {
+        val normalized = relayUrl.normalizeRelayUrl()
+        if (normalized in _completeGroupLoadRelays.value) return true
+        return withTimeoutOrNull(timeoutMs) {
+            _completeGroupLoadRelays.first { normalized in it }
+            true
+        } ?: false
     }
 
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())

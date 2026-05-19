@@ -144,6 +144,48 @@ sealed class PublishResult {
     data class Error(val eventId: String, val exception: Exception) : PublishResult()
 }
 
+/**
+ * Aggregate a batch of publish results into a single diagnostic string of the
+ * form `rejected=N timeout=N error=N first=<reason>`. Used by callers that
+ * fan out an event to multiple relays and need to surface why none accepted.
+ */
+fun List<PublishResult>.summarizeFailures(): String {
+    var rejected = 0
+    var timeout = 0
+    var errors = 0
+    var firstReason: String? = null
+    for (r in this) {
+        when (r) {
+            is PublishResult.Rejected -> {
+                rejected++
+                if (firstReason == null) firstReason = r.reason
+            }
+            is PublishResult.Timeout -> {
+                timeout++
+                if (firstReason == null) firstReason = "timeout"
+            }
+            is PublishResult.Error -> {
+                errors++
+                if (firstReason == null) firstReason = r.exception.message
+            }
+            is PublishResult.Success -> {}
+        }
+    }
+    return "rejected=$rejected timeout=$timeout error=$errors first=${firstReason ?: "unknown"}"
+}
+
+/**
+ * Publish [eventJson] and return the relay's verdict as a [PublishResult],
+ * converting non-cancellation exceptions to [PublishResult.Error] so callers
+ * can collect results from many relays in parallel via `awaitAll`.
+ */
+suspend fun NostrGroupClient.sendAndAwaitOkOrError(eventJson: String, eventId: String): PublishResult = try {
+    sendAndAwaitOk(eventJson, eventId)
+} catch (e: Exception) {
+    if (e is kotlinx.coroutines.CancellationException) throw e
+    PublishResult.Error(eventId, e)
+}
+
 class NostrGroupClient(
     private val relayUrl: String = "wss://groups.fiatjaf.com",
 ) {
@@ -180,18 +222,14 @@ class NostrGroupClient(
     // Track if this was a graceful disconnect
     private var isDisconnecting = false
 
-    // Timestamp of the last WebSocket frame received — used by the heartbeat to detect
-    // relays that stop sending events without closing the connection ("frozen" relays).
-    private var lastMessageReceivedAt = 0L
-
     // Open subscription IDs tracked for diagnostic logging.
     // Updated in send() on every REQ/CLOSE. Not synchronised — count may be off by ±1
     // under concurrent sends, which is acceptable for logging purposes.
     private val openSubscriptions = mutableSetOf<String>()
 
     companion object {
-        private const val HEARTBEAT_CHECK_INTERVAL_MS = 20_000L
-        private const val HEARTBEAT_STALE_MS = 90_000L
+        /** Probe interval for browser targets without engine ws ping/pong. */
+        private const val BROWSER_PROBE_INTERVAL_MS = 30_000L
     }
 
     fun getRelayUrl(): String = relayUrl
@@ -221,7 +259,6 @@ class NostrGroupClient(
         isDisconnecting = false
         authCompleted = CompletableDeferred()
         connectionJob = clientScope.launch {
-            lastMessageReceivedAt = epochMillis()
             try {
                 client.webSocket(relayUrl) {
                     session = this
@@ -229,34 +266,28 @@ class NostrGroupClient(
                     // Signal that connection is ready
                     connectionResult.complete(true)
 
-                    // Heartbeat: detect relays that stop sending without closing the WebSocket.
-                    // Ktor handles WebSocket-level ping/pong, but some relays freeze at the
-                    // application layer — the socket stays open but events stop arriving.
-                    // If no frame arrives for HEARTBEAT_STALE_MS, close gracefully so that
-                    // onConnectionLost fires and the reconnect loop re-establishes the session.
+                    // Liveness detection is delegated to the engine on platforms
+                    // that perform ws-level ping/pong (JVM/Android via Ktor,
+                    // iOS via NSURLSession). The frame loop exits naturally
+                    // when the engine closes a dead socket.
                     //
-                    // Application-level keepalive: browser WebSocket doesn't expose ping/pong,
-                    // so we send a cheap REQ+CLOSE probe every check interval when idle for
-                    // more than 60s. The EOSE/CLOSED response resets lastMessageReceivedAt,
-                    // preventing false-positive stale detection on quiet relays.
+                    // Browser engines hide ping/pong frames from JS code, so on
+                    // those targets we send a periodic best-effort REQ+CLOSE
+                    // probe. The probe only feeds activity to the underlying
+                    // socket — it never decides liveness, so a quiet healthy
+                    // relay is not forcibly reconnected.
                     val wsSession = this
-                    launch {
-                        while (isActive) {
-                            delay(HEARTBEAT_CHECK_INTERVAL_MS)
-                            val idleMs = epochMillis() - lastMessageReceivedAt
-                            if (idleMs > HEARTBEAT_STALE_MS) {
-                                wsSession.close(CloseReason(CloseReason.Codes.GOING_AWAY, "heartbeat-stale"))
-                                break
-                            }
-                            // Probe: if idle for >60s, send a minimal REQ+CLOSE to provoke
-                            // a relay response (EOSE or CLOSED) that resets the heartbeat.
-                            if (idleMs > 60_000L) {
+                    if (!hasEngineWebSocketPing()) {
+                        launch {
+                            while (isActive) {
+                                delay(BROWSER_PROBE_INTERVAL_MS)
                                 try {
-                                    val probeId = "_hb"
-                                    wsSession.send(Frame.Text("""["REQ","$probeId",{"kinds":[0],"limit":1}]"""))
-                                    wsSession.send(Frame.Text("""["CLOSE","$probeId"]"""))
+                                    wsSession.send(Frame.Text("""["REQ","_hb",{"kinds":[0],"limit":1}]"""))
+                                    wsSession.send(Frame.Text("""["CLOSE","_hb"]"""))
                                 } catch (_: Exception) {
-                                    // Send failed — connection is dead, next tick will close it.
+                                    // Send failed — socket is gone, frame loop
+                                    // below will exit and trigger reconnect.
+                                    break
                                 }
                             }
                         }
@@ -265,10 +296,7 @@ class NostrGroupClient(
                     // Listen to incoming messages
                     for (frame in incoming) {
                         when (frame) {
-                            is Frame.Text -> {
-                                lastMessageReceivedAt = epochMillis()
-                                onMessage(frame.readText())
-                            }
+                            is Frame.Text -> onMessage(frame.readText())
                             is Frame.Close -> {} // CLOSED event below captures code + reason
                             else -> {} // ping/pong handled by Ktor
                         }
@@ -1387,10 +1415,9 @@ class NostrGroupClient(
         "⚠️ Failed to parse: $message (${e.message})"
     }
 
-    suspend fun requestMetadata(pubkeys: List<String>) {
+    suspend fun requestMetadata(pubkeys: List<String>, subId: String) {
         if (pubkeys.isEmpty()) return
-        val subId = "metadata_${pubkeys.first().take(8)}"
-        // CLOSE any previous subscription for this pubkey before re-subscribing
+        // CLOSE any previous subscription with this id before re-subscribing
         sendJson(
             buildJsonArray {
                 add("CLOSE")

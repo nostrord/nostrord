@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.nostr.Nip07
+import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.utils.toKotlinResult
 
 class LoginViewModel(
@@ -20,6 +21,13 @@ class LoginViewModel(
     val qrUri: StateFlow<String?> = _qrUri.asStateFlow()
 
     private var qrJob: Job? = null
+
+    /**
+     * The active QR-flow Nip46Client. Tracked here so [cancelQrSession] can
+     * tear its WebSocket connections down — the durable response subscription
+     * stays open until disconnect, so simply cancelling [qrJob] is not enough.
+     */
+    private var qrClient: Nip46Client? = null
 
     fun clearAuthUrl() = repo.clearAuthUrl()
 
@@ -67,19 +75,23 @@ class LoginViewModel(
         onError: (String?) -> Unit,
     ) {
         qrJob?.cancel()
+        qrClient?.disconnect()
+        qrClient = null
         _qrUri.value = null
         qrJob =
             viewModelScope.launch {
                 try {
                     val (uri, client) = repo.createNostrConnectSession()
+                    qrClient = client
                     _qrUri.value = uri
                     repo.completeNostrConnectLogin(client)
+                    qrClient = null
                     onConnected()
                 } catch (e: Exception) {
+                    qrClient?.disconnect()
+                    qrClient = null
                     val message =
                         when {
-                            e.message?.contains("timed out", ignoreCase = true) == true ->
-                                "Connection timed out. Make sure your signer scanned the QR code."
                             e.message?.contains("cancelled", ignoreCase = true) == true -> null
                             else -> "Connection failed: ${e.message}"
                         }
@@ -90,11 +102,15 @@ class LoginViewModel(
 
     fun cancelQrSession() {
         qrJob?.cancel()
+        qrClient?.disconnect()
+        qrClient = null
         _qrUri.value = null
     }
 
     override fun onCleared() {
         super.onCleared()
         qrJob?.cancel()
+        qrClient?.disconnect()
+        qrClient = null
     }
 }

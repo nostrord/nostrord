@@ -1,6 +1,8 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -892,9 +894,10 @@ class NostrRepository(
                 // Also request metadata for the active group if the user navigated
                 // directly via URL (e.g. invite link) and the group isn't known yet.
                 scope.launch {
-                    // Small delay to let the group-list EOSE populate the cache first,
-                    // so we only target genuinely missing (private) groups.
-                    delay(2_000)
+                    // Wait for the group-list EOSE so we only request kind:39000 for
+                    // groups genuinely missing from the public listing. Bounded fallback
+                    // keeps slow relays from blocking the targeted fetches indefinitely.
+                    groupManager.awaitGroupListEose(relayUrl)
                     groupManager.requestPrivateGroupData(relayUrl)
                     groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
                 }
@@ -1013,7 +1016,9 @@ class NostrRepository(
             // but not returned by the general kind 39000 listing), and for the active
             // group if navigated via URL before the relay was connected.
             scope.launch {
-                delay(2_000)
+                // Wait for the group-list EOSE before requesting per-group metadata —
+                // see the equivalent block in connect() for rationale.
+                groupManager.awaitGroupListEose(newRelayUrl)
                 groupManager.requestPrivateGroupData(newRelayUrl)
                 groupManager.requestActiveGroupMetadataIfMissing(newRelayUrl)
             }
@@ -1669,12 +1674,11 @@ class NostrRepository(
             if (clients.isEmpty()) {
                 return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
             }
-            clients.forEach { client ->
-                scope.launch {
-                    try {
-                        client.sendAndAwaitOk(message, eventId)
-                    } catch (_: Exception) {}
-                }
+            val results = clients.map { client ->
+                scope.async { client.sendAndAwaitOkOrError(message, eventId) }
+            }.awaitAll()
+            if (results.none { it is PublishResult.Success }) {
+                return Result.Error(AppError.Network.PublishRejected(results.summarizeFailures()))
             }
 
             val updatedMetadata = UserMetadata(
@@ -1724,12 +1728,11 @@ class NostrRepository(
             if (clients.isEmpty()) {
                 return Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
             }
-            clients.forEach { client ->
-                scope.launch {
-                    try {
-                        client.sendAndAwaitOk(message, eventId)
-                    } catch (_: Exception) {}
-                }
+            val results = clients.map { client ->
+                scope.async { client.sendAndAwaitOkOrError(message, eventId) }
+            }.awaitAll()
+            if (results.none { it is PublishResult.Success }) {
+                return Result.Error(AppError.Network.PublishRejected(results.summarizeFailures()))
             }
 
             outboxManager.updateMyRelayList(pubKey, relays)
@@ -1951,6 +1954,8 @@ class NostrRepository(
                 scope.launch {
                     yield()
                     groupManager.handleEoseSuspend(subId, sourceRelayUrl)
+                    // Wake any pending batchFetch waiting on EOSE for this metadata sub.
+                    metadataManager.notifyMetadataEose(subId, sourceRelayUrl)
                     // After the mux chat subscription delivers its backlog, detect any gaps
                     // (groups whose cursor expected events that never arrived from this relay).
                     if (subId.startsWith("mux_chat_")) {
