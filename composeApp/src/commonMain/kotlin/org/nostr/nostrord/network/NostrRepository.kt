@@ -544,6 +544,30 @@ class NostrRepository(
             sessionManager.setLoggedIn(true)
             reloadForActiveAccount()
         } else {
+            // Re-bind GroupManager to the new identity. logout() called
+            // groupManager.clear() which nulls currentPubkey, and the cold-start
+            // path otherwise only resets it as a side-effect of
+            // loadJoinedGroupsFromStorage — which is not invoked here because
+            // the boot flow (initialize) is the one that calls it on cold start,
+            // not a login that happens later in the process. Without this,
+            // flushBatchToState drops every incoming kind:9 because of its
+            // `currentPubkey == null` guard, leaving every group stuck on
+            // "No messages yet" until the user restarts the app.
+            groupManager.setCurrentPubkey(newPubkey)
+            // Repopulate _currentRelayUrl from the per-account persisted slot.
+            // logout() called connectionManager.clearCurrentRelay() which blanked
+            // the StateFlow, so without this `connect()` below would dispatch
+            // to connect("") and return immediately. Worse: when the kind:10009
+            // arrives over the outbox bootstrap, onRelaysRestored fires
+            // autoConnectFirstRelay(newRelays), whose `isBlank()` guard passes
+            // and which OVERWRITES the persisted slot with relays.first() —
+            // silently moving the user off the relay they were on (e.g. from
+            // groups.fiatjaf.com to whatever happens to be first in their
+            // kind:10009 r-tag list). The cold-boot path (initialize) and the
+            // warm-swap path (applyActiveAccountChange) both call loadSavedRelay
+            // for the same reason; the cold-start re-login path was the only
+            // one missing it.
+            connectionManager.loadSavedRelay()
             unreadManager.initialize(newPubkey)
             notificationHistoryStore?.initialize(newPubkey)
             initializeOutboxModel()
@@ -575,6 +599,26 @@ class NostrRepository(
             connectionManager.clearAll()
         } catch (_: Exception) {}
         connectedPoolRelays.clear()
+
+        // Reset session-scoped in-memory dedup/scoping caches. These are NOT
+        // persisted state — they only make sense within a single login
+        // session. Leaving them populated meant a logout→re-login on the same
+        // process kept stale entries that made resubscribeAfterAuth and the
+        // mux/message refresh paths skip work for the new session, leaving
+        // every group stuck on "No messages yet" until the user restarted.
+        lastRequestGroupsAt.clear()
+        lastGapDetectionAt.clear()
+        pendingFullFetchMutex.withLock { pendingFullFetchRequests.clear() }
+        _closedGroupSubscriptions.value = emptySet()
+        activeRelayUrl = null
+        // Per-relay AUTH-required / restricted markers from the previous
+        // session would otherwise short-circuit switchRelay on re-login (early
+        // return at the restriction check), so a relay that just had a
+        // transient AUTH timeout — common on bunker logins — would stay
+        // permanently "restricted" in the UI until process restart, even
+        // though the new session's signer can answer the challenge fine.
+        _restrictedRelays.value = emptyMap()
+
         sessionManager.logout()
     }
 
