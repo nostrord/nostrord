@@ -15,3 +15,11 @@ expect val isAndroid: Boolean
  * intentionally and width-based breakpoints match their intent.
  */
 expect val isHandheldPlatform: Boolean
+
+/**
+ * Human-readable build identifier shown to remote signers during the
+ * nostrconnect:// handshake. Persists in the signer's authorized-apps
+ * list, so a user with Nostrord on several devices can tell them apart
+ * (and revoke individually).
+ */
+expect val platformDisplayName: String
