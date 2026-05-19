@@ -144,6 +144,48 @@ sealed class PublishResult {
     data class Error(val eventId: String, val exception: Exception) : PublishResult()
 }
 
+/**
+ * Aggregate a batch of publish results into a single diagnostic string of the
+ * form `rejected=N timeout=N error=N first=<reason>`. Used by callers that
+ * fan out an event to multiple relays and need to surface why none accepted.
+ */
+fun List<PublishResult>.summarizeFailures(): String {
+    var rejected = 0
+    var timeout = 0
+    var errors = 0
+    var firstReason: String? = null
+    for (r in this) {
+        when (r) {
+            is PublishResult.Rejected -> {
+                rejected++
+                if (firstReason == null) firstReason = r.reason
+            }
+            is PublishResult.Timeout -> {
+                timeout++
+                if (firstReason == null) firstReason = "timeout"
+            }
+            is PublishResult.Error -> {
+                errors++
+                if (firstReason == null) firstReason = r.exception.message
+            }
+            is PublishResult.Success -> {}
+        }
+    }
+    return "rejected=$rejected timeout=$timeout error=$errors first=${firstReason ?: "unknown"}"
+}
+
+/**
+ * Publish [eventJson] and return the relay's verdict as a [PublishResult],
+ * converting non-cancellation exceptions to [PublishResult.Error] so callers
+ * can collect results from many relays in parallel via `awaitAll`.
+ */
+suspend fun NostrGroupClient.sendAndAwaitOkOrError(eventJson: String, eventId: String): PublishResult = try {
+    sendAndAwaitOk(eventJson, eventId)
+} catch (e: Exception) {
+    if (e is kotlinx.coroutines.CancellationException) throw e
+    PublishResult.Error(eventId, e)
+}
+
 class NostrGroupClient(
     private val relayUrl: String = "wss://groups.fiatjaf.com",
 ) {
@@ -1373,19 +1415,18 @@ class NostrGroupClient(
         "⚠️ Failed to parse: $message (${e.message})"
     }
 
-    suspend fun requestMetadata(pubkeys: List<String>, subId: String? = null) {
+    suspend fun requestMetadata(pubkeys: List<String>, subId: String) {
         if (pubkeys.isEmpty()) return
-        val effectiveSubId = subId ?: "metadata_${pubkeys.first().take(8)}"
-        // CLOSE any previous subscription for this pubkey before re-subscribing
+        // CLOSE any previous subscription with this id before re-subscribing
         sendJson(
             buildJsonArray {
                 add("CLOSE")
-                add(effectiveSubId)
+                add(subId)
             },
         )
         val req = buildJsonArray {
             add("REQ")
-            add(effectiveSubId)
+            add(subId)
             add(
                 buildJsonObject {
                     putJsonArray("kinds") { add(0) } // kind 0 = metadata

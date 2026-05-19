@@ -3,6 +3,9 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -138,19 +141,14 @@ class MetadataManager(
             if (missing.isEmpty()) return
 
             // Register the batch BEFORE sending any REQ so a fast relay's EOSE
-            // is not dropped between dispatch and registration. A relay is added
-            // to pendingRelays under the lock just before requestMetadata, and
-            // rolled back if the send fails; the deferred reflects that exact
-            // set when notifyMetadataEose drains it.
+            // is not dropped between dispatch and registration.
             val deferred = CompletableDeferred<Unit>()
-            val batch = metadataBatchesMutex.withLock {
+            val (subId, pendingRelays) = metadataBatchesMutex.withLock {
                 val id = "metadata_batch_${++metadataBatchCounter}_$attempt"
-                val b = MetadataBatch(mutableSetOf(), deferred)
-                metadataBatches[id] = b
-                id to b
+                val relays = mutableSetOf<String>()
+                metadataBatches[id] = MetadataBatch(relays, deferred)
+                id to relays
             }
-            val subId = batch.first
-            val pendingRelays = batch.second.pendingRelays
 
             suspend fun trySendOn(client: NostrGroupClient?, relayUrl: String): Boolean {
                 if (client == null || !client.isConnected()) return false
@@ -169,8 +167,12 @@ class MetadataManager(
                 }
             }
 
-            candidates.forEach { relayUrl ->
-                trySendOn(connectionManager.getClientForRelay(relayUrl), relayUrl)
+            // Dispatch in parallel so we don't pay per-relay round-trip latency
+            // serially — all REQs go in flight before we start waiting on EOSE.
+            coroutineScope {
+                candidates.map { relayUrl ->
+                    async { trySendOn(connectionManager.getClientForRelay(relayUrl), relayUrl) }
+                }.awaitAll()
             }
 
             // All bootstrap relays offline — try to reconnect one.
@@ -178,13 +180,10 @@ class MetadataManager(
             if (!anySent) {
                 val handler = messageHandler
                 if (handler != null) {
-                    for (relayUrl in candidates) {
-                        try {
-                            if (trySendOn(connectionManager.getOrConnectRelay(relayUrl, handler), relayUrl)) {
-                                break
-                            }
-                        } catch (_: Exception) {
-                        }
+                    candidates.firstOrNull { relayUrl ->
+                        runCatching {
+                            trySendOn(connectionManager.getOrConnectRelay(relayUrl, handler), relayUrl)
+                        }.getOrDefault(false)
                     }
                 }
             }

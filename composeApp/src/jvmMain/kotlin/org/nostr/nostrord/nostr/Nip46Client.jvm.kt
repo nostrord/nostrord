@@ -4,6 +4,8 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.PublishResult
+import org.nostr.nostrord.network.sendAndAwaitOkOrError
+import org.nostr.nostrord.network.summarizeFailures
 import org.nostr.nostrord.utils.epochMillis
 import kotlin.random.Random
 
@@ -250,25 +252,10 @@ actual class Nip46Client actual constructor(
             // surfaces immediately. The response sub opened on connect routes
             // the signer's reply back into responseDeferred.
             val publishResults = relayClients.map { client ->
-                async {
-                    try {
-                        client.sendAndAwaitOk(eventMessage, eventId)
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        PublishResult.Error(eventId, e)
-                    }
-                }
+                async { client.sendAndAwaitOkOrError(eventMessage, eventId) }
             }.awaitAll()
             if (publishResults.none { it is PublishResult.Success }) {
-                val reason = publishResults.firstNotNullOfOrNull { r ->
-                    when (r) {
-                        is PublishResult.Rejected -> r.reason
-                        is PublishResult.Error -> r.exception.message
-                        is PublishResult.Timeout -> "publish timeout"
-                        else -> null
-                    }
-                } ?: "no relay accepted request"
-                throw Exception("Failed to publish NIP-46 request: $reason")
+                throw Exception("Failed to publish NIP-46 request: ${publishResults.summarizeFailures()}")
             }
             responseDeferred.await()
         } finally {
