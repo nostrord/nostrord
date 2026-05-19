@@ -1,5 +1,9 @@
 package org.nostr.nostrord.network
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.test.runTest
+import org.nostr.nostrord.utils.AppError
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -75,8 +79,60 @@ class PublishResultExtensionsTest {
     @Test
     fun `publish rejected error type carries the summary in its message`() {
         val results = listOf(PublishResult.Rejected(eventId, "no-write-access"))
-        val error = org.nostr.nostrord.utils.AppError.Network.PublishRejected(results.summarizeFailures())
+        val error = AppError.Network.PublishRejected(results.summarizeFailures())
         assertTrue(error.message.contains("no-write-access"))
         assertTrue(error.message.startsWith("Publish rejected by all relays"))
+    }
+
+    /**
+     * NOSTR-004 end-to-end: drives the same recipe NostrRepository.updateProfileMetadata
+     * and publishRelayList use — parallel `sendAndAwaitOkOrError` across multiple
+     * clients, `none { Success }` check, AppError.Network.PublishRejected construction.
+     *
+     * Disconnected NostrGroupClient instances short-circuit sendAndAwaitOk to
+     * PublishResult.Error("Not connected"), so this exercises the all-fail branch
+     * without needing a fake relay.
+     */
+    @Test
+    fun `publish recipe surfaces PublishRejected when no relay accepts`() = runTest {
+        val clients = listOf(
+            NostrGroupClient("wss://disconnected-1.example"),
+            NostrGroupClient("wss://disconnected-2.example"),
+            NostrGroupClient("wss://disconnected-3.example"),
+        )
+        val message = """["EVENT",{"id":"$eventId","kind":0,"content":"{}"}]"""
+
+        val results = clients.map { client ->
+            async { client.sendAndAwaitOkOrError(message, eventId) }
+        }.awaitAll()
+
+        assertEquals(3, results.size)
+        assertTrue(
+            results.all { it is PublishResult.Error },
+            "disconnected clients must short-circuit to Error, got $results",
+        )
+        assertTrue(results.none { it is PublishResult.Success })
+
+        val error = AppError.Network.PublishRejected(results.summarizeFailures())
+        assertTrue(error.message.contains("error=3"), "expected 3 errors, got: ${error.message}")
+        assertTrue(error.message.contains("Not connected"), "expected first reason captured, got: ${error.message}")
+    }
+
+    @Test
+    fun `publish recipe returns Success-bearing results when any client succeeds`() {
+        // Mixed list — the production code's `none { Success }` check is the gate
+        // we want to verify; build the list directly since synthesising a Success
+        // from a real disconnected client is not possible.
+        val results = listOf<PublishResult>(
+            PublishResult.Error(eventId, Exception("Not connected")),
+            PublishResult.Success(eventId, "accepted"),
+            PublishResult.Rejected(eventId, "auth-required"),
+        )
+        assertEquals(false, results.none { it is PublishResult.Success })
+        // summarizeFailures should still report the failures for diagnostic logging,
+        // but the gate stops the caller from building a PublishRejected error.
+        val summary = results.summarizeFailures()
+        assertTrue(summary.contains("rejected=1"))
+        assertTrue(summary.contains("error=1"))
     }
 }
