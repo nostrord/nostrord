@@ -24,3 +24,13 @@ expect fun browserGoForward()
  * On native platforms returns null (invite links are web-only).
  */
 expect fun platformAppOrigin(): String?
+
+/**
+ * Replace the browser URL with the bare pathname, dropping any `?relay=…&group=…`
+ * query. Called on logout so the login screen doesn't show a stale deep link
+ * from the previous session (BrowserNavigationHandler is unmounted while
+ * unauthenticated, so the URL would otherwise stay frozen).
+ *
+ * No-op on native platforms.
+ */
+expect fun clearBrowserUrlQuery()

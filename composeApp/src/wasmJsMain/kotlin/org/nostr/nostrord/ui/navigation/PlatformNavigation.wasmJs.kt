@@ -24,3 +24,10 @@ actual fun browserGoForward() {
 private external fun jsGetOrigin(): String
 
 actual fun platformAppOrigin(): String? = jsGetOrigin()
+
+@JsFun("() => window.history.replaceState(null, '', window.location.pathname)")
+private external fun jsClearQuery()
+
+actual fun clearBrowserUrlQuery() {
+    jsClearQuery()
+}
