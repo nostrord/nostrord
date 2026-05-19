@@ -429,6 +429,9 @@ actual class Nip46Client actual constructor(
             }
         }
         relayClients.clear()
+        // Fail any in-flight RPCs so callers unblock immediately instead of
+        // waiting out their wrapping withTimeout.
+        pendingRequests.values.forEach { it.completeExceptionally(CancellationException("Nip46Client disconnected")) }
         pendingRequests.clear()
     }
 }
