@@ -54,6 +54,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.auth.Account
+import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
@@ -391,15 +392,23 @@ private fun AccountRow(
             }
         }
         Spacer(Modifier.width(12.dp))
-        Text(
-            displayName,
-            color = Color.White,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                displayName,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                authMethodLabel(account.authMethod),
+                color = NostrordColors.TextMuted,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (isActive) {
             Icon(
                 Icons.Default.Check,
@@ -488,4 +497,10 @@ private fun RemoveAccountDialog(
             }
         },
     )
+}
+
+private fun authMethodLabel(method: AuthMethod): String = when (method) {
+    AuthMethod.LOCAL -> "Private key"
+    AuthMethod.BUNKER -> "Bunker (NIP-46)"
+    AuthMethod.NIP07 -> "Browser extension (NIP-07)"
 }
