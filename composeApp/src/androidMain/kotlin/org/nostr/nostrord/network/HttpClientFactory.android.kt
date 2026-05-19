@@ -37,6 +37,8 @@ actual fun createHttpClient(): HttpClient = HttpClient(OkHttp) {
     }
 }
 
+actual fun hasEngineWebSocketPing(): Boolean = true
+
 actual fun createNip11HttpClient(): HttpClient = HttpClient(OkHttp) {
     install(HttpTimeout) {
         connectTimeoutMillis = 10_000

@@ -185,6 +185,11 @@ class NostrGroupClient(
     // under concurrent sends, which is acceptable for logging purposes.
     private val openSubscriptions = mutableSetOf<String>()
 
+    companion object {
+        /** Probe interval for browser targets without engine ws ping/pong. */
+        private const val BROWSER_PROBE_INTERVAL_MS = 30_000L
+    }
+
     fun getRelayUrl(): String = relayUrl
 
     /**
@@ -219,15 +224,32 @@ class NostrGroupClient(
                     // Signal that connection is ready
                     connectionResult.complete(true)
 
-                    // Liveness detection is delegated to the engine. JVM/Android
-                    // Ktor clients are configured with WebSocket pingInterval, so
-                    // a frozen relay drops out on ping/pong failure and surfaces
-                    // here as a closed incoming channel. Browsers handle their
-                    // own keepalive at the network layer. The previous synthetic
-                    // REQ+CLOSE probe was removed: it added relay load, could
-                    // false-positive on healthy-but-quiet relays, and conflated
-                    // "no EOSE" with "relay dead" — neither of which is a valid
-                    // protocol signal.
+                    // Liveness detection is delegated to the engine on platforms
+                    // that perform ws-level ping/pong (JVM/Android via Ktor,
+                    // iOS via NSURLSession). The frame loop exits naturally
+                    // when the engine closes a dead socket.
+                    //
+                    // Browser engines hide ping/pong frames from JS code, so on
+                    // those targets we send a periodic best-effort REQ+CLOSE
+                    // probe. The probe only feeds activity to the underlying
+                    // socket — it never decides liveness, so a quiet healthy
+                    // relay is not forcibly reconnected.
+                    val wsSession = this
+                    if (!hasEngineWebSocketPing()) {
+                        launch {
+                            while (isActive) {
+                                delay(BROWSER_PROBE_INTERVAL_MS)
+                                try {
+                                    wsSession.send(Frame.Text("""["REQ","_hb",{"kinds":[0],"limit":1}]"""))
+                                    wsSession.send(Frame.Text("""["CLOSE","_hb"]"""))
+                                } catch (_: Exception) {
+                                    // Send failed — socket is gone, frame loop
+                                    // below will exit and trigger reconnect.
+                                    break
+                                }
+                            }
+                        }
+                    }
 
                     // Listen to incoming messages
                     for (frame in incoming) {

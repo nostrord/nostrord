@@ -31,6 +31,8 @@ actual fun createHttpClient(): HttpClient = HttpClient(CIO) {
     }
 }
 
+actual fun hasEngineWebSocketPing(): Boolean = true
+
 actual fun createNip11HttpClient(): HttpClient = HttpClient(CIO) {
     // Each NIP-11 client instance is used for exactly one request and then closed, so we
     // don't need persistent connection pools — just honest timeouts. Relays on Caddy/HTTP-2

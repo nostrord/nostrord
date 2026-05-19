@@ -25,6 +25,10 @@ actual fun createHttpClient(): HttpClient = HttpClient(Darwin) {
     }
 }
 
+// Darwin engine relies on NSURLSession's network-layer keepalive plus the
+// system's transport-level checks, so application-level probes are unneeded.
+actual fun hasEngineWebSocketPing(): Boolean = true
+
 actual fun createNip11HttpClient(): HttpClient = HttpClient(Darwin) {
     install(HttpTimeout) {
         connectTimeoutMillis = 5_000
