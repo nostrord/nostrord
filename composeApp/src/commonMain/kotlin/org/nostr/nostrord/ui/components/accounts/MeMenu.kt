@@ -203,8 +203,15 @@ fun MeMenu(
                     ?: userMetadata[fb.pubkey]?.name?.takeIf { it.isNotBlank() }
                     ?: fb.label
             }
+        // Resolve the same way the avatar/list rows do: kind:0 displayName,
+        // then kind:0 name, falling back to the persisted "Account N" only when
+        // metadata is still unknown.
+        val targetLabel =
+            userMetadata[target.pubkey]?.displayName?.takeIf { it.isNotBlank() }
+                ?: userMetadata[target.pubkey]?.name?.takeIf { it.isNotBlank() }
+                ?: target.label
         RemoveAccountDialog(
-            account = target,
+            accountLabel = targetLabel,
             isActive = isActiveTarget,
             fallbackLabel = fallbackLabel,
             isBusy = isBusy,
@@ -435,7 +442,7 @@ private fun ActionRow(
 
 @Composable
 private fun RemoveAccountDialog(
-    account: Account,
+    accountLabel: String,
     isActive: Boolean,
     fallbackLabel: String?,
     isBusy: Boolean,
@@ -447,16 +454,16 @@ private fun RemoveAccountDialog(
     val body =
         when {
             isActive && fallbackLabel != null ->
-                "Credentials and local data for \"${account.label}\" will be erased on " +
+                "Credentials and local data for \"$accountLabel\" will be erased on " +
                     "this device. You'll switch to \"$fallbackLabel\"."
             isActive ->
-                "Credentials and local data for \"${account.label}\" will be erased on " +
+                "Credentials and local data for \"$accountLabel\" will be erased on " +
                     "this device. You'll need to sign in again to continue."
             else ->
-                "Credentials and local data for \"${account.label}\" will be erased on " +
+                "Credentials and local data for \"$accountLabel\" will be erased on " +
                     "this device."
         }
-    val title = if (isActive) "Sign out of \"${account.label}\"?" else "Remove account?"
+    val title = if (isActive) "Sign out of \"$accountLabel\"?" else "Remove account?"
     val confirmLabel = if (isActive) "Sign out" else "Remove"
     val busyLabel = if (isActive) "Signing out…" else "Removing…"
     AlertDialog(
