@@ -498,13 +498,17 @@ class NostrRepository(
         return userPubkey
     }
 
-    override suspend fun loginSuspend(privKey: String, pubKey: String): Result<Unit> = try {
+    override suspend fun loginSuspend(privKey: String, pubKey: String, isNewIdentity: Boolean): Result<Unit> = try {
         val previousPubkey = sessionManager.getPublicKey()
-        if (connectionManager.currentRelayUrl.value.isBlank()) {
+        // A freshly generated identity has nothing on the network yet — no
+        // kind:10002, no kind:10009 — so don't bother flagging the relay
+        // discovery spinner. The user will land on OnboardingScreen and pick
+        // their first relay manually.
+        if (!isNewIdentity && connectionManager.currentRelayUrl.value.isBlank()) {
             _isDiscoveringRelays.value = true
         }
         sessionManager.loginWithPrivateKey(privKey, pubKey)
-        finishLoginInit(previousPubkey, pubKey)
+        finishLoginInit(previousPubkey, pubKey, isNewIdentity = isNewIdentity)
         Result.Success(Unit)
     } catch (e: Exception) {
         Result.Error(AppError.Unknown(e.message ?: "Login failed", e))
@@ -532,7 +536,11 @@ class NostrRepository(
      *   then re-hydrate joined-group state for [newPubkey] from storage and
      *   force a reconnect so pubkey-filtered REQs reissue.
      */
-    private suspend fun finishLoginInit(previousPubkey: String?, newPubkey: String) {
+    private suspend fun finishLoginInit(
+        previousPubkey: String?,
+        newPubkey: String,
+        isNewIdentity: Boolean = false,
+    ) {
         val isWarmSwap = previousPubkey != null && previousPubkey != newPubkey
         // Activate an AccountSession for the logged-in account so all signing
         // routes through the isolated NostrSigner and the session scope is
@@ -570,7 +578,12 @@ class NostrRepository(
             connectionManager.loadSavedRelay()
             unreadManager.initialize(newPubkey)
             notificationHistoryStore?.initialize(newPubkey)
-            initializeOutboxModel()
+            // Skip the outbox bootstrap for a freshly generated identity:
+            // nothing has been published yet, so kind:10002 / kind:10009 fetches
+            // would only delay landing the user on the onboarding screen.
+            // The bootstrap connections will form on demand once the user
+            // adds their first relay.
+            if (!isNewIdentity) initializeOutboxModel()
             sessionManager.setLoggedIn(true)
             scope.launch { connect() }
         }
