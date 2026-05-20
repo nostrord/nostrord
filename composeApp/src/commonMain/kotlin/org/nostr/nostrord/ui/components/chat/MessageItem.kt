@@ -1,11 +1,8 @@
 package org.nostr.nostrord.ui.components.chat
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -60,8 +57,8 @@ import org.nostr.nostrord.utils.formatTime
  *
  * Spacing:
  * - 72dp total left column (16dp padding + 40dp avatar + 16dp gap)
- * - 16dp first message top padding (start of cluster)
- * - 2dp grouped message gap
+ * - 6dp uniform top/bottom padding on every row (no asymmetric first/last bumps)
+ * - Hairline divider above each grouped message to mark the boundary
  */
 @Composable
 fun MessageItem(
@@ -204,175 +201,185 @@ fun MessageItem(
         animationSpec = if (highlightActive) snap() else tween(durationMillis = 1200),
     )
 
-    Box(
-        modifier =
-        Modifier
-            .fillMaxWidth()
-            .hoverable(interactionSource)
-            // Right-click opens context menu directly (bypasses hover actions)
-            .then(
-                rightClickContextMenuModifier {
-                    showActions = false // Hide hover actions immediately
-                    showContextMenu = true
-                },
-            ).background(
-                when {
-                    showContextMenu -> NostrordColors.SurfaceVariant
-                    isHovered || isPressed -> NostrordColors.MessageHover
-                    else -> highlightColor
-                },
-            ),
-    ) {
-        // Main message content - this defines the Box size
-        Row(
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Hairline sits outside the hover Box so the hover/highlight background
+        // doesn't extend across the boundary between two grouped messages.
+        // Aligned with the content column (starts after the avatar gutter).
+        if (!isFirstInGroup) {
+            androidx.compose.material3.HorizontalDivider(
+                thickness = Spacing.dividerThickness,
+                color = Color.White.copy(alpha = 0.05f),
+                modifier =
+                Modifier.padding(
+                    start = Spacing.avatarColumnWidth,
+                    end = Spacing.messagePaddingHorizontal,
+                ),
+            )
+        }
+        Box(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(
-                    start = Spacing.messagePaddingHorizontal,
-                    end = Spacing.messagePaddingHorizontal,
-                    top = if (isFirstInGroup) Spacing.messageGroupStart else Spacing.messageGroupGap,
-                    bottom = if (isLastInGroup) Spacing.sm else Spacing.messageGroupGap,
+                .hoverable(interactionSource)
+                // Right-click opens context menu directly (bypasses hover actions)
+                .then(
+                    rightClickContextMenuModifier {
+                        showActions = false // Hide hover actions immediately
+                        showContextMenu = true
+                    },
+                ).background(
+                    when {
+                        showContextMenu -> NostrordColors.SurfaceVariant
+                        isHovered || isPressed -> NostrordColors.MessageHover
+                        else -> highlightColor
+                    },
                 ),
         ) {
-            // Avatar column - 72dp total width
-            Box(
-                modifier = Modifier.width(Spacing.avatarColumnWidth - Spacing.messagePaddingHorizontal),
-                contentAlignment = Alignment.TopStart,
+            // Main message content - this defines the Box size
+            Row(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        start = Spacing.messagePaddingHorizontal,
+                        end = Spacing.messagePaddingHorizontal,
+                        top = Spacing.messageGroupGap,
+                        bottom = Spacing.messageGroupGap,
+                    ),
             ) {
-                if (isFirstInGroup) {
-                    Box(
-                        modifier =
-                        Modifier
-                            .size(Spacing.avatarSize)
-                            .clip(CircleShape)
-                            .clickable { currentOnUsernameClick(message.pubkey) }
-                            .pointerHoverIcon(PointerIcon.Hand),
-                    ) {
-                        ProfileAvatar(
-                            imageUrl = metadata?.picture,
-                            displayName = displayName,
-                            pubkey = message.pubkey,
-                            size = Spacing.avatarSize,
-                        )
-                    }
-                } else if (isHovered) {
-                    // Show time on hover for grouped messages
-                    Text(
-                        text = formatTime(message.createdAt),
-                        color = NostrordColors.TextMuted,
-                        style = NostrordTypography.Timestamp,
-                        modifier = Modifier.padding(top = Spacing.xs),
-                    )
-                }
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                // Header with name and time - only for first in group
-                if (isFirstInGroup) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = displayName,
-                            color = Color.White,
-                            style = NostrordTypography.Username,
+                // Avatar column - 72dp total width
+                Box(
+                    modifier = Modifier.width(Spacing.avatarColumnWidth - Spacing.messagePaddingHorizontal),
+                    contentAlignment = Alignment.TopStart,
+                ) {
+                    if (isFirstInGroup) {
+                        Box(
                             modifier =
                             Modifier
+                                .size(Spacing.avatarSize)
+                                .clip(CircleShape)
                                 .clickable { currentOnUsernameClick(message.pubkey) }
                                 .pointerHoverIcon(PointerIcon.Hand),
-                        )
-                        Spacer(modifier = Modifier.width(Spacing.sm))
+                        ) {
+                            ProfileAvatar(
+                                imageUrl = metadata?.picture,
+                                displayName = displayName,
+                                pubkey = message.pubkey,
+                                size = Spacing.avatarSize,
+                            )
+                        }
+                    } else if (isHovered) {
+                        // No padding/fixed height: this lives in the main Row, so any
+                        // extra vertical footprint here would grow the row on hover.
                         Text(
                             text = formatTime(message.createdAt),
                             color = NostrordColors.TextMuted,
                             style = NostrordTypography.Timestamp,
                         )
                     }
-                    Spacer(modifier = Modifier.height(Spacing.xs))
                 }
 
-                // Reply preview — shown whenever this message is a reply,
-                // even if the parent hasn't loaded yet (ReplyPreview handles null with a placeholder)
-                if (replyParentId != null) {
-                    ReplyPreview(
-                        parentMessage = resolvedParentMessage,
-                        parentMetadata = parentMetadata,
-                        resolveMetadata = resolveMetadata,
-                        onReplyClick = { onScrollToMessage(replyParentId) },
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                }
+                Column(modifier = Modifier.weight(1f)) {
+                    // Header with name and time - only for first in group
+                    if (isFirstInGroup) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = displayName,
+                                color = Color.White,
+                                style = NostrordTypography.Username,
+                                modifier =
+                                Modifier
+                                    .clickable { currentOnUsernameClick(message.pubkey) }
+                                    .pointerHoverIcon(PointerIcon.Hand),
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.sm))
+                            Text(
+                                text = formatTime(message.createdAt),
+                                color = NostrordColors.TextMuted,
+                                style = NostrordTypography.Timestamp,
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                    }
 
-                // Message content with NIP-30 custom emoji support
-                MessageContent(
-                    content = message.content,
-                    tags = message.tags,
-                    onMentionClick = currentOnUsernameClick,
-                    onHashtagClick = { hashtag ->
-                        // TODO: Implement hashtag click handler (e.g., search for hashtag)
-                    },
-                    currentGroupId = currentGroupId,
-                    currentRelayUrl = currentRelayUrl,
-                    onNavigateToGroup = onNavigateToGroup,
-                )
+                    // Reply preview — shown whenever this message is a reply,
+                    // even if the parent hasn't loaded yet (ReplyPreview handles null with a placeholder)
+                    if (replyParentId != null) {
+                        ReplyPreview(
+                            parentMessage = resolvedParentMessage,
+                            parentMetadata = parentMetadata,
+                            resolveMetadata = resolveMetadata,
+                            onReplyClick = { onScrollToMessage(replyParentId) },
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                    }
 
-                // Reaction badges
-                if (reactions.isNotEmpty()) {
-                    ReactionBadges(
-                        reactions = reactions,
-                        currentUserPubkey = currentUserPubkey,
-                        resolveMetadata = resolveMetadata,
-                        onReactionClick = onReactionBadgeClick,
+                    // Message content with NIP-30 custom emoji support
+                    MessageContent(
+                        content = message.content,
+                        tags = message.tags,
+                        onMentionClick = currentOnUsernameClick,
+                        onHashtagClick = { hashtag ->
+                            // TODO: Implement hashtag click handler (e.g., search for hashtag)
+                        },
+                        currentGroupId = currentGroupId,
+                        currentRelayUrl = currentRelayUrl,
+                        onNavigateToGroup = onNavigateToGroup,
                     )
+
+                    // Reaction badges
+                    if (reactions.isNotEmpty()) {
+                        ReactionBadges(
+                            reactions = reactions,
+                            currentUserPubkey = currentUserPubkey,
+                            resolveMetadata = resolveMetadata,
+                            onReactionClick = onReactionBadgeClick,
+                        )
+                    }
                 }
             }
-        }
 
-        // Overlay layer for hover actions - uses matchParentSize to not affect layout
-        // This Box matches parent size exactly, then positions content inside
-        Box(
-            modifier =
-            Modifier
-                .matchParentSize() // Critical: doesn't affect parent measurement
-                .padding(end = Spacing.sm),
-            contentAlignment = Alignment.TopEnd,
-        ) {
-            // Hover actions - fade in/out without affecting layout
-            androidx.compose.animation.AnimatedVisibility(
-                visible = showActions && !showContextMenu,
-                enter = fadeIn(animationSpec = tween(NostrordAnimation.actionsAppear)),
-                exit = fadeOut(animationSpec = tween(NostrordAnimation.actionsDisappear)),
-            ) {
-                // DisableSelection prevents toolbar from being part of text selection
-                DisableSelection {
-                    MessageActions(
-                        onReplyClick = currentOnReplyClick,
-                        onReactionClick = currentOnReactionClick,
-                        onMoreClick = { showContextMenu = true },
-                    )
+            // matchParentSize keeps this overlay out of parent measurement, so the
+            // row height is identical whether or not the toolbar is showing.
+            if (showActions && !showContextMenu) {
+                Box(
+                    modifier =
+                    Modifier
+                        .matchParentSize()
+                        .padding(end = Spacing.sm),
+                    contentAlignment = Alignment.TopEnd,
+                ) {
+                    DisableSelection {
+                        MessageActions(
+                            onReplyClick = currentOnReplyClick,
+                            onReactionClick = currentOnReactionClick,
+                            onMoreClick = { showContextMenu = true },
+                        )
+                    }
                 }
             }
-        }
 
-        // Context menu - appears on right-click or "More" click
-        // This is a Popup so it floats outside the layout tree
-        MessageContextMenu(
-            visible = showContextMenu,
-            onDismiss = { showContextMenu = false },
-            onAction = { action ->
-                when (action) {
-                    MessageContextAction.AddReaction -> currentOnReactionClick()
-                    MessageContextAction.Reply -> currentOnReplyClick()
-                    MessageContextAction.CopyText -> currentOnCopyText()
-                    MessageContextAction.CopyMessageLink -> currentOnCopyLink()
-                    MessageContextAction.ShareMessageLink -> currentOnShareLink()
-                    MessageContextAction.CopyEventJson -> currentOnCopyJson()
-                    MessageContextAction.PinMessage -> currentOnPinMessage()
-                    MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
-                }
-            },
-            isAuthor = isAuthor,
-            isAdmin = isAdmin,
-        )
+            // Context menu - appears on right-click or "More" click
+            // This is a Popup so it floats outside the layout tree
+            MessageContextMenu(
+                visible = showContextMenu,
+                onDismiss = { showContextMenu = false },
+                onAction = { action ->
+                    when (action) {
+                        MessageContextAction.AddReaction -> currentOnReactionClick()
+                        MessageContextAction.Reply -> currentOnReplyClick()
+                        MessageContextAction.CopyText -> currentOnCopyText()
+                        MessageContextAction.CopyMessageLink -> currentOnCopyLink()
+                        MessageContextAction.ShareMessageLink -> currentOnShareLink()
+                        MessageContextAction.CopyEventJson -> currentOnCopyJson()
+                        MessageContextAction.PinMessage -> currentOnPinMessage()
+                        MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
+                    }
+                },
+                isAuthor = isAuthor,
+                isAdmin = isAdmin,
+            )
+        }
     }
 }
 
@@ -451,7 +458,7 @@ private fun ActionButton(
     Box(
         modifier =
         Modifier
-            .size(28.dp) // Fixed size for touch target
+            .size(Spacing.messageActionButtonSize)
             .clip(NostrordShapes.channelItemShape)
             .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
             .hoverable(interactionSource)
