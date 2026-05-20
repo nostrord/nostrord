@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -296,6 +298,34 @@ fun MessagesList(
             .debounce(500)
             .filter { it }
             .collect { currentOnReachedBottom() }
+    }
+
+    // Compensate the LazyColumn's scroll as the IME animates so visible content rides
+    // with the input bar. The IME absorbs the navigation bar inset on Android, so the
+    // viewport actually shrinks by (ime - navBars), not by ime alone. Skip while any
+    // overlay is showing — opening an image viewer or modal closes the IME as a focus
+    // side-effect and we don't want the chat to scroll behind the overlay. Negative
+    // deltas are also skipped at the end of the list because LazyColumn auto-clamps.
+    val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
+    val navInsets = WindowInsets.navigationBars
+    val overlayObscured by rememberUpdatedState(parentHidden || imageViewerUrl.value != null)
+    LaunchedEffect(listState, density) {
+        var previous: Int? = null
+        snapshotFlow {
+            maxOf(0, imeInsets.getBottom(density) - navInsets.getBottom(density))
+        }
+            .distinctUntilChanged()
+            .collect { current ->
+                val prev = previous
+                previous = current
+                if (prev == null) return@collect
+                if (overlayObscured) return@collect
+                val delta = current - prev
+                if (delta > 0 || listState.canScrollForward) {
+                    listState.scrollBy(delta.toFloat())
+                }
+            }
     }
 
     CompositionLocalProvider(
