@@ -200,7 +200,11 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                 privateKey = newPrivateKey
                 showGeneratedKey = true
                 val keyPair = KeyPair.fromPrivateKeyHex(newPrivateKey)
-                vm.loginWithPrivateKey(newPrivateKey, keyPair.publicKeyHex) { result ->
+                vm.loginWithPrivateKey(
+                    newPrivateKey,
+                    keyPair.publicKeyHex,
+                    isNewIdentity = true,
+                ) { result ->
                     isLoading = false
                     if (result.isSuccess) {
                         onLoginSuccess()

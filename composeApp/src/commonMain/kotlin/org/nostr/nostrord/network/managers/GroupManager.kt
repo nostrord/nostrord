@@ -3056,6 +3056,15 @@ class GroupManager(
         // the new account during the swap window.
         recentRequests.clear()
         _activeGroupId = null
+        // Reset every per-group loading controller. Without this, controllers
+        // left mid-load (InitialLoading / Paginating / HasMore) at logout
+        // refuse startInitialLoad() on re-login — it only accepts Idle/Error
+        // — so requestGroupMessages returns false silently and the chat
+        // stays on "No messages yet" until the process restarts. Affects
+        // bunker logins disproportionately because their AUTH path is slow
+        // enough to leave more groups mid-load when the logout cancellation
+        // fires.
+        loadingRegistry.clear()
         clearForRelaySwitch()
     }
 

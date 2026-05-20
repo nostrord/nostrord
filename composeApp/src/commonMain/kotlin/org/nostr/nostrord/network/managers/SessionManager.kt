@@ -63,6 +63,13 @@ class SessionManager(
      * Logout
      */
     fun logout() {
+        // Clear AUTH dedup so a logout→re-login on the same process doesn't
+        // skip the first AUTH for a relay whose entry was left behind by a
+        // coroutine cancelled mid-flight (scope.cancelChildren in
+        // NostrRepository.logout). A stale entry would make handleAuthChallenge
+        // return false, suppressing the resubscribeAfterAuth that normally
+        // re-requests group messages.
+        authInProgress.clear()
         authManager.logout()
     }
 

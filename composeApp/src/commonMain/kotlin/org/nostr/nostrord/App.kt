@@ -56,6 +56,7 @@ import org.nostr.nostrord.ui.navigation.NavigationHistory
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.navigation.browserGoBack
 import org.nostr.nostrord.ui.navigation.browserGoForward
+import org.nostr.nostrord.ui.navigation.clearBrowserUrlQuery
 import org.nostr.nostrord.ui.navigation.platformHasBrowserNavigation
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
@@ -129,6 +130,13 @@ fun App() {
                 }
 
                 is AppStartState.Unauthenticated -> {
+                    // Drop any leftover ?relay=…&group=… query from the previous
+                    // session. BrowserNavigationHandler lives inside
+                    // AuthenticatedApp and is unmounted while logged out, so
+                    // without this the login screen would still show the
+                    // ex-account's deep link in the address bar. No-op on
+                    // native platforms.
+                    LaunchedEffect(Unit) { clearBrowserUrlQuery() }
                     // Not logged in - show login
                     if (hasWindowControls) {
                         Column(Modifier.fillMaxSize()) {

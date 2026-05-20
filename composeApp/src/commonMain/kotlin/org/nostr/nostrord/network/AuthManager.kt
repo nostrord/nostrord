@@ -18,6 +18,7 @@ import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip46Client
+import org.nostr.nostrord.platformDisplayName
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearAllCredentialsForAccount
 import org.nostr.nostrord.storage.getBunkerClientPrivateKeyFor
@@ -212,7 +213,7 @@ class AuthManager(
         // Connect to relays and subscribe FIRST
         newNip46Client.startListeningForConnection(relays, null)
         // Only then generate the URI for QR display
-        val uri = newNip46Client.generateNostrConnectUri(relays)
+        val uri = newNip46Client.generateNostrConnectUri(relays, name = platformDisplayName)
         return uri to newNip46Client
     }
 

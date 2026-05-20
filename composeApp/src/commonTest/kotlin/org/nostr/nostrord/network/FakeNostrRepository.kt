@@ -127,6 +127,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     override suspend fun loginSuspend(
         privKey: String,
         pubKey: String,
+        isNewIdentity: Boolean,
     ): Result<Unit> {
         calls += "loginSuspend"
         return loginSuspendAction(privKey, pubKey)

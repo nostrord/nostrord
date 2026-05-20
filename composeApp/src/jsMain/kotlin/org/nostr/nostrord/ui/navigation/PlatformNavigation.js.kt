@@ -13,3 +13,7 @@ actual fun browserGoForward() {
 }
 
 actual fun platformAppOrigin(): String? = window.location.origin
+
+actual fun clearBrowserUrlQuery() {
+    window.history.replaceState(null, "", window.location.pathname)
+}

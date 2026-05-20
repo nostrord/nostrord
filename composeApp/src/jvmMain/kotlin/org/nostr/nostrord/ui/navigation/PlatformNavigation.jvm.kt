@@ -7,3 +7,5 @@ actual fun browserGoBack() {}
 actual fun browserGoForward() {}
 
 actual fun platformAppOrigin(): String? = null
+
+actual fun clearBrowserUrlQuery() {}

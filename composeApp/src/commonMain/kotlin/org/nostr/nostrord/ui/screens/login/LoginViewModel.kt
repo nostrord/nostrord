@@ -34,10 +34,11 @@ class LoginViewModel(
     fun loginWithPrivateKey(
         privKey: String,
         pubKey: String,
+        isNewIdentity: Boolean = false,
         onResult: (Result<Unit>) -> Unit,
     ) {
         viewModelScope.launch {
-            onResult(repo.loginSuspend(privKey, pubKey).toKotlinResult())
+            onResult(repo.loginSuspend(privKey, pubKey, isNewIdentity).toKotlinResult())
         }
     }
 

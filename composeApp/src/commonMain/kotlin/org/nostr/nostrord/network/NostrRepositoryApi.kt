@@ -97,6 +97,7 @@ interface NostrRepositoryApi {
     suspend fun loginSuspend(
         privKey: String,
         pubKey: String,
+        isNewIdentity: Boolean = false,
     ): Result<Unit>
 
     suspend fun loginWithNip07(pubkey: String): Result<Unit>
