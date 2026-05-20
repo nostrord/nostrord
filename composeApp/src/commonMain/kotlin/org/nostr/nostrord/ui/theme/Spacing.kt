@@ -65,15 +65,22 @@ object Spacing {
     val avatarColumnWidth: Dp = 72.dp
 
     /**
-     * Space between grouped messages (same author).
-     * Very tight spacing for grouped messages.
+     * Vertical padding applied uniformly to the top and bottom of every message row.
+     * Combined with the hairline divider above grouped messages, this gives a
+     * consistent rhythm regardless of whether the message starts a new cluster.
      */
-    val messageGroupGap: Dp = 2.dp
+    val messageGroupGap: Dp = 6.dp
 
     /**
      * Space above first message in a new group.
      */
     val messageGroupStart: Dp = 16.dp
+
+    /**
+     * Hover toolbar action button size. Kept at one text line's height so the
+     * toolbar never looks larger than the message line it overlays.
+     */
+    val messageActionButtonSize: Dp = 22.dp
 
     /**
      * Channel list item horizontal padding.
