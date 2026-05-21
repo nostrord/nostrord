@@ -1,6 +1,7 @@
 package org.nostr.nostrord
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,9 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -58,6 +62,7 @@ import org.nostr.nostrord.ui.navigation.browserGoBack
 import org.nostr.nostrord.ui.navigation.browserGoForward
 import org.nostr.nostrord.ui.navigation.clearBrowserUrlQuery
 import org.nostr.nostrord.ui.navigation.platformHasBrowserNavigation
+import org.nostr.nostrord.ui.navigation.registerLeftEdgeSwipeToOpen
 import org.nostr.nostrord.ui.screens.backup.BackupScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
@@ -71,6 +76,7 @@ import org.nostr.nostrord.ui.screens.relay.AddRelayModal
 import org.nostr.nostrord.ui.screens.settings.SettingsScreen
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
+import kotlin.math.abs
 
 /**
  * Main application entry point.
@@ -749,6 +755,21 @@ private fun AuthenticatedApp(
                 }
             } else {
                 val onOpenDrawer: () -> Unit = { scope.launch { drawerState.open() } }
+                // Web-only raw-JS left-edge swipe to open the drawer (issue #77). The
+                // Compose ancestor gesture below loses the drag to the chat's scrollable
+                // on mobile browsers, so a window-level capture-phase touch listener wins
+                // the gesture before Compose. No-op on native (they keep the Compose
+                // gesture). Only fires when closed so it can't fight the drawer's own
+                // reverse-swipe-to-close.
+                DisposableEffect(Unit) {
+                    val dispose =
+                        registerLeftEdgeSwipeToOpen {
+                            if (drawerState.targetValue == DrawerValue.Closed) {
+                                scope.launch { drawerState.open() }
+                            }
+                        }
+                    onDispose { dispose() }
+                }
                 ModalNavigationDrawer(
                     drawerState = drawerState,
                     drawerContent = {
@@ -824,29 +845,94 @@ private fun AuthenticatedApp(
                             showMeMenu ||
                             showAddAccount
                     CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
-                        MobileContent(
-                            currentScreen = currentScreen,
-                            selectedRelayUrl = selectedRelayUrl,
-                            homeGridState = homeGridState,
-                            onNavigate = onNavigate,
-                            onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
-                            onOpenGroupAtRelay = onOpenGroupAtRelay,
-                            onCreateGroupClick = { showCreateGroupModal = true },
-                            hasNoRelays = hasNoRelays,
-                            onAddRelay = {
-                                addRelayInitialTab = 0
-                                showAddRelayModal = true
-                            },
-                            onAddRelayCustomUrl = {
-                                addRelayInitialTab = 1
-                                showAddRelayModal = true
-                            },
-                            onOpenDrawer = onOpenDrawer,
-                            pendingInviteCode = pendingInviteCode,
-                            onInviteCodeConsumed = { pendingInviteCode = null },
-                            pendingMessageId = pendingMessageId,
-                            onMessageIdConsumed = { pendingMessageId = null },
-                        )
+                        // Left-edge swipe opens the drawer (issue #77). Detected on the Initial
+                        // pass from an ancestor of the screen content so it pre-empts inner
+                        // scrollables (e.g. the group chat list) that otherwise swallow the drag
+                        // on some mobile browsers. The top menu button still works; reverse-swipe
+                        // close stays with the drawer's built-in gesture.
+                        Box(
+                            modifier =
+                            Modifier
+                                .fillMaxSize()
+                                .pointerInput(Unit) {
+                                    val edgeWidthPx = 24.dp.toPx()
+                                    // Claim threshold: well below the LazyColumn's touch slop
+                                    // (~18dp) so the ancestor wins the gesture before the chat
+                                    // scrollable can start dragging. Detection uses
+                                    // positionChangeIgnoreConsumed() so a child consuming the
+                                    // change on a prior Main pass can't zero out our delta.
+                                    val claimX = 10.dp.toPx()
+                                    val abortY = 14.dp.toPx()
+                                    awaitPointerEventScope {
+                                        while (true) {
+                                            val down =
+                                                awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                            if (down.position.x > edgeWidthPx ||
+                                                drawerState.targetValue != DrawerValue.Closed
+                                            ) {
+                                                continue
+                                            }
+                                            var totalX = 0f
+                                            var totalY = 0f
+                                            var triggered = false
+                                            while (true) {
+                                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                if (triggered) {
+                                                    change.consume()
+                                                } else {
+                                                    // Ignore-consumed: detect raw movement even if the
+                                                    // chat scrollable already consumed this change on a
+                                                    // previous pass. We still decide consumption below.
+                                                    val delta = change.positionChangeIgnoreConsumed()
+                                                    totalX += delta.x
+                                                    totalY += delta.y
+                                                    // Clearly vertical first → release to the chat list so
+                                                    // a left-edge vertical scroll still works. Only abort
+                                                    // once Y movement is meaningful, so coarse coalesced
+                                                    // moves (Brave on Android) whose first sample carries a
+                                                    // little Y drift don't abort a real horizontal swipe.
+                                                    if (totalY < -abortY || (totalY > abortY && totalY > abs(totalX))) {
+                                                        break
+                                                    }
+                                                    // Clearly rightward → claim immediately, consuming on
+                                                    // the Initial pass so the inner scrollable never starts.
+                                                    if (totalX > claimX && totalX > abs(totalY)) {
+                                                        triggered = true
+                                                        change.consume()
+                                                        onOpenDrawer()
+                                                    }
+                                                }
+                                                if (!change.pressed) break
+                                            }
+                                        }
+                                    }
+                                },
+                        ) {
+                            MobileContent(
+                                currentScreen = currentScreen,
+                                selectedRelayUrl = selectedRelayUrl,
+                                homeGridState = homeGridState,
+                                onNavigate = onNavigate,
+                                onNavigateToGroupWithRelay = onNavigateToGroupWithRelay,
+                                onOpenGroupAtRelay = onOpenGroupAtRelay,
+                                onCreateGroupClick = { showCreateGroupModal = true },
+                                hasNoRelays = hasNoRelays,
+                                onAddRelay = {
+                                    addRelayInitialTab = 0
+                                    showAddRelayModal = true
+                                },
+                                onAddRelayCustomUrl = {
+                                    addRelayInitialTab = 1
+                                    showAddRelayModal = true
+                                },
+                                onOpenDrawer = onOpenDrawer,
+                                pendingInviteCode = pendingInviteCode,
+                                onInviteCodeConsumed = { pendingInviteCode = null },
+                                pendingMessageId = pendingMessageId,
+                                onMessageIdConsumed = { pendingMessageId = null },
+                            )
+                        }
                     }
                 }
             }
