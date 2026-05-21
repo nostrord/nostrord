@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -12,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -59,6 +60,7 @@ import org.nostr.nostrord.ui.components.chat.ImageViewerModal
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.components.chat.LocalImageViewerUrl
 import org.nostr.nostrord.ui.components.chat.MessageItem
+import org.nostr.nostrord.ui.components.chat.MessageSelectionContainer
 import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
 import org.nostr.nostrord.ui.components.chat.ZapEventItem
@@ -70,6 +72,9 @@ import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.buildShareMessageLink
 import org.nostr.nostrord.utils.rememberClipboardWriter
 import org.nostr.nostrord.utils.rememberTextSharer
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 /**
  * Messages list with infinite scroll pagination.
@@ -111,6 +116,18 @@ fun MessagesList(
 
     val coroutineScope = rememberCoroutineScope()
     var reactingToMessageId by remember { mutableStateOf<String?>(null) }
+    // Hoisted so only one message context menu can be open at a time
+    var openContextMenuId by remember { mutableStateOf<String?>(null) }
+    // Guard against the web-mobile "blink": a single tap on the source message can both
+    // dismiss the menu and re-fire the open gesture, reopening it. After a menu closes,
+    // briefly ignore an open request for that same message so it does not flash back open.
+    var lastClosedMenuId by remember { mutableStateOf<String?>(null) }
+    var lastClosedMark by remember { mutableStateOf<TimeMark?>(null) }
+    val closeContextMenu = {
+        lastClosedMenuId = openContextMenuId
+        lastClosedMark = TimeSource.Monotonic.markNow()
+        openContextMenuId = null
+    }
     val imageViewerUrl = remember { mutableStateOf<String?>(null) }
     val currentRelayUrl by AppModule.nostrRepository.currentRelayUrl.collectAsState()
     val copyToClipboard = rememberClipboardWriter()
@@ -413,7 +430,7 @@ fun MessagesList(
                 }
             }
             else -> {
-                SelectionContainer {
+                MessageSelectionContainer {
                     Box(modifier = Modifier.fillMaxSize()) {
                         LazyColumn(
                             state = listState,
@@ -469,6 +486,20 @@ fun MessagesList(
                                             onScrollToMessage = { id -> internalScrollTarget = id },
                                             onNavigateToGroup = onNavigateToGroup,
                                             isHighlighted = item.message.id == highlightedMessageId,
+                                            isContextMenuOpen = openContextMenuId == item.message.id,
+                                            onContextMenuOpenChange = { open ->
+                                                val id = item.message.id
+                                                if (open) {
+                                                    val mark = lastClosedMark
+                                                    val recentlyClosed =
+                                                        id == lastClosedMenuId &&
+                                                            mark != null &&
+                                                            mark.elapsedNow() < 350.milliseconds
+                                                    if (!recentlyClosed) openContextMenuId = id
+                                                } else if (openContextMenuId == id) {
+                                                    closeContextMenu()
+                                                }
+                                            },
                                             onCopyLink = {
                                                 val relay = currentRelayUrl ?: return@MessageItem
                                                 copyToClipboard(buildShareMessageLink(relay, groupId, item.message.id))
@@ -577,6 +608,20 @@ fun MessagesList(
                                     contentDescription = "Jump to latest message",
                                 )
                             }
+                        }
+
+                        // Dismiss the open message context menu when tapping anywhere
+                        // outside it. Popup.dismissOnClickOutside is unreliable for touch on
+                        // web; the menu Popup still renders above this overlay.
+                        if (openContextMenuId != null) {
+                            Box(
+                                modifier =
+                                Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(Unit) {
+                                        detectTapGestures { closeContextMenu() }
+                                    },
+                            )
                         }
                     }
                 }

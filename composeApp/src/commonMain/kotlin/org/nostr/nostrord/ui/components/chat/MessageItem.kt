@@ -56,7 +56,7 @@ import org.nostr.nostrord.utils.formatTime
  *
  * Interaction behavior:
  * - Desktop: hover shows action toolbar; right-click opens context menu
- * - Android: long-press opens context menu directly
+ * - Mobile (Android / touch web): single tap opens the context menu directly
  *
  * Spacing:
  * - 72dp total left column (16dp padding + 40dp avatar + 16dp gap)
@@ -91,6 +91,8 @@ fun MessageItem(
     onScrollToMessage: (String) -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     isHighlighted: Boolean = false,
+    isContextMenuOpen: Boolean = false,
+    onContextMenuOpenChange: (Boolean) -> Unit = {},
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -188,9 +190,6 @@ fun MessageItem(
         }
     }
 
-    // Context menu state
-    var showContextMenu by remember { mutableStateOf(false) }
-
     var highlightActive by remember(isHighlighted) { mutableStateOf(isHighlighted) }
     LaunchedEffect(isHighlighted) {
         if (isHighlighted) {
@@ -209,15 +208,16 @@ fun MessageItem(
         Modifier
             .fillMaxWidth()
             .hoverable(interactionSource)
-            // Right-click opens context menu directly (bypasses hover actions)
+            // Tap (mobile) / right-click (desktop) opens the context menu directly.
+            // Closing is handled by the menu's full-screen scrim (see MessageContextMenu).
             .then(
                 rightClickContextMenuModifier {
                     showActions = false // Hide hover actions immediately
-                    showContextMenu = true
+                    onContextMenuOpenChange(true)
                 },
             ).background(
                 when {
-                    showContextMenu -> NostrordColors.SurfaceVariant
+                    isContextMenuOpen -> NostrordColors.SurfaceVariant
                     isHovered || isPressed -> NostrordColors.MessageHover
                     else -> highlightColor
                 },
@@ -338,7 +338,7 @@ fun MessageItem(
         ) {
             // Hover actions - fade in/out without affecting layout
             androidx.compose.animation.AnimatedVisibility(
-                visible = showActions && !showContextMenu,
+                visible = showActions && !isContextMenuOpen,
                 enter = fadeIn(animationSpec = tween(NostrordAnimation.actionsAppear)),
                 exit = fadeOut(animationSpec = tween(NostrordAnimation.actionsDisappear)),
             ) {
@@ -347,7 +347,7 @@ fun MessageItem(
                     MessageActions(
                         onReplyClick = currentOnReplyClick,
                         onReactionClick = currentOnReactionClick,
-                        onMoreClick = { showContextMenu = true },
+                        onMoreClick = { onContextMenuOpenChange(true) },
                     )
                 }
             }
@@ -356,8 +356,8 @@ fun MessageItem(
         // Context menu - appears on right-click or "More" click
         // This is a Popup so it floats outside the layout tree
         MessageContextMenu(
-            visible = showContextMenu,
-            onDismiss = { showContextMenu = false },
+            visible = isContextMenuOpen,
+            onDismiss = { onContextMenuOpenChange(false) },
             onAction = { action ->
                 when (action) {
                     MessageContextAction.AddReaction -> currentOnReactionClick()

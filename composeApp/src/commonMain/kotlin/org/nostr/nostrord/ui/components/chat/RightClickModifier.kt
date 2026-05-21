@@ -7,7 +7,7 @@ import androidx.compose.ui.Modifier
  *
  * Platform behavior:
  * - Desktop (JVM): right-click via PointerEvent secondary button
- * - Android: long-press via detectTapGestures
+ * - Android: single tap via detectTapGestures
  * - iOS: no-op (context menu accessed via "More" button)
  * - Web (JS/WasmJS): contextmenu event
  */
