@@ -8,12 +8,15 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.buildGroupNaddr
 import org.nostr.nostrord.ui.util.buildShareGroupLink
@@ -27,8 +30,11 @@ fun ShareGroupModal(
     groupId: String,
     onDismiss: () -> Unit,
 ) {
+    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+    val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
+
     val link = buildShareGroupLink(relayUrl, groupId)
-    val naddr = buildGroupNaddr(relayUrl, groupId)
+    val naddr = buildGroupNaddr(relayUrl, groupId, relayPubkey)
     val copyToClipboard = rememberClipboardWriter()
     val shareText = rememberTextSharer()
 

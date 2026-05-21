@@ -36,4 +36,5 @@ fun buildShareMessageLink(
 fun buildGroupNaddr(
     relayUrl: String,
     groupId: String,
-): String = "nostr:" + Nip19.encodeNaddr(identifier = groupId, relay = relayUrl, kind = 39000)
+    relayPubkey: String? = null,
+): String = "nostr:" + Nip19.encodeNaddr(identifier = groupId, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey)
