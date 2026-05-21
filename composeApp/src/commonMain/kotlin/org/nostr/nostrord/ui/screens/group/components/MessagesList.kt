@@ -106,6 +106,7 @@ fun MessagesList(
     targetMessageId: String? = null,
     onTargetConsumed: () -> Unit = {},
     onFetchTargetById: (String) -> Unit = {},
+    swipeToReplyEnabled: Boolean = false,
 ) {
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
@@ -476,6 +477,7 @@ fun MessagesList(
                                             currentUserPubkey = currentUserPubkey,
                                             currentGroupId = groupId,
                                             currentRelayUrl = currentRelayUrl,
+                                            swipeToReplyEnabled = swipeToReplyEnabled,
                                             onUsernameClick = currentOnUsernameClick,
                                             onReplyClick = { currentOnReplyClick(item.message) },
                                             onReactionClick = { reactingToMessageId = item.message.id },

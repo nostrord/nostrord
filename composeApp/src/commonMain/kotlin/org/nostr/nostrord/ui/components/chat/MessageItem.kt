@@ -2,12 +2,15 @@ package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -29,16 +32,25 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
@@ -50,6 +62,8 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.formatTime
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Enhanced message item with grouping support and hover actions.
@@ -93,6 +107,7 @@ fun MessageItem(
     isHighlighted: Boolean = false,
     isContextMenuOpen: Boolean = false,
     onContextMenuOpenChange: (Boolean) -> Unit = {},
+    swipeToReplyEnabled: Boolean = false,
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -203,6 +218,18 @@ fun MessageItem(
         animationSpec = if (highlightActive) snap() else tween(durationMillis = 1200),
     )
 
+    // Swipe-to-reply (touch layouts only): drag the message left to reveal a reply
+    // affordance; releasing past the threshold enters reply mode and focuses the input.
+    // Left direction is deliberate so it doesn't fight the left-edge swipe that opens
+    // the side menu (that gesture pulls content the other way).
+    val swipeScope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val swipeOffset = remember { Animatable(0f) }
+    val triggerPx = with(density) { 56.dp.toPx() }
+    val maxOffsetPx = with(density) { 80.dp.toPx() }
+    var swipeArmed by remember { mutableStateOf(false) }
+
     Box(
         modifier =
         Modifier
@@ -215,6 +242,51 @@ fun MessageItem(
                     showActions = false // Hide hover actions immediately
                     onContextMenuOpenChange(true)
                 },
+            ).then(
+                if (swipeToReplyEnabled) {
+                    Modifier.pointerInput(Unit) {
+                        val touchSlop = viewConfiguration.touchSlop
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            var totalX = 0f
+                            var totalY = 0f
+                            var claimed = false
+                            var offset = 0f
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                if (change == null || !change.pressed) break
+                                val delta = change.positionChange()
+                                if (!claimed) {
+                                    totalX += delta.x
+                                    totalY += delta.y
+                                    // Vertical intent → let the list scroll; never consume.
+                                    if (abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)) break
+                                    // Rightward intent → let the left-edge swipe open the side menu.
+                                    if (totalX >= touchSlop) break
+                                    // Leftward past slop → this is a reply swipe; claim it.
+                                    if (totalX <= -touchSlop) claimed = true
+                                }
+                                if (claimed) {
+                                    change.consume()
+                                    offset = (offset + delta.x).coerceIn(-maxOffsetPx, 0f)
+                                    swipeScope.launch { swipeOffset.snapTo(offset) }
+                                    if (!swipeArmed && offset <= -triggerPx) {
+                                        swipeArmed = true
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    } else if (swipeArmed && offset > -triggerPx) {
+                                        swipeArmed = false
+                                    }
+                                }
+                            }
+                            if (claimed && offset <= -triggerPx) currentOnReplyClick()
+                            swipeArmed = false
+                            swipeScope.launch { swipeOffset.animateTo(0f) }
+                        }
+                    }
+                } else {
+                    Modifier
+                },
             ).background(
                 when {
                     isContextMenuOpen -> NostrordColors.SurfaceVariant
@@ -223,11 +295,26 @@ fun MessageItem(
                 },
             ),
     ) {
+        // Reply affordance revealed underneath the message as it slides left.
+        if (swipeToReplyEnabled && swipeOffset.value < 0f) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.Reply,
+                contentDescription = null,
+                tint = if (swipeArmed) NostrordColors.Primary else NostrordColors.TextMuted,
+                modifier =
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = Spacing.messagePaddingHorizontal)
+                    .size(24.dp)
+                    .alpha((-swipeOffset.value / triggerPx).coerceIn(0f, 1f)),
+            )
+        }
         // Main message content - this defines the Box size
         Row(
             modifier =
             Modifier
                 .fillMaxWidth()
+                .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
                 .padding(
                     start = Spacing.messagePaddingHorizontal,
                     end = Spacing.messagePaddingHorizontal,

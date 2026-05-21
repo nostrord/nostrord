@@ -259,6 +259,7 @@ fun GroupScreenMobile(
                             targetMessageId = targetMessageId,
                             onTargetConsumed = onTargetConsumed,
                             onFetchTargetById = onFetchTargetById,
+                            swipeToReplyEnabled = true,
                         )
                     }
 

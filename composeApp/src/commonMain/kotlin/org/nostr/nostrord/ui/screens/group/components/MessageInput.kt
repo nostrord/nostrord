@@ -119,9 +119,11 @@ fun MessageInput(
         }
     }
 
-    // Refocus input when reply is activated or after message send (input cleared)
+    // Refocus input when reply is activated. Unlike the screen-open auto-focus above,
+    // this fires only on an explicit reply action (tap or swipe), so opening the
+    // keyboard on Android here is desired — reply mode should land in the input.
     LaunchedEffect(replyingToMessage) {
-        if (replyingToMessage != null && !getPlatform().name.startsWith("Android")) {
+        if (replyingToMessage != null) {
             focusRequester.requestFocus()
         }
     }
