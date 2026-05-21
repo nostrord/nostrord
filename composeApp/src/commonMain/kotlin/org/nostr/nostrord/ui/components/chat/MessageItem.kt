@@ -193,11 +193,14 @@ fun MessageItem(
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    // Delayed hover state for actions toolbar (50ms delay)
-    // On mobile (touch), show actions immediately on press
+    // Delayed hover state for actions toolbar (50ms delay). This is a desktop-only
+    // pointer affordance: on touch/compact layouts (Android, iOS, narrow web) a tap
+    // would otherwise register as a press and trip it. Those layouts use tap (context
+    // menu) and swipe (reply) instead, so the toolbar is suppressed there — gated by
+    // swipeToReplyEnabled, the same compact-layout signal.
     var showActions by remember { mutableStateOf(false) }
-    LaunchedEffect(isHovered, isPressed) {
-        if (isHovered || isPressed) {
+    LaunchedEffect(isHovered, isPressed, swipeToReplyEnabled) {
+        if (!swipeToReplyEnabled && (isHovered || isPressed)) {
             delay(NostrordAnimation.hoverActionsDelay.toLong())
             showActions = true
         } else {
@@ -290,7 +293,9 @@ fun MessageItem(
             ).background(
                 when {
                     isContextMenuOpen -> NostrordColors.SurfaceVariant
-                    isHovered || isPressed -> NostrordColors.MessageHover
+                    // Hover tint is a desktop-only pointer affordance; a touch tap fires
+                    // isPressed too, so suppress it in compact/touch layouts.
+                    !swipeToReplyEnabled && (isHovered || isPressed) -> NostrordColors.MessageHover
                     else -> highlightColor
                 },
             ),
