@@ -7,6 +7,18 @@ html, body {
 }
 
 /*
+ * Compose does all of its own scrolling/gesture handling on the canvas, so the
+ * browser must not claim touch gestures itself (horizontal pan / edge back-swipe
+ * / pull-to-refresh). Without this the browser intercepts the left-edge
+ * left-to-right swipe over the scrolling chat list before it reaches the app
+ * (issue #77). touch-action:none is exactly what Compose wants here.
+ */
+#composeApplication, #composeApplication canvas {
+    touch-action: none;
+    overscroll-behavior: none;
+}
+
+/*
  * Compose WebElementView wraps each native HTML element in an absolutely-positioned
  * <div> appended to <body>. These wrappers sit above the Compose <canvas> and block
  * wheel/scroll events from reaching it. pointer-events:none lets events pass through

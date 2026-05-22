@@ -2,7 +2,7 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -57,6 +58,7 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.rememberClipboardWriter
+import kotlin.math.abs
 
 /**
  * Mobile group screen with gesture navigation.
@@ -151,9 +153,6 @@ fun GroupScreenMobile(
     var showMemberSheet by remember { mutableStateOf(false) }
     val memberSheetState = rememberModalBottomSheetState()
 
-    var dragStartX by remember { mutableStateOf(0f) }
-    var isDragging by remember { mutableStateOf(false) }
-
     val parentHidden = LocalAnimatedImageHidden.current
     CompositionLocalProvider(LocalAnimatedImageHidden provides (parentHidden || showMemberSheet)) {
         Scaffold(
@@ -191,30 +190,37 @@ fun GroupScreenMobile(
                     .fillMaxSize()
                     .padding(paddingValues)
                     .pointerInput(Unit) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { offset ->
-                                dragStartX = offset.x
-                                isDragging = true
-                            },
-                            onDragEnd = {
-                                isDragging = false
-                            },
-                            onDragCancel = {
-                                isDragging = false
-                            },
-                            onHorizontalDrag = { change, dragAmount ->
-                                change.consume()
-                                val screenWidth = size.width.toFloat()
-                                val edgeThreshold = screenWidth * 0.15f // 15% of screen width
-                                val swipeThreshold = 100f // Minimum drag distance
-
-                                // Swipe left from right edge -> open member sheet
-                                if (dragStartX > screenWidth - edgeThreshold && dragAmount < -swipeThreshold) {
-                                    showMemberSheet = true
-                                    isDragging = false
+                        // Right-edge leftward swipe opens the member sheet. Custom gesture
+                        // (not detectHorizontalDragGestures) so it only claims/consumes drags
+                        // that start at the right edge — left-edge drags stay free for the
+                        // nav-drawer swipe handled in App.kt (issue #77). Kept as a Box modifier,
+                        // not an overlay, so it never blocks the scroll-to-bottom button.
+                        val rightZonePx = size.width * 0.15f
+                        awaitPointerEventScope {
+                            while (true) {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                if (down.position.x < size.width - rightZonePx) continue
+                                var totalX = 0f
+                                var totalY = 0f
+                                var triggered = false
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (triggered) {
+                                        change.consume()
+                                    } else {
+                                        totalX += change.positionChange().x
+                                        totalY += change.positionChange().y
+                                        if (totalX < -80f && -totalX > abs(totalY)) {
+                                            triggered = true
+                                            change.consume()
+                                            showMemberSheet = true
+                                        }
+                                    }
+                                    if (!change.pressed) break
                                 }
-                            },
-                        )
+                            }
+                        }
                     },
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -254,6 +260,7 @@ fun GroupScreenMobile(
                             targetMessageId = targetMessageId,
                             onTargetConsumed = onTargetConsumed,
                             onFetchTargetById = onFetchTargetById,
+                            swipeToReplyEnabled = true,
                         )
                     }
 

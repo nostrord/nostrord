@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -124,9 +125,11 @@ fun MessageInput(
         }
     }
 
-    // Refocus input when reply is activated or after message send (input cleared)
+    // Refocus input when reply is activated. Unlike the screen-open auto-focus above,
+    // this fires only on an explicit reply action (tap or swipe), so opening the
+    // keyboard on Android here is desired — reply mode should land in the input.
     LaunchedEffect(replyingToMessage) {
-        if (replyingToMessage != null && !getPlatform().name.startsWith("Android")) {
+        if (replyingToMessage != null) {
             focusRequester.requestFocus()
         }
     }
@@ -186,6 +189,18 @@ fun MessageInput(
         return Pair(triggerIndex, queryPart)
     }
 
+    // The Android IME can briefly report a stale/zeroed cursor while composing,
+    // which makes findMentionContext fail for one frame. As long as the trigger
+    // token still runs unbroken to the end of the text, treat the mention as
+    // active so the popup doesn't flicker closed mid-typing.
+    fun triggerStillActive(text: String, startIndex: Int, trigger: Char): Boolean {
+        if (startIndex < 0 || startIndex >= text.length || text[startIndex] != trigger) return false
+        val charBefore = text.getOrNull(startIndex - 1)
+        if (charBefore != null && !charBefore.isWhitespace()) return false
+        val token = text.substring(startIndex + 1)
+        return !token.contains(' ') && !token.contains('\n')
+    }
+
     fun updateMentionState(value: TextFieldValue) {
         val (index, query) = findMentionContext(value.text, value.selection.start, '@')
         if (index >= 0) {
@@ -194,6 +209,10 @@ fun MessageInput(
             showEmojiPicker = false
             mentionStartIndex = index
             mentionQuery = query
+        } else if (showMentionPopup && triggerStillActive(value.text, mentionStartIndex, '@')) {
+            val token = value.text.substring(mentionStartIndex + 1)
+            if (mentionQuery != token) mentionSelectedIndex = 0
+            mentionQuery = token
         } else {
             showMentionPopup = false
             mentionStartIndex = -1
@@ -209,6 +228,10 @@ fun MessageInput(
             showEmojiPicker = false
             groupMentionStartIndex = index
             groupMentionQuery = query
+        } else if (showGroupMentionPopup && triggerStillActive(value.text, groupMentionStartIndex, '%')) {
+            val token = value.text.substring(groupMentionStartIndex + 1)
+            if (groupMentionQuery != token) groupMentionSelectedIndex = 0
+            groupMentionQuery = token
         } else {
             showGroupMentionPopup = false
             groupMentionStartIndex = -1
@@ -345,6 +368,20 @@ fun MessageInput(
         }
     } else {
         val textFieldInteractionSource = remember { MutableInteractionSource() }
+        val isAndroid = remember { getPlatform().name.startsWith("Android") }
+
+        // Keep a stable VisualTransformation instance: rebuilding it on every
+        // recomposition restarts the Android IME input session, which drops the
+        // character being typed while the mention popup is open.
+        val emojiFontFamily = rememberEmojiFontFamily()
+        val mentionVisualTransformation = remember(mentions.keys, groupMentions.keys, emojiFontFamily) {
+            MentionVisualTransformation(
+                mentionedNames = mentions.keys,
+                mentionColor = NostrordColors.MentionText,
+                emojiFontFamily = emojiFontFamily,
+                groupMentionedNames = groupMentions.keys,
+            )
+        }
 
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -356,6 +393,59 @@ fun MessageInput(
                     userMetadata = userMetadata,
                     onCancelReply = onCancelReply,
                 )
+            }
+
+            // On Android the suggestion list is rendered INLINE (same window) rather
+            // than in a Popup. A Popup is a separate Android window: adding/removing it
+            // (or the soft keyboard gaining/losing focus to it) restarts the IME
+            // InputConnection on the focused TextField, which drops the composing
+            // character. Because the popup toggled on every keystroke, this produced
+            // the "every other character eaten + popup flicker" symptom. Rendering the
+            // list in the same window leaves the IME input connection untouched.
+            // canFocus = false keeps the list (whose items are clickable/focusable)
+            // from stealing focus away from the TextField while typing.
+            if (isAndroid &&
+                showMentionPopup &&
+                groupMembers.isNotEmpty() &&
+                getFilteredMembers(groupMembers, mentionQuery).isNotEmpty()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .focusProperties { canFocus = false }
+                        .fillMaxWidth()
+                        .heightIn(max = 240.dp)
+                        .padding(horizontal = Spacing.lg),
+                ) {
+                    MentionPopup(
+                        members = groupMembers,
+                        query = mentionQuery,
+                        selectedIndex = mentionSelectedIndex,
+                        onMemberSelect = { handleMemberSelect(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+
+            if (isAndroid &&
+                showGroupMentionPopup &&
+                availableGroups.isNotEmpty() &&
+                getFilteredGroups(availableGroups, groupMentionQuery).isNotEmpty()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .focusProperties { canFocus = false }
+                        .fillMaxWidth()
+                        .heightIn(max = 240.dp)
+                        .padding(horizontal = Spacing.lg),
+                ) {
+                    GroupMentionPopup(
+                        groups = availableGroups,
+                        query = groupMentionQuery,
+                        selectedIndex = groupMentionSelectedIndex,
+                        onGroupSelect = { handleGroupSelect(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
 
             Box(
@@ -396,7 +486,11 @@ fun MessageInput(
                             .clip(NostrordShapes.inputShape)
                             .focusRequester(focusRequester)
                             .onFocusChanged { focusState ->
-                                if (!focusState.isFocused) {
+                                // On Android the focus transiently drops while the IME
+                                // composes; dismissing here would flicker the inline
+                                // suggestion list and break keyboard input. Let typing,
+                                // selection, or back-press close it instead.
+                                if (!isAndroid && !focusState.isFocused) {
                                     showMentionPopup = false
                                     showGroupMentionPopup = false
                                 }
@@ -557,12 +651,7 @@ fun MessageInput(
                         shape = NostrordShapes.inputShape,
                         singleLine = false,
                         maxLines = 4,
-                        visualTransformation = MentionVisualTransformation(
-                            mentionedNames = mentions.keys,
-                            mentionColor = NostrordColors.MentionText,
-                            emojiFontFamily = rememberEmojiFontFamily(),
-                            groupMentionedNames = groupMentions.keys,
-                        ),
+                        visualTransformation = mentionVisualTransformation,
                     )
 
                     if (showEmojiButton) {
@@ -617,14 +706,24 @@ fun MessageInput(
                     }
                 }
 
-                if (showMentionPopup && groupMembers.isNotEmpty()) {
+                // Desktop / web / iOS keep the floating Popup (with keyboard nav).
+                // Android renders the list inline above (see top of this Column) to
+                // avoid the IME-restart character drop caused by the Popup window.
+                if (!isAndroid && showMentionPopup && groupMembers.isNotEmpty()) {
                     val density = LocalDensity.current
                     val filteredCount = getFilteredMembers(groupMembers, mentionQuery).size
                     val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
                     val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
                     val offsetXPx = with(density) { Spacing.lg.roundToPx() }
 
-                    Popup(alignment = Alignment.Center, onDismissRequest = { showMentionPopup = false }) {
+                    // dismissOnClickOutside must stay false: on Android each soft-keyboard
+                    // key tap is delivered as an outside touch and would otherwise close the
+                    // popup on every character. Tap-to-dismiss is handled by the clickable Box.
+                    Popup(
+                        alignment = Alignment.Center,
+                        onDismissRequest = { showMentionPopup = false },
+                        properties = PopupProperties(focusable = false, dismissOnClickOutside = false),
+                    ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -652,14 +751,18 @@ fun MessageInput(
                     }
                 }
 
-                if (showGroupMentionPopup && availableGroups.isNotEmpty()) {
+                if (!isAndroid && showGroupMentionPopup && availableGroups.isNotEmpty()) {
                     val density = LocalDensity.current
                     val filteredCount = getFilteredGroups(availableGroups, groupMentionQuery).size
                     val popupHeightDp = 28 + 2 + (filteredCount.coerceAtMost(8) * 36)
                     val popupHeightPx = with(density) { popupHeightDp.dp.roundToPx() }
                     val offsetXPx = with(density) { Spacing.lg.roundToPx() }
 
-                    Popup(alignment = Alignment.Center, onDismissRequest = { showGroupMentionPopup = false }) {
+                    Popup(
+                        alignment = Alignment.Center,
+                        onDismissRequest = { showGroupMentionPopup = false },
+                        properties = PopupProperties(focusable = false, dismissOnClickOutside = false),
+                    ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()

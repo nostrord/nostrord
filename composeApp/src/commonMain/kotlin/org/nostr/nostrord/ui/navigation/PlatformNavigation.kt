@@ -34,3 +34,23 @@ expect fun platformAppOrigin(): String?
  * No-op on native platforms.
  */
 expect fun clearBrowserUrlQuery()
+
+/**
+ * Register a web-only raw touch listener that opens the navigation drawer on a
+ * left-edge left-to-right swipe (issue #77).
+ *
+ * On JS/WasmJS this attaches `touchstart`/`touchmove`/`touchend` listeners on
+ * `window` in the CAPTURE phase with `{ passive: false }`, so the gesture is
+ * detected before it reaches the Compose canvas — the Compose pointer-pass
+ * approach loses this race over the scrolling chat list on mobile browsers.
+ * Only horizontal swipes that START within ~24px of the left edge act; vertical
+ * scrolls and non-edge touches are left untouched so chat scrolling, the
+ * scroll-to-bottom FAB, message taps, and the right-edge member-sheet swipe all
+ * keep working. When triggered it calls [onOpen] once and preventDefault's the
+ * gesture so Compose doesn't double-handle it.
+ *
+ * No-op on native platforms (they use the Compose ancestor gesture in App.kt).
+ *
+ * @return a dispose lambda that removes the listeners.
+ */
+expect fun registerLeftEdgeSwipeToOpen(onOpen: () -> Unit): () -> Unit

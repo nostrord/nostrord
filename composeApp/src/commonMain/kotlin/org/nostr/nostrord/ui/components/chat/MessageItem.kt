@@ -1,10 +1,16 @@
 package org.nostr.nostrord.ui.components.chat
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -26,16 +32,25 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
@@ -47,13 +62,15 @@ import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.formatTime
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * Enhanced message item with grouping support and hover actions.
  *
  * Interaction behavior:
  * - Desktop: hover shows action toolbar; right-click opens context menu
- * - Android: long-press opens context menu directly
+ * - Mobile (Android / touch web): single tap opens the context menu directly
  *
  * Spacing:
  * - 72dp total left column (16dp padding + 40dp avatar + 16dp gap)
@@ -88,6 +105,9 @@ fun MessageItem(
     onScrollToMessage: (String) -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     isHighlighted: Boolean = false,
+    isContextMenuOpen: Boolean = false,
+    onContextMenuOpenChange: (Boolean) -> Unit = {},
+    swipeToReplyEnabled: Boolean = false,
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -173,20 +193,20 @@ fun MessageItem(
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    // Delayed hover state for actions toolbar (50ms delay)
-    // On mobile (touch), show actions immediately on press
+    // Delayed hover state for actions toolbar (50ms delay). This is a desktop-only
+    // pointer affordance: on touch/compact layouts (Android, iOS, narrow web) a tap
+    // would otherwise register as a press and trip it. Those layouts use tap (context
+    // menu) and swipe (reply) instead, so the toolbar is suppressed there — gated by
+    // swipeToReplyEnabled, the same compact-layout signal.
     var showActions by remember { mutableStateOf(false) }
-    LaunchedEffect(isHovered, isPressed) {
-        if (isHovered || isPressed) {
+    LaunchedEffect(isHovered, isPressed, swipeToReplyEnabled) {
+        if (!swipeToReplyEnabled && (isHovered || isPressed)) {
             delay(NostrordAnimation.hoverActionsDelay.toLong())
             showActions = true
         } else {
             showActions = false
         }
     }
-
-    // Context menu state
-    var showContextMenu by remember { mutableStateOf(false) }
 
     var highlightActive by remember(isHighlighted) { mutableStateOf(isHighlighted) }
     LaunchedEffect(isHighlighted) {
@@ -200,6 +220,18 @@ fun MessageItem(
         targetValue = if (highlightActive) NostrordColors.Primary.copy(alpha = 0.18f) else Color.Transparent,
         animationSpec = if (highlightActive) snap() else tween(durationMillis = 1200),
     )
+
+    // Swipe-to-reply (touch layouts only): drag the message left to reveal a reply
+    // affordance; releasing past the threshold enters reply mode and focuses the input.
+    // Left direction is deliberate so it doesn't fight the left-edge swipe that opens
+    // the side menu (that gesture pulls content the other way).
+    val swipeScope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val swipeOffset = remember { Animatable(0f) }
+    val triggerPx = with(density) { 56.dp.toPx() }
+    val maxOffsetPx = with(density) { 80.dp.toPx() }
+    var swipeArmed by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         // Hairline sits outside the hover Box so the hover/highlight background
@@ -221,25 +253,88 @@ fun MessageItem(
             Modifier
                 .fillMaxWidth()
                 .hoverable(interactionSource)
-                // Right-click opens context menu directly (bypasses hover actions)
+                // Tap (mobile) / right-click (desktop) opens the context menu directly.
+                // Closing is handled by the menu's full-screen scrim (see MessageContextMenu).
                 .then(
                     rightClickContextMenuModifier {
                         showActions = false // Hide hover actions immediately
-                        showContextMenu = true
+                        onContextMenuOpenChange(true)
+                    },
+                ).then(
+                    if (swipeToReplyEnabled) {
+                        Modifier.pointerInput(Unit) {
+                            val touchSlop = viewConfiguration.touchSlop
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var totalX = 0f
+                                var totalY = 0f
+                                var claimed = false
+                                var offset = 0f
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                    if (change == null || !change.pressed) break
+                                    val delta = change.positionChange()
+                                    if (!claimed) {
+                                        totalX += delta.x
+                                        totalY += delta.y
+                                        // Vertical intent → let the list scroll; never consume.
+                                        if (abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)) break
+                                        // Rightward intent → let the left-edge swipe open the side menu.
+                                        if (totalX >= touchSlop) break
+                                        // Leftward past slop → this is a reply swipe; claim it.
+                                        if (totalX <= -touchSlop) claimed = true
+                                    }
+                                    if (claimed) {
+                                        change.consume()
+                                        offset = (offset + delta.x).coerceIn(-maxOffsetPx, 0f)
+                                        swipeScope.launch { swipeOffset.snapTo(offset) }
+                                        if (!swipeArmed && offset <= -triggerPx) {
+                                            swipeArmed = true
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        } else if (swipeArmed && offset > -triggerPx) {
+                                            swipeArmed = false
+                                        }
+                                    }
+                                }
+                                if (claimed && offset <= -triggerPx) currentOnReplyClick()
+                                swipeArmed = false
+                                swipeScope.launch { swipeOffset.animateTo(0f) }
+                            }
+                        }
+                    } else {
+                        Modifier
                     },
                 ).background(
                     when {
-                        showContextMenu -> NostrordColors.SurfaceVariant
-                        isHovered || isPressed -> NostrordColors.MessageHover
+                        isContextMenuOpen -> NostrordColors.SurfaceVariant
+                        // Hover tint is a desktop-only pointer affordance; a touch tap fires
+                        // isPressed too, so suppress it in compact/touch layouts.
+                        !swipeToReplyEnabled && (isHovered || isPressed) -> NostrordColors.MessageHover
                         else -> highlightColor
                     },
                 ),
         ) {
+            // Reply affordance revealed underneath the message as it slides left.
+            if (swipeToReplyEnabled && swipeOffset.value < 0f) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.Reply,
+                    contentDescription = null,
+                    tint = if (swipeArmed) NostrordColors.Primary else NostrordColors.TextMuted,
+                    modifier =
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = Spacing.messagePaddingHorizontal)
+                        .size(24.dp)
+                        .alpha((-swipeOffset.value / triggerPx).coerceIn(0f, 1f)),
+                )
+            }
             // Main message content - this defines the Box size
             Row(
                 modifier =
                 Modifier
                     .fillMaxWidth()
+                    .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
                     .padding(
                         start = Spacing.messagePaddingHorizontal,
                         end = Spacing.messagePaddingHorizontal,
@@ -339,21 +434,27 @@ fun MessageItem(
                 }
             }
 
-            // matchParentSize keeps this overlay out of parent measurement, so the
-            // row height is identical whether or not the toolbar is showing.
-            if (showActions && !showContextMenu) {
-                Box(
-                    modifier =
-                    Modifier
-                        .matchParentSize()
-                        .padding(end = Spacing.sm),
-                    contentAlignment = Alignment.TopEnd,
+            // Overlay layer for hover actions - uses matchParentSize to not affect layout
+            // This Box matches parent size exactly, then positions content inside
+            Box(
+                modifier =
+                Modifier
+                    .matchParentSize() // Critical: doesn't affect parent measurement
+                    .padding(end = Spacing.sm),
+                contentAlignment = Alignment.TopEnd,
+            ) {
+                // Hover actions - fade in/out without affecting layout
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showActions && !isContextMenuOpen,
+                    enter = fadeIn(animationSpec = tween(NostrordAnimation.actionsAppear)),
+                    exit = fadeOut(animationSpec = tween(NostrordAnimation.actionsDisappear)),
                 ) {
+                    // DisableSelection prevents toolbar from being part of text selection
                     DisableSelection {
                         MessageActions(
                             onReplyClick = currentOnReplyClick,
                             onReactionClick = currentOnReactionClick,
-                            onMoreClick = { showContextMenu = true },
+                            onMoreClick = { onContextMenuOpenChange(true) },
                         )
                     }
                 }
@@ -362,8 +463,8 @@ fun MessageItem(
             // Context menu - appears on right-click or "More" click
             // This is a Popup so it floats outside the layout tree
             MessageContextMenu(
-                visible = showContextMenu,
-                onDismiss = { showContextMenu = false },
+                visible = isContextMenuOpen,
+                onDismiss = { onContextMenuOpenChange(false) },
                 onAction = { action ->
                     when (action) {
                         MessageContextAction.AddReaction -> currentOnReactionClick()
