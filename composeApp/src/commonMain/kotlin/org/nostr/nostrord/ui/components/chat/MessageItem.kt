@@ -74,8 +74,8 @@ import kotlin.math.roundToInt
  *
  * Spacing:
  * - 72dp total left column (16dp padding + 40dp avatar + 16dp gap)
- * - 16dp first message top padding (start of cluster)
- * - 2dp grouped message gap
+ * - 6dp uniform top/bottom padding on every row (no asymmetric first/last bumps)
+ * - Hairline divider above each grouped message to mark the boundary
  */
 @Composable
 fun MessageItem(
@@ -233,238 +233,254 @@ fun MessageItem(
     val maxOffsetPx = with(density) { 80.dp.toPx() }
     var swipeArmed by remember { mutableStateOf(false) }
 
-    Box(
-        modifier =
-        Modifier
-            .fillMaxWidth()
-            .hoverable(interactionSource)
-            // Tap (mobile) / right-click (desktop) opens the context menu directly.
-            // Closing is handled by the menu's full-screen scrim (see MessageContextMenu).
-            .then(
-                rightClickContextMenuModifier {
-                    showActions = false // Hide hover actions immediately
-                    onContextMenuOpenChange(true)
-                },
-            ).then(
-                if (swipeToReplyEnabled) {
-                    Modifier.pointerInput(Unit) {
-                        val touchSlop = viewConfiguration.touchSlop
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            var totalX = 0f
-                            var totalY = 0f
-                            var claimed = false
-                            var offset = 0f
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id }
-                                if (change == null || !change.pressed) break
-                                val delta = change.positionChange()
-                                if (!claimed) {
-                                    totalX += delta.x
-                                    totalY += delta.y
-                                    // Vertical intent → let the list scroll; never consume.
-                                    if (abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)) break
-                                    // Rightward intent → let the left-edge swipe open the side menu.
-                                    if (totalX >= touchSlop) break
-                                    // Leftward past slop → this is a reply swipe; claim it.
-                                    if (totalX <= -touchSlop) claimed = true
-                                }
-                                if (claimed) {
-                                    change.consume()
-                                    offset = (offset + delta.x).coerceIn(-maxOffsetPx, 0f)
-                                    swipeScope.launch { swipeOffset.snapTo(offset) }
-                                    if (!swipeArmed && offset <= -triggerPx) {
-                                        swipeArmed = true
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    } else if (swipeArmed && offset > -triggerPx) {
-                                        swipeArmed = false
-                                    }
-                                }
-                            }
-                            if (claimed && offset <= -triggerPx) currentOnReplyClick()
-                            swipeArmed = false
-                            swipeScope.launch { swipeOffset.animateTo(0f) }
-                        }
-                    }
-                } else {
-                    Modifier
-                },
-            ).background(
-                when {
-                    isContextMenuOpen -> NostrordColors.SurfaceVariant
-                    // Hover tint is a desktop-only pointer affordance; a touch tap fires
-                    // isPressed too, so suppress it in compact/touch layouts.
-                    !swipeToReplyEnabled && (isHovered || isPressed) -> NostrordColors.MessageHover
-                    else -> highlightColor
-                },
-            ),
-    ) {
-        // Reply affordance revealed underneath the message as it slides left.
-        if (swipeToReplyEnabled && swipeOffset.value < 0f) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.Reply,
-                contentDescription = null,
-                tint = if (swipeArmed) NostrordColors.Primary else NostrordColors.TextMuted,
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Hairline sits outside the hover Box so the hover/highlight background
+        // doesn't extend across the boundary between two grouped messages.
+        // Aligned with the content column (starts after the avatar gutter).
+        if (!isFirstInGroup) {
+            androidx.compose.material3.HorizontalDivider(
+                thickness = Spacing.dividerThickness,
+                color = Color.White.copy(alpha = 0.05f),
                 modifier =
-                Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = Spacing.messagePaddingHorizontal)
-                    .size(24.dp)
-                    .alpha((-swipeOffset.value / triggerPx).coerceIn(0f, 1f)),
+                Modifier.padding(
+                    start = Spacing.avatarColumnWidth,
+                    end = Spacing.messagePaddingHorizontal,
+                ),
             )
         }
-        // Main message content - this defines the Box size
-        Row(
+        Box(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
-                .padding(
-                    start = Spacing.messagePaddingHorizontal,
-                    end = Spacing.messagePaddingHorizontal,
-                    top = if (isFirstInGroup) Spacing.messageGroupStart else Spacing.messageGroupGap,
-                    bottom = if (isLastInGroup) Spacing.sm else Spacing.messageGroupGap,
+                .hoverable(interactionSource)
+                // Tap (mobile) / right-click (desktop) opens the context menu directly.
+                // Closing is handled by the menu's full-screen scrim (see MessageContextMenu).
+                .then(
+                    rightClickContextMenuModifier {
+                        showActions = false // Hide hover actions immediately
+                        onContextMenuOpenChange(true)
+                    },
+                ).then(
+                    if (swipeToReplyEnabled) {
+                        Modifier.pointerInput(Unit) {
+                            val touchSlop = viewConfiguration.touchSlop
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var totalX = 0f
+                                var totalY = 0f
+                                var claimed = false
+                                var offset = 0f
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                    if (change == null || !change.pressed) break
+                                    val delta = change.positionChange()
+                                    if (!claimed) {
+                                        totalX += delta.x
+                                        totalY += delta.y
+                                        // Vertical intent → let the list scroll; never consume.
+                                        if (abs(totalY) > touchSlop && abs(totalY) >= abs(totalX)) break
+                                        // Rightward intent → let the left-edge swipe open the side menu.
+                                        if (totalX >= touchSlop) break
+                                        // Leftward past slop → this is a reply swipe; claim it.
+                                        if (totalX <= -touchSlop) claimed = true
+                                    }
+                                    if (claimed) {
+                                        change.consume()
+                                        offset = (offset + delta.x).coerceIn(-maxOffsetPx, 0f)
+                                        swipeScope.launch { swipeOffset.snapTo(offset) }
+                                        if (!swipeArmed && offset <= -triggerPx) {
+                                            swipeArmed = true
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        } else if (swipeArmed && offset > -triggerPx) {
+                                            swipeArmed = false
+                                        }
+                                    }
+                                }
+                                if (claimed && offset <= -triggerPx) currentOnReplyClick()
+                                swipeArmed = false
+                                swipeScope.launch { swipeOffset.animateTo(0f) }
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                ).background(
+                    when {
+                        isContextMenuOpen -> NostrordColors.SurfaceVariant
+                        // Hover tint is a desktop-only pointer affordance; a touch tap fires
+                        // isPressed too, so suppress it in compact/touch layouts.
+                        !swipeToReplyEnabled && (isHovered || isPressed) -> NostrordColors.MessageHover
+                        else -> highlightColor
+                    },
                 ),
         ) {
-            // Avatar column - 72dp total width
-            Box(
-                modifier = Modifier.width(Spacing.avatarColumnWidth - Spacing.messagePaddingHorizontal),
-                contentAlignment = Alignment.TopStart,
-            ) {
-                if (isFirstInGroup) {
-                    Box(
-                        modifier =
-                        Modifier
-                            .size(Spacing.avatarSize)
-                            .clip(CircleShape)
-                            .clickable { currentOnUsernameClick(message.pubkey) }
-                            .pointerHoverIcon(PointerIcon.Hand),
-                    ) {
-                        ProfileAvatar(
-                            imageUrl = metadata?.picture,
-                            displayName = displayName,
-                            pubkey = message.pubkey,
-                            size = Spacing.avatarSize,
-                        )
-                    }
-                } else if (isHovered) {
-                    // Show time on hover for grouped messages
-                    Text(
-                        text = formatTime(message.createdAt),
-                        color = NostrordColors.TextMuted,
-                        style = NostrordTypography.Timestamp,
-                        modifier = Modifier.padding(top = Spacing.xs),
-                    )
-                }
+            // Reply affordance revealed underneath the message as it slides left.
+            if (swipeToReplyEnabled && swipeOffset.value < 0f) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.Reply,
+                    contentDescription = null,
+                    tint = if (swipeArmed) NostrordColors.Primary else NostrordColors.TextMuted,
+                    modifier =
+                    Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = Spacing.messagePaddingHorizontal)
+                        .size(24.dp)
+                        .alpha((-swipeOffset.value / triggerPx).coerceIn(0f, 1f)),
+                )
             }
-
-            Column(modifier = Modifier.weight(1f)) {
-                // Header with name and time - only for first in group
-                if (isFirstInGroup) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = displayName,
-                            color = Color.White,
-                            style = NostrordTypography.Username,
+            // Main message content - this defines the Box size
+            Row(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
+                    .padding(
+                        start = Spacing.messagePaddingHorizontal,
+                        end = Spacing.messagePaddingHorizontal,
+                        top = Spacing.messageGroupGap,
+                        bottom = Spacing.messageGroupGap,
+                    ),
+            ) {
+                // Avatar column - 72dp total width
+                Box(
+                    modifier = Modifier.width(Spacing.avatarColumnWidth - Spacing.messagePaddingHorizontal),
+                    contentAlignment = Alignment.TopStart,
+                ) {
+                    if (isFirstInGroup) {
+                        Box(
                             modifier =
                             Modifier
+                                .size(Spacing.avatarSize)
+                                .clip(CircleShape)
                                 .clickable { currentOnUsernameClick(message.pubkey) }
                                 .pointerHoverIcon(PointerIcon.Hand),
-                        )
-                        Spacer(modifier = Modifier.width(Spacing.sm))
+                        ) {
+                            ProfileAvatar(
+                                imageUrl = metadata?.picture,
+                                displayName = displayName,
+                                pubkey = message.pubkey,
+                                size = Spacing.avatarSize,
+                            )
+                        }
+                    } else if (isHovered) {
+                        // No padding/fixed height: this lives in the main Row, so any
+                        // extra vertical footprint here would grow the row on hover.
                         Text(
                             text = formatTime(message.createdAt),
                             color = NostrordColors.TextMuted,
                             style = NostrordTypography.Timestamp,
                         )
                     }
-                    Spacer(modifier = Modifier.height(Spacing.xs))
                 }
 
-                // Reply preview — shown whenever this message is a reply,
-                // even if the parent hasn't loaded yet (ReplyPreview handles null with a placeholder)
-                if (replyParentId != null) {
-                    ReplyPreview(
-                        parentMessage = resolvedParentMessage,
-                        parentMetadata = parentMetadata,
-                        resolveMetadata = resolveMetadata,
-                        onReplyClick = { onScrollToMessage(replyParentId) },
-                    )
-                    Spacer(modifier = Modifier.height(Spacing.xs))
-                }
+                Column(modifier = Modifier.weight(1f)) {
+                    // Header with name and time - only for first in group
+                    if (isFirstInGroup) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = displayName,
+                                color = Color.White,
+                                style = NostrordTypography.Username,
+                                modifier =
+                                Modifier
+                                    .clickable { currentOnUsernameClick(message.pubkey) }
+                                    .pointerHoverIcon(PointerIcon.Hand),
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.sm))
+                            Text(
+                                text = formatTime(message.createdAt),
+                                color = NostrordColors.TextMuted,
+                                style = NostrordTypography.Timestamp,
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                    }
 
-                // Message content with NIP-30 custom emoji support
-                MessageContent(
-                    content = message.content,
-                    tags = message.tags,
-                    onMentionClick = currentOnUsernameClick,
-                    onHashtagClick = { hashtag ->
-                        // TODO: Implement hashtag click handler (e.g., search for hashtag)
-                    },
-                    currentGroupId = currentGroupId,
-                    currentRelayUrl = currentRelayUrl,
-                    onNavigateToGroup = onNavigateToGroup,
-                )
+                    // Reply preview — shown whenever this message is a reply,
+                    // even if the parent hasn't loaded yet (ReplyPreview handles null with a placeholder)
+                    if (replyParentId != null) {
+                        ReplyPreview(
+                            parentMessage = resolvedParentMessage,
+                            parentMetadata = parentMetadata,
+                            resolveMetadata = resolveMetadata,
+                            onReplyClick = { onScrollToMessage(replyParentId) },
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                    }
 
-                // Reaction badges
-                if (reactions.isNotEmpty()) {
-                    ReactionBadges(
-                        reactions = reactions,
-                        currentUserPubkey = currentUserPubkey,
-                        resolveMetadata = resolveMetadata,
-                        onReactionClick = onReactionBadgeClick,
+                    // Message content with NIP-30 custom emoji support
+                    MessageContent(
+                        content = message.content,
+                        tags = message.tags,
+                        onMentionClick = currentOnUsernameClick,
+                        onHashtagClick = { hashtag ->
+                            // TODO: Implement hashtag click handler (e.g., search for hashtag)
+                        },
+                        currentGroupId = currentGroupId,
+                        currentRelayUrl = currentRelayUrl,
+                        onNavigateToGroup = onNavigateToGroup,
                     )
+
+                    // Reaction badges
+                    if (reactions.isNotEmpty()) {
+                        ReactionBadges(
+                            reactions = reactions,
+                            currentUserPubkey = currentUserPubkey,
+                            resolveMetadata = resolveMetadata,
+                            onReactionClick = onReactionBadgeClick,
+                        )
+                    }
                 }
             }
-        }
 
-        // Overlay layer for hover actions - uses matchParentSize to not affect layout
-        // This Box matches parent size exactly, then positions content inside
-        Box(
-            modifier =
-            Modifier
-                .matchParentSize() // Critical: doesn't affect parent measurement
-                .padding(end = Spacing.sm),
-            contentAlignment = Alignment.TopEnd,
-        ) {
-            // Hover actions - fade in/out without affecting layout
-            androidx.compose.animation.AnimatedVisibility(
-                visible = showActions && !isContextMenuOpen,
-                enter = fadeIn(animationSpec = tween(NostrordAnimation.actionsAppear)),
-                exit = fadeOut(animationSpec = tween(NostrordAnimation.actionsDisappear)),
+            // Overlay layer for hover actions - uses matchParentSize to not affect layout
+            // This Box matches parent size exactly, then positions content inside
+            Box(
+                modifier =
+                Modifier
+                    .matchParentSize() // Critical: doesn't affect parent measurement
+                    .padding(end = Spacing.sm),
+                contentAlignment = Alignment.TopEnd,
             ) {
-                // DisableSelection prevents toolbar from being part of text selection
-                DisableSelection {
-                    MessageActions(
-                        onReplyClick = currentOnReplyClick,
-                        onReactionClick = currentOnReactionClick,
-                        onMoreClick = { onContextMenuOpenChange(true) },
-                    )
+                // Hover actions - fade in/out without affecting layout
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showActions && !isContextMenuOpen,
+                    enter = fadeIn(animationSpec = tween(NostrordAnimation.actionsAppear)),
+                    exit = fadeOut(animationSpec = tween(NostrordAnimation.actionsDisappear)),
+                ) {
+                    // DisableSelection prevents toolbar from being part of text selection
+                    DisableSelection {
+                        MessageActions(
+                            onReplyClick = currentOnReplyClick,
+                            onReactionClick = currentOnReactionClick,
+                            onMoreClick = { onContextMenuOpenChange(true) },
+                        )
+                    }
                 }
             }
-        }
 
-        // Context menu - appears on right-click or "More" click
-        // This is a Popup so it floats outside the layout tree
-        MessageContextMenu(
-            visible = isContextMenuOpen,
-            onDismiss = { onContextMenuOpenChange(false) },
-            onAction = { action ->
-                when (action) {
-                    MessageContextAction.AddReaction -> currentOnReactionClick()
-                    MessageContextAction.Reply -> currentOnReplyClick()
-                    MessageContextAction.CopyText -> currentOnCopyText()
-                    MessageContextAction.CopyMessageLink -> currentOnCopyLink()
-                    MessageContextAction.ShareMessageLink -> currentOnShareLink()
-                    MessageContextAction.CopyEventJson -> currentOnCopyJson()
-                    MessageContextAction.PinMessage -> currentOnPinMessage()
-                    MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
-                }
-            },
-            isAuthor = isAuthor,
-            isAdmin = isAdmin,
-        )
+            // Context menu - appears on right-click or "More" click
+            // This is a Popup so it floats outside the layout tree
+            MessageContextMenu(
+                visible = isContextMenuOpen,
+                onDismiss = { onContextMenuOpenChange(false) },
+                onAction = { action ->
+                    when (action) {
+                        MessageContextAction.AddReaction -> currentOnReactionClick()
+                        MessageContextAction.Reply -> currentOnReplyClick()
+                        MessageContextAction.CopyText -> currentOnCopyText()
+                        MessageContextAction.CopyMessageLink -> currentOnCopyLink()
+                        MessageContextAction.ShareMessageLink -> currentOnShareLink()
+                        MessageContextAction.CopyEventJson -> currentOnCopyJson()
+                        MessageContextAction.PinMessage -> currentOnPinMessage()
+                        MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
+                    }
+                },
+                isAuthor = isAuthor,
+                isAdmin = isAdmin,
+            )
+        }
     }
 }
 
@@ -543,7 +559,7 @@ private fun ActionButton(
     Box(
         modifier =
         Modifier
-            .size(28.dp) // Fixed size for touch target
+            .size(Spacing.messageActionButtonSize)
             .clip(NostrordShapes.channelItemShape)
             .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
             .hoverable(interactionSource)

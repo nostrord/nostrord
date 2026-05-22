@@ -147,6 +147,7 @@ fun GroupScreenMobile(
     targetMessageId: String? = null,
     onTargetConsumed: () -> Unit = {},
     onFetchTargetById: (String) -> Unit = {},
+    onInputOverlayVisibilityChange: (Boolean) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     var showMemberSheet by remember { mutableStateOf(false) }
@@ -286,6 +287,7 @@ fun GroupScreenMobile(
                         onCancelReply = onCancelReply,
                         isSending = isSending,
                         onMediaUploaded = onMediaUploaded,
+                        onOverlayVisibilityChange = onInputOverlayVisibilityChange,
                     )
                 }
             }

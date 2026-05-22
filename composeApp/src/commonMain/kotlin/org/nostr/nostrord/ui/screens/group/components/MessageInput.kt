@@ -91,6 +91,7 @@ fun MessageInput(
     onCancelReply: () -> Unit = {},
     isSending: Boolean = false,
     onMediaUploaded: (UploadResult) -> Unit = {},
+    onOverlayVisibilityChange: (Boolean) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val clipboardReader = rememberClipboardImageReader()
@@ -106,6 +107,11 @@ fun MessageInput(
     var groupMentionQuery by remember { mutableStateOf("") }
     var groupMentionSelectedIndex by remember { mutableStateOf(0) }
     var showEmojiPicker by remember { mutableStateOf(false) }
+    val anyOverlayOpen = showMentionPopup || showGroupMentionPopup || showEmojiPicker
+    val currentOnOverlayVisibilityChange by rememberUpdatedState(onOverlayVisibilityChange)
+    LaunchedEffect(anyOverlayOpen) {
+        currentOnOverlayVisibilityChange(anyOverlayOpen)
+    }
     val focusRequester = remember { FocusRequester() }
     val showEmojiButton = remember {
         val platform = getPlatform().name

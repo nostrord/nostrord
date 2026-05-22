@@ -119,6 +119,7 @@ fun GroupScreenDesktop(
     targetMessageId: String? = null,
     onTargetConsumed: () -> Unit = {},
     onFetchTargetById: (String) -> Unit = {},
+    onInputOverlayVisibilityChange: (Boolean) -> Unit = {},
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -233,6 +234,7 @@ fun GroupScreenDesktop(
                 onCancelReply = onCancelReply,
                 isSending = isSending,
                 onMediaUploaded = onMediaUploaded,
+                onOverlayVisibilityChange = onInputOverlayVisibilityChange,
             )
         }
 
