@@ -502,6 +502,7 @@ fun MessagesList(
                                                     closeContextMenu()
                                                 }
                                             },
+                                            onCopyText = { copyToClipboard(item.message.content) },
                                             onCopyLink = {
                                                 val relay = currentRelayUrl ?: return@MessageItem
                                                 copyToClipboard(buildShareMessageLink(relay, groupId, item.message.id))
