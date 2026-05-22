@@ -426,6 +426,9 @@ object AppModule {
                     }
                 }
             },
+            // Drop a group's notifications from the feed the moment its unread
+            // badge is cleared, so opening/reading a chat clears both (issue #67).
+            onGroupRead = { groupId -> notificationHistoryStore.markReadForGroup(groupId) },
         )
     }
 

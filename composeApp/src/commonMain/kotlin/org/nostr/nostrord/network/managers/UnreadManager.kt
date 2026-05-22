@@ -20,6 +20,9 @@ class UnreadManager(
     private val onReplyNotify: ((groupId: String, message: NostrGroupClient.NostrMessage) -> Unit)? = null,
     private val onMentionNotify: ((groupId: String, message: NostrGroupClient.NostrMessage) -> Unit)? = null,
     private val onReactionNotify: ((groupId: String, reaction: NostrGroupClient.NostrReaction) -> Unit)? = null,
+    // Called when a group is marked read so the notification feed can drop the
+    // group's entries in lockstep with the unread badge (issue #67).
+    private val onGroupRead: ((groupId: String) -> Unit)? = null,
 ) {
 
     private val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -97,6 +100,7 @@ class UnreadManager(
         SecureStorage.saveLastReadTimestamp(pubkey, groupId, epochSeconds())
         _unreadCounts.update { it + (groupId to 0) }
         persistEntries()
+        onGroupRead?.invoke(groupId)
     }
 
     fun getLastReadTimestamp(groupId: String): Long? = currentPubkey?.let { SecureStorage.getLastReadTimestamp(it, groupId) }
