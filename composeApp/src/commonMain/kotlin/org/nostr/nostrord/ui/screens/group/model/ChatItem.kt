@@ -11,6 +11,17 @@ private const val MESSAGE_GROUP_WINDOW_SECONDS = 5 * 60
 private const val SYSTEM_EVENT_GROUP_WINDOW_SECONDS = 2 * 60
 
 /**
+ * Kind of system event, used to pick a distinct icon and color per moderation action
+ * instead of inferring it from the (translatable) action text.
+ */
+enum class SystemEventType {
+    JOINED, // kind 9021 — user joined
+    ROLE_CHANGED, // kind 9000 with role(s) — admin set/changed a member's role
+    REMOVED, // kind 9001 — admin removed a member
+    LEFT, // kind 9022 — user left
+}
+
+/**
  * Sealed class representing different types of chat items.
  * Marked as @Immutable for Compose stability to prevent unnecessary recompositions.
  */
@@ -35,6 +46,7 @@ sealed class ChatItem {
         val action: String,
         val createdAt: Long,
         val id: String,
+        val type: SystemEventType,
         val additionalUsers: List<String> = emptyList(), // Additional pubkeys for grouped events
     ) : ChatItem() {
         val totalUsers: Int get() = 1 + additionalUsers.size
@@ -86,12 +98,6 @@ fun buildChatItems(
     var newMessagesDividerInserted = false
 
     val sortedMessages = messages.sortedBy { it.createdAt }
-
-    // Map of pubkey → list of timestamps for join requests (kind 9021).
-    // Used to suppress kind 9000 that is just the relay auto-confirming a join.
-    val joinRequestTimestamps: Map<String, List<Long>> = sortedMessages
-        .filter { it.kind == 9021 }
-        .groupBy({ it.pubkey }, { it.createdAt })
 
     // Map of pubkey → list of timestamps for leave requests (kind 9022).
     // Used to suppress kind 9001 that is just the relay auto-confirming a leave.
@@ -203,21 +209,20 @@ fun buildChatItems(
                 lastMessagePubkey = null
                 lastMessageTime = null
             }
-            // kind 9000 (put-user): not shown in chat — entry is already
-            // covered by kind 9021 "joined the group". The relay emits 9000
-            // as an automatic confirmation; only kind 9001 (removal) is a
-            // meaningful moderation action to display.
             9000 -> {
-                // Show "was added" only when an admin manually added someone.
-                // Suppress if the target sent a kind 9021 join request within 5 min
-                // (that means the relay auto-confirmed the join, already shown as "joined").
-                val targetPubkey = message.tags.firstOrNull { it.firstOrNull() == "p" }?.getOrNull(1)
-                val hasRecentJoinRequest = targetPubkey != null &&
-                    joinRequestTimestamps[targetPubkey]?.any {
-                        kotlin.math.abs(message.createdAt - it) <= 5 * 60
-                    } == true
-                if (targetPubkey != null && !hasRecentJoinRequest) {
-                    val action = "was added to the group"
+                // kind 9000 (put-user) is reused both to add a member and to set/remove
+                // roles. Only a role *assignment* carries role names in the "p" tag
+                // (["p", <pubkey>, "<role>", ...]) and can be classified from the event
+                // alone, so we show "is now <role>" for those. A no-role 9000 is
+                // ambiguous (plain add vs. role removal) and the relay does not serve it
+                // back reliably, so it is suppressed to avoid lines that flicker or
+                // vanish on reload (issue #66).
+                val pTag = message.tags.firstOrNull { it.firstOrNull() == "p" }
+                val targetPubkey = pTag?.getOrNull(1)
+                val roles = pTag?.drop(2)?.filter { it.isNotBlank() } ?: emptyList()
+
+                if (targetPubkey != null && roles.isNotEmpty()) {
+                    val action = "is now ${roles.joinToString(", ")}"
                     val pending = pendingSystemEvent
 
                     if (pending != null &&
@@ -232,6 +237,7 @@ fun buildChatItems(
                             action = action,
                             createdAt = message.createdAt,
                             id = message.id,
+                            type = SystemEventType.ROLE_CHANGED,
                         )
                     }
 
@@ -264,6 +270,7 @@ fun buildChatItems(
                             action = action,
                             createdAt = message.createdAt,
                             id = message.id,
+                            type = SystemEventType.REMOVED,
                         )
                     }
 
@@ -290,6 +297,7 @@ fun buildChatItems(
                         action = action,
                         createdAt = message.createdAt,
                         id = message.id,
+                        type = SystemEventType.JOINED,
                     )
                 }
 
@@ -316,6 +324,7 @@ fun buildChatItems(
                         action = action,
                         createdAt = message.createdAt,
                         id = message.id,
+                        type = SystemEventType.LEFT,
                     )
                 }
 

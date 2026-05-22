@@ -460,6 +460,7 @@ fun MessagesList(
                                             pubkey = item.pubkey,
                                             action = item.action,
                                             createdAt = item.createdAt,
+                                            type = item.type,
                                             metadata = userMetadata[item.pubkey],
                                             additionalUsers = item.additionalUsers,
                                             allUserMetadata = userMetadata,
