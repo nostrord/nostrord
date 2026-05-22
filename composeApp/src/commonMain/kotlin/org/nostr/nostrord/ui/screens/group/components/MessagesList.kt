@@ -329,7 +329,7 @@ fun MessagesList(
     }
 
     CompositionLocalProvider(
-        LocalAnimatedImageHidden provides (parentHidden || imageViewerUrl.value != null),
+        LocalAnimatedImageHidden provides (parentHidden || imageViewerUrl.value != null || reactingToMessageId != null),
         LocalImageViewerUrl provides imageViewerUrl,
     ) {
         when {

@@ -157,6 +157,7 @@ fun GroupScreen(
     var showMemberManagementModal by remember { mutableStateOf(false) }
     var showInviteCodesModal by remember { mutableStateOf(false) }
     var showCreateSubgroupModal by remember { mutableStateOf(false) }
+    var inputOverlayOpen by remember { mutableStateOf(false) }
     var createdInviteCode by remember { mutableStateOf<String?>(null) }
     var resolvedRequestPubkeys by remember(groupId) { mutableStateOf(emptySet<String>()) }
     val isJoined =
@@ -702,7 +703,8 @@ fun GroupScreen(
             showMemberSheet ||
             memberToRemove != null ||
             showJoinRequestsModal ||
-            showInviteCodesModal
+            showInviteCodesModal ||
+            inputOverlayOpen
     CompositionLocalProvider(LocalAnimatedImageHidden provides anyDialogOpen) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val isCompact = !forceDesktop
@@ -811,6 +813,7 @@ fun GroupScreen(
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,
                     onFetchTargetById = { id -> vm.fetchMessageById(id) },
+                    onInputOverlayVisibilityChange = { inputOverlayOpen = it },
                 )
             } else {
                 GroupScreenDesktop(
@@ -918,6 +921,7 @@ fun GroupScreen(
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,
                     onFetchTargetById = { id -> vm.fetchMessageById(id) },
+                    onInputOverlayVisibilityChange = { inputOverlayOpen = it },
                 )
             }
         }
