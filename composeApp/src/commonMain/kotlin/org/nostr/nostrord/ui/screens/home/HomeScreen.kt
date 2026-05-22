@@ -35,6 +35,7 @@ fun HomeScreen(
     val pendingDeepLinkRelay by vm.pendingDeepLinkRelay.collectAsState()
     val kind10009Relays by vm.kind10009Relays.collectAsState()
     val restrictedRelays by vm.restrictedRelays.collectAsState()
+    val fullGroupListFetchedRelays by vm.fullGroupListFetchedRelays.collectAsState()
 
     val displayRelayUrl = relayUrl ?: currentRelayUrl
     val relayMeta: Nip11RelayInfo? = relayMetadata[displayRelayUrl]
@@ -76,6 +77,21 @@ fun HomeScreen(
         mutableStateOf(if (hasJoinedGroups) GroupFilter.Joined else GroupFilter.All)
     }
     var isManagingRelay by remember(displayRelayUrl) { mutableStateOf(false) }
+
+    // On a lazy relay only the joined groups are fetched up front; the full kind:39000
+    // list is loaded on demand. The sidebar triggers that fetch when OTHER GROUPS is
+    // expanded — mirror it here so switching to the All tab also pulls the full list.
+    val isGroupFetchLazy = remember(displayRelayUrl) { vm.isGroupFetchLazy(displayRelayUrl) }
+    val hasFullGroupList =
+        remember(displayRelayUrl, fullGroupListFetchedRelays) {
+            displayRelayUrl.normalizeRelayUrl() in fullGroupListFetchedRelays
+        }
+    // Need a fetch if it hasn't happened this session, or if the in-memory list still
+    // holds only joined groups (so the All tab would otherwise look identical to Joined).
+    val needsFullGroupFetch =
+        remember(hasFullGroupList, groups, joinedGroupIds) {
+            !hasFullGroupList || groups.none { it.id !in joinedGroupIds }
+        }
 
     val orphanedIds =
         remember(displayRelayUrl, orphanedJoinedByRelay) {
@@ -147,6 +163,16 @@ fun HomeScreen(
         val isReachabilityError =
             connectionState is ConnectionManager.ConnectionState.Error ||
                 connectionState is ConnectionManager.ConnectionState.Reconnecting
+
+        // Selecting the All tab on a lazy relay must trigger the full group list fetch,
+        // the same way expanding OTHER GROUPS in the sidebar does. isRelayConnected is a key
+        // so the fetch re-fires once the WebSocket handshake completes if the tab opened first.
+        val isRelayConnected = connectionState is ConnectionManager.ConnectionState.Connected
+        LaunchedEffect(activeFilter, isGroupFetchLazy, needsFullGroupFetch, isRelayConnected) {
+            if (activeFilter == GroupFilter.All && isGroupFetchLazy && needsFullGroupFetch && isRelayConnected) {
+                vm.requestFullGroupList(displayRelayUrl)
+            }
+        }
 
         val onRemoveRelayConfirmed: () -> Unit = {
             vm.removeRelay(displayRelayUrl)
