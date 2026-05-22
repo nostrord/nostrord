@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.utils.Result
 
@@ -155,6 +156,7 @@ class GroupViewModel(
     fun addUser(
         targetPubkey: String,
         roles: List<String> = emptyList(),
+        successMessage: String = "User added to the group",
     ) {
         viewModelScope.launch {
             when (val result = repo.addUser(groupId, targetPubkey, roles)) {
@@ -166,7 +168,9 @@ class GroupViewModel(
                             .removePrefix("error: ")
                             .replaceFirstChar { it.uppercaseChar() }
                 }
-                is Result.Success -> Unit
+                // A kind:9000 (add / role change) is not reliably rendered in the
+                // timeline, so confirm the action to the admin who triggered it.
+                is Result.Success -> AppModule.postSystemMessage(successMessage)
             }
         }
     }
@@ -182,22 +186,22 @@ class GroupViewModel(
                             .removePrefix("error: ")
                             .replaceFirstChar { it.uppercaseChar() }
                 }
-                is Result.Success -> Unit
+                is Result.Success -> AppModule.postSystemMessage("User removed from the group")
             }
         }
     }
 
     fun promoteToAdmin(targetPubkey: String) {
-        addUser(targetPubkey, listOf("admin"))
+        addUser(targetPubkey, listOf("admin"), successMessage = "User promoted to admin")
     }
 
     fun demoteFromAdmin(targetPubkey: String) {
         // Re-add user without admin role to demote
-        addUser(targetPubkey, emptyList())
+        addUser(targetPubkey, emptyList(), successMessage = "Admin role removed")
     }
 
     fun approveJoinRequest(targetPubkey: String) {
-        addUser(targetPubkey)
+        addUser(targetPubkey, successMessage = "Join request approved")
     }
 
     fun rejectJoinRequest(joinRequestEventId: String) {

@@ -73,6 +73,11 @@ object AppModule {
     private val _systemMessages = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
     val systemMessages: kotlinx.coroutines.flow.SharedFlow<String> = _systemMessages
 
+    /** Surface a one-shot transient confirmation/notice to the user (snackbar). */
+    fun postSystemMessage(message: String) {
+        _systemMessages.tryEmit(message)
+    }
+
     val authManager: AuthManager by lazy {
         AuthManager(accountStore).also { am ->
             am.onSessionInvalidated = { invalidatedPubkey ->
