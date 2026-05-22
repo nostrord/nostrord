@@ -67,7 +67,14 @@ fun HomeScreen(
         }
 
     var searchQuery by remember(displayRelayUrl) { mutableStateOf("") }
-    var activeFilter by remember(displayRelayUrl) { mutableStateOf(GroupFilter.All) }
+    // Default to the Joined tab whenever this relay has joined groups: when opening
+    // a relay we already belong to, and the moment the user joins their first group
+    // (the empty -> non-empty flip re-runs this). Keyed on the boolean rather than the
+    // set itself so a deliberate switch to All isn't undone on every join/leave.
+    val hasJoinedGroups = joinedGroupIds.isNotEmpty()
+    var activeFilter by remember(displayRelayUrl, hasJoinedGroups) {
+        mutableStateOf(if (hasJoinedGroups) GroupFilter.Joined else GroupFilter.All)
+    }
     var isManagingRelay by remember(displayRelayUrl) { mutableStateOf(false) }
 
     val orphanedIds =
