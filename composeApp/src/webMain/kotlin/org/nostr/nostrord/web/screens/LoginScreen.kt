@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.nostr.Nip07
+import org.nostr.nostrord.web.mock.mockLogin
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -147,7 +148,7 @@ val LoginScreen =
                                 button {
                                     className = ClassName("login-primary")
                                     disabled = privateKey.isBlank()
-                                    onClick = { }
+                                    onClick = { mockLogin() }
                                     +"Login"
                                 }
                                 div {
@@ -222,7 +223,7 @@ val LoginScreen =
                                         button {
                                             className = ClassName("login-primary")
                                             disabled = bunkerUrl.isBlank()
-                                            onClick = { }
+                                            onClick = { mockLogin() }
                                             +"Connect to Bunker"
                                         }
                                     }
@@ -261,7 +262,7 @@ val LoginScreen =
                                     }
                                     button {
                                         className = ClassName("login-primary")
-                                        onClick = { }
+                                        onClick = { mockLogin() }
                                         +"Connect Extension"
                                     }
                                 }
