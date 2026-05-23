@@ -10,6 +10,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.viewProfile
 import org.nostr.nostrord.web.navigation.navigate
+import org.nostr.nostrord.web.upload.UploadButton
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -333,6 +334,11 @@ val GroupScreen =
 
                 div {
                     className = ClassName("chat-composer")
+                    UploadButton {
+                        label = "📎"
+                        accept = "image/*,video/*,audio/*"
+                        onUploaded = { url -> setInput { prev -> (if (prev.isBlank()) "" else prev.trimEnd() + " ") + url } }
+                    }
                     textarea {
                         className = ClassName("chat-input")
                         value = input

@@ -7,6 +7,7 @@ import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.navigation.navigate
+import org.nostr.nostrord.web.upload.UploadButton
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -72,6 +73,7 @@ val ProfileScreen =
         val (name, setName) = useState { meta?.name ?: "" }
         val (about, setAbout) = useState { meta?.about ?: "" }
         val (picture, setPicture) = useState { meta?.picture ?: "" }
+        val (banner, setBanner) = useState { meta?.banner ?: "" }
         val (nip05, setNip05) = useState { meta?.nip05 ?: "" }
         val (lud16, setLud16) = useState { meta?.lud16 ?: "" }
         val (website, setWebsite) = useState { meta?.website ?: "" }
@@ -93,7 +95,7 @@ val ProfileScreen =
                         name.ifBlank { null },
                         about.ifBlank { null },
                         picture.ifBlank { null },
-                        meta?.banner,
+                        banner.ifBlank { null },
                         nip05.ifBlank { null },
                         lud16.ifBlank { null },
                         website.ifBlank { null },
@@ -122,6 +124,17 @@ val ProfileScreen =
             }
 
             labeledInput("Picture URL", picture, busy) { setPicture(it) }
+            UploadButton {
+                label = "Upload image"
+                accept = "image/*"
+                onUploaded = { setPicture(it) }
+            }
+            labeledInput("Banner URL", banner, busy) { setBanner(it) }
+            UploadButton {
+                label = "Upload banner"
+                accept = "image/*"
+                onUploaded = { setBanner(it) }
+            }
             labeledInput("NIP-05", nip05, busy) { setNip05(it) }
             labeledInput("Lightning address (lud16)", lud16, busy) { setLud16(it) }
             labeledInput("Website", website, busy) { setWebsite(it) }

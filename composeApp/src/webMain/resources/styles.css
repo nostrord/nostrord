@@ -334,6 +334,35 @@ body {
     margin: 10px 0 4px;
 }
 
+.hidden-file-input {
+    display: none;
+}
+
+.upload-btn {
+    display: inline-block;
+    align-self: flex-start;
+    margin: 2px 0 8px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--color-text-content);
+    background: var(--color-surface-variant);
+    border: 1px solid var(--color-divider);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.upload-btn:hover {
+    background: var(--color-divider);
+}
+
+.chat-composer .upload-btn {
+    align-self: stretch;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    font-size: 18px;
+}
+
 .app-shell textarea {
     width: 100%;
     max-width: 360px;
