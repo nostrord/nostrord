@@ -426,6 +426,41 @@ body {
     border-radius: 8px;
     display: block;
     margin-top: 4px;
+    cursor: zoom-in;
+}
+
+.chat-video {
+    max-width: 400px;
+    max-height: 360px;
+    border-radius: 8px;
+    display: block;
+    margin-top: 4px;
+}
+
+.chat-audio {
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    margin-top: 4px;
+}
+
+.image-viewer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.85);
+    cursor: zoom-out;
+}
+
+.image-viewer-img {
+    max-width: 95vw;
+    max-height: 95vh;
+    object-fit: contain;
+    border-radius: 4px;
 }
 
 .chat-link {

@@ -13,11 +13,13 @@ import react.ChildrenBuilder
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.a
+import react.dom.html.ReactHTML.audio
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
+import react.dom.html.ReactHTML.video
 import react.useEffect
 import react.useState
 import web.cssom.ClassName
@@ -36,10 +38,22 @@ private const val GROUP_WINDOW_SECONDS = 300L
 
 private val urlRegex = Regex("""https?://\S+""")
 
+private fun extOf(url: String): String = url.lowercase().substringBefore('?').substringBefore('#')
+
 private fun isImageUrl(url: String): Boolean {
-    val u = url.lowercase().substringBefore('?').substringBefore('#')
+    val u = extOf(url)
     return u.endsWith(".jpg") || u.endsWith(".jpeg") || u.endsWith(".png") ||
         u.endsWith(".gif") || u.endsWith(".webp") || u.endsWith(".svg") || u.endsWith(".avif")
+}
+
+private fun isVideoUrl(url: String): Boolean {
+    val u = extOf(url)
+    return u.endsWith(".mp4") || u.endsWith(".webm") || u.endsWith(".mov") || u.endsWith(".m4v")
+}
+
+private fun isAudioUrl(url: String): Boolean {
+    val u = extOf(url)
+    return u.endsWith(".mp3") || u.endsWith(".ogg") || u.endsWith(".wav") || u.endsWith(".m4a") || u.endsWith(".flac")
 }
 
 private fun formatTime(epochSeconds: Long): String {
@@ -62,26 +76,40 @@ private fun ChildrenBuilder.memberAvatar(picture: String?, label: String) {
     }
 }
 
-/** Split message content into text runs, inline images and links. */
-private fun ChildrenBuilder.renderMessageContent(content: String) {
+/** Split message content into text runs, inline images/video/audio and links. */
+private fun ChildrenBuilder.renderMessageContent(content: String, onImageClick: (String) -> Unit) {
     var last = 0
     for (match in urlRegex.findAll(content)) {
         if (match.range.first > last) {
             +content.substring(last, match.range.first)
         }
         val url = match.value
-        if (isImageUrl(url)) {
-            img {
-                className = ClassName("chat-image")
-                src = url
-                alt = ""
-            }
-        } else {
-            a {
-                className = ClassName("chat-link")
-                href = url
-                +url
-            }
+        when {
+            isImageUrl(url) ->
+                img {
+                    className = ClassName("chat-image")
+                    src = url
+                    alt = ""
+                    onClick = { onImageClick(url) }
+                }
+            isVideoUrl(url) ->
+                video {
+                    className = ClassName("chat-video")
+                    src = url
+                    controls = true
+                }
+            isAudioUrl(url) ->
+                audio {
+                    className = ClassName("chat-audio")
+                    src = url
+                    controls = true
+                }
+            else ->
+                a {
+                    className = ClassName("chat-link")
+                    href = url
+                    +url
+                }
         }
         last = match.range.last + 1
     }
@@ -91,9 +119,9 @@ private fun ChildrenBuilder.renderMessageContent(content: String) {
 }
 
 /**
- * Group chat — Discord-style grouped messages + a 240px member sidebar (admins/members),
- * inline images/links, reactions, reply context, composer with reply banner. All driven
- * by shared Kotlin via the bridge.
+ * Group chat — grouped messages with inline media (images open full-screen, native
+ * video/audio players), links, reactions, reply context; member sidebar; composer with
+ * reply banner. All driven by shared Kotlin via the bridge.
  */
 val GroupScreen =
     FC<GroupScreenProps> { props ->
@@ -105,6 +133,7 @@ val GroupScreen =
         val (input, setInput) = useState { "" }
         val (sending, setSending) = useState { false }
         val (replyingTo, setReplyingTo) = useState<NostrMessage?> { null }
+        val (viewerImage, setViewerImage) = useState<String?> { null }
 
         val messages = (messagesByGroup[props.groupId] ?: emptyList()).sortedBy { it.createdAt }
         val messagesById = messages.associateBy { it.id }
@@ -119,7 +148,8 @@ val GroupScreen =
                 ?: (pubkey.take(8) + "…")
         }
 
-        fun replyParentId(message: NostrMessage): String? = message.tags.find { it.size >= 2 && it[0] == "q" && it[1].length == 64 }?.get(1)
+        fun replyParentId(message: NostrMessage): String? =
+            message.tags.find { it.size >= 2 && it[0] == "q" && it[1].length == 64 }?.get(1)
 
         useEffect(props.groupId) {
             AppModule.nostrRepository.requestGroupMessages(props.groupId)
@@ -242,7 +272,7 @@ val GroupScreen =
 
                                 div {
                                     className = ClassName("chat-content")
-                                    renderMessageContent(message.content)
+                                    renderMessageContent(message.content) { setViewerImage(it) }
                                 }
 
                                 if (!messageReactions.isNullOrEmpty()) {
@@ -361,6 +391,18 @@ val GroupScreen =
                                 +authorName(pubkey)
                             }
                         }
+                    }
+                }
+            }
+
+            viewerImage?.let { url ->
+                div {
+                    className = ClassName("image-viewer-overlay")
+                    onClick = { setViewerImage(null) }
+                    img {
+                        className = ClassName("image-viewer-img")
+                        src = url
+                        alt = ""
                     }
                 }
             }
