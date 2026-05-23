@@ -4,8 +4,12 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.QrCode
@@ -293,6 +297,18 @@ private fun QrCodeLoginContent(
             )
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Advanced: per-session, user-overridable nostrconnect relays.
+        val relays by vm.nostrConnectRelays.collectAsState()
+        NostrConnectRelaysSection(
+            relays = relays,
+            onApply = { newRelays ->
+                vm.setNostrConnectRelays(newRelays)
+                sessionKey++
+            },
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
 
         // Waiting status
@@ -368,6 +384,151 @@ private fun QrCodeLoginContent(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Try Again", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/**
+ * Collapsible editor for the nostrconnect:// relays. Collapsed by default so the
+ * common case stays clean; expanding lets the user fix a flaky relay. "Apply"
+ * persists the list and the caller regenerates the QR with it.
+ */
+@Composable
+private fun NostrConnectRelaysSection(
+    relays: List<String>,
+    onApply: (List<String>) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    // Local editable copy, re-seeded whenever the applied list changes.
+    var editable by remember(relays) { mutableStateOf(relays) }
+    var newRelay by remember { mutableStateOf("") }
+    val dirty = editable != relays
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(NostrordShapes.shapeSmall)
+                .clickable { expanded = !expanded }
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+                tint = NostrordColors.TextSecondary,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                "Advanced — signer relays",
+                color = NostrordColors.TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        if (expanded) {
+            Text(
+                "The signer connects through these relays. Change them if the QR won't connect.",
+                color = NostrordColors.TextMuted,
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            editable.forEachIndexed { index, relay ->
+                Row(
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        relay,
+                        color = NostrordColors.TextMuted,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(
+                        onClick = {
+                            editable = editable.toMutableList().also { it.removeAt(index) }
+                        },
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Remove relay",
+                            tint = NostrordColors.TextMuted,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+            OutlinedTextField(
+                value = newRelay,
+                onValueChange = { newRelay = it },
+                placeholder = {
+                    Text("wss://relay.example.com", color = NostrordColors.TextMuted)
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = LocalTextStyle.current.copy(color = Color.White),
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            val r = newRelay.trim()
+                            if (r.startsWith("wss://") && r !in editable) {
+                                editable = editable + r
+                                newRelay = ""
+                            }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add relay",
+                            tint = NostrordColors.Primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                },
+                shape = NostrordShapes.inputShape,
+                colors =
+                OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = NostrordColors.Primary,
+                    unfocusedBorderColor = NostrordColors.SurfaceVariant,
+                    focusedContainerColor = NostrordColors.InputBackground,
+                    unfocusedContainerColor = NostrordColors.InputBackground,
+                ),
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = { onApply(editable) },
+                enabled = dirty && editable.isNotEmpty(),
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = NostrordShapes.buttonShape,
+                colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = NostrordColors.Primary,
+                    contentColor = Color.White,
+                ),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QrCode,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Apply & regenerate QR", fontWeight = FontWeight.SemiBold)
             }
         }
     }

@@ -80,6 +80,9 @@ class SessionManager(
         authManager.clearAuthUrl()
     }
 
+    /** Default relays seeding the nostrconnect:// QR login (user-overridable). */
+    val defaultNostrConnectRelays: List<String> = authManager.defaultNostrConnectRelays
+
     /**
      * Create a nostrconnect:// session for QR code login
      */

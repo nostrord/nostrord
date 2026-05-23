@@ -486,6 +486,8 @@ class NostrRepository(
         Result.Error(AppError.Auth.BunkerError(e.message ?: "Bunker connection failed", e))
     }
 
+    override val defaultNostrConnectRelays: List<String> = sessionManager.defaultNostrConnectRelays
+
     override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, org.nostr.nostrord.nostr.Nip46Client> = sessionManager.createNostrConnectSession(relays)
 
     override suspend fun completeNostrConnectLogin(

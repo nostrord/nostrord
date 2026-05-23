@@ -143,6 +143,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         return loginWithBunkerAction(bunkerUrl)
     }
 
+    override val defaultNostrConnectRelays: List<String> = listOf("wss://relay.nsec.app")
+
     override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, Nip46Client> = error("createNostrConnectSession not implemented in fake")
 
     override suspend fun completeNostrConnectLogin(
