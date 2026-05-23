@@ -61,4 +61,18 @@ fun mockLogin() {
 
 fun mockLogout() {
     mockLoggedIn.value = false
+    mockHasRelays.value = false
+}
+
+/**
+ * Whether the logged-in account has any relay yet. A fresh account starts with none, so
+ * login lands on the onboarding screen until the first relay is added — mirrors the real
+ * first-run flow (login → onboarding → shell).
+ */
+private val mockHasRelays = MutableStateFlow(false)
+
+val mockRelaysState: StateFlow<Boolean> = mockHasRelays.asStateFlow()
+
+fun mockAddRelay() {
+    mockHasRelays.value = true
 }

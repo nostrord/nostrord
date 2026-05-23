@@ -1,9 +1,16 @@
 package org.nostr.nostrord.web
 
 import kotlinx.browser.window
+import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.mock.Mock
 import org.nostr.nostrord.web.mock.MockGroup
+import org.nostr.nostrord.web.mock.mockAddRelay
 import org.nostr.nostrord.web.mock.mockLogout
+import org.nostr.nostrord.web.mock.mockRelaysState
+import org.nostr.nostrord.web.modals.AddRelayModal
+import org.nostr.nostrord.web.modals.CreateGroupModal
+import org.nostr.nostrord.web.modals.JoinGroupModal
+import org.nostr.nostrord.web.screens.OnboardingScreen
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -25,6 +32,15 @@ val AppShell =
         val (selectedGroup, setSelectedGroup) = useState<MockGroup?> { null }
         val (menuOpen, setMenuOpen) = useState { false }
         val (copied, setCopied) = useState { false }
+        val (modal, setModal) = useState<String?> { null }
+        val (relayTab, setRelayTab) = useState { 0 }
+        val hasRelays = useStateFlow(mockRelaysState)
+
+        // Open the Add-relay modal on a given tab (0 = Suggested, 1 = Custom URL).
+        val openRelay: (Int) -> Unit = { tab ->
+            setRelayTab(tab)
+            setModal("relay")
+        }
 
         div {
             className = ClassName(if (drawerOpen) "layout drawer-open" else "layout")
@@ -47,24 +63,27 @@ val AppShell =
                     className = ClassName("server-rail")
                     div {
                         className = ClassName("rail-scroll")
-                        Mock.relays.forEachIndexed { index, relay ->
-                            div {
-                                key = relay.url
-                                className = ClassName(if (index == 0) "rail-item active" else "rail-item")
+                        if (hasRelays) {
+                            Mock.relays.forEachIndexed { index, relay ->
                                 div {
-                                    className = ClassName("avatar-tile rail-icon avatar-fallback")
-                                    +relay.name.take(1).uppercase()
-                                }
-                                if (relay.unread > 0) {
-                                    span {
-                                        className = ClassName("rail-badge")
-                                        +relay.unread.toString()
+                                    key = relay.url
+                                    className = ClassName(if (index == 0) "rail-item active" else "rail-item")
+                                    div {
+                                        className = ClassName("avatar-tile rail-icon avatar-fallback")
+                                        +relay.name.take(1).uppercase()
+                                    }
+                                    if (relay.unread > 0) {
+                                        span {
+                                            className = ClassName("rail-badge")
+                                            +relay.unread.toString()
+                                        }
                                     }
                                 }
                             }
                         }
                         div {
                             className = ClassName("rail-item")
+                            onClick = { openRelay(0) }
                             div {
                                 className = ClassName("avatar-tile rail-icon rail-add")
                                 +"+"
@@ -93,48 +112,74 @@ val AppShell =
                     className = ClassName("groups-sidebar")
                     div {
                         className = ClassName("sidebar-header")
-                        +Mock.activeRelay.name
+                        +(if (hasRelays) Mock.activeRelay.name else "No Relay")
                     }
-                    div {
-                        className = ClassName("sidebar-scroll")
+                    if (hasRelays) {
                         div {
-                            className = ClassName("sidebar-section-title")
-                            +"My groups"
-                        }
-                        Mock.groups.forEach { group ->
+                            className = ClassName("sidebar-scroll")
                             div {
-                                key = group.id
-                                className = ClassName(if (selectedGroup?.id == group.id) "sidebar-group selected" else "sidebar-group")
-                                onClick = {
-                                    setSelectedGroup(group)
-                                    setDrawerOpen(false)
-                                }
+                                className = ClassName("sidebar-section-title")
+                                +"My groups"
+                            }
+                            Mock.groups.forEach { group ->
                                 div {
-                                    className = ClassName("avatar-tile group-icon-sm avatar-fallback")
-                                    +group.name.take(1).uppercase()
-                                }
-                                span {
-                                    className = ClassName("sidebar-group-name")
-                                    +group.name
-                                }
-                                if (group.unread > 0) {
+                                    key = group.id
+                                    className = ClassName(if (selectedGroup?.id == group.id) "sidebar-group selected" else "sidebar-group")
+                                    onClick = {
+                                        setSelectedGroup(group)
+                                        setDrawerOpen(false)
+                                    }
+                                    div {
+                                        className = ClassName("avatar-tile group-icon-sm avatar-fallback")
+                                        +group.name.take(1).uppercase()
+                                    }
                                     span {
-                                        className = ClassName("sidebar-unread")
-                                        +group.unread.toString()
+                                        className = ClassName("sidebar-group-name")
+                                        +group.name
+                                    }
+                                    if (group.unread > 0) {
+                                        span {
+                                            className = ClassName("sidebar-unread")
+                                            +group.unread.toString()
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    div {
-                        className = ClassName("sidebar-footer")
-                        button {
-                            className = ClassName("sidebar-btn-primary")
-                            +"Create group"
+                        div {
+                            className = ClassName("sidebar-footer")
+                            button {
+                                className = ClassName("sidebar-btn-primary")
+                                onClick = { setModal("create") }
+                                +"Create group"
+                            }
+                            button {
+                                className = ClassName("sidebar-btn-secondary")
+                                onClick = { setModal("join") }
+                                +"Join group"
+                            }
                         }
-                        button {
-                            className = ClassName("sidebar-btn-secondary")
-                            +"Join group"
+                    } else {
+                        // No relay yet — empty state mirroring the Compose GroupsNavSidebar
+                        div {
+                            className = ClassName("sidebar-empty")
+                            div {
+                                className = ClassName("sidebar-empty-hash")
+                                +"#"
+                            }
+                            div {
+                                className = ClassName("sidebar-empty-title")
+                                +"No groups yet"
+                            }
+                            div {
+                                className = ClassName("sidebar-empty-desc")
+                                +"Add a relay first, then you can browse and join groups or create your own."
+                            }
+                            button {
+                                className = ClassName("sidebar-empty-btn")
+                                onClick = { openRelay(0) }
+                                +"Add a Relay"
+                            }
                         }
                     }
                 }
@@ -143,16 +188,23 @@ val AppShell =
             // Content
             div {
                 className = ClassName("content")
-                div {
-                    className = ClassName("home-welcome")
+                if (!hasRelays) {
+                    OnboardingScreen {
+                        onAddRelay = { openRelay(0) }
+                        onAddRelayCustomUrl = { openRelay(1) }
+                    }
+                } else {
                     div {
-                        className = ClassName("home-welcome-inner")
-                        if (selectedGroup != null) {
-                            h1 { +selectedGroup.name }
-                            p { +"Chat view coming next." }
-                        } else {
-                            h1 { +"Nostrord" }
-                            p { +"Select a group from the sidebar to start chatting." }
+                        className = ClassName("home-welcome")
+                        div {
+                            className = ClassName("home-welcome-inner")
+                            if (selectedGroup != null) {
+                                h1 { +selectedGroup.name }
+                                p { +"Chat view coming next." }
+                            } else {
+                                h1 { +"Nostrord" }
+                                p { +"Select a group from the sidebar to start chatting." }
+                            }
                         }
                     }
                 }
@@ -215,22 +267,34 @@ val AppShell =
                                     }
                                 }
                                 if (account.active) {
-                                    span { className = ClassName("me-check"); +"✓" }
+                                    span {
+                                        className = ClassName("me-check")
+                                        +"✓"
+                                    }
                                 }
-                                button { className = ClassName("me-delete"); +"🗑" }
+                                button {
+                                    className = ClassName("me-delete")
+                                    +"🗑"
+                                }
                             }
                         }
                         div { className = ClassName("me-divider") }
 
                         div {
                             className = ClassName("me-action")
-                            span { className = ClassName("me-action-icon"); +"＋" }
+                            span {
+                                className = ClassName("me-action-icon")
+                                +"＋"
+                            }
                             span { +"Add account" }
                         }
                         div { className = ClassName("me-divider") }
                         div {
                             className = ClassName("me-action")
-                            span { className = ClassName("me-action-icon"); +"⚙" }
+                            span {
+                                className = ClassName("me-action-icon")
+                                +"⚙"
+                            }
                             span { +"Settings" }
                         }
                         div { className = ClassName("me-divider") }
@@ -240,11 +304,28 @@ val AppShell =
                                 setMenuOpen(false)
                                 mockLogout()
                             }
-                            span { className = ClassName("me-action-icon"); +"⤴" }
+                            span {
+                                className = ClassName("me-action-icon")
+                                +"⤴"
+                            }
                             span { +"Sign out" }
                         }
                     }
                 }
+            }
+
+            when (modal) {
+                "create" -> CreateGroupModal { onClose = { setModal(null) } }
+                "join" -> JoinGroupModal { onClose = { setModal(null) } }
+                "relay" ->
+                    AddRelayModal {
+                        initialTab = relayTab
+                        onClose = { setModal(null) }
+                        onAdded = {
+                            mockAddRelay()
+                            setModal(null)
+                        }
+                    }
             }
         }
     }

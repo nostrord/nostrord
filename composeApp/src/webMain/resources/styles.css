@@ -614,6 +614,53 @@ body {
     cursor: pointer;
 }
 
+/* groups sidebar — no-relay empty state (mirrors Compose GroupsNavSidebar) */
+.sidebar-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 16px;
+}
+
+.sidebar-empty-hash {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--color-text-muted);
+}
+
+.sidebar-empty-title {
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.sidebar-empty-desc {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--color-text-muted);
+}
+
+.sidebar-empty-btn {
+    margin-top: 16px;
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.sidebar-empty-btn:hover {
+    background: var(--color-primary-variant);
+}
+
 .content {
     flex: 1;
     min-width: 0;
@@ -839,6 +886,580 @@ body {
         inset: 0;
         z-index: 35;
         background: rgba(0, 0, 0, 0.5);
+    }
+}
+
+/* ---------- Modals (Create group / Join group / Add relay) ---------- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.modal-card {
+    width: 90%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 24px;
+    background: var(--color-surface);
+    border-radius: 16px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.modal-card.sm {
+    max-width: 420px;
+}
+
+/* relay modal: header + tabs are fixed, list scrolls inside */
+.modal-card.relay-modal {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    max-height: 560px;
+}
+
+.modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.relay-modal .modal-header {
+    padding: 20px 12px 16px 20px;
+    margin-bottom: 0;
+}
+
+.modal-header-text {
+    flex: 1;
+}
+
+.modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.modal-subtitle {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+}
+
+.modal-subtitle.tight {
+    margin-bottom: 16px;
+}
+
+.modal-close {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    background: var(--color-surface-variant);
+    color: var(--color-text-primary);
+}
+
+.field-label {
+    margin-top: 16px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+
+.field-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+}
+
+.inline-link {
+    color: var(--color-primary);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.modal-input,
+.modal-textarea,
+.modal-select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--color-text-primary);
+    background: var(--color-input);
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    outline: none;
+}
+
+.modal-textarea {
+    resize: vertical;
+    min-height: 76px;
+    line-height: 1.4;
+}
+
+.modal-input:focus,
+.modal-textarea:focus,
+.modal-select:focus {
+    border-color: var(--color-primary);
+}
+
+.modal-input::placeholder,
+.modal-textarea::placeholder {
+    color: var(--color-text-muted);
+}
+
+.modal-select {
+    appearance: none;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2372767d' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+}
+
+.upload-field {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.modal-input.flush {
+    flex: 1;
+}
+
+.upload-btn {
+    flex-shrink: 0;
+    padding: 0 14px;
+    font-size: 16px;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.upload-btn:hover {
+    color: var(--color-text-primary);
+}
+
+.access-section-title {
+    margin-top: 24px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+}
+
+.access-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    padding: 12px 14px;
+    background: var(--color-surface-variant);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.access-icon {
+    font-size: 15px;
+    opacity: 0.8;
+}
+
+.access-text {
+    flex: 1;
+}
+
+.access-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.access-desc {
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+.switch {
+    flex-shrink: 0;
+    width: 40px;
+    height: 22px;
+    padding: 2px;
+    background: var(--color-input);
+    border-radius: 11px;
+    transition: background 0.15s ease;
+}
+
+.switch.on {
+    background: var(--color-primary);
+}
+
+.switch-thumb {
+    width: 18px;
+    height: 18px;
+    background: var(--color-text-muted);
+    border-radius: 50%;
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.switch.on .switch-thumb {
+    background: #ffffff;
+    transform: translateX(18px);
+}
+
+.modal-error {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--color-error);
+}
+
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 24px;
+}
+
+.modal-footer.flush {
+    margin-top: 0;
+    padding: 12px 20px;
+    background: var(--color-background-dark);
+}
+
+.btn-text {
+    padding: 9px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn-text:hover {
+    color: var(--color-text-primary);
+}
+
+.btn-primary {
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    background: var(--color-primary-variant);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+/* Add-relay tabs */
+.modal-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--color-surface-variant);
+}
+
+.modal-tab {
+    flex: 1;
+    padding: 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+}
+
+.modal-tab.selected {
+    color: var(--color-text-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+.relay-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.relay-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--color-background-dark);
+    border-radius: 8px;
+}
+
+.relay-card-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    font-size: 17px;
+    font-weight: 700;
+    border-radius: 8px;
+}
+
+.relay-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.relay-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.relay-card-url {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.relay-card-desc {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.relay-add-btn {
+    flex-shrink: 0;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.relay-add-btn:hover {
+    background: var(--color-primary-variant);
+}
+
+.relay-add-btn.added {
+    color: var(--color-text-muted);
+    background: var(--color-surface-variant);
+    cursor: default;
+}
+
+.relay-custom {
+    flex: 1;
+    padding: 16px 20px;
+}
+
+.relay-custom .access-section-title {
+    margin-top: 0;
+}
+
+@media (max-width: 600px) {
+    .modal-card {
+        width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .modal-card.relay-modal {
+        max-height: 100vh;
+    }
+}
+
+/* ---------- Onboarding (logged in, no relay yet) — fills the shell content column ---------- */
+.onboarding-page {
+    width: 100%;
+    min-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-background);
+}
+
+.onboarding-inner {
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 40px 24px;
+}
+
+.onboarding-logo {
+    width: 88px;
+    height: 88px;
+    border-radius: 20px;
+    object-fit: cover;
+}
+
+.onboarding-title {
+    margin: 20px 0 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.onboarding-desc {
+    margin: 8px 0 0;
+    max-width: 400px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--color-text-muted);
+}
+
+.onboarding-steps {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin: 28px 0;
+    align-items: stretch;
+}
+
+.onboarding-step {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 16px;
+    background: var(--color-background-dark);
+    border-radius: 10px;
+}
+
+.onboarding-step-badge {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #ffffff;
+    background: var(--color-primary);
+    border-radius: 50%;
+}
+
+.onboarding-step-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.onboarding-step-desc {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-text-muted);
+}
+
+.onboarding-btn {
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-text-primary);
+}
+
+.onboarding-btn.primary {
+    padding: 12px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    background: var(--color-primary);
+}
+
+.onboarding-btn.primary:hover {
+    background: var(--color-primary-variant);
+}
+
+.onboarding-btn.secondary {
+    margin-top: 8px;
+    padding: 10px 28px;
+    font-size: 13px;
+    font-weight: 500;
+    background: var(--color-surface);
+}
+
+.onboarding-btn.secondary:hover {
+    background: var(--color-surface-variant);
+}
+
+@media (max-width: 912px) {
+    .onboarding-logo {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+    }
+
+    .onboarding-title {
+        font-size: 20px;
+    }
+
+    .onboarding-desc {
+        font-size: 14px;
+    }
+
+    .onboarding-steps {
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .onboarding-step {
+        flex-direction: row;
+        align-items: center;
+        gap: 14px;
+        width: 100%;
+        max-width: 280px;
+        text-align: left;
+    }
+
+    .onboarding-btn {
+        width: 100%;
+        max-width: 280px;
     }
 }
 
