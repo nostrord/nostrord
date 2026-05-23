@@ -340,6 +340,14 @@ fun GroupScreen(
         vm.markAsRead()
     }
 
+    // Re-mark the open group as read when the app regains focus: messages that
+    // arrived while active-but-unfocused are now on screen, so clear their
+    // notification-feed entries instead of leaving a stale count.
+    val isAppFocused by AppModule.focusTracker.isAppFocused.collectAsState()
+    LaunchedEffect(isAppFocused) {
+        if (isAppFocused) vm.markAsRead()
+    }
+
     LaunchedEffect(selectedChannel) {
         vm.requestGroupMessages(selectedChannel)
     }

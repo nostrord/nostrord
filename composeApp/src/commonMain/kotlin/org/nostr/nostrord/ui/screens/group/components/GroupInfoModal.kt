@@ -9,9 +9,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,8 +39,10 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -171,6 +176,44 @@ fun GroupInfoModal(
                                 onMentionClick = onUserClick,
                             )
                         }
+
+                        // Notifications — per-group override of the global default.
+                        val notificationSettings = AppModule.notificationSettings
+                        val groupLevels by notificationSettings.groupLevels.collectAsState()
+                        val defaultLevel by notificationSettings.defaultLevel.collectAsState()
+                        val effectiveLevel = groupLevels[groupId] ?: defaultLevel
+
+                        Spacer(modifier = Modifier.height(Spacing.lg))
+
+                        Text(
+                            text = "NOTIFICATIONS",
+                            style = NostrordTypography.SectionHeader,
+                            color = NostrordColors.TextMuted,
+                        )
+
+                        Spacer(modifier = Modifier.height(Spacing.sm))
+
+                        NotificationLevelOption(
+                            icon = Icons.Default.Notifications,
+                            label = "All messages",
+                            description = "Notify for every message in this group.",
+                            selected = effectiveLevel == NotificationLevel.ALL,
+                            onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.ALL) },
+                        )
+                        NotificationLevelOption(
+                            icon = Icons.Default.Notifications,
+                            label = "Mentions & replies only",
+                            description = "Notify on replies, @mentions, and reactions to your messages.",
+                            selected = effectiveLevel == NotificationLevel.MENTIONS_REPLIES,
+                            onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.MENTIONS_REPLIES) },
+                        )
+                        NotificationLevelOption(
+                            icon = Icons.Default.NotificationsOff,
+                            label = "Muted",
+                            description = "Silence everything, including replies, mentions and reactions.",
+                            selected = effectiveLevel == NotificationLevel.MUTED,
+                            onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.MUTED) },
+                        )
 
                         // Group ID
                         Spacer(modifier = Modifier.height(Spacing.lg))
@@ -384,6 +427,59 @@ private fun StatusBadge(
                 style = NostrordTypography.Caption,
                 color = color,
                 fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+/**
+ * Selectable row for a per-group [NotificationLevel] choice. Shows a check on
+ * the currently effective level.
+ */
+@Composable
+private fun NotificationLevelOption(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(vertical = Spacing.sm, horizontal = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) NostrordColors.Primary else NostrordColors.TextSecondary,
+            modifier = Modifier.size(20.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = NostrordTypography.MessageBody,
+                color = if (selected) Color.White else NostrordColors.TextContent,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            Text(
+                text = description,
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextMuted,
+            )
+        }
+        if (selected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Selected",
+                tint = NostrordColors.Primary,
+                modifier = Modifier.size(18.dp),
             )
         }
     }
