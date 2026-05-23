@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.utils.Result
@@ -84,6 +85,8 @@ val ProfileScreen =
         val systemNotifications = useStateFlow(AppModule.notificationSettings.systemNotificationsEnabled)
         val subgroupsEnabled = useStateFlow(AppModule.featureFlags.subgroupsEnabled)
         val notifPermission = useStateFlow(AppModule.notificationService.permission)
+        val userRelayList = useStateFlow(AppModule.nostrRepository.userRelayList)
+        val (newNip65, setNewNip65) = useState { "" }
 
         fun save() {
             setBusy(true)
@@ -187,6 +190,84 @@ val ProfileScreen =
                         onClick = { AppModule.notificationService.requestPermission() }
                         +"Enable browser notifications"
                     }
+                }
+            }
+
+            h2 { +"Relays (NIP-65)" }
+            p {
+                className = ClassName("muted")
+                +"Where your profile and activity are published and read."
+            }
+            userRelayList.forEach { relay ->
+                div {
+                    key = relay.url
+                    className = ClassName("nip65-row")
+                    span {
+                        className = ClassName("nip65-url")
+                        +relay.url.removePrefix("wss://").removePrefix("ws://")
+                    }
+                    label {
+                        className = ClassName("nip65-toggle")
+                        input {
+                            type = InputType.checkbox
+                            checked = relay.read
+                            onChange = { event ->
+                                val read = event.currentTarget.checked
+                                launchApp {
+                                    AppModule.nostrRepository.publishRelayList(
+                                        userRelayList.map { if (it.url == relay.url) it.copy(read = read) else it },
+                                    )
+                                }
+                            }
+                        }
+                        span { +"R" }
+                    }
+                    label {
+                        className = ClassName("nip65-toggle")
+                        input {
+                            type = InputType.checkbox
+                            checked = relay.write
+                            onChange = { event ->
+                                val write = event.currentTarget.checked
+                                launchApp {
+                                    AppModule.nostrRepository.publishRelayList(
+                                        userRelayList.map { if (it.url == relay.url) it.copy(write = write) else it },
+                                    )
+                                }
+                            }
+                        }
+                        span { +"W" }
+                    }
+                    button {
+                        className = ClassName("nip65-remove")
+                        onClick = {
+                            launchApp {
+                                AppModule.nostrRepository.publishRelayList(userRelayList.filter { it.url != relay.url })
+                            }
+                        }
+                        +"×"
+                    }
+                }
+            }
+            div {
+                className = ClassName("nip65-add")
+                input {
+                    className = ClassName("modal-input")
+                    placeholder = "wss://relay…"
+                    value = newNip65
+                    onChange = { event -> setNewNip65(event.currentTarget.value) }
+                }
+                button {
+                    className = ClassName("secondary")
+                    disabled = newNip65.isBlank()
+                    onClick = {
+                        val url = newNip65.trim()
+                        if (url.isNotBlank()) {
+                            launchApp { AppModule.nostrRepository.publishRelayList(userRelayList + Nip65Relay(url)) }
+                            setNewNip65("")
+                        }
+                    }
+                    +"Add"
                 }
             }
         }

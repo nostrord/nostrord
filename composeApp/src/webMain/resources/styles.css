@@ -429,6 +429,59 @@ body {
     margin: 0;
 }
 
+.nip65-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 480px;
+    padding: 6px 0;
+}
+
+.nip65-url {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    color: var(--color-text-content);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nip65-toggle {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+
+.app-shell .nip65-toggle input {
+    width: auto;
+    max-width: none;
+    margin: 0;
+}
+
+.nip65-remove {
+    background: transparent;
+    border: 0;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.nip65-add {
+    display: flex;
+    gap: 8px;
+    max-width: 480px;
+    margin-top: 8px;
+}
+
+.app-shell .nip65-add input {
+    flex: 1;
+    margin-bottom: 0;
+}
+
 .create-form {
     display: flex;
     flex-direction: column;
