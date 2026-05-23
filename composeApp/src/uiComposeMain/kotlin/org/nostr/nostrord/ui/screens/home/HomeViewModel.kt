@@ -21,8 +21,16 @@ class HomeViewModel(
     val pendingDeepLinkRelay = repo.pendingDeepLinkRelay
     val kind10009Relays = repo.kind10009Relays
     val restrictedRelays = repo.restrictedRelays
+    val fullGroupListFetchedRelays = repo.fullGroupListFetchedRelays
 
     fun getPublicKey() = repo.getPublicKey()
+
+    fun isGroupFetchLazy(relayUrl: String) = repo.isGroupFetchLazy(relayUrl)
+
+    /** Lazily fetch the relay's full group list (kind:39000). No-op if already in flight. */
+    fun requestFullGroupList(relayUrl: String) {
+        viewModelScope.launch { repo.requestFullGroupListForRelay(relayUrl) }
+    }
 
     fun connect() {
         viewModelScope.launch { repo.connect() }

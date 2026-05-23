@@ -73,6 +73,11 @@ object AppModule {
     private val _systemMessages = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 4)
     val systemMessages: kotlinx.coroutines.flow.SharedFlow<String> = _systemMessages
 
+    /** Surface a one-shot transient confirmation/notice to the user (snackbar). */
+    fun postSystemMessage(message: String) {
+        _systemMessages.tryEmit(message)
+    }
+
     val authManager: AuthManager by lazy {
         AuthManager(accountStore).also { am ->
             am.onSessionInvalidated = { invalidatedPubkey ->
@@ -239,6 +244,12 @@ object AppModule {
             isAppFocused = { focusTracker.isAppFocused.value },
             findMessageAuthor = { messageId ->
                 groupManager.findMessageByIdAcrossGroups(messageId)?.second?.pubkey
+            },
+            shouldNotify = { groupId, isDirect ->
+                notificationSettings.shouldNotify(
+                    notificationSettings.effectiveLevelFor(groupId),
+                    isDirect,
+                )
             },
             onUnreadIncrement = { groupId, message, _ ->
                 val selfPubkey = sessionManager.getPublicKey()
@@ -421,6 +432,9 @@ object AppModule {
                     }
                 }
             },
+            // Drop a group's notifications from the feed the moment its unread
+            // badge is cleared, so opening/reading a chat clears both (issue #67).
+            onGroupRead = { groupId -> notificationHistoryStore.markReadForGroup(groupId) },
         )
     }
 
@@ -445,6 +459,7 @@ object AppModule {
             liveCursorStore = liveCursorStore,
             connStats = connStats,
             notificationHistoryStore = notificationHistoryStore,
+            notificationSettings = notificationSettings,
             scope = appScope,
         )
     }
@@ -503,6 +518,7 @@ object AppModule {
         } catch (_: Throwable) {}
         groupManager.clear()
         unreadManager.clear()
+        notificationSettings.clear()
         notificationHistoryStore.clear()
         // OutboxManager owns the per-account kind:10009 relay list and the
         // user's NIP-65 relay list. Without clearing here, the previous
@@ -522,6 +538,7 @@ object AppModule {
             groupManager.setCurrentPubkey(account.pubkey)
             pendingEventManager.setCurrentPubkey(account.pubkey)
             unreadManager.initialize(account.pubkey)
+            notificationSettings.initialize(account.pubkey)
             notificationHistoryStore.initialize(account.pubkey)
             // Restore the new account's saved relay (no-op if they don't have
             // one yet — a freshly added account starts with a blank rail).

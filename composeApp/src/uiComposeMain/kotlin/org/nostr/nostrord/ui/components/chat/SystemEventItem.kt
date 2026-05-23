@@ -6,6 +6,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,6 +33,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.screens.group.model.SystemEventType
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.formatTimestamp
 
@@ -44,13 +47,26 @@ fun SystemEventItem(
     pubkey: String,
     action: String,
     createdAt: Long,
+    type: SystemEventType,
     metadata: UserMetadata? = null,
     additionalUsers: List<String> = emptyList(),
     allUserMetadata: Map<String, UserMetadata> = emptyMap(),
 ) {
-    val isJoinEvent = action.contains("joined", ignoreCase = true)
     val totalUsers = 1 + additionalUsers.size
-    val accentColor = if (isJoinEvent) NostrordColors.Success else NostrordColors.TextMuted
+    val accentColor =
+        when (type) {
+            SystemEventType.JOINED -> NostrordColors.Success
+            SystemEventType.ROLE_CHANGED -> NostrordColors.WarningOrange
+            SystemEventType.REMOVED -> NostrordColors.Error
+            SystemEventType.LEFT -> NostrordColors.TextMuted
+        }
+    val eventIcon =
+        when (type) {
+            SystemEventType.JOINED -> Icons.AutoMirrored.Filled.Login
+            SystemEventType.ROLE_CHANGED -> Icons.Filled.Shield
+            SystemEventType.REMOVED -> Icons.Filled.PersonRemove
+            SystemEventType.LEFT -> Icons.AutoMirrored.Filled.Logout
+        }
 
     Row(
         modifier =
@@ -70,7 +86,7 @@ fun SystemEventItem(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = if (isJoinEvent) Icons.AutoMirrored.Filled.Login else Icons.AutoMirrored.Filled.Logout,
+                imageVector = eventIcon,
                 contentDescription = null,
                 modifier = Modifier.size(14.dp),
                 tint = accentColor,

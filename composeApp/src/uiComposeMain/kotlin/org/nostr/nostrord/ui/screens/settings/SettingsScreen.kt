@@ -52,6 +52,7 @@ import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.storage.PassphraseSettings
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
@@ -936,6 +937,7 @@ private fun NotificationsPanelContent() {
 
     val soundEnabled by settings.soundEnabled.collectAsState()
     val systemEnabled by settings.systemNotificationsEnabled.collectAsState()
+    val defaultLevel by settings.defaultLevel.collectAsState()
     val permission by notificationService.permission.collectAsState()
     val systemSupported = remember { notificationService.isSupported() }
 
@@ -969,6 +971,49 @@ private fun NotificationsPanelContent() {
                         Text("Test sound", color = NostrordColors.Primary, fontSize = 13.sp)
                     }
                 }
+            }
+        }
+
+        // ── Default notification level card ──
+        // Sets the fallback level for every group the user hasn't overridden via
+        // a group's own info screen (issue #70).
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+        ) {
+            Column(modifier = Modifier.padding(Spacing.xl)) {
+                Text(
+                    text = "Default for new groups",
+                    color = NostrordColors.TextContent,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                )
+                Text(
+                    text = "Applied to groups you haven't set individually. Change a " +
+                        "single group from its info screen.",
+                    color = NostrordColors.TextSecondary,
+                    fontSize = 13.sp,
+                )
+                Spacer(Modifier.height(Spacing.md))
+                NotificationLevelRow(
+                    label = "All messages",
+                    description = "Notify for every message.",
+                    selected = defaultLevel == NotificationLevel.ALL,
+                    onClick = { settings.setDefaultLevel(NotificationLevel.ALL) },
+                )
+                NotificationLevelRow(
+                    label = "Mentions & replies only",
+                    description = "Notify on replies, @mentions, and reactions to your messages.",
+                    selected = defaultLevel == NotificationLevel.MENTIONS_REPLIES,
+                    onClick = { settings.setDefaultLevel(NotificationLevel.MENTIONS_REPLIES) },
+                )
+                NotificationLevelRow(
+                    label = "Muted",
+                    description = "Silence everything, including replies, mentions and reactions.",
+                    selected = defaultLevel == NotificationLevel.MUTED,
+                    onClick = { settings.setDefaultLevel(NotificationLevel.MUTED) },
+                )
             }
         }
 
@@ -1077,6 +1122,46 @@ private fun ToggleRow(
             ),
             modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
         )
+    }
+}
+
+@Composable
+private fun NotificationLevelRow(
+    label: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = if (selected) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
+                fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
+            Text(
+                text = description,
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextMuted,
+            )
+        }
+        if (selected) {
+            Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = "Selected",
+                tint = NostrordColors.Primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
     }
 }
 

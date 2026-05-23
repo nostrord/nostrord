@@ -16,10 +16,18 @@ class UnreadManager(
     private val isRestricted: (String) -> Boolean = { false },
     private val isAppFocused: () -> Boolean = { true },
     private val findMessageAuthor: (messageId: String) -> String? = { null },
+    // Per-group notification gate (issue #70). `isDirect` is true for replies,
+    // mentions and reactions to the user's own message. Returning false suppresses
+    // the notification callbacks below WITHOUT touching the unread badge — a muted
+    // or "mentions only" group still accumulates its unread count.
+    private val shouldNotify: (groupId: String, isDirect: Boolean) -> Boolean = { _, _ -> true },
     private val onUnreadIncrement: ((groupId: String, latestMessage: NostrGroupClient.NostrMessage, delta: Int) -> Unit)? = null,
     private val onReplyNotify: ((groupId: String, message: NostrGroupClient.NostrMessage) -> Unit)? = null,
     private val onMentionNotify: ((groupId: String, message: NostrGroupClient.NostrMessage) -> Unit)? = null,
     private val onReactionNotify: ((groupId: String, reaction: NostrGroupClient.NostrReaction) -> Unit)? = null,
+    // Called when a group is marked read so the notification feed can drop the
+    // group's entries in lockstep with the unread badge (issue #67).
+    private val onGroupRead: ((groupId: String) -> Unit)? = null,
 ) {
 
     private val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
@@ -97,6 +105,7 @@ class UnreadManager(
         SecureStorage.saveLastReadTimestamp(pubkey, groupId, epochSeconds())
         _unreadCounts.update { it + (groupId to 0) }
         persistEntries()
+        onGroupRead?.invoke(groupId)
     }
 
     fun getLastReadTimestamp(groupId: String): Long? = currentPubkey?.let { SecureStorage.getLastReadTimestamp(it, groupId) }
@@ -149,12 +158,22 @@ class UnreadManager(
 
         // NIP-29 marks replies with a "q" (quote) tag; NIP-10 chats use "e".
         // Accept both so replies are classified correctly regardless of which
-        // client posted them.
+        // client posted them. A message counts as a reply to us when it is a
+        // reply event AND either we can confirm from cache that the parent is
+        // ours, or it directly p-tags us (set by the sender so we're notified
+        // even when the parent message isn't loaded locally — see #70).
         val latestReply = qualifying.filter { msg ->
-            msg.tags.any { tag ->
-                tag.size >= 2 &&
-                    (tag[0] == "q" || tag[0] == "e") &&
-                    findMessageAuthor(tag[1]) == pubkey
+            val isReplyEvent = msg.tags.any { it.size >= 2 && (it[0] == "q" || it[0] == "e") }
+            if (!isReplyEvent) {
+                false
+            } else {
+                val parentIsMine = msg.tags.any { tag ->
+                    tag.size >= 2 &&
+                        (tag[0] == "q" || tag[0] == "e") &&
+                        findMessageAuthor(tag[1]) == pubkey
+                }
+                val pTagsMe = msg.tags.any { it.size >= 2 && it[0] == "p" && it[1] == pubkey }
+                parentIsMine || pTagsMe
             }
         }.maxByOrNull { it.createdAt }
 
@@ -163,9 +182,14 @@ class UnreadManager(
         }.maxByOrNull { it.createdAt }
 
         when {
-            latestReply != null -> onReplyNotify?.invoke(groupId, latestReply)
-            latestMention != null -> onMentionNotify?.invoke(groupId, latestMention)
-            else -> onUnreadIncrement?.invoke(groupId, qualifying.maxBy { it.createdAt }, qualifying.size)
+            latestReply != null ->
+                if (shouldNotify(groupId, true)) onReplyNotify?.invoke(groupId, latestReply)
+            latestMention != null ->
+                if (shouldNotify(groupId, true)) onMentionNotify?.invoke(groupId, latestMention)
+            else ->
+                if (shouldNotify(groupId, false)) {
+                    onUnreadIncrement?.invoke(groupId, qualifying.maxBy { it.createdAt }, qualifying.size)
+                }
         }
     }
 
@@ -189,15 +213,28 @@ class UnreadManager(
             _latestMessageTimestamps.update { it + (groupId to reaction.createdAt) }
         }
 
+        // Mirror onMessagesFlushed's active/focus handling so reactions don't behave
+        // differently from messages for the group the user is looking at.
         val isActive = groupId == activeGroupId
-        if (!(isActive && isAppFocused())) {
+        // Active group + app focused: user is reading live — silent.
+        if (isActive && isAppFocused()) {
+            persistEntries()
+            return
+        }
+        // Only inactive groups bump the badge. An active-but-unfocused group still
+        // notifies below, but its badge stays clear — the group is open, so the
+        // reaction is seen on refocus (matches messages; fixes the relay count
+        // appearing for the group you're currently viewing).
+        if (!isActive) {
             _unreadCounts.update { current ->
                 current + (groupId to ((current[groupId] ?: 0) + 1))
             }
         }
         persistEntries()
 
-        onReactionNotify?.invoke(groupId, reaction)
+        // A reaction is always to the user's own message, so it counts as a
+        // direct interaction for the notification gate.
+        if (shouldNotify(groupId, true)) onReactionNotify?.invoke(groupId, reaction)
     }
 
     fun clear() {

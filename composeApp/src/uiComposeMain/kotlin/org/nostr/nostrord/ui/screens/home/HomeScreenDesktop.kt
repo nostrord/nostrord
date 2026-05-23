@@ -74,7 +74,7 @@ import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.ui.util.relayFallbackPainter
 import org.nostr.nostrord.utils.rememberClipboardWriter
 
-enum class GroupFilter { All, Joined }
+enum class GroupFilter { Mine, Other }
 
 @Composable
 fun HomeScreenDesktop(
@@ -283,10 +283,11 @@ private fun FilterBar(
     allCount: Int = 0,
     joinedCount: Int = 0,
 ) {
+    val otherCount = (allCount - joinedCount).coerceAtLeast(0)
     val filters =
         listOf(
-            GroupFilter.All to if (allCount > 0) "All ($allCount)" else "All",
-            GroupFilter.Joined to if (joinedCount > 0) "Joined ($joinedCount)" else "Joined",
+            GroupFilter.Mine to if (joinedCount > 0) "My Groups ($joinedCount)" else "My Groups",
+            GroupFilter.Other to if (otherCount > 0) "Other Groups ($otherCount)" else "Other Groups",
         )
 
     Row(

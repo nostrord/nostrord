@@ -67,6 +67,7 @@ class NostrRepository(
     private val liveCursorStore: LiveCursorStore? = null,
     private val connStats: ConnectionStats = ConnectionStats(),
     private val notificationHistoryStore: org.nostr.nostrord.notifications.NotificationHistoryStore? = null,
+    private val notificationSettings: org.nostr.nostrord.settings.NotificationSettings? = null,
     private val scope: CoroutineScope,
 ) : NostrRepositoryApi {
     private val json = Json { ignoreUnknownKeys = true }
@@ -321,6 +322,7 @@ class NostrRepository(
             if (activeRelay.isBlank() && savedRelays.isEmpty() && deepLinkRelay == null) {
                 if (pubkey != null) {
                     unreadManager.initialize(pubkey)
+                    notificationSettings?.initialize(pubkey)
                     notificationHistoryStore?.initialize(pubkey)
                     initializeOutboxModel()
                     scope.launch {
@@ -377,6 +379,7 @@ class NostrRepository(
                 groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
                 groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
                 unreadManager.initialize(pubkey)
+                notificationSettings?.initialize(pubkey)
                 notificationHistoryStore?.initialize(pubkey)
             }
             initializeOutboxModel()
@@ -577,6 +580,7 @@ class NostrRepository(
             // one missing it.
             connectionManager.loadSavedRelay()
             unreadManager.initialize(newPubkey)
+            notificationSettings?.initialize(newPubkey)
             notificationHistoryStore?.initialize(newPubkey)
             // Skip the outbox bootstrap for a freshly generated identity:
             // nothing has been published yet, so kind:10002 / kind:10009 fetches
@@ -602,6 +606,7 @@ class NostrRepository(
         outboxManager.clear()
         groupManager.clear()
         unreadManager.clear()
+        notificationSettings?.clear()
         notificationHistoryStore?.clear()
         liveCursorStore?.clear()
         relayPipelines.values.forEach { (_, pipeline) -> pipeline.close() }

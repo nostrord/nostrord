@@ -74,6 +74,22 @@ class NotificationHistoryStore {
         if (changed) persist()
     }
 
+    /** Mark every unread notification for [groupId] as read. No-op if none match. */
+    fun markReadForGroup(groupId: String) {
+        var changed = false
+        _entries.update { current ->
+            current.map {
+                if (it.groupId == groupId && !it.read) {
+                    changed = true
+                    it.copy(read = true)
+                } else {
+                    it
+                }
+            }
+        }
+        if (changed) persist()
+    }
+
     fun markAllRead() {
         _entries.update { current -> current.map { it.copy(read = true) } }
         persist()
