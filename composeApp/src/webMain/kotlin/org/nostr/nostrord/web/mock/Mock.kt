@@ -114,23 +114,10 @@ object Mock {
         )
 }
 
-private val mockLoggedIn = MutableStateFlow(false)
-
-val mockSession: StateFlow<Boolean> = mockLoggedIn.asStateFlow()
-
-fun mockLogin() {
-    mockLoggedIn.value = true
-}
-
-fun mockLogout() {
-    mockLoggedIn.value = false
-    mockHasRelays.value = false
-}
-
 /**
  * Whether the logged-in account has any relay yet. A fresh account starts with none, so
  * login lands on the onboarding screen until the first relay is added — mirrors the real
- * first-run flow (login → onboarding → shell).
+ * first-run flow (login → onboarding → shell). Still mock until relay data is wired.
  */
 private val mockHasRelays = MutableStateFlow(false)
 

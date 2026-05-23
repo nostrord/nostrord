@@ -2,10 +2,11 @@ package org.nostr.nostrord.web
 
 import kotlinx.browser.window
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.auth.WebAuth
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.mock.Mock
 import org.nostr.nostrord.web.mock.MockGroup
 import org.nostr.nostrord.web.mock.mockAddRelay
-import org.nostr.nostrord.web.mock.mockLogout
 import org.nostr.nostrord.web.mock.mockRelaysState
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
@@ -321,7 +322,7 @@ val AppShell =
                             className = ClassName("me-action danger")
                             onClick = {
                                 setMenuOpen(false)
-                                mockLogout()
+                                launchApp { WebAuth.logout() }
                             }
                             span {
                                 className = ClassName("me-action-icon")

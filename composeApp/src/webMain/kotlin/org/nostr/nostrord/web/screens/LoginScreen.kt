@@ -1,7 +1,8 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.nostr.Nip07
-import org.nostr.nostrord.web.mock.mockLogin
+import org.nostr.nostrord.web.auth.WebAuth
+import org.nostr.nostrord.web.bridge.launchApp
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -81,6 +82,19 @@ val LoginScreen =
         val (generatedKey, setGeneratedKey) = useState<String?> { null }
         val (bunkerMode, setBunkerMode) = useState { BunkerMode.Qr }
         val (bunkerUrl, setBunkerUrl) = useState { "" }
+        val (busy, setBusy) = useState { false }
+        val (error, setError) = useState<String?> { null }
+
+        // Run a login action; null result = success (the auth gate swaps to the shell).
+        fun runLogin(block: suspend () -> String?) {
+            setError(null)
+            setBusy(true)
+            launchApp {
+                val err = block()
+                setBusy(false)
+                if (err != null) setError(err)
+            }
+        }
 
         fun generate() {
             val hex =
@@ -124,6 +138,12 @@ val LoginScreen =
 
                     div {
                         className = ClassName("login-tab-content")
+                        error?.let {
+                            p {
+                                className = ClassName("login-error")
+                                +it
+                            }
+                        }
                         when (tab) {
                             Tab.Key -> {
                                 div {
@@ -147,9 +167,16 @@ val LoginScreen =
                                 }
                                 button {
                                     className = ClassName("login-primary")
-                                    disabled = privateKey.isBlank()
-                                    onClick = { mockLogin() }
-                                    +"Login"
+                                    disabled = privateKey.isBlank() || busy
+                                    onClick = {
+                                        runLogin {
+                                            WebAuth.loginWithPrivateKey(
+                                                privateKey,
+                                                isNewIdentity = generatedKey != null && privateKey == generatedKey,
+                                            )
+                                        }
+                                    }
+                                    +(if (busy) "Logging in…" else "Login")
                                 }
                                 div {
                                     className = ClassName("login-divider")
@@ -222,9 +249,9 @@ val LoginScreen =
                                         }
                                         button {
                                             className = ClassName("login-primary")
-                                            disabled = bunkerUrl.isBlank()
-                                            onClick = { mockLogin() }
-                                            +"Connect to Bunker"
+                                            disabled = bunkerUrl.isBlank() || busy
+                                            onClick = { runLogin { WebAuth.loginWithBunker(bunkerUrl) } }
+                                            +(if (busy) "Connecting…" else "Connect to Bunker")
                                         }
                                     }
                                 }
@@ -262,8 +289,9 @@ val LoginScreen =
                                     }
                                     button {
                                         className = ClassName("login-primary")
-                                        onClick = { mockLogin() }
-                                        +"Connect Extension"
+                                        disabled = busy
+                                        onClick = { runLogin { WebAuth.loginWithExtension() } }
+                                        +(if (busy) "Connecting…" else "Connect Extension")
                                     }
                                 }
                             }

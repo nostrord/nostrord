@@ -1,6 +1,8 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.nostr.Nip07
+import org.nostr.nostrord.web.auth.WebAuth
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.mock.Mock
 import react.ChildrenBuilder
 import react.FC
@@ -40,7 +42,21 @@ val AddAccountSheet =
         val (generatedKey, setGeneratedKey) = useState<String?> { null }
         val (bunkerMode, setBunkerMode) = useState { AddBunkerMode.Qr }
         val (bunkerUrl, setBunkerUrl) = useState { "" }
+        val (busy, setBusy) = useState { false }
+        val (error, setError) = useState<String?> { null }
         val extensionAvailable = Nip07.isAvailable()
+
+        // Run an add-account action; on success (null) the warm-swap activates the new
+        // account and the sheet closes, otherwise the error is shown.
+        fun runAdd(block: suspend () -> String?) {
+            setError(null)
+            setBusy(true)
+            launchApp {
+                val err = block()
+                setBusy(false)
+                if (err == null) props.onClose() else setError(err)
+            }
+        }
 
         fun generate() {
             val hex =
@@ -92,6 +108,12 @@ val AddAccountSheet =
 
                 div {
                     className = ClassName("add-sheet-body")
+                    error?.let {
+                        p {
+                            className = ClassName("login-error")
+                            +it
+                        }
+                    }
                     when (step) {
                         AddStep.Pick -> {
                             p {
@@ -127,9 +149,16 @@ val AddAccountSheet =
                             }
                             button {
                                 className = ClassName("login-primary")
-                                disabled = privateKey.isBlank()
-                                onClick = { props.onClose() }
-                                +"Add account"
+                                disabled = privateKey.isBlank() || busy
+                                onClick = {
+                                    runAdd {
+                                        WebAuth.loginWithPrivateKey(
+                                            privateKey,
+                                            isNewIdentity = generatedKey != null && privateKey == generatedKey,
+                                        )
+                                    }
+                                }
+                                +(if (busy) "Adding…" else "Add account")
                             }
                             div {
                                 className = ClassName("login-divider")
@@ -194,9 +223,9 @@ val AddAccountSheet =
                                     }
                                     button {
                                         className = ClassName("login-primary")
-                                        disabled = bunkerUrl.isBlank()
-                                        onClick = { props.onClose() }
-                                        +"Connect to Bunker"
+                                        disabled = bunkerUrl.isBlank() || busy
+                                        onClick = { runAdd { WebAuth.loginWithBunker(bunkerUrl) } }
+                                        +(if (busy) "Connecting…" else "Connect to Bunker")
                                     }
                                 }
                             }
@@ -219,8 +248,9 @@ val AddAccountSheet =
                                 }
                                 button {
                                     className = ClassName("login-primary")
-                                    onClick = { props.onClose() }
-                                    +"Connect Extension"
+                                    disabled = busy
+                                    onClick = { runAdd { WebAuth.loginWithExtension() } }
+                                    +(if (busy) "Connecting…" else "Connect Extension")
                                 }
                             }
                     }

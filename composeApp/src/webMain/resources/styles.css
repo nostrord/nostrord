@@ -241,6 +241,15 @@ body {
     color: var(--color-text-muted);
 }
 
+.login-error {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--color-error);
+    background: rgba(237, 66, 69, 0.1);
+    border-radius: 6px;
+}
+
 .login-footer {
     margin: 24px 0 40px;
     max-width: 500px;

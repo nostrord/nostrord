@@ -1,7 +1,7 @@
 package org.nostr.nostrord.web
 
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.web.bridge.useStateFlow
-import org.nostr.nostrord.web.mock.mockSession
 import org.nostr.nostrord.web.screens.LoginScreen
 import react.FC
 import react.Props
@@ -21,7 +21,7 @@ val WebApp =
                 .getElementById(ElementId("composeApplication"))
                 ?.setAttribute("data-app-ready", "true")
         }
-        val loggedIn = useStateFlow(mockSession)
+        val loggedIn = useStateFlow(AppModule.nostrRepository.isLoggedIn)
         if (loggedIn) {
             AppShell()
         } else {

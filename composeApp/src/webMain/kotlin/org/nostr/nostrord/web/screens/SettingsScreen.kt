@@ -1,7 +1,8 @@
 package org.nostr.nostrord.web.screens
 
+import org.nostr.nostrord.web.auth.WebAuth
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.mock.Mock
-import org.nostr.nostrord.web.mock.mockLogout
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -60,7 +61,7 @@ val SettingsScreen =
                     className = ClassName("settings-nav-item danger")
                     onClick = {
                         props.onClose()
-                        mockLogout()
+                        launchApp { WebAuth.logout() }
                     }
                     +"Log Out"
                 }
