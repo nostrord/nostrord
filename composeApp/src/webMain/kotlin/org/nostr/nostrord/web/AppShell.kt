@@ -1,5 +1,6 @@
 package org.nostr.nostrord.web
 
+import kotlinx.browser.window
 import org.nostr.nostrord.web.mock.Mock
 import org.nostr.nostrord.web.mock.MockGroup
 import org.nostr.nostrord.web.mock.mockLogout
@@ -23,6 +24,7 @@ val AppShell =
         val (drawerOpen, setDrawerOpen) = useState { false }
         val (selectedGroup, setSelectedGroup) = useState<MockGroup?> { null }
         val (menuOpen, setMenuOpen) = useState { false }
+        val (copied, setCopied) = useState { false }
 
         div {
             className = ClassName(if (drawerOpen) "layout drawer-open" else "layout")
@@ -158,46 +160,88 @@ val AppShell =
 
             if (menuOpen) {
                 div {
-                    className = ClassName("modal-overlay")
+                    className = ClassName("me-menu-overlay")
                     onClick = { setMenuOpen(false) }
                     div {
-                        className = ClassName("account-menu-box")
+                        className = ClassName("me-menu")
                         onClick = { it.stopPropagation() }
+
                         div {
-                            className = ClassName("account-menu-head")
+                            className = ClassName("me-header")
                             div {
-                                className = ClassName("avatar-tile account-menu-avatar avatar-fallback")
+                                className = ClassName("avatar-tile me-avatar-lg avatar-fallback")
                                 +Mock.me.name.take(1).uppercase()
                             }
                             div {
-                                className = ClassName("account-menu-meta")
+                                className = ClassName("me-header-meta")
                                 div {
-                                    className = ClassName("account-menu-name")
+                                    className = ClassName("me-name")
                                     +Mock.me.name
                                 }
-                                Mock.me.handle?.let {
-                                    div {
-                                        className = ClassName("account-menu-handle")
-                                        +it
+                                div {
+                                    className = ClassName("me-npub")
+                                    onClick = {
+                                        val clip = window.navigator.asDynamic().clipboard
+                                        if (clip != null) clip.writeText(Mock.me.npub)
+                                        setCopied(true)
+                                    }
+                                    span { +(Mock.me.npub.take(16) + "…") }
+                                    span {
+                                        className = ClassName("me-npub-copy")
+                                        +(if (copied) "✓" else "⧉")
                                     }
                                 }
                             }
                         }
-                        button {
-                            className = ClassName("account-menu-action")
-                            +"Profile & settings"
+                        div { className = ClassName("me-divider") }
+
+                        Mock.accounts.forEach { account ->
+                            div {
+                                key = account.pubkey
+                                className = ClassName("me-account-row")
+                                div {
+                                    className = ClassName("avatar-tile me-avatar-sm avatar-fallback")
+                                    +account.name.take(1).uppercase()
+                                }
+                                div {
+                                    className = ClassName("me-account-meta")
+                                    div {
+                                        className = ClassName("me-account-name")
+                                        +account.name
+                                    }
+                                    div {
+                                        className = ClassName("me-account-method")
+                                        +account.authMethod
+                                    }
+                                }
+                                if (account.active) {
+                                    span { className = ClassName("me-check"); +"✓" }
+                                }
+                                button { className = ClassName("me-delete"); +"🗑" }
+                            }
                         }
-                        button {
-                            className = ClassName("account-menu-action")
-                            +"Switch account"
+                        div { className = ClassName("me-divider") }
+
+                        div {
+                            className = ClassName("me-action")
+                            span { className = ClassName("me-action-icon"); +"＋" }
+                            span { +"Add account" }
                         }
-                        button {
-                            className = ClassName("account-menu-action danger")
+                        div { className = ClassName("me-divider") }
+                        div {
+                            className = ClassName("me-action")
+                            span { className = ClassName("me-action-icon"); +"⚙" }
+                            span { +"Settings" }
+                        }
+                        div { className = ClassName("me-divider") }
+                        div {
+                            className = ClassName("me-action danger")
                             onClick = {
                                 setMenuOpen(false)
                                 mockLogout()
                             }
-                            +"Log out"
+                            span { className = ClassName("me-action-icon"); +"⤴" }
+                            span { +"Sign out" }
                         }
                     }
                 }

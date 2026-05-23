@@ -636,77 +636,162 @@ body {
     color: var(--color-text-primary);
 }
 
-/* account menu */
-.modal-overlay {
+/* account menu (MeMenu) — popover anchored bottom-left, above the rail avatar */
+.me-menu-overlay {
     position: fixed;
     inset: 0;
     z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 16px;
-    background: rgba(0, 0, 0, 0.6);
 }
 
-.account-menu-box {
-    width: 280px;
-    max-width: 100%;
-    padding: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+.me-menu {
+    position: fixed;
+    left: 72px;
+    bottom: 12px;
+    width: 320px;
+    max-width: calc(100vw - 88px);
+    padding-bottom: 8px;
+    overflow: hidden;
     background: var(--color-surface);
     border: 1px solid var(--color-divider);
-    border-radius: 10px;
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
 }
 
-.account-menu-head {
+.me-header {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px;
+    gap: 16px;
+    padding: 20px;
 }
 
-.account-menu-avatar {
-    width: 40px;
-    height: 40px;
+.me-avatar-lg {
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
-    font-size: 16px;
+    font-size: 20px;
     flex-shrink: 0;
 }
 
-.account-menu-meta {
+.me-header-meta {
+    flex: 1;
     min-width: 0;
 }
 
-.account-menu-name {
+.me-name {
+    font-size: 16px;
     font-weight: 600;
-    color: var(--color-text-primary);
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-.account-menu-handle {
+.me-npub {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    margin-top: 6px;
+    padding: 4px 10px;
+    background: var(--color-background-dark);
+    border-radius: 12px;
+    color: var(--color-text-secondary);
     font-size: 12px;
+    cursor: pointer;
+}
+
+.me-npub > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.me-npub-copy {
+    flex-shrink: 0;
+}
+
+.me-divider {
+    height: 1px;
+    background: var(--color-background-dark);
+}
+
+.me-account-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+}
+
+.me-avatar-sm {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.me-account-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.me-account-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.me-account-method {
+    font-size: 11px;
     color: var(--color-text-muted);
 }
 
-.account-menu-action {
-    text-align: left;
+.me-check {
+    color: var(--color-primary);
+    font-size: 16px;
+}
+
+.me-delete {
+    padding: 4px;
     background: transparent;
     border: 0;
     color: var(--color-text-secondary);
-    padding: 9px 10px;
-    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.me-action {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    color: #fff;
     font-size: 14px;
     cursor: pointer;
 }
 
-.account-menu-action:hover {
-    background: var(--color-surface-variant);
-    color: var(--color-text-primary);
+.me-action:hover {
+    background: var(--color-hover);
 }
 
-.account-menu-action.danger {
+.me-action-icon {
+    width: 20px;
+    text-align: center;
+}
+
+.me-action.danger {
     color: var(--color-error);
+}
+
+@media (max-width: 900px) {
+    .me-menu {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: auto;
+        max-width: none;
+        border-radius: 12px 12px 0 0;
+    }
 }
 
 /* responsive: rail + sidebar collapse into a drawer */

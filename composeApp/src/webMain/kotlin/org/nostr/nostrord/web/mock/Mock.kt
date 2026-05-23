@@ -6,14 +6,31 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /** Layout-first mock data — lets every screen render standalone, with no API/login. */
 
-data class MockUser(val pubkey: String, val name: String, val handle: String?, val picture: String?)
+data class MockAccount(
+    val pubkey: String,
+    val name: String,
+    val npub: String,
+    val authMethod: String,
+    val picture: String?,
+    val active: Boolean = false,
+)
 
 data class MockRelay(val url: String, val name: String, val icon: String?, val unread: Int = 0)
 
 data class MockGroup(val id: String, val name: String, val about: String?, val picture: String?, val unread: Int)
 
 object Mock {
-    val me = MockUser("3bf0c2…7a9d4e", "satoshi", "satoshi@nostrord.com", null)
+    val me =
+        MockAccount(
+            pubkey = "3bf0c2…7a9d4e",
+            name = "Anjhc",
+            npub = "npub1f27g79lrpey9hz5q3w8m4xk2v",
+            authMethod = "Bunker (NIP-46)",
+            picture = null,
+            active = true,
+        )
+
+    val accounts = listOf(me)
 
     val relays =
         listOf(
