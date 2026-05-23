@@ -100,6 +100,10 @@ object Mock {
 
     val sampleJoinRequests = listOf("satoshi", "hal", "luke")
 
+    val sampleApprovedChildren = listOf("Design" to "g2", "Random" to "g3")
+
+    val samplePendingClaims = listOf("Bots" to "g8", "Memes" to "g9")
+
     val sampleNotifications =
         listOf(
             MockNotification("n1", "fiatjaf", "mention", "Hey @anjhc, can you review the relay PR?", "Nostrord Dev", "2m", read = false),

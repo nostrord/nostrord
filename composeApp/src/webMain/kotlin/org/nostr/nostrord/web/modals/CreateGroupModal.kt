@@ -16,6 +16,9 @@ import web.cssom.ClassName
 
 external interface CreateGroupModalProps : Props {
     var onClose: () -> Unit
+
+    /** When true, render as "Create Subgroup" (a child of the current group). */
+    var subgroup: Boolean?
 }
 
 /**
@@ -26,6 +29,7 @@ external interface CreateGroupModalProps : Props {
  */
 val CreateGroupModal =
     FC<CreateGroupModalProps> { props ->
+        val isSubgroup = props.subgroup == true
         val (name, setName) = useState { "" }
         val (groupId, setGroupId) = useState { "" }
         val (selectedRelay, setSelectedRelay) = useState { Mock.activeRelay.url }
@@ -51,7 +55,7 @@ val CreateGroupModal =
                         className = ClassName("modal-header-text")
                         div {
                             className = ClassName("modal-title")
-                            +"Create a Group"
+                            +(if (isSubgroup) "Create Subgroup" else "Create a Group")
                         }
                         div {
                             className = ClassName("modal-subtitle")
@@ -205,7 +209,7 @@ val CreateGroupModal =
                                 props.onClose()
                             }
                         }
-                        +"Create Group"
+                        +(if (isSubgroup) "Create Subgroup" else "Create Group")
                     }
                 }
             }

@@ -5,10 +5,12 @@ import org.nostr.nostrord.web.mock.MockGroup
 import org.nostr.nostrord.web.mock.MockMember
 import org.nostr.nostrord.web.mock.MockMessage
 import org.nostr.nostrord.web.modals.AddMemberModal
+import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.EditGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
 import org.nostr.nostrord.web.modals.InviteCodesModal
 import org.nostr.nostrord.web.modals.JoinRequestsModal
+import org.nostr.nostrord.web.modals.ManageChildrenModal
 import org.nostr.nostrord.web.modals.MemberManagementModal
 import org.nostr.nostrord.web.modals.ShareGroupModal
 import org.nostr.nostrord.web.modals.UserProfileModal
@@ -107,6 +109,14 @@ val ChatScreen =
                             chatMenuItem("Join Requests") {
                                 setMenuOpen(false)
                                 setModal("requests")
+                            }
+                            chatMenuItem("Create Subgroup") {
+                                setMenuOpen(false)
+                                setModal("subgroup")
+                            }
+                            chatMenuItem("Manage Children") {
+                                setMenuOpen(false)
+                                setModal("children")
                             }
                             chatMenuItem("Share") {
                                 setMenuOpen(false)
@@ -230,6 +240,12 @@ val ChatScreen =
                 "addmember" -> AddMemberModal { onClose = { setModal(null) } }
                 "invite" -> InviteCodesModal { onClose = { setModal(null) } }
                 "requests" -> JoinRequestsModal { onClose = { setModal(null) } }
+                "subgroup" ->
+                    CreateGroupModal {
+                        subgroup = true
+                        onClose = { setModal(null) }
+                    }
+                "children" -> ManageChildrenModal { onClose = { setModal(null) } }
             }
         }
     }
