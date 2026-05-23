@@ -4,6 +4,8 @@ import org.nostr.nostrord.web.mock.Mock
 import org.nostr.nostrord.web.mock.MockGroup
 import org.nostr.nostrord.web.mock.MockMember
 import org.nostr.nostrord.web.mock.MockMessage
+import org.nostr.nostrord.web.modals.GroupInfoModal
+import org.nostr.nostrord.web.modals.UserProfileModal
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -28,6 +30,8 @@ val ChatScreen =
         val group = props.group
         val (draft, setDraft) = useState { "" }
         val (membersOpen, setMembersOpen) = useState { false }
+        val (infoOpen, setInfoOpen) = useState { false }
+        val (profileName, setProfileName) = useState<String?> { null }
 
         div {
             className = ClassName(if (membersOpen) "chat members-open" else "chat")
@@ -41,6 +45,7 @@ val ChatScreen =
                     className = ClassName("chat-header")
                     div {
                         className = ClassName("chat-header-title")
+                        onClick = { setInfoOpen(true) }
                         div {
                             className = ClassName("avatar-tile chat-header-icon avatar-fallback")
                             +group.name.take(1).uppercase()
@@ -75,7 +80,7 @@ val ChatScreen =
                     }
                     systemEvent("fiatjaf joined the group")
                     Mock.sampleMessages.forEach { message ->
-                        messageRow(message)
+                        messageRow(message) { setProfileName(it) }
                     }
                 }
 
@@ -129,25 +134,39 @@ val ChatScreen =
                     val offline = Mock.sampleMembers.filter { !it.online }
                     if (online.isNotEmpty()) {
                         memberSection("Online", online.size)
-                        online.forEach { memberRow(it, online = true) }
+                        online.forEach { member -> memberRow(member, online = true) { setProfileName(it) } }
                     }
                     if (offline.isNotEmpty()) {
                         memberSection("Offline", offline.size)
-                        offline.forEach { memberRow(it, online = false) }
+                        offline.forEach { member -> memberRow(member, online = false) { setProfileName(it) } }
                     }
+                }
+            }
+
+            if (infoOpen) {
+                GroupInfoModal {
+                    this.group = group
+                    onClose = { setInfoOpen(false) }
+                }
+            }
+            profileName?.let { name ->
+                UserProfileModal {
+                    this.name = name
+                    onClose = { setProfileName(null) }
                 }
             }
         }
     }
 
-private fun ChildrenBuilder.messageRow(message: MockMessage) {
+private fun ChildrenBuilder.messageRow(message: MockMessage, onUser: (String) -> Unit) {
     div {
         className = ClassName(if (message.firstInGroup) "msg first" else "msg grouped")
         div {
             className = ClassName("msg-gutter")
             if (message.firstInGroup) {
                 div {
-                    className = ClassName("avatar-tile msg-avatar avatar-fallback")
+                    className = ClassName("avatar-tile msg-avatar avatar-fallback clickable")
+                    onClick = { onUser(message.author) }
                     +message.author.take(1).uppercase()
                 }
             } else {
@@ -163,7 +182,8 @@ private fun ChildrenBuilder.messageRow(message: MockMessage) {
                 div {
                     className = ClassName("msg-meta")
                     span {
-                        className = ClassName("msg-author")
+                        className = ClassName("msg-author clickable")
+                        onClick = { onUser(message.author) }
                         +message.author
                     }
                     if (message.admin) {
@@ -204,9 +224,10 @@ private fun ChildrenBuilder.memberSection(title: String, count: Int) {
     }
 }
 
-private fun ChildrenBuilder.memberRow(member: MockMember, online: Boolean) {
+private fun ChildrenBuilder.memberRow(member: MockMember, online: Boolean, onUser: (String) -> Unit) {
     div {
         className = ClassName("member-row")
+        onClick = { onUser(member.name) }
         div {
             className = ClassName("member-avatar-wrap")
             div {
