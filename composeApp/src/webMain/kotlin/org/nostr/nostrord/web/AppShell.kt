@@ -12,6 +12,7 @@ import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
 import org.nostr.nostrord.web.screens.ChatScreen
 import org.nostr.nostrord.web.screens.OnboardingScreen
+import org.nostr.nostrord.web.screens.SettingsScreen
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -35,6 +36,7 @@ val AppShell =
         val (copied, setCopied) = useState { false }
         val (modal, setModal) = useState<String?> { null }
         val (relayTab, setRelayTab) = useState { 0 }
+        val (settingsOpen, setSettingsOpen) = useState { false }
         val hasRelays = useStateFlow(mockRelaysState)
 
         // Open the Add-relay modal on a given tab (0 = Suggested, 1 = Custom URL).
@@ -292,6 +294,10 @@ val AppShell =
                         div { className = ClassName("me-divider") }
                         div {
                             className = ClassName("me-action")
+                            onClick = {
+                                setMenuOpen(false)
+                                setSettingsOpen(true)
+                            }
                             span {
                                 className = ClassName("me-action-icon")
                                 +"⚙"
@@ -313,6 +319,10 @@ val AppShell =
                         }
                     }
                 }
+            }
+
+            if (settingsOpen) {
+                SettingsScreen { onClose = { setSettingsOpen(false) } }
             }
 
             when (modal) {
