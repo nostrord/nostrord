@@ -1459,6 +1459,42 @@ body {
     color: var(--color-primary);
 }
 
+.member-actions {
+    display: none;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.member-row:hover .member-actions {
+    display: flex;
+}
+
+.member-action {
+    background: var(--color-surface-variant);
+    border: 0;
+    color: var(--color-text-content);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.member-action.danger:hover {
+    color: var(--color-error);
+}
+
+.account-menu-action.danger {
+    color: var(--color-error);
+}
+
+.chat-header-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-right: 8px;
+}
+
 @media (max-width: 1100px) {
     .member-sidebar {
         display: none;
@@ -1478,7 +1514,13 @@ body {
 }
 
 .chat-title {
+    display: flex;
+    align-items: center;
     font-weight: 600;
+}
+
+.chat-title.clickable {
+    cursor: pointer;
 }
 
 .chat-header .secondary {

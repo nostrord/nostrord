@@ -11,6 +11,7 @@ import org.nostr.nostrord.nostr.Nip27
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.GroupHeaderBar
 import org.nostr.nostrord.web.components.viewProfile
 import org.nostr.nostrord.web.navigation.navigate
 import org.nostr.nostrord.web.upload.UploadButton
@@ -201,6 +202,7 @@ val GroupScreen =
         val admins = groupAdmins[props.groupId] ?: emptyList()
         val adminSet = admins.toSet()
         val members = (groupMembers[props.groupId] ?: emptyList()).filter { it !in adminSet }
+        val myIsAdmin = activeId != null && activeId in adminSet
 
         fun authorName(pubkey: String): String {
             val meta = userMetadata[pubkey]
@@ -247,22 +249,9 @@ val GroupScreen =
             div {
                 className = ClassName("chat-main")
 
-                div {
-                    className = ClassName("chat-header")
-                    span {
-                        className = ClassName("chat-title")
-                        +(props.groupName ?: props.groupId.take(12))
-                    }
-                    button {
-                        className = ClassName("secondary chat-leave")
-                        onClick = {
-                            launchApp {
-                                AppModule.nostrRepository.leaveGroup(props.groupId)
-                                navigate(Screen.Home)
-                            }
-                        }
-                        +"Leave"
-                    }
+                GroupHeaderBar {
+                    groupId = props.groupId
+                    groupName = props.groupName
                 }
 
                 div {
@@ -462,6 +451,27 @@ val GroupScreen =
                                 className = ClassName("member-badge")
                                 +"admin"
                             }
+                            if (myIsAdmin) {
+                                span {
+                                    className = ClassName("member-actions")
+                                    button {
+                                        className = ClassName("member-action")
+                                        onClick = {
+                                            it.stopPropagation()
+                                            launchApp { AppModule.nostrRepository.addUser(props.groupId, pubkey, emptyList()) }
+                                        }
+                                        +"−admin"
+                                    }
+                                    button {
+                                        className = ClassName("member-action danger")
+                                        onClick = {
+                                            it.stopPropagation()
+                                            launchApp { AppModule.nostrRepository.removeUser(props.groupId, pubkey) }
+                                        }
+                                        +"remove"
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -479,6 +489,27 @@ val GroupScreen =
                             span {
                                 className = ClassName("member-name")
                                 +authorName(pubkey)
+                            }
+                            if (myIsAdmin) {
+                                span {
+                                    className = ClassName("member-actions")
+                                    button {
+                                        className = ClassName("member-action")
+                                        onClick = {
+                                            it.stopPropagation()
+                                            launchApp { AppModule.nostrRepository.addUser(props.groupId, pubkey, listOf("admin")) }
+                                        }
+                                        +"+admin"
+                                    }
+                                    button {
+                                        className = ClassName("member-action danger")
+                                        onClick = {
+                                            it.stopPropagation()
+                                            launchApp { AppModule.nostrRepository.removeUser(props.groupId, pubkey) }
+                                        }
+                                        +"remove"
+                                    }
+                                }
                             }
                         }
                     }
