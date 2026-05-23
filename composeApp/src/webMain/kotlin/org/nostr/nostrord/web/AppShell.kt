@@ -11,6 +11,7 @@ import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
 import org.nostr.nostrord.web.screens.ChatScreen
+import org.nostr.nostrord.web.screens.NotificationsScreen
 import org.nostr.nostrord.web.screens.OnboardingScreen
 import org.nostr.nostrord.web.screens.SettingsScreen
 import react.FC
@@ -37,6 +38,7 @@ val AppShell =
         val (modal, setModal) = useState<String?> { null }
         val (relayTab, setRelayTab) = useState { 0 }
         val (settingsOpen, setSettingsOpen) = useState { false }
+        val (notificationsOpen, setNotificationsOpen) = useState { false }
         val hasRelays = useStateFlow(mockRelaysState)
 
         // Open the Add-relay modal on a given tab (0 = Suggested, 1 = Custom URL).
@@ -94,7 +96,8 @@ val AppShell =
                         }
                     }
                     div {
-                        className = ClassName("rail-item")
+                        className = ClassName(if (notificationsOpen) "rail-item active" else "rail-item")
+                        onClick = { setNotificationsOpen(true) }
                         div {
                             className = ClassName("avatar-tile rail-icon rail-bell")
                             +"🔔"
@@ -110,9 +113,9 @@ val AppShell =
                     }
                 }
 
-                // Groups sidebar
+                // Groups sidebar (hidden while the notifications screen is open)
                 div {
-                    className = ClassName("groups-sidebar")
+                    className = ClassName(if (notificationsOpen) "groups-sidebar hidden" else "groups-sidebar")
                     div {
                         className = ClassName("sidebar-header")
                         +(if (hasRelays) Mock.activeRelay.name else "No Relay")
@@ -130,6 +133,7 @@ val AppShell =
                                     className = ClassName(if (selectedGroup?.id == group.id) "sidebar-group selected" else "sidebar-group")
                                     onClick = {
                                         setSelectedGroup(group)
+                                        setNotificationsOpen(false)
                                         setDrawerOpen(false)
                                     }
                                     div {
@@ -192,6 +196,7 @@ val AppShell =
             div {
                 className = ClassName("content")
                 when {
+                    notificationsOpen -> NotificationsScreen()
                     !hasRelays ->
                         OnboardingScreen {
                             onAddRelay = { openRelay(0) }

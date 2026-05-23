@@ -31,6 +31,17 @@ data class MockMessage(
 
 data class MockMember(val name: String, val admin: Boolean, val online: Boolean)
 
+/** [type] is one of "reply", "mention", "reaction", "message". */
+data class MockNotification(
+    val id: String,
+    val actor: String,
+    val type: String,
+    val preview: String,
+    val group: String,
+    val time: String,
+    val read: Boolean,
+)
+
 object Mock {
     val me =
         MockAccount(
@@ -83,6 +94,15 @@ object Mock {
             MockMember("pablof7z", admin = false, online = false),
             MockMember("jack", admin = false, online = false),
             MockMember("vitorpamplona", admin = true, online = false),
+        )
+
+    val sampleNotifications =
+        listOf(
+            MockNotification("n1", "fiatjaf", "mention", "Hey @anjhc, can you review the relay PR?", "Nostrord Dev", "2m", read = false),
+            MockNotification("n2", "hodlbod", "reply", "I think the StateFlow bridge is clean.", "Nostrord Dev", "15m", read = false),
+            MockNotification("n3", "pablof7z", "reaction", "🔥", "Design", "1h", read = true),
+            MockNotification("n4", "jack", "message", "gm everyone ☀️", "Random", "3h", read = true),
+            MockNotification("n5", "vitorpamplona", "mention", "@anjhc nice work on the web rebuild", "Nostrord Dev", "5h", read = true),
         )
 }
 
