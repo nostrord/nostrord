@@ -677,6 +677,34 @@ fun SecureStorage.savePersistedNotifications(
     }
 }
 
+// Per-account, per-group notification level overrides (issue #70). Stored as a
+// groupId -> NotificationLevel.name map so each account keeps its own muting /
+// "mentions & replies only" choices. The settings layer maps the names back to
+// the enum; storing strings keeps this layer free of the settings dependency.
+private fun groupNotificationLevelsKey(pubkey: String): String = "group_notif_levels_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.loadGroupNotificationLevelsFor(pubkey: String): Map<String, String> {
+    if (pubkey.isBlank()) return emptyMap()
+    val raw = getStringPref(groupNotificationLevelsKey(pubkey), "")
+    if (raw.isBlank()) return emptyMap()
+    return try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        emptyMap()
+    }
+}
+
+fun SecureStorage.saveGroupNotificationLevelsFor(
+    pubkey: String,
+    levels: Map<String, String>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(groupNotificationLevelsKey(pubkey), Json.encodeToString<Map<String, String>>(levels))
+    } catch (_: Exception) {
+    }
+}
+
 // Per-account "last active" timestamp in Unix seconds. Written when the user
 // switches away from this account and as a periodic heartbeat while active so
 // it survives crashes. Used to compute the catch-up `since` for notification

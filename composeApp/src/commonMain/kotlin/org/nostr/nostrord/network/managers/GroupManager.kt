@@ -2066,6 +2066,20 @@ class GroupManager(
                 tags.add(listOf("p", pubkeyHex))
             }
 
+            // p-tag the author of the message being replied to (NIP-10/22). Without
+            // it the recipient is only classified as "replied to" when they happen
+            // to have the parent message cached locally, so replies silently miss
+            // the per-group "mentions & replies only" notification filter (#70).
+            if (replyToMessageId != null) {
+                val parentAuthor = findMessageByIdAcrossGroups(replyToMessageId)?.second?.pubkey
+                if (parentAuthor != null &&
+                    parentAuthor != pubKey &&
+                    tags.none { it.size >= 2 && it[0] == "p" && it[1] == parentAuthor }
+                ) {
+                    tags.add(listOf("p", parentAuthor))
+                }
+            }
+
             // Add extra tags (e.g. NIP-68 imeta tags from media uploads), dedup by content
             extraTags.forEach { tag -> if (tag !in tags) tags.add(tag) }
 
