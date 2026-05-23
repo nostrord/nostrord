@@ -46,6 +46,7 @@ import org.nostr.nostrord.storage.clearLastGroupForRelay
 import org.nostr.nostrord.storage.getLastGroupForRelay
 import org.nostr.nostrord.storage.saveLastGroupForRelay
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.ui.components.BunkerStatusBanner
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.components.layout.DesktopShell
 import org.nostr.nostrord.ui.components.layout.responsiveDimension
@@ -987,9 +988,17 @@ private fun AuthenticatedApp(
             },
         )
 
-        // Floating prompt to enable desktop notifications. Mounted at the root so it
-        // persists across navigation; renders only when supported + permission Default.
-        NotificationPermissionBanner(modifier = Modifier.align(Alignment.TopCenter))
+        // Floating root-level banners, mounted here so they persist across
+        // navigation. Stacked in a column so they never overlap when both show.
+        Column(
+            modifier = Modifier.align(Alignment.TopCenter),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            // Bunker (NIP-46) signer offline → one-tap reconnect (issue #85).
+            BunkerStatusBanner()
+            // Prompt to enable desktop notifications (supported + permission Default).
+            NotificationPermissionBanner()
+        }
 
         androidx.compose.material3.SnackbarHost(
             hostState = snackbarHostState,
