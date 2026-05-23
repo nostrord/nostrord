@@ -71,6 +71,15 @@ private fun formatTime(epochSeconds: Long): String {
     return dt.hour.toString().padStart(2, '0') + ":" + dt.minute.toString().padStart(2, '0')
 }
 
+private fun localDateOf(epochSeconds: Long) =
+    Instant.fromEpochSeconds(epochSeconds).toLocalDateTime(TimeZone.currentSystemDefault()).date
+
+private fun dateLabel(epochSeconds: Long): String {
+    val date = localDateOf(epochSeconds)
+    val month = date.month.name.lowercase().replaceFirstChar { it.uppercase() }
+    return "$month ${date.dayOfMonth}, ${date.year}"
+}
+
 private fun ChildrenBuilder.memberAvatar(picture: String?, label: String) {
     if (!picture.isNullOrBlank()) {
         img {
@@ -126,9 +135,28 @@ private fun ChildrenBuilder.renderUrl(url: String, onImageClick: (String) -> Uni
     }
 }
 
+private val formatRegex = Regex("""`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_""")
+
+/** Render a plain text run with inline markdown: `code`, **bold**, *italic*, _italic_. */
+private fun ChildrenBuilder.renderText(text: String) {
+    var last = 0
+    for (m in formatRegex.findAll(text)) {
+        if (m.range.first > last) +text.substring(last, m.range.first)
+        when {
+            m.groupValues[1].isNotEmpty() -> span { className = ClassName("chat-code"); +m.groupValues[1] }
+            m.groupValues[2].isNotEmpty() -> span { className = ClassName("chat-bold"); +m.groupValues[2] }
+            m.groupValues[3].isNotEmpty() -> span { className = ClassName("chat-italic"); +m.groupValues[3] }
+            m.groupValues[4].isNotEmpty() -> span { className = ClassName("chat-italic"); +m.groupValues[4] }
+        }
+        last = m.range.last + 1
+    }
+    if (last < text.length) +text.substring(last)
+}
+
 /**
- * Render message content: text runs, inline media/links, and NIP-27 references
- * (`nostr:npub/nprofile` → clickable @mention; note/nevent/naddr → a short ref badge).
+ * Render message content: text runs (with inline markdown), inline media/links, and
+ * NIP-27 references (`nostr:npub/nprofile` → clickable @mention; note/nevent/naddr → a
+ * short ref badge).
  */
 private fun ChildrenBuilder.renderMessageContent(
     content: String,
@@ -145,7 +173,7 @@ private fun ChildrenBuilder.renderMessageContent(
     for ((range, payload) in tokens) {
         if (range.first < last) continue
         if (range.first > last) {
-            +content.substring(last, range.first)
+            renderText(content.substring(last, range.first))
         }
         when (payload) {
             is String -> renderUrl(payload, onImageClick)
@@ -173,7 +201,7 @@ private fun ChildrenBuilder.renderMessageContent(
         last = range.last + 1
     }
     if (last < content.length) {
-        +content.substring(last)
+        renderText(content.substring(last))
     }
 }
 
@@ -267,6 +295,14 @@ val GroupScreen =
                         val parent = replyParentId(message)?.let { messagesById[it] }
                         val messageReactions = reactions[message.id]
                         val authorMeta = userMetadata[message.pubkey]
+
+                        if (prev == null || localDateOf(message.createdAt) != localDateOf(prev.createdAt)) {
+                            div {
+                                key = "date-${message.id}"
+                                className = ClassName("chat-date-divider")
+                                span { +dateLabel(message.createdAt) }
+                            }
+                        }
 
                         div {
                             key = message.id
