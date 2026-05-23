@@ -1,178 +1,278 @@
 package org.nostr.nostrord.web.screens
 
-import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
-import org.nostr.nostrord.nostr.Nip19
-import org.nostr.nostrord.utils.Result
-import org.nostr.nostrord.web.bridge.launchApp
+import react.ChildrenBuilder
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
+import react.dom.html.ReactHTML.code
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.h1
+import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.p
+import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
 import web.html.InputType
 import web.html.password
+import web.html.text
 import kotlin.random.Random
 
-private enum class LoginTab { Key, Extension, Bunker }
+private enum class Tab { Key, Bunker, Extension }
+
+private enum class BunkerMode { Qr, Url }
+
+private fun ChildrenBuilder.tabButton(selected: Boolean, icon: String, label: String, onSelect: () -> Unit) {
+    button {
+        className = ClassName(if (selected) "login-tab selected" else "login-tab")
+        onClick = { onSelect() }
+        span { +icon }
+        span { +label }
+    }
+}
+
+private fun ChildrenBuilder.benefit(text: String) {
+    div {
+        className = ClassName("benefit")
+        span {
+            className = ClassName("benefit-check")
+            +"✓"
+        }
+        span { +text }
+    }
+}
+
+private fun ChildrenBuilder.generatedKeyCard(privateKey: String) {
+    div {
+        className = ClassName("genkey-card")
+        div {
+            className = ClassName("genkey-head")
+            span { +"⚠" }
+            span {
+                className = ClassName("genkey-title")
+                +"SAVE YOUR PRIVATE KEY"
+            }
+        }
+        p {
+            className = ClassName("genkey-sub")
+            +"This is your only copy. Store it somewhere safe!"
+        }
+        code {
+            className = ClassName("genkey-value")
+            +privateKey
+        }
+    }
+}
 
 /**
- * Web login with the three methods the Compose app supports: private key (nsec/hex or a
- * freshly generated identity), NIP-07 browser extension, and NIP-46 bunker. All drive
- * the shared Kotlin auth logic via the bridge; on success `AuthManager.isLoggedIn` flips
- * and [WebApp] swaps to the app. NIP-46 QR/nostrconnect comes later — this is bunker://.
+ * Login screen — layout-first React port of the Compose NostrLoginScreen (all modes:
+ * private key + generate, NIP-46 bunker QR/URL, NIP-07 extension). Login actions are
+ * stubbed for now (frontend-only); "Generate" works locally. Wiring to AppModule comes
+ * after the layout is validated.
  */
 val LoginScreen =
     FC<Props> {
-        val (tab, setTab) = useState { LoginTab.Key }
-        val (error, setError) = useState<String?> { null }
-        val (busy, setBusy) = useState { false }
-        val (secret, setSecret) = useState { "" }
+        val extensionAvailable = Nip07.isAvailable()
+        val (tab, setTab) = useState { Tab.Key }
+        val (privateKey, setPrivateKey) = useState { "" }
+        val (showKey, setShowKey) = useState { false }
+        val (generatedKey, setGeneratedKey) = useState<String?> { null }
+        val (bunkerMode, setBunkerMode) = useState { BunkerMode.Qr }
         val (bunkerUrl, setBunkerUrl) = useState { "" }
 
-        val extensionAvailable = Nip07.isAvailable()
-
-        fun loginWithKey(privHex: String, isNewIdentity: Boolean) {
-            setBusy(true)
-            setError(null)
-            val keyPair = KeyPair.fromPrivateKeyHex(privHex)
-            launchApp {
-                val result = AppModule.nostrRepository.loginSuspend(privHex, keyPair.publicKeyHex, isNewIdentity)
-                setBusy(false)
-                if (result is Result.Error) setError("Login failed. Check your key and try again.")
-            }
-        }
-
-        fun loginWithExtension() {
-            setBusy(true)
-            setError(null)
-            launchApp {
-                try {
-                    val pubkey = Nip07.getPublicKey()
-                    val result = AppModule.nostrRepository.loginWithNip07(pubkey)
-                    setBusy(false)
-                    if (result is Result.Error) setError("Extension login failed.")
-                } catch (e: Throwable) {
-                    setBusy(false)
-                    setError("Extension login was cancelled or unavailable.")
+        fun generate() {
+            val hex =
+                Random.Default.nextBytes(32).joinToString("") { byte ->
+                    (byte.toInt() and 0xff).toString(16).padStart(2, '0')
                 }
-            }
-        }
-
-        fun loginWithBunker(url: String) {
-            setBusy(true)
-            setError(null)
-            launchApp {
-                val result = AppModule.nostrRepository.loginWithBunker(url.trim())
-                setBusy(false)
-                if (result is Result.Error) setError("Bunker login failed. Check the connection string.")
-            }
+            setPrivateKey(hex)
+            setGeneratedKey(hex)
         }
 
         div {
-            className = ClassName("app-shell")
-            h1 { +"Sign in to Nostrord" }
-
+            className = ClassName("login-page")
             div {
-                className = ClassName("row-actions")
-                button {
-                    className = ClassName(if (tab == LoginTab.Key) "tab tab-active" else "tab")
-                    onClick = { setTab(LoginTab.Key) }
-                    +"Private key"
-                }
-                if (extensionAvailable) {
-                    button {
-                        className = ClassName(if (tab == LoginTab.Extension) "tab tab-active" else "tab")
-                        onClick = { setTab(LoginTab.Extension) }
-                        +"Extension"
-                    }
-                }
-                button {
-                    className = ClassName(if (tab == LoginTab.Bunker) "tab tab-active" else "tab")
-                    onClick = { setTab(LoginTab.Bunker) }
-                    +"Bunker"
-                }
-            }
+                className = ClassName("login-inner")
 
-            when (tab) {
-                LoginTab.Key -> {
-                    p { +"Paste your nsec / private key, or create a new identity." }
-                    input {
-                        type = InputType.password
-                        placeholder = "nsec1… or 64-char hex"
-                        value = secret
-                        disabled = busy
-                        onChange = { event -> setSecret(event.currentTarget.value) }
-                    }
+                img {
+                    className = ClassName("login-logo")
+                    src = "icon-192.png"
+                    alt = "Nostrord"
+                }
+                h1 {
+                    className = ClassName("login-title")
+                    +"Nostrord"
+                }
+                p {
+                    className = ClassName("login-subtitle")
+                    +"Connect to the Nostr network"
+                }
+
+                div {
+                    className = ClassName(if (extensionAvailable) "login-card wide" else "login-card")
+
                     div {
-                        className = ClassName("row-actions")
-                        button {
-                            disabled = busy || secret.isBlank()
-                            onClick = {
-                                val entered = secret.trim()
-                                val hex =
-                                    if (entered.startsWith("nsec1")) {
-                                        (Nip19.decode(entered) as? Nip19.Entity.Nsec)?.privkey
-                                    } else {
-                                        entered
+                        className = ClassName("login-tabs")
+                        tabButton(tab == Tab.Key, "🔑", "Private Key") { setTab(Tab.Key) }
+                        tabButton(tab == Tab.Bunker, "🛡", "Bunker") { setTab(Tab.Bunker) }
+                        if (extensionAvailable) {
+                            tabButton(tab == Tab.Extension, "🧩", "Extension") { setTab(Tab.Extension) }
+                        }
+                    }
+
+                    div {
+                        className = ClassName("login-tab-content")
+                        when (tab) {
+                            Tab.Key -> {
+                                div {
+                                    className = ClassName("field-with-icon")
+                                    span {
+                                        className = ClassName("field-icon")
+                                        +"🔑"
                                     }
-                                if (hex == null || hex.length != 64) {
-                                    setError("Invalid nsec / private key.")
-                                } else {
-                                    loginWithKey(hex, isNewIdentity = false)
+                                    input {
+                                        className = ClassName("login-input")
+                                        type = if (showKey) InputType.text else InputType.password
+                                        placeholder = "Enter your private key (hex or nsec)"
+                                        value = privateKey
+                                        onChange = { event -> setPrivateKey(event.currentTarget.value) }
+                                    }
+                                    button {
+                                        className = ClassName("field-eye")
+                                        onClick = { setShowKey(!showKey) }
+                                        +(if (showKey) "🙈" else "👁")
+                                    }
+                                }
+                                button {
+                                    className = ClassName("login-primary")
+                                    disabled = privateKey.isBlank()
+                                    onClick = { }
+                                    +"Login"
+                                }
+                                div {
+                                    className = ClassName("login-divider")
+                                    span { +"or" }
+                                }
+                                button {
+                                    className = ClassName("login-outline-success")
+                                    onClick = { generate() }
+                                    +"✨  Generate New Identity"
+                                }
+                                generatedKey?.let { generatedKeyCard(it) }
+                            }
+
+                            Tab.Bunker -> {
+                                div {
+                                    className = ClassName("bunker-desc")
+                                    span { +"🛡" }
+                                    span { +"Connect to a remote signer for secure key management" }
+                                }
+                                div {
+                                    className = ClassName("bunker-toggle")
+                                    button {
+                                        className = ClassName(if (bunkerMode == BunkerMode.Qr) "login-tab selected" else "login-tab")
+                                        onClick = { setBunkerMode(BunkerMode.Qr) }
+                                        span { +"▦" }
+                                        span { +"QR Code" }
+                                    }
+                                    button {
+                                        className = ClassName(if (bunkerMode == BunkerMode.Url) "login-tab selected" else "login-tab")
+                                        onClick = { setBunkerMode(BunkerMode.Url) }
+                                        span { +"⌨" }
+                                        span { +"Bunker URL" }
+                                    }
+                                }
+                                when (bunkerMode) {
+                                    BunkerMode.Qr -> {
+                                        div {
+                                            className = ClassName("bunker-qr")
+                                            p {
+                                                className = ClassName("bunker-scan")
+                                                +"Scan with your signer app"
+                                            }
+                                            p {
+                                                className = ClassName("bunker-scan-sub")
+                                                +"(Amber, nsec.app, etc.)"
+                                            }
+                                            div {
+                                                className = ClassName("qr-placeholder")
+                                                +"QR"
+                                            }
+                                        }
+                                    }
+                                    BunkerMode.Url -> {
+                                        div {
+                                            className = ClassName("field-with-icon")
+                                            span {
+                                                className = ClassName("field-icon")
+                                                +"🔗"
+                                            }
+                                            input {
+                                                className = ClassName("login-input")
+                                                placeholder = "bunker://<pubkey>?relay=wss://..."
+                                                value = bunkerUrl
+                                                onChange = { event -> setBunkerUrl(event.currentTarget.value) }
+                                            }
+                                        }
+                                        p {
+                                            className = ClassName("login-hint")
+                                            +"Get your bunker URL from nsec.app, Amber, or other NIP-46 signers"
+                                        }
+                                        button {
+                                            className = ClassName("login-primary")
+                                            disabled = bunkerUrl.isBlank()
+                                            onClick = { }
+                                            +"Connect to Bunker"
+                                        }
+                                    }
+                                }
+                                div {
+                                    className = ClassName("bunker-benefits")
+                                    div {
+                                        className = ClassName("benefits-head")
+                                        span { +"🔒" }
+                                        span {
+                                            className = ClassName("benefits-title")
+                                            +"Why use a Bunker?"
+                                        }
+                                    }
+                                    benefit("Your private key never leaves the signer")
+                                    benefit("Approve each signing request")
+                                    benefit("Works with hardware signers")
+                                    benefit("Revoke access anytime")
                                 }
                             }
-                            +(if (busy) "Signing in…" else "Sign in")
-                        }
-                        button {
-                            className = ClassName("secondary")
-                            disabled = busy
-                            onClick = {
-                                val newHex =
-                                    Random.Default.nextBytes(32).joinToString("") { byte ->
-                                        byte.toUByte().toString(16).padStart(2, '0')
+
+                            Tab.Extension -> {
+                                div {
+                                    className = ClassName("ext-content")
+                                    span {
+                                        className = ClassName("ext-icon")
+                                        +"🧩"
                                     }
-                                loginWithKey(newHex, isNewIdentity = true)
+                                    div {
+                                        className = ClassName("ext-title")
+                                        +"Browser Extension Login"
+                                    }
+                                    p {
+                                        className = ClassName("ext-desc")
+                                        +"Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostore."
+                                    }
+                                    button {
+                                        className = ClassName("login-primary")
+                                        onClick = { }
+                                        +"Connect Extension"
+                                    }
+                                }
                             }
-                            +"Create new identity"
                         }
                     }
                 }
 
-                LoginTab.Extension -> {
-                    p { +"Sign in with your NIP-07 browser extension (Alby, nos2x, …)." }
-                    button {
-                        disabled = busy
-                        onClick = { loginWithExtension() }
-                        +(if (busy) "Waiting for extension…" else "Connect extension")
-                    }
-                }
-
-                LoginTab.Bunker -> {
-                    p { +"Paste a NIP-46 bunker:// connection string." }
-                    input {
-                        placeholder = "bunker://…"
-                        value = bunkerUrl
-                        disabled = busy
-                        onChange = { event -> setBunkerUrl(event.currentTarget.value) }
-                    }
-                    button {
-                        disabled = busy || bunkerUrl.isBlank()
-                        onClick = { loginWithBunker(bunkerUrl) }
-                        +(if (busy) "Connecting…" else "Connect bunker")
-                    }
-                }
-            }
-
-            error?.let { message ->
                 p {
-                    className = ClassName("error")
-                    +message
+                    className = ClassName("login-footer")
+                    +"New to Nostr? Generate a key to get started instantly."
                 }
             }
         }
