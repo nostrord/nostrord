@@ -104,7 +104,10 @@ interface NostrRepositoryApi {
 
     suspend fun loginWithBunker(bunkerUrl: String): Result<String>
 
-    suspend fun createNostrConnectSession(relays: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")): Pair<String, Nip46Client>
+    /** Default relays seeding the nostrconnect:// QR login (user-overridable). */
+    val defaultNostrConnectRelays: List<String>
+
+    suspend fun createNostrConnectSession(relays: List<String> = defaultNostrConnectRelays): Pair<String, Nip46Client>
 
     suspend fun completeNostrConnectLogin(
         client: Nip46Client,

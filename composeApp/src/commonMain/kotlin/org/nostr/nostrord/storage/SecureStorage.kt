@@ -394,6 +394,33 @@ private fun legacyHashRelayListForAccountKey(pubkey: String) = "relay_list_${pub
 
 private const val RELAY_LIST_MIGRATION_DONE_KEY = "relay_list_legacy_migrated"
 
+private const val NOSTRCONNECT_RELAYS_KEY = "nostrconnect_relays"
+
+/**
+ * NIP-46 nostrconnect:// QR-login relays the user customized. Global (pre-login)
+ * — not per-account, since they are chosen before any account exists.
+ */
+fun SecureStorage.saveNostrConnectRelays(relays: List<String>) {
+    try {
+        saveStringPref(NOSTRCONNECT_RELAYS_KEY, Json.encodeToString<List<String>>(relays))
+    } catch (_: Exception) {
+    }
+}
+
+/** Returns the saved relays, or null when none were ever customized. */
+fun SecureStorage.getNostrConnectRelays(): List<String>? = try {
+    val raw = getStringPref(NOSTRCONNECT_RELAYS_KEY, "")
+    if (raw.isBlank()) {
+        null
+    } else {
+        Json.decodeFromString<List<String>>(raw)
+            .filter { it.isNotBlank() }
+            .takeIf { it.isNotEmpty() }
+    }
+} catch (_: Exception) {
+    null
+}
+
 fun SecureStorage.saveRelayListFor(
     pubkey: String,
     relays: List<String>,
