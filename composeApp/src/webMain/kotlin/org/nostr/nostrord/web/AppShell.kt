@@ -10,6 +10,7 @@ import org.nostr.nostrord.web.mock.mockRelaysState
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
+import org.nostr.nostrord.web.screens.AddAccountSheet
 import org.nostr.nostrord.web.screens.ChatScreen
 import org.nostr.nostrord.web.screens.NotificationsScreen
 import org.nostr.nostrord.web.screens.OnboardingScreen
@@ -39,6 +40,7 @@ val AppShell =
         val (relayTab, setRelayTab) = useState { 0 }
         val (settingsOpen, setSettingsOpen) = useState { false }
         val (notificationsOpen, setNotificationsOpen) = useState { false }
+        val (addAccountOpen, setAddAccountOpen) = useState { false }
         val hasRelays = useStateFlow(mockRelaysState)
 
         // Open the Add-relay modal on a given tab (0 = Suggested, 1 = Custom URL).
@@ -291,6 +293,10 @@ val AppShell =
 
                         div {
                             className = ClassName("me-action")
+                            onClick = {
+                                setMenuOpen(false)
+                                setAddAccountOpen(true)
+                            }
                             span {
                                 className = ClassName("me-action-icon")
                                 +"＋"
@@ -329,6 +335,10 @@ val AppShell =
 
             if (settingsOpen) {
                 SettingsScreen { onClose = { setSettingsOpen(false) } }
+            }
+
+            if (addAccountOpen) {
+                AddAccountSheet { onClose = { setAddAccountOpen(false) } }
             }
 
             when (modal) {

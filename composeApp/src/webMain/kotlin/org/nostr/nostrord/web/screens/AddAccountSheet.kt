@@ -1,0 +1,271 @@
+package org.nostr.nostrord.web.screens
+
+import org.nostr.nostrord.nostr.Nip07
+import org.nostr.nostrord.web.mock.Mock
+import react.ChildrenBuilder
+import react.FC
+import react.Props
+import react.dom.html.ReactHTML.button
+import react.dom.html.ReactHTML.code
+import react.dom.html.ReactHTML.div
+import react.dom.html.ReactHTML.input
+import react.dom.html.ReactHTML.p
+import react.dom.html.ReactHTML.span
+import react.useState
+import web.cssom.ClassName
+import web.html.InputType
+import web.html.password
+import web.html.text
+import kotlin.random.Random
+
+external interface AddAccountSheetProps : Props {
+    var onClose: () -> Unit
+}
+
+private enum class AddStep { Pick, Key, Bunker, Extension }
+
+private enum class AddBunkerMode { Qr, Url }
+
+/**
+ * Add-account sheet — layout-first React port of the Compose AddAccountSheet. Step 1 picks
+ * a method (Private key / Bunker / Browser extension), then shows the matching credential
+ * form (reusing the login visuals). Desktop = popover above the rail avatar; narrow = bottom
+ * sheet. Adding is stubbed — a successful action just closes the sheet.
+ */
+val AddAccountSheet =
+    FC<AddAccountSheetProps> { props ->
+        val (step, setStep) = useState { AddStep.Pick }
+        val (privateKey, setPrivateKey) = useState { "" }
+        val (showKey, setShowKey) = useState { false }
+        val (generatedKey, setGeneratedKey) = useState<String?> { null }
+        val (bunkerMode, setBunkerMode) = useState { AddBunkerMode.Qr }
+        val (bunkerUrl, setBunkerUrl) = useState { "" }
+        val extensionAvailable = Nip07.isAvailable()
+
+        fun generate() {
+            val hex =
+                Random.Default.nextBytes(32).joinToString("") { byte ->
+                    (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+                }
+            setPrivateKey(hex)
+            setGeneratedKey(hex)
+        }
+
+        div {
+            className = ClassName("me-menu-overlay")
+            onClick = { props.onClose() }
+            div {
+                className = ClassName("add-account-sheet")
+                onClick = { it.stopPropagation() }
+
+                // Header
+                div {
+                    className = ClassName("add-sheet-header")
+                    if (step == AddStep.Pick) {
+                        span {
+                            className = ClassName("add-sheet-icon")
+                            +"👤"
+                        }
+                    } else {
+                        button {
+                            className = ClassName("add-sheet-back")
+                            onClick = { setStep(AddStep.Pick) }
+                            +"←"
+                        }
+                    }
+                    span {
+                        className = ClassName("add-sheet-title")
+                        +when (step) {
+                            AddStep.Pick -> "Add account"
+                            AddStep.Key -> "Private key"
+                            AddStep.Bunker -> "Bunker"
+                            AddStep.Extension -> "Browser extension"
+                        }
+                    }
+                    button {
+                        className = ClassName("add-sheet-close")
+                        onClick = { props.onClose() }
+                        +"✕"
+                    }
+                }
+                div { className = ClassName("add-sheet-divider") }
+
+                div {
+                    className = ClassName("add-sheet-body")
+                    when (step) {
+                        AddStep.Pick -> {
+                            p {
+                                className = ClassName("add-sheet-note")
+                                +"You'll keep ${Mock.me.name} signed in."
+                            }
+                            methodRow("🔑", "Private key") { setStep(AddStep.Key) }
+                            methodRow("🛡", "Bunker (NIP-46)") { setStep(AddStep.Bunker) }
+                            if (extensionAvailable) {
+                                methodRow("🧩", "Browser extension") { setStep(AddStep.Extension) }
+                            }
+                        }
+
+                        AddStep.Key -> {
+                            div {
+                                className = ClassName("field-with-icon")
+                                span {
+                                    className = ClassName("field-icon")
+                                    +"🔑"
+                                }
+                                input {
+                                    className = ClassName("login-input")
+                                    type = if (showKey) InputType.text else InputType.password
+                                    placeholder = "Enter your private key (hex or nsec)"
+                                    value = privateKey
+                                    onChange = { event -> setPrivateKey(event.currentTarget.value) }
+                                }
+                                button {
+                                    className = ClassName("field-eye")
+                                    onClick = { setShowKey(!showKey) }
+                                    +(if (showKey) "🙈" else "👁")
+                                }
+                            }
+                            button {
+                                className = ClassName("login-primary")
+                                disabled = privateKey.isBlank()
+                                onClick = { props.onClose() }
+                                +"Add account"
+                            }
+                            div {
+                                className = ClassName("login-divider")
+                                span { +"or" }
+                            }
+                            button {
+                                className = ClassName("login-outline-success")
+                                onClick = { generate() }
+                                +"✨  Generate New Identity"
+                            }
+                            generatedKey?.let { generatedKeyCard(it) }
+                        }
+
+                        AddStep.Bunker -> {
+                            div {
+                                className = ClassName("bunker-desc")
+                                span { +"🛡" }
+                                span { +"Connect to a remote signer for secure key management" }
+                            }
+                            div {
+                                className = ClassName("bunker-toggle")
+                                button {
+                                    className = ClassName(if (bunkerMode == AddBunkerMode.Qr) "login-tab selected" else "login-tab")
+                                    onClick = { setBunkerMode(AddBunkerMode.Qr) }
+                                    span { +"▦" }
+                                    span { +"QR Code" }
+                                }
+                                button {
+                                    className = ClassName(if (bunkerMode == AddBunkerMode.Url) "login-tab selected" else "login-tab")
+                                    onClick = { setBunkerMode(AddBunkerMode.Url) }
+                                    span { +"⌨" }
+                                    span { +"Bunker URL" }
+                                }
+                            }
+                            when (bunkerMode) {
+                                AddBunkerMode.Qr ->
+                                    div {
+                                        className = ClassName("bunker-qr")
+                                        p {
+                                            className = ClassName("bunker-scan")
+                                            +"Scan with your signer app"
+                                        }
+                                        div {
+                                            className = ClassName("qr-placeholder")
+                                            +"QR"
+                                        }
+                                    }
+
+                                AddBunkerMode.Url -> {
+                                    div {
+                                        className = ClassName("field-with-icon")
+                                        span {
+                                            className = ClassName("field-icon")
+                                            +"🔗"
+                                        }
+                                        input {
+                                            className = ClassName("login-input")
+                                            placeholder = "bunker://<pubkey>?relay=wss://..."
+                                            value = bunkerUrl
+                                            onChange = { event -> setBunkerUrl(event.currentTarget.value) }
+                                        }
+                                    }
+                                    button {
+                                        className = ClassName("login-primary")
+                                        disabled = bunkerUrl.isBlank()
+                                        onClick = { props.onClose() }
+                                        +"Connect to Bunker"
+                                    }
+                                }
+                            }
+                        }
+
+                        AddStep.Extension ->
+                            div {
+                                className = ClassName("ext-content")
+                                span {
+                                    className = ClassName("ext-icon")
+                                    +"🧩"
+                                }
+                                div {
+                                    className = ClassName("ext-title")
+                                    +"Browser Extension Login"
+                                }
+                                p {
+                                    className = ClassName("ext-desc")
+                                    +"Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostore."
+                                }
+                                button {
+                                    className = ClassName("login-primary")
+                                    onClick = { props.onClose() }
+                                    +"Connect Extension"
+                                }
+                            }
+                    }
+                }
+            }
+        }
+    }
+
+private fun ChildrenBuilder.methodRow(icon: String, label: String, onSelect: () -> Unit) {
+    div {
+        className = ClassName("add-method-row")
+        onClick = { onSelect() }
+        span {
+            className = ClassName("add-method-icon")
+            +icon
+        }
+        span {
+            className = ClassName("add-method-label")
+            +label
+        }
+        span {
+            className = ClassName("add-method-chevron")
+            +"›"
+        }
+    }
+}
+
+private fun ChildrenBuilder.generatedKeyCard(privateKey: String) {
+    div {
+        className = ClassName("genkey-card")
+        div {
+            className = ClassName("genkey-head")
+            span { +"⚠" }
+            span {
+                className = ClassName("genkey-title")
+                +"SAVE YOUR PRIVATE KEY"
+            }
+        }
+        p {
+            className = ClassName("genkey-sub")
+            +"This is your only copy. Store it somewhere safe!"
+        }
+        code {
+            className = ClassName("genkey-value")
+            +privateKey
+        }
+    }
+}
