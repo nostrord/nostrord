@@ -1,5 +1,4 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
 
@@ -46,15 +45,18 @@ kotlin {
         binaries.executable()
     }
 
-    @OptIn(ExperimentalWasmDsl::class)
-    wasmJs {
-        browser {
-            // Configure webpack for production builds
-            webpackTask {
-                mainOutputFileName = "composeApp.js"
+    // Custom intermediate source set `uiComposeMain` for the Compose Multiplatform UI,
+    // shared only by android / jvm / ios. The web target (js) renders via React/DOM
+    // and is intentionally excluded, so it never compiles the Compose UI. Done via the
+    // hierarchy template (not manual dependsOn) to keep the default template intact.
+    applyDefaultHierarchyTemplate {
+        common {
+            group("uiCompose") {
+                withAndroidTarget()
+                withJvm()
+                withIos()
             }
         }
-        binaries.executable()
     }
 
     sourceSets {
@@ -73,14 +75,16 @@ kotlin {
         }
 
         commonMain.dependencies {
+            // Only compose.runtime here (lightweight, no Skiko) — for @Immutable/@Stable
+            // and the @Composable platform helpers. The web (js) target compiles
+            // commonMain, so the heavy Compose UI libs (which pull Skiko) live in
+            // uiComposeMain instead, keeping Skia out of the React/DOM web bundle.
             implementation(compose.runtime)
-            implementation(compose.foundation)
-            implementation(compose.material3)
-            implementation(compose.ui)
+            // compose-resources must live in commonMain (the resources plugin generates
+            // the `Res` class for commonMain). It transitively references compose.ui, but
+            // nothing on the js entry path uses `Res`, so DCE strips Skiko from the web
+            // bundle anyway. Only the Compose targets actually render fonts/images.
             implementation(compose.components.resources)
-            implementation(compose.components.uiToolingPreview)
-            implementation(libs.androidx.lifecycle.viewmodelCompose)
-            implementation(libs.androidx.lifecycle.runtimeCompose)
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
@@ -89,11 +93,24 @@ kotlin {
             implementation("io.ktor:ktor-client-websockets:3.0.0")
             implementation("io.ktor:ktor-client-content-negotiation:3.0.0")
             implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0")
-            implementation("io.coil-kt.coil3:coil-compose:3.0.4")
-            implementation("io.coil-kt.coil3:coil-network-ktor3:3.0.4")
-            implementation(compose.materialIconsExtended)
-            implementation("io.github.alexzhirkevich:qrose:1.0.1")
             implementation("org.jetbrains.kotlinx:atomicfu:0.27.0")
+        }
+
+        // Compose Multiplatform UI deps — shared by android / jvm / ios only (not js).
+        // This is what keeps Skiko/Compose out of the React web bundle.
+        val uiComposeMain by getting {
+            dependencies {
+                implementation(compose.foundation)
+                implementation(compose.material3)
+                implementation(compose.ui)
+                implementation(compose.components.uiToolingPreview)
+                implementation(compose.materialIconsExtended)
+                implementation(libs.androidx.lifecycle.viewmodelCompose)
+                implementation(libs.androidx.lifecycle.runtimeCompose)
+                implementation("io.coil-kt.coil3:coil-compose:3.0.4")
+                implementation("io.coil-kt.coil3:coil-network-ktor3:3.0.4")
+                implementation("io.github.alexzhirkevich:qrose:1.0.1")
+            }
         }
 
         commonTest.dependencies {
@@ -139,18 +156,19 @@ kotlin {
 
         jsMain.dependencies {
             implementation("io.ktor:ktor-client-js:3.0.0")
-            implementation("media.kamel:kamel-image:0.9.5")
             // Compression webpack plugin for production builds
             implementation(devNpm("compression-webpack-plugin", "11.1.0"))
-        }
 
-        val wasmJsMain by getting {
-            dependencies {
-                // Ktor JS engine for HTTP requests (required for Coil image loading)
-                implementation("io.ktor:ktor-client-js:3.0.0")
-                // Compression webpack plugin for production builds
-                implementation(devNpm("compression-webpack-plugin", "11.1.0"))
-            }
+            // React via kotlin-wrappers — web UI is migrating off Compose Canvas
+            // (Skia) to real DOM/React. BOM keeps all wrapper modules in sync.
+            // (kotlin-css / kotlin-react-router / tanstack-virtual get added as the
+            // screen rewrite needs them.)
+            // Pin: 2025.10.0 is the wrapper line built against Kotlin 2.2.20 (this
+            // project's version). Newer 2026.x wrappers target Kotlin 2.3.x and their
+            // klibs are not consumable by the 2.2.20 compiler (serialization ICE).
+            implementation(project.dependencies.platform("org.jetbrains.kotlin-wrappers:kotlin-wrappers-bom:2025.10.0"))
+            implementation("org.jetbrains.kotlin-wrappers:kotlin-react")
+            implementation("org.jetbrains.kotlin-wrappers:kotlin-react-dom")
         }
     }
 }
@@ -427,25 +445,10 @@ abstract class StampBuildVersionTask : DefaultTask() {
     }
 }
 
-tasks.register<StampBuildVersionTask>("stampWasmJsBuildVersion") {
-    dependsOn("wasmJsBrowserProductionWebpack")
-    mustRunAfter("copyWasmJsCompressedFiles")
-    distDir.set(layout.buildDirectory.dir("dist/wasmJs/productionExecutable"))
-}
-
 tasks.register<StampBuildVersionTask>("stampJsBuildVersion") {
     dependsOn("jsBrowserProductionWebpack")
     mustRunAfter("copyJsCompressedFiles")
     distDir.set(layout.buildDirectory.dir("dist/js/productionExecutable"))
-}
-
-// Copy pre-compressed files (.gz, .br) to distribution folder for wasmJs
-tasks.register<Copy>("copyWasmJsCompressedFiles") {
-    dependsOn("wasmJsBrowserProductionWebpack")
-    from(layout.buildDirectory.dir("kotlin-webpack/wasmJs/productionExecutable")) {
-        include("**/*.gz", "**/*.br")
-    }
-    into(layout.buildDirectory.dir("dist/wasmJs/productionExecutable"))
 }
 
 // Copy pre-compressed files for js target
@@ -458,10 +461,6 @@ tasks.register<Copy>("copyJsCompressedFiles") {
 }
 
 // Make distribution tasks depend on copy and stamp tasks
-tasks.matching { it.name == "wasmJsBrowserDistribution" }.configureEach {
-    finalizedBy("copyWasmJsCompressedFiles", "stampWasmJsBuildVersion")
-}
-
 tasks.matching { it.name == "jsBrowserDistribution" }.configureEach {
     finalizedBy("copyJsCompressedFiles", "stampJsBuildVersion")
 }

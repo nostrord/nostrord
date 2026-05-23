@@ -36,17 +36,17 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
 
-      - name: Build wasmJs distribution
-        run: ./gradlew :composeApp:wasmJsBrowserDistribution
+      - name: Build js distribution
+        run: ./gradlew :composeApp:jsBrowserDistribution
 
       - name: Copy compressed files
-        run: ./gradlew :composeApp:copyWasmJsCompressedFiles
+        run: ./gradlew :composeApp:copyJsCompressedFiles
 
       - name: Deploy to nsite
         uses: sandwichfarm/nsite-action@v0.4.0
         with:
           nbunksec: ${{ secrets.NBUNK_SECRET }}
-          directory: './composeApp/build/dist/wasmJs/productionExecutable'
+          directory: './composeApp/build/dist/js/productionExecutable'
           version: 'v0.27.0'
           relays: |
             wss://relay.nsite.lol
@@ -59,7 +59,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'composeApp/build/dist/wasmJs/productionExecutable'
+          path: 'composeApp/build/dist/js/productionExecutable'
 
   deploy:
     environment:
