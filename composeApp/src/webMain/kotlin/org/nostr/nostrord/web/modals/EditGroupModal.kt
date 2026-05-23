@@ -1,6 +1,6 @@
 package org.nostr.nostrord.web.modals
 
-import org.nostr.nostrord.web.mock.MockGroup
+import org.nostr.nostrord.network.GroupMetadata
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -12,7 +12,7 @@ import react.useState
 import web.cssom.ClassName
 
 external interface EditGroupModalProps : Props {
-    var group: MockGroup
+    var group: GroupMetadata
     var onClose: () -> Unit
 }
 
@@ -24,8 +24,8 @@ external interface EditGroupModalProps : Props {
 val EditGroupModal =
     FC<EditGroupModalProps> { props ->
         val group = props.group
-        val (isPrivate, setIsPrivate) = useState { false }
-        val (isClosed, setIsClosed) = useState { false }
+        val (isPrivate, setIsPrivate) = useState { !group.isPublic }
+        val (isClosed, setIsClosed) = useState { !group.isOpen }
 
         div {
             className = ClassName("modal-overlay")
@@ -57,7 +57,7 @@ val EditGroupModal =
                 input {
                     className = ClassName("modal-input")
                     placeholder = "#example"
-                    defaultValue = group.name
+                    if (!group.name.isNullOrBlank()) defaultValue = group.name
                 }
 
                 div {

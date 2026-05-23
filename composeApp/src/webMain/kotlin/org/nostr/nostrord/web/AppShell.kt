@@ -1,13 +1,13 @@
 package org.nostr.nostrord.web
 
 import kotlinx.browser.window
-import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.auth.AuthMethod
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
-import org.nostr.nostrord.web.mock.Mock
-import org.nostr.nostrord.web.mock.MockGroup
-import org.nostr.nostrord.web.mock.mockAddRelay
-import org.nostr.nostrord.web.mock.mockRelaysState
+import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
@@ -26,15 +26,62 @@ import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
 
+private fun relayDisplayName(url: String, names: Map<String, String>): String =
+    names[url]?.takeIf { it.isNotBlank() }
+        ?: url.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+
+private fun authMethodLabel(method: AuthMethod): String =
+    when (method) {
+        AuthMethod.LOCAL -> "Private key"
+        AuthMethod.BUNKER -> "Bunker (NIP-46)"
+        AuthMethod.NIP07 -> "Browser extension (NIP-07)"
+    }
+
 /**
- * Logged-in shell — layout-first React port of the Compose desktop layout: server rail
- * (relays) + groups sidebar + content. Mock data for now; responsive (rail+sidebar
- * collapse into a drawer on narrow screens). Chat/content screens come next.
+ * Logged-in shell — real data: server rail (relays from kind:10009 + group-tag relays),
+ * groups sidebar (joined groups for the active relay), content, and the account menu
+ * (real accounts). Switching a relay / opening a group / adding a relay all hit the
+ * repository. Chat body and modal submits are wired separately.
  */
 val AppShell =
     FC<Props> {
+        val repo = AppModule.nostrRepository
+
+        val kind10009 = useStateFlow(repo.kind10009Relays)
+        val groupTagRelays = useStateFlow(repo.groupTagRelays)
+        val currentRelayUrl = useStateFlow(repo.currentRelayUrl)
+        val groupsByRelay = useStateFlow(repo.groupsByRelay)
+        val joinedByRelay = useStateFlow(repo.joinedGroupsByRelay)
+        val unreadCounts = useStateFlow(repo.unreadCounts)
+        val unreadByRelay = useStateFlow(repo.unreadByRelay)
+        val relayMetadata = useStateFlow(repo.relayMetadata)
+        val userMetadata = useStateFlow(repo.userMetadata)
+        val accounts = useStateFlow(AppModule.accountStore.accounts)
+        val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
+
+        val relayNames = relayMetadata.mapValues { it.value.name ?: "" }
+        val relayList =
+            (kind10009.toList() + groupTagRelays.toList() + currentRelayUrl)
+                .filter { it.isNotBlank() }
+                .distinct()
+        val hasRelays = relayList.isNotEmpty()
+        val activeRelay = currentRelayUrl.takeIf { it in relayList } ?: relayList.firstOrNull() ?: ""
+
+        val groups = groupsByRelay[activeRelay].orEmpty()
+        val joinedIds = joinedByRelay[activeRelay].orEmpty()
+        val myGroups = groups.filter { it.id in joinedIds }
+
+        val activePubkey = repo.getPublicKey()
+        val meMetadata = activePubkey?.let { userMetadata[it] }
+        val meName =
+            meMetadata?.displayName?.takeIf { it.isNotBlank() }
+                ?: meMetadata?.name?.takeIf { it.isNotBlank() }
+                ?: accounts.firstOrNull { it.pubkey == activeAccountId }?.label
+                ?: "Account"
+        val meNpub = activePubkey?.let { Nip19.encodeNpub(it) } ?: ""
+
         val (drawerOpen, setDrawerOpen) = useState { false }
-        val (selectedGroup, setSelectedGroup) = useState<MockGroup?> { null }
+        val (selectedGroupId, setSelectedGroupId) = useState<String?> { null }
         val (menuOpen, setMenuOpen) = useState { false }
         val (copied, setCopied) = useState { false }
         val (modal, setModal) = useState<String?> { null }
@@ -42,7 +89,8 @@ val AppShell =
         val (settingsOpen, setSettingsOpen) = useState { false }
         val (notificationsOpen, setNotificationsOpen) = useState { false }
         val (addAccountOpen, setAddAccountOpen) = useState { false }
-        val hasRelays = useStateFlow(mockRelaysState)
+
+        val selectedGroup: GroupMetadata? = groups.firstOrNull { it.id == selectedGroupId }
 
         // Open the Add-relay modal on a given tab (0 = Suggested, 1 = Custom URL).
         val openRelay: (Int) -> Unit = { tab ->
@@ -71,20 +119,25 @@ val AppShell =
                     className = ClassName("server-rail")
                     div {
                         className = ClassName("rail-scroll")
-                        if (hasRelays) {
-                            Mock.relays.forEachIndexed { index, relay ->
+                        relayList.forEach { relay ->
+                            val isActive = relay == activeRelay && !notificationsOpen
+                            val unread = unreadByRelay[relay] ?: 0
+                            div {
+                                key = relay
+                                className = ClassName(if (isActive) "rail-item active" else "rail-item")
+                                onClick = {
+                                    setNotificationsOpen(false)
+                                    setSelectedGroupId(null)
+                                    if (relay != currentRelayUrl) launchApp { repo.switchRelay(relay) }
+                                }
                                 div {
-                                    key = relay.url
-                                    className = ClassName(if (index == 0) "rail-item active" else "rail-item")
-                                    div {
-                                        className = ClassName("avatar-tile rail-icon avatar-fallback")
-                                        +relay.name.take(1).uppercase()
-                                    }
-                                    if (relay.unread > 0) {
-                                        span {
-                                            className = ClassName("rail-badge")
-                                            +relay.unread.toString()
-                                        }
+                                    className = ClassName("avatar-tile rail-icon avatar-fallback")
+                                    +relayDisplayName(relay, relayNames).take(1).uppercase()
+                                }
+                                if (unread > 0) {
+                                    span {
+                                        className = ClassName("rail-badge")
+                                        +unread.toString()
                                     }
                                 }
                             }
@@ -111,7 +164,7 @@ val AppShell =
                         onClick = { setMenuOpen(!menuOpen) }
                         div {
                             className = ClassName("avatar-tile rail-icon avatar-fallback")
-                            +Mock.me.name.take(1).uppercase()
+                            +meName.take(1).uppercase()
                         }
                     }
                 }
@@ -121,7 +174,7 @@ val AppShell =
                     className = ClassName(if (notificationsOpen) "groups-sidebar hidden" else "groups-sidebar")
                     div {
                         className = ClassName("sidebar-header")
-                        +(if (hasRelays) Mock.activeRelay.name else "No Relay")
+                        +(if (hasRelays) relayDisplayName(activeRelay, relayNames) else "No Relay")
                     }
                     if (hasRelays) {
                         div {
@@ -130,27 +183,28 @@ val AppShell =
                                 className = ClassName("sidebar-section-title")
                                 +"My groups"
                             }
-                            Mock.groups.forEach { group ->
+                            myGroups.forEach { group ->
+                                val unread = unreadCounts[group.id] ?: 0
                                 div {
                                     key = group.id
-                                    className = ClassName(if (selectedGroup?.id == group.id) "sidebar-group selected" else "sidebar-group")
+                                    className = ClassName(if (selectedGroupId == group.id) "sidebar-group selected" else "sidebar-group")
                                     onClick = {
-                                        setSelectedGroup(group)
+                                        setSelectedGroupId(group.id)
                                         setNotificationsOpen(false)
                                         setDrawerOpen(false)
                                     }
                                     div {
                                         className = ClassName("avatar-tile group-icon-sm avatar-fallback")
-                                        +group.name.take(1).uppercase()
+                                        +(group.name ?: group.id).take(1).uppercase()
                                     }
                                     span {
                                         className = ClassName("sidebar-group-name")
-                                        +group.name
+                                        +(group.name ?: group.id)
                                     }
-                                    if (group.unread > 0) {
+                                    if (unread > 0) {
                                         span {
                                             className = ClassName("sidebar-unread")
-                                            +group.unread.toString()
+                                            +unread.toString()
                                         }
                                     }
                                 }
@@ -208,7 +262,7 @@ val AppShell =
                     selectedGroup != null ->
                         ChatScreen {
                             group = selectedGroup
-                            onLeave = { setSelectedGroup(null) }
+                            onLeave = { setSelectedGroupId(null) }
                         }
                     else ->
                         div {
@@ -234,22 +288,22 @@ val AppShell =
                             className = ClassName("me-header")
                             div {
                                 className = ClassName("avatar-tile me-avatar-lg avatar-fallback")
-                                +Mock.me.name.take(1).uppercase()
+                                +meName.take(1).uppercase()
                             }
                             div {
                                 className = ClassName("me-header-meta")
                                 div {
                                     className = ClassName("me-name")
-                                    +Mock.me.name
+                                    +meName
                                 }
                                 div {
                                     className = ClassName("me-npub")
                                     onClick = {
                                         val clip = window.navigator.asDynamic().clipboard
-                                        if (clip != null) clip.writeText(Mock.me.npub)
+                                        if (clip != null && meNpub.isNotBlank()) clip.writeText(meNpub)
                                         setCopied(true)
                                     }
-                                    span { +(Mock.me.npub.take(16) + "…") }
+                                    span { +(if (meNpub.isNotBlank()) meNpub.take(16) + "…" else "") }
                                     span {
                                         className = ClassName("me-npub-copy")
                                         +(if (copied) "✓" else "⧉")
@@ -259,34 +313,52 @@ val AppShell =
                         }
                         div { className = ClassName("me-divider") }
 
-                        Mock.accounts.forEach { account ->
+                        accounts.forEach { account ->
+                            val meta = userMetadata[account.pubkey]
+                            val name =
+                                meta?.displayName?.takeIf { it.isNotBlank() }
+                                    ?: meta?.name?.takeIf { it.isNotBlank() }
+                                    ?: account.label
+                            val isActiveAccount = account.pubkey == activeAccountId
                             div {
                                 key = account.pubkey
                                 className = ClassName("me-account-row")
+                                onClick = {
+                                    if (!isActiveAccount) {
+                                        setMenuOpen(false)
+                                        launchApp { AppModule.accountManager.switchAccount(account.pubkey) }
+                                    }
+                                }
                                 div {
                                     className = ClassName("avatar-tile me-avatar-sm avatar-fallback")
-                                    +account.name.take(1).uppercase()
+                                    +name.take(1).uppercase()
                                 }
                                 div {
                                     className = ClassName("me-account-meta")
                                     div {
                                         className = ClassName("me-account-name")
-                                        +account.name
+                                        +name
                                     }
                                     div {
                                         className = ClassName("me-account-method")
-                                        +account.authMethod
+                                        +authMethodLabel(account.authMethod)
                                     }
                                 }
-                                if (account.active) {
+                                if (isActiveAccount) {
                                     span {
                                         className = ClassName("me-check")
                                         +"✓"
                                     }
                                 }
-                                button {
-                                    className = ClassName("me-delete")
-                                    +"🗑"
+                                if (accounts.size > 1) {
+                                    button {
+                                        className = ClassName("me-delete")
+                                        onClick = {
+                                            it.stopPropagation()
+                                            launchApp { AppModule.accountManager.removeAccount(account.pubkey) }
+                                        }
+                                        +"🗑"
+                                    }
                                 }
                             }
                         }
@@ -349,8 +421,8 @@ val AppShell =
                     AddRelayModal {
                         initialTab = relayTab
                         onClose = { setModal(null) }
-                        onAdded = {
-                            mockAddRelay()
+                        onAdded = { url ->
+                            launchApp { repo.switchRelay(url) }
                             setModal(null)
                         }
                     }

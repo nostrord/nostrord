@@ -1,30 +1,46 @@
 package org.nostr.nostrord.web
 
+import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.screens.LoginScreen
 import react.FC
 import react.Props
+import react.dom.html.ReactHTML.div
 import react.useEffectOnce
+import web.cssom.ClassName
 import web.dom.ElementId
 import web.dom.document
 
 /**
- * Root React component (layout-first rebuild). Mock auth gate so login → shell can be
- * validated without any API: login actions flip a mock session flag. Real API wiring
- * comes after the layouts are approved.
+ * Root React component. On mount it runs the real cold-start sequence — same as the Compose
+ * AppViewModel: `nostrRepository.initialize()` (restores any persisted session and starts
+ * relay/group discovery), with a 30s `forceInitialized()` fallback. The gate then mirrors
+ * the app: loading until initialized, then shell (logged in) or login.
  */
 val WebApp =
     FC<Props> {
+        val repo = AppModule.nostrRepository
+        val initialized = useStateFlow(repo.isInitialized)
+        val loggedIn = useStateFlow(repo.isLoggedIn)
+
         useEffectOnce {
             document
                 .getElementById(ElementId("composeApplication"))
                 ?.setAttribute("data-app-ready", "true")
+            launchApp {
+                withTimeoutOrNull(30_000) { repo.initialize() } ?: repo.forceInitialized()
+            }
         }
-        val loggedIn = useStateFlow(AppModule.nostrRepository.isLoggedIn)
-        if (loggedIn) {
-            AppShell()
-        } else {
-            LoginScreen()
+
+        when {
+            !initialized ->
+                div {
+                    className = ClassName("app-loading")
+                    div { className = ClassName("app-spinner") }
+                }
+            loggedIn -> AppShell()
+            else -> LoginScreen()
         }
     }

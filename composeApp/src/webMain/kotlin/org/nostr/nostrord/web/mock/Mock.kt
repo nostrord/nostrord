@@ -1,10 +1,6 @@
 package org.nostr.nostrord.web.mock
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-
-/** Layout-first mock data — lets every screen render standalone, with no API/login. */
+/** Mock sample data still used by not-yet-wired surfaces (chat body, notifications). */
 
 data class MockAccount(
     val pubkey: String,
@@ -112,17 +108,4 @@ object Mock {
             MockNotification("n4", "jack", "message", "gm everyone ☀️", "Random", "3h", read = true),
             MockNotification("n5", "vitorpamplona", "mention", "@anjhc nice work on the web rebuild", "Nostrord Dev", "5h", read = true),
         )
-}
-
-/**
- * Whether the logged-in account has any relay yet. A fresh account starts with none, so
- * login lands on the onboarding screen until the first relay is added — mirrors the real
- * first-run flow (login → onboarding → shell). Still mock until relay data is wired.
- */
-private val mockHasRelays = MutableStateFlow(false)
-
-val mockRelaysState: StateFlow<Boolean> = mockHasRelays.asStateFlow()
-
-fun mockAddRelay() {
-    mockHasRelays.value = true
 }

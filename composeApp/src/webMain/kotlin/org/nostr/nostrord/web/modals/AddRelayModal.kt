@@ -1,6 +1,8 @@
 package org.nostr.nostrord.web.modals
 
-import org.nostr.nostrord.web.mock.Mock
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.utils.toRelayUrl
+import org.nostr.nostrord.web.bridge.useStateFlow
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -12,8 +14,8 @@ import web.cssom.ClassName
 external interface AddRelayModalProps : Props {
     var onClose: () -> Unit
 
-    /** Called when a relay is added (Add / Add Relay). Defaults to [onClose] when unset. */
-    var onAdded: (() -> Unit)?
+    /** Called with the relay URL to add (Add / Add Relay). Falls back to just closing. */
+    var onAdded: ((String) -> Unit)?
 
     /** Tab to open on mount: 0 = Suggested, 1 = Custom URL. */
     var initialTab: Int?
@@ -40,8 +42,10 @@ val AddRelayModal =
     FC<AddRelayModalProps> { props ->
         val (tab, setTab) = useState { props.initialTab ?: 0 }
         val (customUrl, setCustomUrl) = useState { "" }
-        val connected = Mock.relays.map { it.url }.toSet()
-        val onAdded = props.onAdded ?: props.onClose
+        val kind10009 = useStateFlow(AppModule.nostrRepository.kind10009Relays)
+        val groupTagRelays = useStateFlow(AppModule.nostrRepository.groupTagRelays)
+        val connected = kind10009 + groupTagRelays
+        val onAdded: (String) -> Unit = props.onAdded ?: { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")
@@ -116,7 +120,7 @@ val AddRelayModal =
                                 button {
                                     className = ClassName(if (isConnected) "relay-add-btn added" else "relay-add-btn")
                                     disabled = isConnected
-                                    onClick = { onAdded() }
+                                    onClick = { onAdded(relay.url) }
                                     +(if (isConnected) "Added" else "Add")
                                 }
                             }
@@ -146,7 +150,7 @@ val AddRelayModal =
                         button {
                             className = ClassName("btn-primary")
                             disabled = customUrl.isBlank()
-                            onClick = { onAdded() }
+                            onClick = { onAdded(customUrl.trim().toRelayUrl()) }
                             +"Add Relay"
                         }
                     }

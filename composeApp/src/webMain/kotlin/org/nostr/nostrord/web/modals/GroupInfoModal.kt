@@ -1,6 +1,6 @@
 package org.nostr.nostrord.web.modals
 
-import org.nostr.nostrord.web.mock.MockGroup
+import org.nostr.nostrord.network.GroupMetadata
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -10,7 +10,7 @@ import react.dom.html.ReactHTML.span
 import web.cssom.ClassName
 
 external interface GroupInfoModalProps : Props {
-    var group: MockGroup
+    var group: GroupMetadata
     var onClose: () -> Unit
 }
 
@@ -22,6 +22,7 @@ external interface GroupInfoModalProps : Props {
 val GroupInfoModal =
     FC<GroupInfoModalProps> { props ->
         val group = props.group
+        val groupName = group.name?.takeIf { it.isNotBlank() } ?: "Group"
         div {
             className = ClassName("modal-overlay")
             onClick = { props.onClose() }
@@ -38,7 +39,7 @@ val GroupInfoModal =
                     }
                     div {
                         className = ClassName("avatar-tile info-cover-icon avatar-fallback")
-                        +group.name.take(1).uppercase()
+                        +groupName.take(1).uppercase()
                     }
                 }
 
@@ -46,17 +47,17 @@ val GroupInfoModal =
                     className = ClassName("info-content")
                     div {
                         className = ClassName("info-name")
-                        +group.name
+                        +groupName
                     }
                     div {
                         className = ClassName("info-badges")
                         span {
-                            className = ClassName("info-badge success")
-                            +"🌐 Public"
+                            className = ClassName(if (group.isPublic) "info-badge success" else "info-badge")
+                            +(if (group.isPublic) "🌐 Public" else "🔒 Private")
                         }
                         span {
-                            className = ClassName("info-badge primary")
-                            +"Open"
+                            className = ClassName(if (group.isOpen) "info-badge primary" else "info-badge")
+                            +(if (group.isOpen) "Open" else "Closed")
                         }
                     }
 

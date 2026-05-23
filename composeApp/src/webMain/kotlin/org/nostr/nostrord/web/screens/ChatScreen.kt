@@ -1,7 +1,7 @@
 package org.nostr.nostrord.web.screens
 
+import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.web.mock.Mock
-import org.nostr.nostrord.web.mock.MockGroup
 import org.nostr.nostrord.web.mock.MockMember
 import org.nostr.nostrord.web.mock.MockMessage
 import org.nostr.nostrord.web.modals.AddMemberModal
@@ -25,7 +25,7 @@ import react.useState
 import web.cssom.ClassName
 
 external interface ChatScreenProps : Props {
-    var group: MockGroup
+    var group: GroupMetadata
     var onLeave: () -> Unit
 }
 
@@ -37,6 +37,7 @@ external interface ChatScreenProps : Props {
 val ChatScreen =
     FC<ChatScreenProps> { props ->
         val group = props.group
+        val groupName = group.name?.takeIf { it.isNotBlank() } ?: "Group"
         val (draft, setDraft) = useState { "" }
         val (membersOpen, setMembersOpen) = useState { false }
         val (infoOpen, setInfoOpen) = useState { false }
@@ -60,13 +61,13 @@ val ChatScreen =
                         onClick = { setInfoOpen(true) }
                         div {
                             className = ClassName("avatar-tile chat-header-icon avatar-fallback")
-                            +group.name.take(1).uppercase()
+                            +groupName.take(1).uppercase()
                         }
                         div {
                             className = ClassName("chat-header-meta")
                             div {
                                 className = ClassName("chat-header-name")
-                                +group.name
+                                +groupName
                             }
                             if (!group.about.isNullOrBlank()) {
                                 div {
@@ -157,7 +158,7 @@ val ChatScreen =
                     }
                     input {
                         className = ClassName("composer-input")
-                        placeholder = "Message ${group.name}"
+                        placeholder = "Message $groupName"
                         value = draft
                         onChange = { event -> setDraft(event.currentTarget.value) }
                     }

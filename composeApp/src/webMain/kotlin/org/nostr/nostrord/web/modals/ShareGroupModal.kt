@@ -1,6 +1,6 @@
 package org.nostr.nostrord.web.modals
 
-import org.nostr.nostrord.web.mock.MockGroup
+import org.nostr.nostrord.network.GroupMetadata
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -10,7 +10,7 @@ import react.dom.html.ReactHTML.input
 import web.cssom.ClassName
 
 external interface ShareGroupModalProps : Props {
-    var group: MockGroup
+    var group: GroupMetadata
     var onClose: () -> Unit
 }
 
