@@ -1,10 +1,13 @@
 package org.nostr.nostrord.web.screens
 
+import kotlinx.browser.window
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
+import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.nostr.Nip27
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -44,8 +47,13 @@ private fun extOf(url: String): String = url.lowercase().substringBefore('?').su
 
 private fun isImageUrl(url: String): Boolean {
     val u = extOf(url)
-    return u.endsWith(".jpg") || u.endsWith(".jpeg") || u.endsWith(".png") ||
-        u.endsWith(".gif") || u.endsWith(".webp") || u.endsWith(".svg") || u.endsWith(".avif")
+    return u.endsWith(".jpg") ||
+        u.endsWith(".jpeg") ||
+        u.endsWith(".png") ||
+        u.endsWith(".gif") ||
+        u.endsWith(".webp") ||
+        u.endsWith(".svg") ||
+        u.endsWith(".avif")
 }
 
 private fun isVideoUrl(url: String): Boolean {
@@ -78,42 +86,91 @@ private fun ChildrenBuilder.memberAvatar(picture: String?, label: String) {
     }
 }
 
-/** Split message content into text runs, inline images/video/audio and links. */
-private fun ChildrenBuilder.renderMessageContent(content: String, onImageClick: (String) -> Unit) {
+private fun copyToClipboard(text: String) {
+    val clip = window.navigator.asDynamic().clipboard
+    if (clip != null) clip.writeText(text)
+}
+
+private fun messageLink(relay: String, groupId: String, messageId: String): String {
+    val host = relay.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+    return "${window.location.origin}/?relay=$host&group=$groupId&e=$messageId"
+}
+
+private fun ChildrenBuilder.renderUrl(url: String, onImageClick: (String) -> Unit) {
+    when {
+        isImageUrl(url) ->
+            img {
+                className = ClassName("chat-image")
+                src = url
+                alt = ""
+                onClick = { onImageClick(url) }
+            }
+        isVideoUrl(url) ->
+            video {
+                className = ClassName("chat-video")
+                src = url
+                controls = true
+            }
+        isAudioUrl(url) ->
+            audio {
+                className = ClassName("chat-audio")
+                src = url
+                controls = true
+            }
+        else ->
+            a {
+                className = ClassName("chat-link")
+                href = url
+                +url
+            }
+    }
+}
+
+/**
+ * Render message content: text runs, inline media/links, and NIP-27 references
+ * (`nostr:npub/nprofile` → clickable @mention; note/nevent/naddr → a short ref badge).
+ */
+private fun ChildrenBuilder.renderMessageContent(
+    content: String,
+    onImageClick: (String) -> Unit,
+    resolveName: (String) -> String,
+    onMention: (String) -> Unit,
+) {
+    val tokens = ArrayList<Pair<IntRange, Any>>()
+    urlRegex.findAll(content).forEach { tokens.add(it.range to it.value) }
+    Nip27.findReferenceMatches(content).forEach { (range, ref) -> tokens.add(range to ref) }
+    tokens.sortBy { it.first.first }
+
     var last = 0
-    for (match in urlRegex.findAll(content)) {
-        if (match.range.first > last) {
-            +content.substring(last, match.range.first)
+    for ((range, payload) in tokens) {
+        if (range.first < last) continue
+        if (range.first > last) {
+            +content.substring(last, range.first)
         }
-        val url = match.value
-        when {
-            isImageUrl(url) ->
-                img {
-                    className = ClassName("chat-image")
-                    src = url
-                    alt = ""
-                    onClick = { onImageClick(url) }
+        when (payload) {
+            is String -> renderUrl(payload, onImageClick)
+            is Nip27.NostrReference -> {
+                val pubkey =
+                    when (val entity = payload.entity) {
+                        is Nip19.Entity.Npub -> entity.pubkey
+                        is Nip19.Entity.Nprofile -> entity.pubkey
+                        else -> null
+                    }
+                if (pubkey != null) {
+                    span {
+                        className = ClassName("chat-mention")
+                        onClick = { onMention(pubkey) }
+                        +("@" + resolveName(pubkey))
+                    }
+                } else {
+                    span {
+                        className = ClassName("chat-mention chat-ref")
+                        +(payload.bech32.take(12) + "…")
+                    }
                 }
-            isVideoUrl(url) ->
-                video {
-                    className = ClassName("chat-video")
-                    src = url
-                    controls = true
-                }
-            isAudioUrl(url) ->
-                audio {
-                    className = ClassName("chat-audio")
-                    src = url
-                    controls = true
-                }
-            else ->
-                a {
-                    className = ClassName("chat-link")
-                    href = url
-                    +url
-                }
+            }
         }
-        last = match.range.last + 1
+        last = range.last + 1
     }
     if (last < content.length) {
         +content.substring(last)
@@ -136,6 +193,8 @@ val GroupScreen =
         val (sending, setSending) = useState { false }
         val (replyingTo, setReplyingTo) = useState<NostrMessage?> { null }
         val (viewerImage, setViewerImage) = useState<String?> { null }
+        val activeId = useStateFlow(AppModule.accountStore.activeId)
+        val currentRelay = useStateFlow(AppModule.nostrRepository.currentRelayUrl)
 
         val messages = (messagesByGroup[props.groupId] ?: emptyList()).sortedBy { it.createdAt }
         val messagesById = messages.associateBy { it.id }
@@ -150,8 +209,7 @@ val GroupScreen =
                 ?: (pubkey.take(8) + "…")
         }
 
-        fun replyParentId(message: NostrMessage): String? =
-            message.tags.find { it.size >= 2 && it[0] == "q" && it[1].length == 64 }?.get(1)
+        fun replyParentId(message: NostrMessage): String? = message.tags.find { it.size >= 2 && it[0] == "q" && it[1].length == 64 }?.get(1)
 
         useEffect(props.groupId) {
             AppModule.nostrRepository.requestGroupMessages(props.groupId)
@@ -275,7 +333,12 @@ val GroupScreen =
 
                                 div {
                                     className = ClassName("chat-content")
-                                    renderMessageContent(message.content) { setViewerImage(it) }
+                                    renderMessageContent(
+                                        message.content,
+                                        { setViewerImage(it) },
+                                        { authorName(it) },
+                                        { viewProfile(it) },
+                                    )
                                 }
 
                                 if (!messageReactions.isNullOrEmpty()) {
@@ -313,6 +376,23 @@ val GroupScreen =
                                                 }
                                             }
                                             +emoji
+                                        }
+                                    }
+                                    button {
+                                        className = ClassName("msg-action")
+                                        onClick = { copyToClipboard(message.content) }
+                                        +"Copy"
+                                    }
+                                    button {
+                                        className = ClassName("msg-action")
+                                        onClick = { copyToClipboard(messageLink(currentRelay, props.groupId, message.id)) }
+                                        +"Link"
+                                    }
+                                    if (message.pubkey == activeId || (activeId != null && activeId in adminSet)) {
+                                        button {
+                                            className = ClassName("msg-action msg-action-danger")
+                                            onClick = { launchApp { AppModule.nostrRepository.deleteMessage(props.groupId, message.id) } }
+                                            +"Delete"
                                         }
                                     }
                                 }

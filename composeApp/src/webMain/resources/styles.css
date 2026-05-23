@@ -577,6 +577,25 @@ body {
     word-break: break-all;
 }
 
+.chat-mention {
+    color: #7289da;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.chat-mention:hover {
+    text-decoration: underline;
+}
+
+.chat-ref {
+    color: var(--color-text-link);
+    cursor: default;
+}
+
+.msg-action-danger:hover {
+    color: var(--color-error);
+}
+
 .reply-quote {
     border-left: 2px solid var(--color-primary);
     padding-left: 8px;

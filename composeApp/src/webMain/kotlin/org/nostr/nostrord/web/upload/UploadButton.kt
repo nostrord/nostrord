@@ -21,21 +21,20 @@ import web.html.InputType
 import web.html.file
 import kotlin.coroutines.resume
 
-private suspend fun readBytes(file: File): ByteArray =
-    suspendCancellableCoroutine { cont ->
-        val reader = FileReader()
-        reader.onload = {
-            val buffer = reader.result.unsafeCast<ArrayBuffer>()
-            val int8 = Int8Array(buffer)
-            cont.resume(ByteArray(int8.length) { int8[it] })
-            null
-        }
-        reader.onerror = {
-            cont.resume(ByteArray(0))
-            null
-        }
-        reader.readAsArrayBuffer(file.unsafeCast<Blob>())
+private suspend fun readBytes(file: File): ByteArray = suspendCancellableCoroutine { cont ->
+    val reader = FileReader()
+    reader.onload = {
+        val buffer = reader.result.unsafeCast<ArrayBuffer>()
+        val int8 = Int8Array(buffer)
+        cont.resume(ByteArray(int8.length) { int8[it] })
+        null
     }
+    reader.onerror = {
+        cont.resume(ByteArray(0))
+        null
+    }
+    reader.readAsArrayBuffer(file.unsafeCast<Blob>())
+}
 
 /** Upload a picked web File to nostr.build (NIP-98). Returns the URL, or null on failure. */
 suspend fun uploadWebFile(file: File): String? {
