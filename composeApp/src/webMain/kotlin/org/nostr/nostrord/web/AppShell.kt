@@ -7,6 +7,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.UserProfileModal
 import org.nostr.nostrord.web.navigation.currentScreen
 import org.nostr.nostrord.web.navigation.navigate
 import org.nostr.nostrord.web.screens.BackupScreen
@@ -130,6 +131,8 @@ val AppShell =
                     else -> DiscoverScreen()
                 }
             }
+
+            UserProfileModal()
         }
     }
 

@@ -8,6 +8,7 @@ import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.viewProfile
 import org.nostr.nostrord.web.navigation.navigate
 import react.ChildrenBuilder
 import react.FC
@@ -260,7 +261,8 @@ val GroupScreen =
                                     div {
                                         className = ClassName("chat-msg-header")
                                         span {
-                                            className = ClassName("chat-author")
+                                            className = ClassName("chat-author clickable")
+                                            onClick = { viewProfile(message.pubkey) }
                                             +authorName(message.pubkey)
                                         }
                                         span {
@@ -364,6 +366,7 @@ val GroupScreen =
                         div {
                             key = pubkey
                             className = ClassName("member-row")
+                            onClick = { viewProfile(pubkey) }
                             memberAvatar(userMetadata[pubkey]?.picture, authorName(pubkey))
                             span {
                                 className = ClassName("member-name")
@@ -385,6 +388,7 @@ val GroupScreen =
                         div {
                             key = pubkey
                             className = ClassName("member-row")
+                            onClick = { viewProfile(pubkey) }
                             memberAvatar(userMetadata[pubkey]?.picture, authorName(pubkey))
                             span {
                                 className = ClassName("member-name")
