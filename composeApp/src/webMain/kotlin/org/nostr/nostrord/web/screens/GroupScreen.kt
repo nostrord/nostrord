@@ -71,8 +71,7 @@ private fun formatTime(epochSeconds: Long): String {
     return dt.hour.toString().padStart(2, '0') + ":" + dt.minute.toString().padStart(2, '0')
 }
 
-private fun localDateOf(epochSeconds: Long) =
-    Instant.fromEpochSeconds(epochSeconds).toLocalDateTime(TimeZone.currentSystemDefault()).date
+private fun localDateOf(epochSeconds: Long) = Instant.fromEpochSeconds(epochSeconds).toLocalDateTime(TimeZone.currentSystemDefault()).date
 
 private fun dateLabel(epochSeconds: Long): String {
     val date = localDateOf(epochSeconds)
@@ -143,10 +142,22 @@ private fun ChildrenBuilder.renderText(text: String) {
     for (m in formatRegex.findAll(text)) {
         if (m.range.first > last) +text.substring(last, m.range.first)
         when {
-            m.groupValues[1].isNotEmpty() -> span { className = ClassName("chat-code"); +m.groupValues[1] }
-            m.groupValues[2].isNotEmpty() -> span { className = ClassName("chat-bold"); +m.groupValues[2] }
-            m.groupValues[3].isNotEmpty() -> span { className = ClassName("chat-italic"); +m.groupValues[3] }
-            m.groupValues[4].isNotEmpty() -> span { className = ClassName("chat-italic"); +m.groupValues[4] }
+            m.groupValues[1].isNotEmpty() -> span {
+                className = ClassName("chat-code")
+                +m.groupValues[1]
+            }
+            m.groupValues[2].isNotEmpty() -> span {
+                className = ClassName("chat-bold")
+                +m.groupValues[2]
+            }
+            m.groupValues[3].isNotEmpty() -> span {
+                className = ClassName("chat-italic")
+                +m.groupValues[3]
+            }
+            m.groupValues[4].isNotEmpty() -> span {
+                className = ClassName("chat-italic")
+                +m.groupValues[4]
+            }
         }
         last = m.range.last + 1
     }
@@ -270,6 +281,19 @@ val GroupScreen =
                 AppModule.nostrRepository.sendMessage(props.groupId, content, replyToMessageId = replyId)
                 setSending(false)
             }
+        }
+
+        // @-mention autocomplete: a trailing "@query" at the cursor suggests members.
+        val mentionMatch = Regex("(?:^|\\s)@(\\S*)$").find(input)
+        val mentionSuggestions =
+            mentionMatch?.let { match ->
+                val query = match.groupValues[1].lowercase()
+                (admins + members).distinct().filter { authorName(it).lowercase().contains(query) }.take(6)
+            } ?: emptyList()
+
+        fun pickMention(pubkey: String) {
+            val npub = Nip19.encodeNpub(pubkey)
+            setInput { prev -> prev.replaceFirst(Regex("@\\S*$"), "nostr:$npub ") }
         }
 
         div {
@@ -439,6 +463,24 @@ val GroupScreen =
                         button {
                             onClick = { setReplyingTo(null) }
                             +"×"
+                        }
+                    }
+                }
+
+                if (mentionSuggestions.isNotEmpty()) {
+                    div {
+                        className = ClassName("mention-popup")
+                        mentionSuggestions.forEach { pubkey ->
+                            div {
+                                key = pubkey
+                                className = ClassName("mention-item")
+                                onClick = { pickMention(pubkey) }
+                                memberAvatar(userMetadata[pubkey]?.picture, authorName(pubkey))
+                                span {
+                                    className = ClassName("mention-item-name")
+                                    +authorName(pubkey)
+                                }
+                            }
                         }
                     }
                 }

@@ -705,6 +705,33 @@ body {
     font-size: 16px;
 }
 
+.mention-popup {
+    margin: 0 16px;
+    max-width: 360px;
+    overflow: hidden;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.mention-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.mention-item:hover {
+    background: var(--color-surface-variant);
+}
+
+.mention-item-name {
+    font-size: 14px;
+    color: var(--color-text-content);
+}
+
 /* ---- Account menu ---- */
 .account-footer-wrap {
     position: relative;
