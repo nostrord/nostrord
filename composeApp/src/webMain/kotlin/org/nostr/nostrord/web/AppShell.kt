@@ -205,6 +205,7 @@ val AppShell =
                     selectedGroup != null ->
                         ChatScreen {
                             group = selectedGroup
+                            onLeave = { setSelectedGroup(null) }
                         }
                     else ->
                         div {

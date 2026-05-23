@@ -96,6 +96,10 @@ object Mock {
             MockMember("vitorpamplona", admin = true, online = false),
         )
 
+    val sampleInviteCodes = listOf("a1b2c3d4e5", "ff00ee11aa22")
+
+    val sampleJoinRequests = listOf("satoshi", "hal", "luke")
+
     val sampleNotifications =
         listOf(
             MockNotification("n1", "fiatjaf", "mention", "Hey @anjhc, can you review the relay PR?", "Nostrord Dev", "2m", read = false),

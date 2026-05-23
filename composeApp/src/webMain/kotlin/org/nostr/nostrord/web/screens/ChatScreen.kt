@@ -4,7 +4,13 @@ import org.nostr.nostrord.web.mock.Mock
 import org.nostr.nostrord.web.mock.MockGroup
 import org.nostr.nostrord.web.mock.MockMember
 import org.nostr.nostrord.web.mock.MockMessage
+import org.nostr.nostrord.web.modals.AddMemberModal
+import org.nostr.nostrord.web.modals.EditGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
+import org.nostr.nostrord.web.modals.InviteCodesModal
+import org.nostr.nostrord.web.modals.JoinRequestsModal
+import org.nostr.nostrord.web.modals.MemberManagementModal
+import org.nostr.nostrord.web.modals.ShareGroupModal
 import org.nostr.nostrord.web.modals.UserProfileModal
 import react.ChildrenBuilder
 import react.FC
@@ -18,6 +24,7 @@ import web.cssom.ClassName
 
 external interface ChatScreenProps : Props {
     var group: MockGroup
+    var onLeave: () -> Unit
 }
 
 /**
@@ -32,6 +39,9 @@ val ChatScreen =
         val (membersOpen, setMembersOpen) = useState { false }
         val (infoOpen, setInfoOpen) = useState { false }
         val (profileName, setProfileName) = useState<String?> { null }
+        val (menuOpen, setMenuOpen) = useState { false }
+        // moderation modal: "edit" | "share" | "members" | "addmember" | "invite" | "requests"
+        val (modal, setModal) = useState<String?> { null }
 
         div {
             className = ClassName(if (membersOpen) "chat members-open" else "chat")
@@ -68,6 +78,50 @@ val ChatScreen =
                         className = ClassName("chat-members-btn")
                         onClick = { setMembersOpen(!membersOpen) }
                         +"👥"
+                    }
+                    button {
+                        className = ClassName("chat-icon-btn")
+                        onClick = { setMenuOpen(!menuOpen) }
+                        +"⋮"
+                    }
+
+                    if (menuOpen) {
+                        div {
+                            className = ClassName("chat-menu-overlay")
+                            onClick = { setMenuOpen(false) }
+                        }
+                        div {
+                            className = ClassName("chat-menu")
+                            chatMenuItem("Edit Group") {
+                                setMenuOpen(false)
+                                setModal("edit")
+                            }
+                            chatMenuItem("Manage Members") {
+                                setMenuOpen(false)
+                                setModal("members")
+                            }
+                            chatMenuItem("Invite Codes") {
+                                setMenuOpen(false)
+                                setModal("invite")
+                            }
+                            chatMenuItem("Join Requests") {
+                                setMenuOpen(false)
+                                setModal("requests")
+                            }
+                            chatMenuItem("Share") {
+                                setMenuOpen(false)
+                                setModal("share")
+                            }
+                            div { className = ClassName("chat-menu-divider") }
+                            chatMenuItem("Delete Group", danger = true) {
+                                setMenuOpen(false)
+                                props.onLeave()
+                            }
+                            chatMenuItem("Leave Group", danger = true) {
+                                setMenuOpen(false)
+                                props.onLeave()
+                            }
+                        }
                     }
                 }
 
@@ -119,7 +173,12 @@ val ChatScreen =
                 className = ClassName("member-sidebar")
                 div {
                     className = ClassName("member-header")
-                    +"Members — ${Mock.sampleMembers.size}"
+                    span { +"Members — ${Mock.sampleMembers.size}" }
+                    button {
+                        className = ClassName("member-add-btn")
+                        onClick = { setModal("addmember") }
+                        +"＋"
+                    }
                 }
                 div {
                     className = ClassName("member-search")
@@ -155,8 +214,33 @@ val ChatScreen =
                     onClose = { setProfileName(null) }
                 }
             }
+
+            when (modal) {
+                "edit" ->
+                    EditGroupModal {
+                        this.group = group
+                        onClose = { setModal(null) }
+                    }
+                "share" ->
+                    ShareGroupModal {
+                        this.group = group
+                        onClose = { setModal(null) }
+                    }
+                "members" -> MemberManagementModal { onClose = { setModal(null) } }
+                "addmember" -> AddMemberModal { onClose = { setModal(null) } }
+                "invite" -> InviteCodesModal { onClose = { setModal(null) } }
+                "requests" -> JoinRequestsModal { onClose = { setModal(null) } }
+            }
         }
     }
+
+private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false, onSelect: () -> Unit) {
+    div {
+        className = ClassName(if (danger) "chat-menu-item danger" else "chat-menu-item")
+        onClick = { onSelect() }
+        +label
+    }
+}
 
 private fun ChildrenBuilder.messageRow(message: MockMessage, onUser: (String) -> Unit) {
     div {
