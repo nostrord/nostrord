@@ -10,6 +10,7 @@ import org.nostr.nostrord.web.mock.mockRelaysState
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
+import org.nostr.nostrord.web.screens.ChatScreen
 import org.nostr.nostrord.web.screens.OnboardingScreen
 import react.FC
 import react.Props
@@ -188,25 +189,25 @@ val AppShell =
             // Content
             div {
                 className = ClassName("content")
-                if (!hasRelays) {
-                    OnboardingScreen {
-                        onAddRelay = { openRelay(0) }
-                        onAddRelayCustomUrl = { openRelay(1) }
-                    }
-                } else {
-                    div {
-                        className = ClassName("home-welcome")
+                when {
+                    !hasRelays ->
+                        OnboardingScreen {
+                            onAddRelay = { openRelay(0) }
+                            onAddRelayCustomUrl = { openRelay(1) }
+                        }
+                    selectedGroup != null ->
+                        ChatScreen {
+                            group = selectedGroup
+                        }
+                    else ->
                         div {
-                            className = ClassName("home-welcome-inner")
-                            if (selectedGroup != null) {
-                                h1 { +selectedGroup.name }
-                                p { +"Chat view coming next." }
-                            } else {
+                            className = ClassName("home-welcome")
+                            div {
+                                className = ClassName("home-welcome-inner")
                                 h1 { +"Nostrord" }
                                 p { +"Select a group from the sidebar to start chatting." }
                             }
                         }
-                    }
                 }
             }
 

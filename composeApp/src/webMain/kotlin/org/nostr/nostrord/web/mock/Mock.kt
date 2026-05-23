@@ -19,6 +19,18 @@ data class MockRelay(val url: String, val name: String, val icon: String?, val u
 
 data class MockGroup(val id: String, val name: String, val about: String?, val picture: String?, val unread: Int)
 
+/** A chat message. [firstInGroup] = false hides the avatar/name (consecutive same-author). */
+data class MockMessage(
+    val id: String,
+    val author: String,
+    val time: String,
+    val content: String,
+    val firstInGroup: Boolean,
+    val admin: Boolean = false,
+)
+
+data class MockMember(val name: String, val admin: Boolean, val online: Boolean)
+
 object Mock {
     val me =
         MockAccount(
@@ -48,6 +60,29 @@ object Mock {
             MockGroup("g3", "Random", "Off-topic chatter", null, 12),
             MockGroup("g4", "Announcements", "Official updates", null, 0),
             MockGroup("g5", "Support", "Help and questions", null, 1),
+        )
+
+    val sampleDate = "May 23, 2026"
+
+    val sampleMessages =
+        listOf(
+            MockMessage("m1", "Anjhc", "10:02", "Hey everyone 👋 welcome to the dev group!", true, admin = true),
+            MockMessage("m2", "Anjhc", "10:02", "We just shipped the new web frontend rebuild.", false, admin = true),
+            MockMessage("m3", "fiatjaf", "10:15", "Nice! Is it React now?", true),
+            MockMessage("m4", "fiatjaf", "10:16", "The Compose canvas felt rough on mobile web.", false),
+            MockMessage("m5", "hodlbod", "10:31", "kotlin-react via wrappers, reusing the same shared logic 🔥", true),
+            MockMessage("m6", "Anjhc", "10:33", "Exactly. Layout-first, then we wire the relays.", true, admin = true),
+            MockMessage("m7", "pablof7z", "10:40", "Looking forward to testing it out.", true),
+        )
+
+    val sampleMembers =
+        listOf(
+            MockMember("Anjhc", admin = true, online = true),
+            MockMember("fiatjaf", admin = false, online = true),
+            MockMember("hodlbod", admin = false, online = true),
+            MockMember("pablof7z", admin = false, online = false),
+            MockMember("jack", admin = false, online = false),
+            MockMember("vitorpamplona", admin = true, online = false),
         )
 }
 
