@@ -8,12 +8,11 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient.NostrMessage
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip27
-import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.EmojiPicker
 import org.nostr.nostrord.web.components.GroupHeaderBar
 import org.nostr.nostrord.web.components.viewProfile
-import org.nostr.nostrord.web.navigation.navigate
 import org.nostr.nostrord.web.upload.UploadButton
 import react.ChildrenBuilder
 import react.FC
@@ -196,6 +195,8 @@ val GroupScreen =
         val (viewerImage, setViewerImage) = useState<String?> { null }
         val activeId = useStateFlow(AppModule.accountStore.activeId)
         val currentRelay = useStateFlow(AppModule.nostrRepository.currentRelayUrl)
+        val (composerEmoji, setComposerEmoji) = useState { false }
+        val (reactTarget, setReactTarget) = useState<NostrMessage?> { null }
 
         val messages = (messagesByGroup[props.groupId] ?: emptyList()).sortedBy { it.createdAt }
         val messagesById = messages.associateBy { it.id }
@@ -369,6 +370,11 @@ val GroupScreen =
                                     }
                                     button {
                                         className = ClassName("msg-action")
+                                        onClick = { setReactTarget(message) }
+                                        +"➕"
+                                    }
+                                    button {
+                                        className = ClassName("msg-action")
                                         onClick = { copyToClipboard(message.content) }
                                         +"Copy"
                                     }
@@ -407,6 +413,11 @@ val GroupScreen =
                         label = "📎"
                         accept = "image/*,video/*,audio/*"
                         onUploaded = { url -> setInput { prev -> (if (prev.isBlank()) "" else prev.trimEnd() + " ") + url } }
+                    }
+                    button {
+                        className = ClassName("compose-emoji-btn")
+                        onClick = { setComposerEmoji(true) }
+                        +"😊"
                     }
                     textarea {
                         className = ClassName("chat-input")
@@ -525,6 +536,24 @@ val GroupScreen =
                         src = url
                         alt = ""
                     }
+                }
+            }
+
+            if (composerEmoji) {
+                EmojiPicker {
+                    onPick = { emoji -> setInput { prev -> prev + emoji } }
+                    onClose = { setComposerEmoji(false) }
+                }
+            }
+
+            reactTarget?.let { target ->
+                EmojiPicker {
+                    onPick = { emoji ->
+                        launchApp {
+                            AppModule.nostrRepository.sendReaction(props.groupId, target.id, target.pubkey, emoji)
+                        }
+                    }
+                    onClose = { setReactTarget(null) }
                 }
             }
         }
