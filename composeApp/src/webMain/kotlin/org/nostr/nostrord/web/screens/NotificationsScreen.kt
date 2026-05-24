@@ -17,14 +17,18 @@ import react.dom.html.ReactHTML.span
 import react.useEffect
 import web.cssom.ClassName
 
+external interface NotificationsScreenProps : Props {
+    var onOpen: (relayUrl: String, groupId: String) -> Unit
+}
+
 /**
  * Notifications — real port of the Compose NotificationsScreen: the live
  * `notificationHistoryStore.entries` (avatar + type badge, actor + action, preview,
- * group · time; unread accent), with Mark all as read / Clear all. Rendered in the shell
- * content (rail stays, groups sidebar hidden).
+ * group · time; unread accent), with Mark all as read / Clear all. Clicking an entry marks
+ * it read and opens its group. Rendered in the shell content (rail stays, sidebar hidden).
  */
 val NotificationsScreen =
-    FC<Props> {
+    FC<NotificationsScreenProps> { props ->
         val store = AppModule.notificationHistoryStore
         val entries = useStateFlow(store.entries)
         val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
@@ -69,7 +73,10 @@ val NotificationsScreen =
                     }
                 } else {
                     entries.forEach { entry ->
-                        notifItem(entry, userMetadata[entry.actorPubkey])
+                        notifItem(entry, userMetadata[entry.actorPubkey]) {
+                            store.markRead(entry.id)
+                            props.onOpen(entry.relayUrl, entry.groupId)
+                        }
                     }
                 }
             }
@@ -97,7 +104,7 @@ private fun typeGlyph(entry: NotificationEntry): String = when (entry.type) {
     NotificationType.MESSAGE -> "💬"
 }
 
-private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserMetadata?) {
+private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserMetadata?, onSelect: () -> Unit) {
     val actor =
         actorMeta?.displayName?.takeIf { it.isNotBlank() }
             ?: actorMeta?.name?.takeIf { it.isNotBlank() }
@@ -107,6 +114,7 @@ private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserM
 
     div {
         className = ClassName(if (entry.read) "notif-item" else "notif-item unread")
+        onClick = { onSelect() }
         div { className = ClassName("notif-accent") }
         div {
             className = ClassName("notif-main")

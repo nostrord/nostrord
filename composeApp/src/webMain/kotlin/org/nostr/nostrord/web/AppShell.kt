@@ -59,6 +59,7 @@ val AppShell =
         val fullListFetched = useStateFlow(repo.fullGroupListFetchedRelays)
         val accounts = useStateFlow(AppModule.accountStore.accounts)
         val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
+        val notifUnread = useStateFlow(AppModule.notificationHistoryStore.entries).count { !it.read }
 
         val relayNames = relayMetadata.mapValues { it.value.name ?: "" }
         val relayList =
@@ -171,6 +172,12 @@ val AppShell =
                             className = ClassName("avatar-tile rail-icon rail-bell")
                             +"🔔"
                         }
+                        if (notifUnread > 0) {
+                            span {
+                                className = ClassName("rail-badge")
+                                +(if (notifUnread > 9) "9+" else notifUnread.toString())
+                            }
+                        }
                     }
                     div {
                         className = ClassName("rail-account")
@@ -259,7 +266,16 @@ val AppShell =
             div {
                 className = ClassName("content")
                 when {
-                    notificationsOpen -> NotificationsScreen()
+                    notificationsOpen ->
+                        NotificationsScreen {
+                            onOpen = { relay, gid ->
+                                if (relay.isNotBlank() && relay != currentRelayUrl) {
+                                    launchApp { repo.switchRelay(relay) }
+                                }
+                                setSelectedGroupId(gid)
+                                setNotificationsOpen(false)
+                            }
+                        }
                     !hasRelays ->
                         OnboardingScreen {
                             onAddRelay = { openRelay(0) }
