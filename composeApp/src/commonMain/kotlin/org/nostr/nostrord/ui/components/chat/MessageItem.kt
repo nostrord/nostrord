@@ -48,6 +48,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -392,8 +393,11 @@ fun MessageItem(
                                 text = displayName,
                                 color = Color.White,
                                 style = NostrordTypography.Username,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier =
                                 Modifier
+                                    .weight(1f, fill = false)
                                     .clickable { currentOnUsernameClick(message.pubkey) }
                                     .pointerHoverIcon(PointerIcon.Hand),
                             )
@@ -402,6 +406,7 @@ fun MessageItem(
                                 text = formatTime(message.createdAt),
                                 color = NostrordColors.TextMuted,
                                 style = NostrordTypography.Timestamp,
+                                maxLines = 1,
                             )
                         }
                         Spacer(modifier = Modifier.height(Spacing.xs))

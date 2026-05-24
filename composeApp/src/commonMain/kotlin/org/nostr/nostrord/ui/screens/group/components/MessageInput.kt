@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.autoFocusTextInput
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.getPlatform
 import org.nostr.nostrord.network.NostrGroupClient
@@ -118,9 +119,11 @@ fun MessageInput(
         !platform.startsWith("Android") && !platform.startsWith("iOS")
     }
 
-    // Auto-focus on desktop only — on Android this would open the keyboard immediately
+    // Auto-focus only where there's a physical keyboard (desktop, desktop web).
+    // On touch devices — Android, iOS, and coarse-pointer (mobile) web — this would
+    // pop the on-screen keyboard the instant a group opens, so it's skipped.
     LaunchedEffect(isJoined, groupName) {
-        if (isJoined && !getPlatform().name.startsWith("Android")) {
+        if (isJoined && autoFocusTextInput) {
             focusRequester.requestFocus()
         }
     }
@@ -171,8 +174,9 @@ fun MessageInput(
     LaunchedEffect(messageInput) {
         if (textFieldValue.text != messageInput) {
             textFieldValue = TextFieldValue(messageInput, TextRange(messageInput.length))
-            // Refocus after send (input cleared) on desktop
-            if (messageInput.isEmpty() && !getPlatform().name.startsWith("Android")) {
+            // Refocus after send (input cleared) only where auto-focus is wanted —
+            // skip touch/mobile web so a send doesn't re-pop the on-screen keyboard.
+            if (messageInput.isEmpty() && autoFocusTextInput) {
                 focusRequester.requestFocus()
             }
         }

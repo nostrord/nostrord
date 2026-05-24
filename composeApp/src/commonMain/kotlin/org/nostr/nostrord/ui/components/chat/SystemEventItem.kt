@@ -115,41 +115,45 @@ fun SystemEventItem(
             Spacer(modifier = Modifier.width(8.dp))
         }
 
-        // Event text
-        Column {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (totalUsers == 1) {
-                    val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
-                    Text(
-                        text = displayName,
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = action,
-                        color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                } else {
-                    Text(
-                        text = "$totalUsers members",
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = action,
-                        color = NostrordColors.TextMuted,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+        // Event text — weighted (fill = false) so short rows stay centered while a
+        // long display name truncates instead of squeezing the action and timestamp.
+        Row(
+            modifier = Modifier.weight(1f, fill = false),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (totalUsers == 1) {
+                val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
+                Text(
+                    text = displayName,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = action,
+                    color = NostrordColors.TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                )
+            } else {
+                Text(
+                    text = "$totalUsers members",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = action,
+                    color = NostrordColors.TextMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                )
             }
         }
 
@@ -160,6 +164,7 @@ fun SystemEventItem(
             text = formatTimestamp(createdAt),
             color = NostrordColors.TextMuted.copy(alpha = 0.6f),
             style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
         )
     }
 }

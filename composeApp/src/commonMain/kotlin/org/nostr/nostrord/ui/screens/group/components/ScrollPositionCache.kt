@@ -163,33 +163,23 @@ fun <T> ScrollPositionEffect(
             }
     }
 
-    // Track when user scrolls away from bottom.
+    // Track whether the viewport is parked at the bottom. "Scrolled away" is a pure
+    // function of POSITION, not scroll direction. Direction-based tracking raced with
+    // the stick-to-bottom effect below: scrolling up to read history (or the IME
+    // open/close animation moving the list) could be misread as "returned to bottom",
+    // which then teleported the view to the newest message — including the
+    // "pagination loads and jumps to latest" symptom when older history pages in.
+    // Tolerance of 2 keeps a single appended message from briefly flipping the flag.
     LaunchedEffect(groupId, listState) {
         if (!initialScrollToEnd) return@LaunchedEffect
-        var prevFirstVisible = listState.firstVisibleItemIndex
         snapshotFlow {
-            val lastVisible =
-                listState.layoutInfo.visibleItemsInfo
-                    .lastOrNull()
-                    ?.index ?: -1
-            lastVisible to listState.firstVisibleItemIndex
+            val layoutInfo = listState.layoutInfo
+            val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val total = layoutInfo.totalItemsCount
+            lastVisible >= 0 && total > 0 && lastVisible >= total - 2
         }.distinctUntilChanged()
-            .collect { (lastVisible, firstVisible) ->
-                val size = currentItems.size
-                if (size > 0 && lastVisible >= 0) {
-                    val atBottom = lastVisible >= size - 1
-                    if (atBottom) {
-                        stateHolder.isScrolledAway = false
-                    } else {
-                        when {
-                            firstVisible > prevFirstVisible -> stateHolder.isScrolledAway = true
-                            firstVisible < prevFirstVisible -> stateHolder.isScrolledAway = false
-                        }
-                    }
-                    prevFirstVisible = firstVisible
-                } else {
-                    stateHolder.isScrolledAway = false
-                }
+            .collect { atBottom ->
+                stateHolder.isScrolledAway = !atBottom
             }
     }
 
