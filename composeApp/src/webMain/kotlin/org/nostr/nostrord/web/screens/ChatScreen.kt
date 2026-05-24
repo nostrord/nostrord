@@ -15,8 +15,8 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.ChatImage
 import org.nostr.nostrord.web.components.Ic
-import org.nostr.nostrord.web.components.ImageViewer
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
@@ -833,12 +833,7 @@ private fun ChildrenBuilder.renderMessageContent(
         if (token.startsWith("http")) {
             val url = token.trimEnd('.', ',', ')', '!', '?', ';', ':')
             if (IMAGE_EXT.containsMatchIn(url)) {
-                img {
-                    className = ClassName("msg-image")
-                    src = url
-                    alt = ""
-                    onClick = { ImageViewer.show(url) }
-                }
+                ChatImage { imageUrl = url }
             } else {
                 a {
                     className = ClassName("msg-link")

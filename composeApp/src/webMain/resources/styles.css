@@ -4173,6 +4173,15 @@ body {
 .msg-image {
     cursor: zoom-in;
 }
+/* Transparent images get a contrasting backdrop so dark/light logos stay visible. */
+.msg-image.on-light {
+    background: #ffffff;
+    padding: 4px;
+}
+.msg-image.on-dark {
+    background: #15171a;
+    padding: 4px;
+}
 
 /* Deep-link (&e=) target message flash */
 @keyframes msg-flash {
