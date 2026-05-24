@@ -169,6 +169,9 @@ kotlin {
             implementation(project.dependencies.platform("org.jetbrains.kotlin-wrappers:kotlin-wrappers-bom:2025.10.0"))
             implementation("org.jetbrains.kotlin-wrappers:kotlin-react")
             implementation("org.jetbrains.kotlin-wrappers:kotlin-react-dom")
+
+            // Pure-JS QR generator for the NIP-46 nostrconnect login (no canvas needed).
+            implementation(npm("qrcode-generator", "1.4.4"))
         }
     }
 }

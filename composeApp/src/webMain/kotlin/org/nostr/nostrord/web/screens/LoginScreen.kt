@@ -212,23 +212,7 @@ val LoginScreen =
                                     }
                                 }
                                 when (bunkerMode) {
-                                    BunkerMode.Qr -> {
-                                        div {
-                                            className = ClassName("bunker-qr")
-                                            p {
-                                                className = ClassName("bunker-scan")
-                                                +"Scan with your signer app"
-                                            }
-                                            p {
-                                                className = ClassName("bunker-scan-sub")
-                                                +"(Amber, nsec.app, etc.)"
-                                            }
-                                            div {
-                                                className = ClassName("qr-placeholder")
-                                                +"QR"
-                                            }
-                                        }
-                                    }
+                                    BunkerMode.Qr -> BunkerQr { onSuccess = {} }
                                     BunkerMode.Url -> {
                                         div {
                                             className = ClassName("field-with-icon")

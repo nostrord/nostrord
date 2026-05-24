@@ -202,18 +202,7 @@ val AddAccountSheet =
                                 }
                             }
                             when (bunkerMode) {
-                                AddBunkerMode.Qr ->
-                                    div {
-                                        className = ClassName("bunker-qr")
-                                        p {
-                                            className = ClassName("bunker-scan")
-                                            +"Scan with your signer app"
-                                        }
-                                        div {
-                                            className = ClassName("qr-placeholder")
-                                            +"QR"
-                                        }
-                                    }
+                                AddBunkerMode.Qr -> BunkerQr { onSuccess = { props.onClose() } }
 
                                 AddBunkerMode.Url -> {
                                     div {

@@ -391,7 +391,17 @@ body {
     background: #fff;
     color: #999;
     border-radius: 8px;
-    font-size: 14px;
+    font-size: 28px;
+}
+
+.qr-img {
+    width: 220px;
+    height: 220px;
+    margin-top: 16px;
+    padding: 8px;
+    background: #fff;
+    border-radius: 8px;
+    image-rendering: pixelated;
 }
 
 .bunker-benefits {
