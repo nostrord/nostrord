@@ -64,6 +64,7 @@ val UserProfileModal =
                     }
                     WebAvatar {
                         url = meta?.picture
+                        seed = pubkey
                         this.name = name
                         cls = "profile-avatar"
                     }

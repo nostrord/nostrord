@@ -86,6 +86,7 @@ val HomeScreen =
                         className = ClassName("manage-relay-card")
                         WebAvatar {
                             url = relayMeta?.icon
+                            seed = currentRelay
                             name = relayLabel
                             cls = "manage-relay-icon"
                         }
@@ -118,6 +119,7 @@ val HomeScreen =
                                 className = ClassName("manage-group-row")
                                 WebAvatar {
                                     url = group.picture
+                                    seed = group.id
                                     name = group.name ?: group.id
                                     cls = "manage-group-icon"
                                 }
@@ -152,6 +154,7 @@ val HomeScreen =
                     className = ClassName("home-header")
                     WebAvatar {
                         url = relayMeta?.icon
+                        seed = currentRelay
                         name = relayLabel
                         cls = "home-relay-icon"
                     }
@@ -299,6 +302,7 @@ private fun ChildrenBuilder.pickGroupCard(
         onClick = { onOpen() }
         WebAvatar {
             url = group.picture
+            seed = group.id
             name = group.name ?: group.id
             cls = "pick-icon"
         }

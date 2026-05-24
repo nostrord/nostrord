@@ -239,6 +239,7 @@ val AppShell =
                                 }
                                 WebAvatar {
                                     url = relayMetadata[relay]?.icon
+                                    seed = relay
                                     name = relayDisplayName(relay, relayNames)
                                     cls = "rail-icon"
                                 }
@@ -278,6 +279,7 @@ val AppShell =
                         onClick = { setMenuOpen(!menuOpen) }
                         WebAvatar {
                             url = meMetadata?.picture
+                            seed = activePubkey
                             name = meName
                             cls = "rail-icon"
                         }
@@ -433,6 +435,7 @@ val AppShell =
                             className = ClassName("me-header")
                             WebAvatar {
                                 url = meMetadata?.picture
+                                seed = activePubkey
                                 name = meName
                                 cls = "me-avatar-lg"
                             }
@@ -477,6 +480,7 @@ val AppShell =
                                 }
                                 WebAvatar {
                                     url = meta?.picture
+                                    seed = account.pubkey
                                     this.name = name
                                     cls = "me-avatar-sm"
                                 }
@@ -605,6 +609,7 @@ private fun ChildrenBuilder.sidebarGroupRow(group: GroupMetadata, selected: Bool
         onClick = { onOpen(group.id) }
         WebAvatar {
             url = group.picture
+            seed = group.id
             name = group.name ?: group.id
             cls = "group-icon-sm"
         }

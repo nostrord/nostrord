@@ -85,6 +85,7 @@ val JoinRequestsModal =
                                 className = ClassName("mod-row")
                                 WebAvatar {
                                     url = userMetadata[req.pubkey]?.picture
+                                    seed = req.pubkey
                                     name = nameOf(req.pubkey)
                                     cls = "mod-avatar"
                                 }

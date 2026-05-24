@@ -114,6 +114,7 @@ val MemberManagementModal =
                             className = ClassName("mod-row")
                             WebAvatar {
                                 url = userMetadata[pubkey]?.picture
+                                seed = pubkey
                                 name = nameOf(pubkey)
                                 cls = "mod-avatar"
                             }

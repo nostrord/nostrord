@@ -120,6 +120,7 @@ private val ProfilePanel =
             className = ClassName("settings-card center")
             WebAvatar {
                 url = picture.ifBlank { null }
+                seed = pubkey
                 this.name = name.ifBlank { "U" }
                 cls = "settings-avatar"
             }

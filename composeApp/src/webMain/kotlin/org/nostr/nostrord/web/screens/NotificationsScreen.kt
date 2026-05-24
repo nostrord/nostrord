@@ -124,6 +124,7 @@ private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserM
                 className = ClassName("notif-avatar-wrap")
                 WebAvatar {
                     url = actorMeta?.picture
+                    seed = entry.actorPubkey
                     name = actor
                     cls = "notif-avatar"
                 }

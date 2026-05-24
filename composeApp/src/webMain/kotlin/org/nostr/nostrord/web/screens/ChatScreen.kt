@@ -198,6 +198,7 @@ val ChatScreen =
                         onClick = { setInfoOpen(true) }
                         WebAvatar {
                             url = group.picture
+                            seed = group.id
                             name = groupName
                             cls = "chat-header-icon"
                         }
@@ -638,6 +639,7 @@ private val MessageRow =
                 if (props.firstInGroup) {
                     WebAvatar {
                         url = props.avatarUrl
+                        seed = props.pubkey
                         name = props.name
                         cls = "msg-avatar clickable"
                         onClick = { props.onUser(props.pubkey) }
@@ -850,6 +852,7 @@ private fun ChildrenBuilder.systemEventRow(
                 (listOf(event.pubkey) + event.additionalUsers).take(4).forEach { pk ->
                     WebAvatar {
                         url = userMetadata[pk]?.picture
+                        seed = pk
                         name = displayName(pk, userMetadata[pk])
                         cls = "sys-event-avatar"
                     }
@@ -865,6 +868,7 @@ private fun ChildrenBuilder.systemEventRow(
         } else {
             WebAvatar {
                 url = userMetadata[event.pubkey]?.picture
+                seed = event.pubkey
                 name = displayName(event.pubkey, userMetadata[event.pubkey])
                 cls = "sys-event-avatar clickable"
                 onClick = { onUser(event.pubkey) }
@@ -959,6 +963,7 @@ private fun ChildrenBuilder.memberRow(pubkey: String, name: String, avatarUrl: S
             className = ClassName("member-avatar-wrap")
             WebAvatar {
                 url = avatarUrl
+                seed = pubkey
                 this.name = name
                 cls = "member-avatar"
             }

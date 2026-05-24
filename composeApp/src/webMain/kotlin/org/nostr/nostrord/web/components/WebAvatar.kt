@@ -9,9 +9,15 @@ import react.useState
 import web.cssom.ClassName
 
 external interface WebAvatarProps : Props {
-    /** Image URL; falls back to the [name] initial when null/blank or it fails to load. */
+    /** Image URL; when null/blank or it fails to load, the identicon fallback stays visible. */
     var url: String?
     var name: String
+
+    /**
+     * Stable identity used to seed the identicon (pubkey for users, group id for groups), so the
+     * fallback matches native. Falls back to [name] when null/blank.
+     */
+    var seed: String?
 
     /** Size/shape classes applied alongside `avatar-tile` (e.g. "msg-avatar"). */
     var cls: String
@@ -19,28 +25,38 @@ external interface WebAvatarProps : Props {
 }
 
 /**
- * Avatar that renders the real picture when available and falls back to a letter tile
- * (matching the `avatar-fallback` style) when there's no URL or the image fails to load.
+ * Avatar that always shows the Jdenticon identicon first and overlays the real picture once it
+ * loads (fading in). If the image is missing or fails to load, the identicon stays — mirroring
+ * the native scheme (Jdenticon while loading / on error).
  */
 val WebAvatar =
     FC<WebAvatarProps> { props ->
+        val (loaded, setLoaded) = useState { false }
         val (failed, setFailed) = useState { false }
-        useEffect(props.url) { setFailed(false) }
+        useEffect(props.url) {
+            setLoaded(false)
+            setFailed(false)
+        }
 
         val url = props.url
-        if (!url.isNullOrBlank() && !failed) {
-            img {
-                className = ClassName("avatar-tile ${props.cls} avatar-img")
-                src = url
-                alt = props.name
-                onError = { setFailed(true) }
-                props.onClick?.let { cb -> onClick = { cb() } }
-            }
-        } else {
-            div {
-                className = ClassName("avatar-tile ${props.cls} avatar-fallback")
-                props.onClick?.let { cb -> onClick = { cb() } }
-                +props.name.take(1).uppercase()
+        val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
+
+        div {
+            className = ClassName("avatar-tile ${props.cls} avatar-stack")
+            props.onClick?.let { cb -> onClick = { cb() } }
+
+            // Always-present identicon fallback underneath.
+            identicon(seed)
+
+            // Real picture on top: hidden until it loads, removed on error so the identicon shows.
+            if (!url.isNullOrBlank() && !failed) {
+                img {
+                    className = ClassName(if (loaded) "avatar-photo loaded" else "avatar-photo")
+                    src = url
+                    alt = props.name
+                    onLoad = { setLoaded(true) }
+                    onError = { setFailed(true) }
+                }
             }
         }
     }

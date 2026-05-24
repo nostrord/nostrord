@@ -50,6 +50,7 @@ val GroupInfoModal =
                     }
                     WebAvatar {
                         url = group.picture
+                        seed = group.id
                         name = groupName
                         cls = "info-cover-icon"
                     }
