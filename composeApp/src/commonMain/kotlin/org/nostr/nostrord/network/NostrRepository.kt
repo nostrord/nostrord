@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -31,6 +33,7 @@ import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.RelayReconnectScheduler
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
+import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.startup.StartupResolver
@@ -61,6 +64,7 @@ class NostrRepository(
     private val groupManager: GroupManager,
     private val metadataManager: MetadataManager,
     private val outboxManager: OutboxManager,
+    private val zapManager: ZapManager,
     private val unreadManager: UnreadManager,
     private val pendingEventManager: org.nostr.nostrord.network.managers.PendingEventManager? = null,
     private val relayMetadataManager: RelayMetadataManager? = null,
@@ -85,6 +89,10 @@ class NostrRepository(
      */
     private val GAP_DETECTION_COOLDOWN_S = 30L
     private val lastGapDetectionAt = mutableMapOf<String, Long>()
+
+    /** How long the zap modal waits for a payment confirmation, and the receipt poll cadence. */
+    private val ZAP_PAYMENT_WATCH_MS = 90_000L
+    private val ZAP_PAYMENT_POLL_MS = 3_000L
 
     /**
      * Epoch-seconds of the last requestGroups() call per relay.
@@ -190,6 +198,9 @@ class NostrRepository(
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
+
+    // NIP-57 zap totals per zapped event id.
+    override val zaps: StateFlow<Map<String, ZapManager.ZapInfo>> = zapManager.zaps
     override val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
     override val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = groupManager.groupRoles
@@ -1720,6 +1731,68 @@ class NostrRepository(
         )
     }
 
+    override suspend fun requestZapInvoice(
+        recipientPubkey: String,
+        amountSats: Long,
+        comment: String,
+        eventId: String?,
+    ): Result<ZapManager.ZapInvoice> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return zapManager.requestInvoice(
+            recipientPubkey = recipientPubkey,
+            amountSats = amountSats,
+            comment = comment,
+            eventId = eventId,
+            senderPubkey = pubKey,
+            signEvent = { sessionManager.signEvent(it) },
+        )
+    }
+
+    override suspend fun watchZapPayment(
+        bolt11: String,
+        recipientPubkey: String,
+        eventId: String?,
+    ): Boolean {
+        // Poll the receipt relays for the matching kind:9735 while awaiting the flow.
+        val matched = withTimeoutOrNull(ZAP_PAYMENT_WATCH_MS) {
+            coroutineScope {
+                val poller = launch {
+                    while (isActive) {
+                        pollZapReceipts(recipientPubkey, eventId)
+                        delay(ZAP_PAYMENT_POLL_MS)
+                    }
+                }
+                try {
+                    zapManager.paidInvoices.first { it.equals(bolt11, ignoreCase = true) }
+                } finally {
+                    poller.cancel()
+                }
+            }
+        }
+        return matched != null
+    }
+
+    /** One poll cycle: re-request the zap receipt from connected + general relays. */
+    private suspend fun pollZapReceipts(recipientPubkey: String, eventId: String?) {
+        // Same relays the receipt was asked to be published to (see ZapManager.receiptRelays).
+        zapManager.receiptRelays().forEach { url ->
+            try {
+                val client = connectionManager.getClientForRelay(url)
+                    ?: connectionManager.getOrConnectRelay(url) { msg, c -> enqueueToRelayPipeline(msg, c) }
+                if (client != null && client.isConnected()) {
+                    if (eventId != null) {
+                        client.requestZapReceipts(listOf(eventId))
+                    } else {
+                        client.requestZapReceiptsForRecipient(recipientPubkey)
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+            }
+        }
+    }
+
     override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> = groupManager.getMessagesForGroup(groupId)
 
     // Unread message operations
@@ -2037,6 +2110,29 @@ class NostrRepository(
      * Fix: both initializeOutboxModel and connectToRelayBackground now use this unified
      * handler so the first-connection handler always handles both NIP-29 and outbox events.
      */
+    /**
+     * Fetch NIP-57 zap receipts (kind 9735) for [messageIds] from general-purpose relays.
+     * NIP-29 group relays don't serve zap receipts (they carry no `h` tag), so we query
+     * connected outbox/bootstrap relays — connecting a couple if none are open. Responses
+     * route through the relay pipeline → kind 9735 → ZapManager aggregation.
+     */
+    private fun fetchZapReceiptsFromGeneralRelays(messageIds: List<String>) {
+        if (messageIds.isEmpty()) return
+        scope.launch {
+            // Query the exact relays the zap request asked the receipt to be published to —
+            // not the NIP-29 group relay, which rejects the (h-less) 9735.
+            zapManager.receiptRelays().forEach { url ->
+                try {
+                    val client = connectionManager.getClientForRelay(url)
+                        ?: connectionManager.getOrConnectRelay(url) { msg, c -> enqueueToRelayPipeline(msg, c) }
+                    if (client != null && client.isConnected()) client.requestZapReceipts(messageIds)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                }
+            }
+        }
+    }
+
     private fun handleUnifiedMessage(msg: String, client: NostrGroupClient) {
         // Parse once — every downstream handler reuses this JsonArray.
         val arr = try {
@@ -2160,6 +2256,9 @@ class NostrRepository(
                                     // Will be closed when its own EOSE arrives via reactions_ prefix
                                 }
                             } catch (_: Exception) {}
+                            // Zap receipts (kind 9735) carry no `h` tag, so they live on
+                            // general relays, not the NIP-29 group relay — fetch them there.
+                            fetchZapReceiptsFromGeneralRelays(messageIds)
                         }
                     }
                     // Close one-shot subs after EOSE so the relay slot is freed.
@@ -2170,6 +2269,7 @@ class NostrRepository(
                         subId.startsWith("e_") ||
                         subId.startsWith("a_") ||
                         subId.startsWith("reactions_") ||
+                        subId.startsWith("zaps_") ||
                         subId.startsWith("event_")
                     ) {
                         try {
@@ -2342,6 +2442,11 @@ class NostrRepository(
                     0 -> {
                         val parsed = client.parseUserMetadata(event) ?: return
                         metadataManager.handleMetadataEvent(parsed.pubkey, parsed.metadata, parsed.createdAt)
+                    }
+
+                    9735 -> {
+                        // NIP-57 zap receipt — aggregate per zapped event id for UI totals.
+                        zapManager.handleZapReceipt(event)
                     }
 
                     7 -> {

@@ -3,6 +3,7 @@ package org.nostr.nostrord.network
 import kotlinx.coroutines.flow.StateFlow
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.Nip46Client
@@ -44,6 +45,9 @@ interface NostrRepositoryApi {
     val isLoadingMore: StateFlow<Map<String, Boolean>>
     val hasMoreMessages: StateFlow<Map<String, Boolean>>
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>
+
+    /** NIP-57 zap totals keyed by zapped event id. */
+    val zaps: StateFlow<Map<String, ZapManager.ZapInfo>>
     val groupMembers: StateFlow<Map<String, List<String>>>
     val groupAdmins: StateFlow<Map<String, List<String>>>
     val groupRoles: StateFlow<Map<String, List<RoleDefinition>>>
@@ -347,6 +351,28 @@ interface NostrRepositoryApi {
         targetPubkey: String,
         emoji: String,
     ): Result<Unit>
+
+    /**
+     * Resolve [recipientPubkey]'s LNURL-pay endpoint and fetch a bolt11 invoice for a
+     * NIP-57 zap of [amountSats]. The returned invoice must be paid with an external
+     * wallet. [eventId] is the zapped message, or null for a profile zap.
+     */
+    suspend fun requestZapInvoice(
+        recipientPubkey: String,
+        amountSats: Long,
+        comment: String,
+        eventId: String?,
+    ): Result<ZapManager.ZapInvoice>
+
+    /**
+     * Suspend until a zap receipt settling [bolt11] is observed (returns true), or a timeout
+     * elapses (returns false). Polls the relays named in the zap request while waiting.
+     */
+    suspend fun watchZapPayment(
+        bolt11: String,
+        recipientPubkey: String,
+        eventId: String?,
+    ): Boolean
 
     fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage>
 

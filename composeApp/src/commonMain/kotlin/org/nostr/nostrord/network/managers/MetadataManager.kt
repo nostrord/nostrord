@@ -411,6 +411,7 @@ class MetadataManager(
         nip05.isNullOrBlank() &&
         banner.isNullOrBlank() &&
         lud16.isNullOrBlank() &&
+        lud06.isNullOrBlank() &&
         website.isNullOrBlank()
 
     fun handleCachedEvent(event: CachedEvent) {

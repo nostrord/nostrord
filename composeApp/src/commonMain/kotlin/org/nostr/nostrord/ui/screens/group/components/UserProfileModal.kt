@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
@@ -37,6 +39,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
+import org.nostr.nostrord.ui.components.zap.ZapController
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -64,6 +67,8 @@ fun UserProfileModal(
     val copyToClipboard = rememberClipboardWriter()
     val npub = remember(pubkey) { Nip19.encodeNpub(pubkey) }
     val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
+
+    val canZap = !metadata?.lud16.isNullOrBlank() || !metadata?.lud06.isNullOrBlank()
     val username = metadata?.name
 
     Dialog(
@@ -124,21 +129,62 @@ fun UserProfileModal(
                     ) {
                         Spacer(modifier = Modifier.height(Spacing.md))
 
-                        // Display name
-                        Text(
-                            text = displayName,
-                            style = NostrordTypography.ServerHeader,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                        )
+                        // Name on the left, Zap pill aligned right just below the banner.
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Display name
+                                Text(
+                                    text = displayName,
+                                    style = NostrordTypography.ServerHeader,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                )
 
-                        // Username (if different from display name)
-                        if (username != null && username != displayName) {
-                            Text(
-                                text = "@$username",
-                                style = NostrordTypography.Caption,
-                                color = NostrordColors.TextSecondary,
-                            )
+                                // Username (if different from display name)
+                                if (username != null && username != displayName) {
+                                    Text(
+                                        text = "@$username",
+                                        style = NostrordTypography.Caption,
+                                        color = NostrordColors.TextSecondary,
+                                    )
+                                }
+                            }
+
+                            // Zap button — a discreet pill (when the user has a Lightning address)
+                            if (canZap) {
+                                Spacer(modifier = Modifier.width(Spacing.sm))
+                                Surface(
+                                    onClick = {
+                                        ZapController.request(pubkey, null)
+                                        onDismiss()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = NostrordColors.SurfaceVariant,
+                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Bolt,
+                                            contentDescription = null,
+                                            tint = NostrordColors.Warning,
+                                            modifier = Modifier.size(16.dp),
+                                        )
+                                        Spacer(modifier = Modifier.width(Spacing.xs))
+                                        Text(
+                                            text = "Zap",
+                                            color = NostrordColors.TextPrimary,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp,
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(Spacing.sm))

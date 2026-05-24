@@ -55,6 +55,7 @@ import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.navigation.ServerRail
 import org.nostr.nostrord.ui.components.notifications.NotificationPermissionBanner
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
+import org.nostr.nostrord.ui.components.zap.ZapModalHost
 import org.nostr.nostrord.ui.navigation.BrowserNavigationHandler
 import org.nostr.nostrord.ui.navigation.NavEntry
 import org.nostr.nostrord.ui.navigation.NavigationHistory
@@ -169,6 +170,8 @@ fun App() {
                         deepLinkInviteCode = startupState.deepLinkInviteCode,
                         deepLinkMessageId = startupState.deepLinkMessageId,
                     )
+                    // NIP-57 zap modal overlay — opened from anywhere via ZapController.
+                    ZapModalHost()
                 }
             }
         }
