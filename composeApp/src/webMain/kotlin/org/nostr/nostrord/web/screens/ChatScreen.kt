@@ -70,6 +70,7 @@ val ChatScreen =
         val messagesByGroup = useStateFlow(repo.messages)
         val membersByGroup = useStateFlow(repo.groupMembers)
         val adminsByGroup = useStateFlow(repo.groupAdmins)
+        val joinedByRelay = useStateFlow(repo.joinedGroupsByRelay)
         val userMetadata = useStateFlow(repo.userMetadata)
         val reactionsByMsg = useStateFlow(repo.reactions)
         val relayUrl = useStateFlow(repo.currentRelayUrl)
@@ -81,6 +82,8 @@ val ChatScreen =
         val admins = adminsByGroup[group.id].orEmpty().toSet()
         val adminMembers = members.filter { it in admins }
         val plainMembers = members.filter { it !in admins }
+        val isJoined =
+            group.id in joinedByRelay[relayUrl].orEmpty() || (myPubkey != null && myPubkey in members)
 
         val (draft, setDraft) = useState { "" }
         val (membersOpen, setMembersOpen) = useState { false }
@@ -111,6 +114,10 @@ val ChatScreen =
             setDraft("")
             setReplyingToId(null)
             launchApp { repo.sendMessage(group.id, text, replyToMessageId = replyId) }
+        }
+
+        fun join() {
+            launchApp { repo.joinGroup(group.id) }
         }
 
         div {
@@ -150,13 +157,21 @@ val ChatScreen =
                         onClick = { setMembersOpen(!membersOpen) }
                         +"👥"
                     }
-                    button {
-                        className = ClassName("chat-icon-btn")
-                        onClick = { setMenuOpen(!menuOpen) }
-                        +"⋮"
+                    if (!isJoined) {
+                        button {
+                            className = ClassName("chat-join-btn")
+                            onClick = { join() }
+                            +(if (!group.isOpen) "Request to Join" else "Join")
+                        }
+                    } else {
+                        button {
+                            className = ClassName("chat-icon-btn")
+                            onClick = { setMenuOpen(!menuOpen) }
+                            +"⋮"
+                        }
                     }
 
-                    if (menuOpen) {
+                    if (menuOpen && isJoined) {
                         div {
                             className = ClassName("chat-menu-overlay")
                             onClick = { setMenuOpen(false) }
@@ -247,56 +262,69 @@ val ChatScreen =
                     }
                 }
 
-                // Reply banner (above the composer)
-                replyingToId?.let { id ->
-                    messagesById[id]?.let { parent ->
-                        div {
-                            className = ClassName("composer-reply")
-                            span {
-                                +"Replying to "
+                if (!isJoined) {
+                    // Not a member — prompt to join instead of the composer.
+                    div {
+                        className = ClassName("composer-join")
+                        span { +"Join the group to send messages" }
+                        button {
+                            className = ClassName("composer-join-btn")
+                            onClick = { join() }
+                            +(if (!group.isOpen) "Request to Join" else "Join Now")
+                        }
+                    }
+                } else {
+                    // Reply banner (above the composer)
+                    replyingToId?.let { id ->
+                        messagesById[id]?.let { parent ->
+                            div {
+                                className = ClassName("composer-reply")
                                 span {
-                                    className = ClassName("composer-reply-name")
-                                    +displayName(parent.pubkey, userMetadata[parent.pubkey])
+                                    +"Replying to "
+                                    span {
+                                        className = ClassName("composer-reply-name")
+                                        +displayName(parent.pubkey, userMetadata[parent.pubkey])
+                                    }
+                                }
+                                button {
+                                    className = ClassName("composer-reply-close")
+                                    onClick = { setReplyingToId(null) }
+                                    +"✕"
                                 }
                             }
-                            button {
-                                className = ClassName("composer-reply-close")
-                                onClick = { setReplyingToId(null) }
-                                +"✕"
-                            }
                         }
                     }
-                }
 
-                // Composer
-                div {
-                    className = ClassName(if (replyingToId != null) "composer replying" else "composer")
-                    UploadButton {
-                        cls = "composer-btn"
-                        text = "＋"
-                        onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
-                    }
-                    input {
-                        className = ClassName("composer-input")
-                        placeholder = "Message $groupName"
-                        value = draft
-                        onChange = { event -> setDraft(event.currentTarget.value) }
-                        onKeyDown = { event ->
-                            if (event.key == "Enter" && !event.shiftKey) {
-                                event.preventDefault()
-                                send()
+                    // Composer
+                    div {
+                        className = ClassName(if (replyingToId != null) "composer replying" else "composer")
+                        UploadButton {
+                            cls = "composer-btn"
+                            text = "＋"
+                            onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
+                        }
+                        input {
+                            className = ClassName("composer-input")
+                            placeholder = "Message $groupName"
+                            value = draft
+                            onChange = { event -> setDraft(event.currentTarget.value) }
+                            onKeyDown = { event ->
+                                if (event.key == "Enter" && !event.shiftKey) {
+                                    event.preventDefault()
+                                    send()
+                                }
                             }
                         }
-                    }
-                    button {
-                        className = ClassName("composer-btn")
-                        +"😊"
-                    }
-                    button {
-                        className = ClassName(if (draft.isNotBlank()) "composer-send active" else "composer-send")
-                        disabled = draft.isBlank()
-                        onClick = { send() }
-                        +"➤"
+                        button {
+                            className = ClassName("composer-btn")
+                            +"😊"
+                        }
+                        button {
+                            className = ClassName(if (draft.isNotBlank()) "composer-send active" else "composer-send")
+                            disabled = draft.isBlank()
+                            onClick = { send() }
+                            +"➤"
+                        }
                     }
                 }
             }
