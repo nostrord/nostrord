@@ -2883,6 +2883,16 @@ body {
     cursor: pointer;
 }
 
+.chat-pending {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-warning-orange);
+    background: rgba(255, 165, 0, 0.15);
+    border-radius: 8px;
+}
+
 .chat-join-btn:hover {
     background: var(--color-primary-variant);
 }

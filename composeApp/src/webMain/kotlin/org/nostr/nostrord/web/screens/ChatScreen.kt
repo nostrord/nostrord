@@ -82,8 +82,12 @@ val ChatScreen =
         val admins = adminsByGroup[group.id].orEmpty().toSet()
         val adminMembers = members.filter { it in admins }
         val plainMembers = members.filter { it !in admins }
-        val isJoined =
-            group.id in joinedByRelay[relayUrl].orEmpty() || (myPubkey != null && myPubkey in members)
+        // Can post = an actual member (kind:39002), or in our list for an open group.
+        val isMember = myPubkey != null && myPubkey in members
+        val inMyList = group.id in joinedByRelay[relayUrl].orEmpty()
+        val canPost = isMember || (group.isOpen && inMyList)
+        // Pending = we sent a join request (kind 9021) but aren't a member yet.
+        val isPending = !canPost && myPubkey != null && messages.any { it.kind == 9021 && it.pubkey == myPubkey }
 
         val (draft, setDraft) = useState { "" }
         val (membersOpen, setMembersOpen) = useState { false }
@@ -157,11 +161,18 @@ val ChatScreen =
                         onClick = { setMembersOpen(!membersOpen) }
                         +"👥"
                     }
-                    if (!isJoined) {
-                        button {
-                            className = ClassName("chat-join-btn")
-                            onClick = { join() }
-                            +(if (!group.isOpen) "Request to Join" else "Join")
+                    if (!canPost) {
+                        if (isPending) {
+                            span {
+                                className = ClassName("chat-pending")
+                                +"Request pending"
+                            }
+                        } else {
+                            button {
+                                className = ClassName("chat-join-btn")
+                                onClick = { join() }
+                                +(if (!group.isOpen) "Request to Join" else "Join")
+                            }
                         }
                     } else {
                         button {
@@ -171,7 +182,7 @@ val ChatScreen =
                         }
                     }
 
-                    if (menuOpen && isJoined) {
+                    if (menuOpen && canPost) {
                         div {
                             className = ClassName("chat-menu-overlay")
                             onClick = { setMenuOpen(false) }
@@ -262,15 +273,19 @@ val ChatScreen =
                     }
                 }
 
-                if (!isJoined) {
-                    // Not a member — prompt to join instead of the composer.
+                if (!canPost) {
+                    // Not a member — prompt to join (or show pending) instead of the composer.
                     div {
                         className = ClassName("composer-join")
-                        span { +"Join the group to send messages" }
-                        button {
-                            className = ClassName("composer-join-btn")
-                            onClick = { join() }
-                            +(if (!group.isOpen) "Request to Join" else "Join Now")
+                        if (isPending) {
+                            span { +"Your request to join is pending approval." }
+                        } else {
+                            span { +"Join the group to send messages" }
+                            button {
+                                className = ClassName("composer-join-btn")
+                                onClick = { join() }
+                                +(if (!group.isOpen) "Request to Join" else "Join Now")
+                            }
                         }
                     }
                 } else {
