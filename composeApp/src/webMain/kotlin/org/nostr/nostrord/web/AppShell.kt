@@ -292,7 +292,20 @@ val AppShell =
                 div {
                     className = ClassName(if (notificationsOpen) "groups-sidebar hidden" else "groups-sidebar")
                     div {
-                        className = ClassName("sidebar-header")
+                        // Clicking the relay title returns to the group picker (home), mirroring native.
+                        className =
+                            ClassName(
+                                "sidebar-header" +
+                                    (if (hasRelays) " clickable" else "") +
+                                    (if (hasRelays && selectedGroupId == null && !notificationsOpen) " active" else ""),
+                            )
+                        if (hasRelays) {
+                            onClick = {
+                                setSelectedGroupId(null)
+                                setNotificationsOpen(false)
+                                setDrawerOpen(false)
+                            }
+                        }
                         +(if (hasRelays) relayDisplayName(activeRelay, relayNames) else "No Relay")
                     }
                     if (hasRelays) {

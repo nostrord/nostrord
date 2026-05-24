@@ -658,6 +658,17 @@ body {
     color: var(--color-text-secondary);
     border-bottom: 1px solid var(--color-background-dark);
 }
+.sidebar-header.clickable {
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease;
+}
+.sidebar-header.clickable:hover {
+    color: var(--color-text-primary);
+    background: var(--color-message-hover);
+}
+.sidebar-header.active {
+    color: var(--color-text-primary);
+}
 
 .sidebar-scroll {
     flex: 1;
