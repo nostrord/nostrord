@@ -586,8 +586,10 @@ private fun ChildrenBuilder.sectionToggle(label: String, expanded: Boolean, onTo
         className = ClassName("sidebar-section-toggle")
         onClick = { onToggle() }
         span {
+            // Native uses a tiny ▼ glyph that rotates (down = expanded, -90° = collapsed),
+            // not a Material chevron icon.
             className = ClassName(if (expanded) "sidebar-chevron" else "sidebar-chevron collapsed")
-            icon(Ic.ExpandMore)
+            +"▼"
         }
         span {
             className = ClassName("sidebar-section-label")
