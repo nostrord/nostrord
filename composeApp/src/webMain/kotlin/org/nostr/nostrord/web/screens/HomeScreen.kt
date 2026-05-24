@@ -4,8 +4,8 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
-import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.AvatarKind
+import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.groupCardSkeleton
 import org.nostr.nostrord.web.components.icon
