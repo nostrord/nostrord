@@ -11,6 +11,8 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.web.components.WebZapController
+import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.bridge.launchApp
@@ -88,6 +90,7 @@ val ChatScreen =
         val joinedByRelay = useStateFlow(repo.joinedGroupsByRelay)
         val userMetadata = useStateFlow(repo.userMetadata)
         val reactionsByMsg = useStateFlow(repo.reactions)
+        val zapsByMsg = useStateFlow(repo.zaps)
         val relayUrl = useStateFlow(repo.currentRelayUrl)
         val isLoadingMore = useStateFlow(repo.isLoadingMore)[group.id] ?: false
         val hasMore = useStateFlow(repo.hasMoreMessages)[group.id] ?: true
@@ -304,6 +307,8 @@ val ChatScreen =
                                         it.content.replace('\n', ' ').trim().take(120)
                                 }
                             val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
+                            val authorMeta = userMetadata[message.pubkey]
+                            val zapInfo = zapsByMsg[message.id]
                             MessageRow {
                                 key = message.id
                                 pubkey = message.pubkey
@@ -316,6 +321,13 @@ val ChatScreen =
                                 reactions = reactionsByMsg[message.id].orEmpty()
                                 this.myPubkey = myPubkey
                                 this.userMetadata = userMetadata
+                                canZap =
+                                    message.pubkey != myPubkey &&
+                                    (!authorMeta?.lud16.isNullOrBlank() || !authorMeta?.lud06.isNullOrBlank())
+                                zapTotalMsats = zapInfo?.totalMsats ?: 0L
+                                zapCount = zapInfo?.count ?: 0
+                                zappedByMe = myPubkey != null && zapInfo != null && myPubkey in zapInfo.zappers
+                                onZap = { WebZapController.request(message.pubkey, message.id) }
                                 replyTo = replyPreview
                                 canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
                                 messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
@@ -529,11 +541,16 @@ external interface MessageRowProps : Props {
     var userMetadata: Map<String, UserMetadata>
     var replyTo: Pair<String, String>?
     var canDelete: Boolean
+    var canZap: Boolean
+    var zapTotalMsats: Long
+    var zapCount: Int
+    var zappedByMe: Boolean
     var messageLink: String
     var eventJson: String
     var onUser: (String) -> Unit
     var onReply: () -> Unit
     var onReact: (String) -> Unit
+    var onZap: () -> Unit
     var onDelete: () -> Unit
 }
 
@@ -636,6 +653,14 @@ private val MessageRow =
                         }
                     }
                 }
+                if (props.zapTotalMsats > 0) {
+                    div {
+                        className = ClassName("msg-zaps")
+                        zapBadge(props.zapTotalMsats, props.zapCount, props.zappedByMe) {
+                            if (props.canZap) props.onZap()
+                        }
+                    }
+                }
             }
 
             // Hover action toolbar (top-right)
@@ -652,6 +677,14 @@ private val MessageRow =
                     title = "Reply"
                     onClick = { props.onReply() }
                     +"↩"
+                }
+                if (props.canZap) {
+                    button {
+                        className = ClassName("msg-action-btn zap")
+                        title = "Zap"
+                        onClick = { props.onZap() }
+                        +"⚡"
+                    }
                 }
                 button {
                     className = ClassName("msg-action-btn")
@@ -676,6 +709,12 @@ private val MessageRow =
                     ctxItem("↩", "Reply") {
                         props.onReply()
                         setMenuOpen(false)
+                    }
+                    if (props.canZap) {
+                        ctxItem("⚡", "Zap") {
+                            props.onZap()
+                            setMenuOpen(false)
+                        }
                     }
                     div { className = ClassName("ctx-divider") }
                     ctxItem("📋", "Copy Text") {

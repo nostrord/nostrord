@@ -3971,3 +3971,133 @@ body {
     gap: 7px;
     padding-top: 4px;
 }
+
+/* ===== NIP-57 Zaps ===== */
+.zap-card {
+    max-width: 440px;
+}
+.zap-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.zap-presets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+.zap-preset {
+    padding: 9px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    background: transparent;
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.zap-preset:hover {
+    border-color: var(--color-primary);
+}
+.zap-preset.selected {
+    color: var(--color-primary);
+    background: rgba(88, 101, 242, 0.18);
+    border-color: var(--color-primary);
+}
+.zap-invoice-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0;
+}
+.zap-invoice-sub {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin: 0;
+}
+.zap-qr-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 8px 0;
+}
+.zap-qr-wrap .qr-img {
+    width: 220px;
+    height: 220px;
+}
+.zap-invoice-actions {
+    display: flex;
+    gap: 8px;
+}
+.zap-invoice-actions .btn-text {
+    flex: 1;
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    padding: 9px 0;
+}
+.zap-waiting {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+.zap-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--color-surface-variant);
+    border-top-color: var(--color-text-secondary);
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+}
+.zap-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 24px 0;
+}
+.zap-success-bolt {
+    font-size: 44px;
+    line-height: 1;
+}
+.zap-success-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+.zap-success-sub {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+/* Zap total badge under a message (mirrors reaction badges) */
+.msg-zaps {
+    display: flex;
+    margin-top: 4px;
+}
+.zap-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    background: var(--color-input);
+    border: 1px solid transparent;
+    border-radius: 12px;
+    cursor: pointer;
+}
+.zap-badge.mine {
+    color: var(--color-warning-orange);
+    background: rgba(255, 165, 0, 0.18);
+    border-color: rgba(255, 165, 0, 0.4);
+}
+.zap-badge-bolt {
+    font-size: 12px;
+}
+.msg-action-btn.zap:hover {
+    color: var(--color-warning-orange);
+}

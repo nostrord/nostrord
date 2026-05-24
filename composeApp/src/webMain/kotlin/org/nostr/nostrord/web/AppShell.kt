@@ -13,6 +13,7 @@ import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.ZapModalHost
 import org.nostr.nostrord.web.components.groupNavSkeleton
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
@@ -191,6 +192,9 @@ val AppShell =
                 launchApp { repo.requestFullGroupListForRelay(activeRelay) }
             }
         }
+
+        // NIP-57 zap modal overlay — opened from anywhere via WebZapController.
+        ZapModalHost {}
 
         div {
             className = ClassName(if (drawerOpen) "layout drawer-open" else "layout")
