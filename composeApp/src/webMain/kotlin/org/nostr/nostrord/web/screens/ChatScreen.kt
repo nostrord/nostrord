@@ -1,8 +1,14 @@
 package org.nostr.nostrord.web.screens
 
 import kotlinx.browser.window
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.addJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
@@ -255,28 +261,32 @@ val ChatScreen =
                                     prev.pubkey != message.pubkey ||
                                     message.createdAt - prev.createdAt > GROUP_WINDOW
                             val parent = parentMessageOf(message)?.let { messagesById[it] }
-                            val replyTo =
+                            val replyPreview =
                                 parent?.let { displayName(it.pubkey, userMetadata[it.pubkey]) to it.content }
-                            messageRow(
-                                pubkey = message.pubkey,
-                                name = displayName(message.pubkey, userMetadata[message.pubkey]),
-                                avatarUrl = userMetadata[message.pubkey]?.picture,
-                                time = formatTime(message.createdAt),
-                                content = message.content,
-                                firstInGroup = firstInGroup,
-                                isAdmin = message.pubkey in admins,
-                                reactions = reactionsByMsg[message.id].orEmpty(),
-                                myPubkey = myPubkey,
-                                userMetadata = userMetadata,
-                                replyTo = replyTo,
-                                canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins),
-                                onUser = { setProfilePubkey(it) },
-                                onReply = { setReplyingToId(message.id) },
+                            val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
+                            MessageRow {
+                                key = message.id
+                                pubkey = message.pubkey
+                                name = displayName(message.pubkey, userMetadata[message.pubkey])
+                                avatarUrl = userMetadata[message.pubkey]?.picture
+                                time = formatTime(message.createdAt)
+                                content = message.content
+                                this.firstInGroup = firstInGroup
+                                isAuthorAdmin = message.pubkey in admins
+                                reactions = reactionsByMsg[message.id].orEmpty()
+                                this.myPubkey = myPubkey
+                                this.userMetadata = userMetadata
+                                replyTo = replyPreview
+                                canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
+                                messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
+                                eventJson = eventJsonOf(message)
+                                onUser = { setProfilePubkey(it) }
+                                onReply = { setReplyingToId(message.id) }
                                 onReact = { emoji ->
                                     launchApp { repo.sendReaction(group.id, message.id, message.pubkey, emoji) }
-                                },
-                                onDelete = { launchApp { repo.deleteMessage(group.id, message.id) } },
-                            )
+                                }
+                                onDelete = { launchApp { repo.deleteMessage(group.id, message.id) } }
+                            }
                         }
                     }
                 }
@@ -462,134 +472,211 @@ private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false,
     }
 }
 
-private fun ChildrenBuilder.messageRow(
-    pubkey: String,
-    name: String,
-    avatarUrl: String?,
-    time: String,
-    content: String,
-    firstInGroup: Boolean,
-    isAdmin: Boolean,
-    reactions: Map<String, GroupManager.ReactionInfo>,
-    myPubkey: String?,
-    userMetadata: Map<String, UserMetadata>,
-    replyTo: Pair<String, String>?,
-    canDelete: Boolean,
-    onUser: (String) -> Unit,
-    onReply: () -> Unit,
-    onReact: (String) -> Unit,
-    onDelete: () -> Unit,
-) {
-    div {
-        className = ClassName(if (firstInGroup) "msg first" else "msg grouped")
+external interface MessageRowProps : Props {
+    var pubkey: String
+    var name: String
+    var avatarUrl: String?
+    var time: String
+    var content: String
+    var firstInGroup: Boolean
+    var isAuthorAdmin: Boolean
+    var reactions: Map<String, GroupManager.ReactionInfo>
+    var myPubkey: String?
+    var userMetadata: Map<String, UserMetadata>
+    var replyTo: Pair<String, String>?
+    var canDelete: Boolean
+    var messageLink: String
+    var eventJson: String
+    var onUser: (String) -> Unit
+    var onReply: () -> Unit
+    var onReact: (String) -> Unit
+    var onDelete: () -> Unit
+}
+
+private val MessageRow =
+    FC<MessageRowProps> { props ->
+        val (menuOpen, setMenuOpen) = useState { false }
+
         div {
-            className = ClassName("msg-gutter")
-            if (firstInGroup) {
-                WebAvatar {
-                    url = avatarUrl
-                    this.name = name
-                    cls = "msg-avatar clickable"
-                    onClick = { onUser(pubkey) }
-                }
-            } else {
-                span {
-                    className = ClassName("msg-hover-time")
-                    +time
+            className =
+                ClassName(
+                    (if (props.firstInGroup) "msg first" else "msg grouped") + if (menuOpen) " menu-open" else "",
+                )
+            onContextMenu = { event ->
+                event.preventDefault()
+                setMenuOpen(true)
+            }
+
+            div {
+                className = ClassName("msg-gutter")
+                if (props.firstInGroup) {
+                    WebAvatar {
+                        url = props.avatarUrl
+                        name = props.name
+                        cls = "msg-avatar clickable"
+                        onClick = { props.onUser(props.pubkey) }
+                    }
+                } else {
+                    span {
+                        className = ClassName("msg-hover-time")
+                        +props.time
+                    }
                 }
             }
-        }
-        div {
-            className = ClassName("msg-body")
-            if (replyTo != null) {
-                div {
-                    className = ClassName("msg-reply")
-                    span {
-                        className = ClassName("msg-reply-author")
-                        +"@${replyTo.first}"
-                    }
-                    span {
-                        className = ClassName("msg-reply-text")
-                        +replyTo.second
-                    }
-                }
-            }
-            if (firstInGroup) {
-                div {
-                    className = ClassName("msg-meta")
-                    span {
-                        className = ClassName("msg-author clickable")
-                        onClick = { onUser(pubkey) }
-                        +name
-                    }
-                    if (isAdmin) {
+            div {
+                className = ClassName("msg-body")
+                props.replyTo?.let { reply ->
+                    div {
+                        className = ClassName("msg-reply")
                         span {
-                            className = ClassName("msg-admin")
-                            +"ADMIN"
+                            className = ClassName("msg-reply-author")
+                            +"@${reply.first}"
+                        }
+                        span {
+                            className = ClassName("msg-reply-text")
+                            +reply.second
                         }
                     }
-                    span {
-                        className = ClassName("msg-time")
-                        +time
-                    }
                 }
-            }
-            div {
-                className = ClassName("msg-text")
-                renderMessageContent(content, userMetadata, onUser)
-            }
-            div {
-                className = ClassName("msg-reactions")
-                reactions.forEach { (emoji, info) ->
-                    val mine = myPubkey != null && myPubkey in info.reactors
-                    button {
-                        className = ClassName(if (mine) "reaction-badge mine" else "reaction-badge")
-                        onClick = { onReact(emoji) }
-                        val emojiUrl = info.emojiUrl
-                        if (!emojiUrl.isNullOrBlank()) {
-                            img {
-                                className = ClassName("reaction-emoji")
-                                src = emojiUrl
-                                alt = emoji
+                if (props.firstInGroup) {
+                    div {
+                        className = ClassName("msg-meta")
+                        span {
+                            className = ClassName("msg-author clickable")
+                            onClick = { props.onUser(props.pubkey) }
+                            +props.name
+                        }
+                        if (props.isAuthorAdmin) {
+                            span {
+                                className = ClassName("msg-admin")
+                                +"ADMIN"
                             }
-                        } else {
-                            +emoji
                         }
                         span {
-                            className = ClassName("reaction-count")
-                            +info.reactors.size.toString()
+                            className = ClassName("msg-time")
+                            +props.time
                         }
                     }
                 }
+                div {
+                    className = ClassName("msg-text")
+                    renderMessageContent(props.content, props.userMetadata, props.onUser)
+                }
+                if (props.reactions.isNotEmpty()) {
+                    div {
+                        className = ClassName("msg-reactions")
+                        props.reactions.forEach { (emoji, info) ->
+                            val mine = props.myPubkey != null && props.myPubkey in info.reactors
+                            button {
+                                className = ClassName(if (mine) "reaction-badge mine" else "reaction-badge")
+                                onClick = { props.onReact(emoji) }
+                                val emojiUrl = info.emojiUrl
+                                if (!emojiUrl.isNullOrBlank()) {
+                                    img {
+                                        className = ClassName("reaction-emoji")
+                                        src = emojiUrl
+                                        alt = emoji
+                                    }
+                                } else {
+                                    +emoji
+                                }
+                                span {
+                                    className = ClassName("reaction-count")
+                                    +info.reactors.size.toString()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Hover action toolbar (top-right)
+            div {
+                className = ClassName("msg-actions")
                 button {
-                    className = ClassName("reaction-add")
-                    title = "React"
-                    onClick = { onReact("👍") }
-                    +"+"
+                    className = ClassName("msg-action-btn")
+                    title = "Add reaction"
+                    onClick = { props.onReact("👍") }
+                    +"😊"
                 }
                 button {
-                    className = ClassName("reaction-add")
+                    className = ClassName("msg-action-btn")
                     title = "Reply"
-                    onClick = { onReply() }
+                    onClick = { props.onReply() }
                     +"↩"
                 }
                 button {
-                    className = ClassName("reaction-add")
-                    title = "Copy text"
-                    onClick = { copyToClipboard(content) }
-                    +"📋"
+                    className = ClassName("msg-action-btn")
+                    title = "More"
+                    onClick = { setMenuOpen(!menuOpen) }
+                    +"⋯"
                 }
-                if (canDelete) {
-                    button {
-                        className = ClassName("reaction-add")
-                        title = "Delete"
-                        onClick = { onDelete() }
-                        +"🗑"
+            }
+
+            // Context menu (right-click or the ⋯ button)
+            if (menuOpen) {
+                div {
+                    className = ClassName("ctx-overlay")
+                    onClick = { setMenuOpen(false) }
+                }
+                div {
+                    className = ClassName("ctx-menu")
+                    ctxItem("😊", "Add Reaction") {
+                        props.onReact("👍")
+                        setMenuOpen(false)
+                    }
+                    ctxItem("↩", "Reply") {
+                        props.onReply()
+                        setMenuOpen(false)
+                    }
+                    div { className = ClassName("ctx-divider") }
+                    ctxItem("📋", "Copy Text") {
+                        copyToClipboard(props.content)
+                        setMenuOpen(false)
+                    }
+                    ctxItem("🔗", "Copy Message Link") {
+                        copyToClipboard(props.messageLink)
+                        setMenuOpen(false)
+                    }
+                    ctxItem("{ }", "Copy Event JSON") {
+                        copyToClipboard(props.eventJson)
+                        setMenuOpen(false)
+                    }
+                    if (props.canDelete) {
+                        div { className = ClassName("ctx-divider") }
+                        ctxItem("🗑", "Delete Message", danger = true) {
+                            props.onDelete()
+                            setMenuOpen(false)
+                        }
                     }
                 }
             }
         }
     }
+
+private fun ChildrenBuilder.ctxItem(icon: String, label: String, danger: Boolean = false, onSelect: () -> Unit) {
+    div {
+        className = ClassName(if (danger) "ctx-item danger" else "ctx-item")
+        onClick = { onSelect() }
+        span {
+            className = ClassName("ctx-item-icon")
+            +icon
+        }
+        span { +label }
+    }
 }
+
+private fun eventJsonOf(message: NostrGroupClient.NostrMessage): String =
+    buildJsonObject {
+        put("id", message.id)
+        put("pubkey", message.pubkey)
+        put("created_at", message.createdAt)
+        put("kind", message.kind)
+        put("content", message.content)
+        putJsonArray("tags") {
+            message.tags.forEach { tag -> addJsonArray { tag.forEach { add(it) } } }
+        }
+    }.toString()
 
 private val URL_REGEX =
     Regex("(https?://[^\\s]+)|(nostr:(?:npub1|nprofile1)[0-9a-z]+)|\\b((?:npub1|nprofile1)[0-9a-z]{20,})")

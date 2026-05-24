@@ -1748,12 +1748,112 @@ body {
 }
 
 .msg {
+    position: relative;
     display: flex;
     padding: 6px 16px;
 }
 
 .msg:hover {
     background: var(--color-message-hover);
+}
+
+.msg.menu-open {
+    z-index: 60;
+    background: var(--color-message-hover);
+}
+
+/* Hover action toolbar (top-right of a message) */
+.msg-actions {
+    position: absolute;
+    top: -10px;
+    right: 16px;
+    display: none;
+    gap: 2px;
+    padding: 2px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 2;
+}
+
+.msg:hover .msg-actions,
+.msg.menu-open .msg-actions {
+    display: flex;
+}
+
+.msg-action-btn {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.msg-action-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+/* Message context menu */
+.ctx-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+}
+
+.ctx-menu {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 61;
+    width: 210px;
+    padding: 6px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    font-size: 14px;
+    color: var(--color-text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.ctx-item:hover {
+    background: var(--color-hover);
+}
+
+.ctx-item.danger {
+    color: var(--color-error);
+}
+
+.ctx-item.danger:hover {
+    background: rgba(237, 66, 69, 0.15);
+}
+
+.ctx-item-icon {
+    width: 18px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.ctx-divider {
+    height: 1px;
+    margin: 6px 4px;
+    background: var(--color-divider);
 }
 
 .msg.grouped {
