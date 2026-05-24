@@ -996,6 +996,14 @@ class NostrRepository(
                 } else {
                     // Cache hit — no EOSE will arrive, so clear the early loading mark.
                     groupManager.markRelayLoaded(relayUrl)
+                    // No group-list REQ was sent, so the EOSE-driven mux setup
+                    // (handleEoseSuspend -> refreshMuxSubscriptionsForRelay) never
+                    // fires. Set up the live chat + metadata mux now, otherwise the
+                    // primary relay's groups show "No messages yet" and "Members 0"
+                    // until a re-AUTH or the 5-min periodic refresh. This path is hit
+                    // whenever login hydrates joined groups from storage (#88), which
+                    // makes the relay a cache hit and skips the group-list fetch.
+                    groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
                 }
                 drainFullFetchRequest(client, relayUrl)
                 // After AUTH (or if no AUTH needed), request metadata for private
@@ -1122,6 +1130,11 @@ class NostrRepository(
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
+                // As in connect(): a cache hit sends no group-list REQ, so the
+                // EOSE-driven mux setup won't fire. Refresh the chat + metadata mux
+                // for the new primary now so messages/members load instead of
+                // showing "No messages yet" / "Members 0".
+                groupManager.refreshMuxSubscriptionsForRelay(newRelayUrl)
             }
             drainFullFetchRequest(client, newRelayUrl)
             // Request metadata for private groups not in the cache (kind 10009 joined
