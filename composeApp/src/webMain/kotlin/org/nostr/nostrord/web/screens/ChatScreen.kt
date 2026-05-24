@@ -3,6 +3,8 @@ package org.nostr.nostrord.web.screens
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -20,8 +22,10 @@ import org.nostr.nostrord.web.modals.UserProfileModal
 import react.ChildrenBuilder
 import react.FC
 import react.Props
+import react.dom.html.ReactHTML.a
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
+import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
 import react.useEffect
@@ -58,7 +62,9 @@ val ChatScreen =
         val membersByGroup = useStateFlow(repo.groupMembers)
         val adminsByGroup = useStateFlow(repo.groupAdmins)
         val userMetadata = useStateFlow(repo.userMetadata)
+        val reactionsByMsg = useStateFlow(repo.reactions)
         val relayUrl = useStateFlow(repo.currentRelayUrl)
+        val myPubkey = repo.getPublicKey()
 
         val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
         val members = membersByGroup[group.id].orEmpty()
@@ -211,7 +217,13 @@ val ChatScreen =
                                 content = message.content,
                                 firstInGroup = firstInGroup,
                                 isAdmin = message.pubkey in admins,
+                                reactions = reactionsByMsg[message.id].orEmpty(),
+                                myPubkey = myPubkey,
+                                userMetadata = userMetadata,
                                 onUser = { setProfilePubkey(it) },
+                                onReact = { emoji ->
+                                    launchApp { repo.sendReaction(group.id, message.id, message.pubkey, emoji) }
+                                },
                             )
                         }
                     }
@@ -367,7 +379,11 @@ private fun ChildrenBuilder.messageRow(
     content: String,
     firstInGroup: Boolean,
     isAdmin: Boolean,
+    reactions: Map<String, GroupManager.ReactionInfo>,
+    myPubkey: String?,
+    userMetadata: Map<String, UserMetadata>,
     onUser: (String) -> Unit,
+    onReact: (String) -> Unit,
 ) {
     div {
         className = ClassName(if (firstInGroup) "msg first" else "msg grouped")
@@ -411,10 +427,83 @@ private fun ChildrenBuilder.messageRow(
             }
             div {
                 className = ClassName("msg-text")
-                +content
+                renderMessageContent(content, userMetadata, onUser)
+            }
+            div {
+                className = ClassName("msg-reactions")
+                reactions.forEach { (emoji, info) ->
+                    val mine = myPubkey != null && myPubkey in info.reactors
+                    button {
+                        className = ClassName(if (mine) "reaction-badge mine" else "reaction-badge")
+                        onClick = { onReact(emoji) }
+                        +emoji
+                        span {
+                            className = ClassName("reaction-count")
+                            +info.reactors.size.toString()
+                        }
+                    }
+                }
+                button {
+                    className = ClassName("reaction-add")
+                    title = "React"
+                    onClick = { onReact("👍") }
+                    +"+"
+                }
             }
         }
     }
+}
+
+private val URL_REGEX =
+    Regex("(https?://[^\\s]+)|(nostr:(?:npub1|nprofile1)[0-9a-z]+)|\\b((?:npub1|nprofile1)[0-9a-z]{20,})")
+private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
+
+/** Render message text with clickable links, inline images and NIP-27 mentions. */
+private fun ChildrenBuilder.renderMessageContent(
+    content: String,
+    userMetadata: Map<String, UserMetadata>,
+    onUser: (String) -> Unit,
+) {
+    var last = 0
+    for (match in URL_REGEX.findAll(content)) {
+        if (match.range.first > last) +content.substring(last, match.range.first)
+        val token = match.value
+        if (token.startsWith("http")) {
+            val url = token.trimEnd('.', ',', ')', '!', '?', ';', ':')
+            if (IMAGE_EXT.containsMatchIn(url)) {
+                img {
+                    className = ClassName("msg-image")
+                    src = url
+                    alt = ""
+                }
+            } else {
+                a {
+                    className = ClassName("msg-link")
+                    href = url
+                    +url
+                }
+            }
+            if (url.length < token.length) +token.substring(url.length)
+        } else {
+            val pubkey =
+                when (val entity = Nip19.decode(token.removePrefix("nostr:"))) {
+                    is Nip19.Entity.Npub -> entity.pubkey
+                    is Nip19.Entity.Nprofile -> entity.pubkey
+                    else -> null
+                }
+            if (pubkey != null) {
+                span {
+                    className = ClassName("msg-mention")
+                    onClick = { onUser(pubkey) }
+                    +"@${displayName(pubkey, userMetadata[pubkey])}"
+                }
+            } else {
+                +token
+            }
+        }
+        last = match.range.last + 1
+    }
+    if (last < content.length) +content.substring(last)
 }
 
 private fun ChildrenBuilder.memberSection(title: String, count: Int) {

@@ -1711,6 +1711,86 @@ body {
     line-height: 1.4;
     color: var(--color-text-content);
     overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.msg-link {
+    color: var(--color-text-link);
+    text-decoration: none;
+}
+
+.msg-link:hover {
+    text-decoration: underline;
+}
+
+.msg-image {
+    display: block;
+    max-width: 360px;
+    max-height: 300px;
+    margin-top: 4px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+
+.msg-mention {
+    color: var(--color-primary);
+    cursor: pointer;
+}
+
+.msg-mention:hover {
+    text-decoration: underline;
+}
+
+.msg-reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.reaction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding: 2px 7px;
+    font-size: 13px;
+    color: var(--color-text-content);
+    background: var(--color-surface-variant);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.reaction-badge.mine {
+    color: var(--color-primary);
+    background: rgba(88, 101, 242, 0.15);
+    border-color: var(--color-primary);
+}
+
+.reaction-count {
+    font-size: 11px;
+    opacity: 0.85;
+}
+
+.reaction-add {
+    display: none;
+    align-items: center;
+    margin-top: 4px;
+    padding: 2px 9px;
+    font-size: 13px;
+    color: var(--color-text-muted);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.msg:hover .reaction-add {
+    display: inline-flex;
+}
+
+.reaction-add:hover {
+    color: var(--color-text-primary);
 }
 
 .composer {
