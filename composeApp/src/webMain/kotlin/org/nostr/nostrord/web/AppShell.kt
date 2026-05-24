@@ -4,6 +4,7 @@ import kotlinx.browser.window
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
@@ -60,6 +61,7 @@ val AppShell =
         val accounts = useStateFlow(AppModule.accountStore.accounts)
         val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
         val notifUnread = useStateFlow(AppModule.notificationHistoryStore.entries).count { !it.read }
+        val connState = useStateFlow(repo.connectionState)
 
         val relayNames = relayMetadata.mapValues { it.value.name ?: "" }
         val relayList =
@@ -265,8 +267,34 @@ val AppShell =
             // Content
             div {
                 className = ClassName("content")
-                when {
-                    notificationsOpen ->
+
+                // Connection status banner (disconnected / reconnecting / error)
+                if (hasRelays && !notificationsOpen &&
+                    connState != ConnectionManager.ConnectionState.Connected &&
+                    connState != ConnectionManager.ConnectionState.Connecting
+                ) {
+                    div {
+                        className = ClassName("connection-banner")
+                        span {
+                            +when (val s = connState) {
+                                is ConnectionManager.ConnectionState.Reconnecting ->
+                                    "Reconnecting (${s.attempt}/${s.maxAttempts})…"
+                                is ConnectionManager.ConnectionState.Error -> "Unable to connect to the relay."
+                                else -> "Disconnected from the relay."
+                            }
+                        }
+                        button {
+                            className = ClassName("connection-retry")
+                            onClick = { launchApp { repo.reconnect() } }
+                            +"Retry"
+                        }
+                    }
+                }
+
+                div {
+                    className = ClassName("content-screen")
+                    when {
+                        notificationsOpen ->
                         NotificationsScreen {
                             onOpen = { relay, gid ->
                                 if (relay.isNotBlank() && relay != currentRelayUrl) {
@@ -290,6 +318,7 @@ val AppShell =
                         HomeScreen {
                             onOpenGroup = { setSelectedGroupId(it) }
                         }
+                    }
                 }
             }
 

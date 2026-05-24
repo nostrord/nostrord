@@ -730,8 +730,43 @@ body {
     flex: 1;
     min-width: 0;
     height: 100vh;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
     background: var(--color-background);
+}
+
+.content-screen {
+    flex: 1;
+    min-height: 0;
+}
+
+.connection-banner {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #202225;
+    background: var(--color-warning-orange);
+}
+
+.connection-retry {
+    flex-shrink: 0;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #202225;
+    background: rgba(0, 0, 0, 0.18);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.connection-retry:hover {
+    background: rgba(0, 0, 0, 0.28);
 }
 
 .home-welcome {
