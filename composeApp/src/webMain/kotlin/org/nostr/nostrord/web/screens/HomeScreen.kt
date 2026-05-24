@@ -343,7 +343,7 @@ private fun ChildrenBuilder.pickGroupCard(
                 } else {
                     "Join"
                 }
-            )
+                )
         }
     }
 }
