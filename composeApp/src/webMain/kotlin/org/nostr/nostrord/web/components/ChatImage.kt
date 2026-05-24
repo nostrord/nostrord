@@ -30,14 +30,16 @@ val ChatImage =
                 Unit
             }
             probe.onerror = { Unit }
-            probe.src = props.imageUrl
+            // Cache-bust so this CORS fetch doesn't reuse the visible <img>'s non-CORS cache
+            // entry (which would taint the canvas and block getImageData).
+            probe.src = props.imageUrl + (if (props.imageUrl.contains("?")) "&" else "?") + "cors=1"
         }
 
         img {
             className = ClassName("msg-image" + (backdrop?.let { " $it" } ?: ""))
             src = props.imageUrl
             alt = ""
-            onClick = { ImageViewer.show(props.imageUrl) }
+            onClick = { ImageViewer.show(props.imageUrl, backdrop) }
         }
     }
 

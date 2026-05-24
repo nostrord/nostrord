@@ -19,26 +19,29 @@ import web.cssom.ClassName
  * Place [ImageViewerHost] once at the app root and call [ImageViewer.show] from anywhere.
  */
 object ImageViewer {
-    private val _url = MutableStateFlow<String?>(null)
-    val url: StateFlow<String?> = _url.asStateFlow()
+    /** [backdrop] is the contrast class ("on-light"/"on-dark") for transparent images, or null. */
+    data class Shown(val url: String, val backdrop: String?)
 
-    fun show(imageUrl: String) {
-        _url.value = imageUrl
+    private val _shown = MutableStateFlow<Shown?>(null)
+    val shown: StateFlow<Shown?> = _shown.asStateFlow()
+
+    fun show(imageUrl: String, backdrop: String? = null) {
+        _shown.value = Shown(imageUrl, backdrop)
     }
 
     fun dismiss() {
-        _url.value = null
+        _shown.value = null
     }
 }
 
 /** Place once at the app root. Renders the fullscreen overlay whenever an image is open. */
 val ImageViewerHost =
     FC<Props> {
-        val current = useStateFlow(ImageViewer.url)
+        val current = useStateFlow(ImageViewer.shown)
 
         useEffectOnce {
             window.asDynamic().addEventListener("keydown") { event: dynamic ->
-                if (event.key == "Escape" && ImageViewer.url.value != null) ImageViewer.dismiss()
+                if (event.key == "Escape" && ImageViewer.shown.value != null) ImageViewer.dismiss()
             }
         }
 
@@ -55,8 +58,8 @@ val ImageViewerHost =
                     icon(Ic.Close)
                 }
                 img {
-                    className = ClassName("img-viewer-img")
-                    src = current
+                    className = ClassName("img-viewer-img" + (current.backdrop?.let { " $it" } ?: ""))
+                    src = current.url
                     alt = ""
                     onClick = { it.stopPropagation() }
                 }

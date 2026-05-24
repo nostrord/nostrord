@@ -4148,6 +4148,15 @@ body {
     cursor: default;
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
 }
+/* Transparent images get a contrasting backdrop so dark/light content stays visible. */
+.img-viewer-img.on-light {
+    background: #ffffff;
+    padding: 12px;
+}
+.img-viewer-img.on-dark {
+    background: #15171a;
+    padding: 12px;
+}
 .img-viewer-close {
     position: absolute;
     top: 16px;
