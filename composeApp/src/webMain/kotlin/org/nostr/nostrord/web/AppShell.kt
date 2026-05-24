@@ -6,6 +6,8 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.startup.ExternalLaunchContext
+import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -26,6 +28,7 @@ import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.span
 import react.useEffect
+import react.useEffectOnce
 import react.useState
 import web.cssom.ClassName
 
@@ -103,6 +106,33 @@ val AppShell =
         val openRelay: (Int) -> Unit = { tab ->
             setRelayTab(tab)
             setModal("relay")
+        }
+
+        // Consume a URL deep-link once (?relay= / &group= / &code= / &e= / ?view=notifications),
+        // parsed into StartupResolver by main.kt. switchRelay is idempotent.
+        useEffectOnce {
+            val ctx = StartupResolver.externalLaunchContext
+            when (ctx) {
+                is ExternalLaunchContext.OpenRelay ->
+                    launchApp { repo.switchRelay(ctx.relayUrl) }
+                is ExternalLaunchContext.OpenGroup -> {
+                    launchApp {
+                        ctx.relayUrl?.let { repo.switchRelay(it) }
+                        if (!ctx.inviteCode.isNullOrBlank()) repo.joinGroup(ctx.groupId, ctx.inviteCode)
+                    }
+                    setSelectedGroupId(ctx.groupId)
+                }
+                is ExternalLaunchContext.OpenNotifications -> {
+                    ctx.relayUrl?.let { url -> launchApp { repo.switchRelay(url) } }
+                    setNotificationsOpen(true)
+                }
+                else -> {}
+            }
+            if (ctx != null) {
+                StartupResolver.clearExternalLaunchContext()
+                // Drop the query from the URL bar so a refresh doesn't re-trigger it.
+                window.history.replaceState(null, "", window.location.pathname)
+            }
         }
 
         // Fetch the full group list for the active relay (so Other Groups / the picker
