@@ -1,9 +1,14 @@
 package org.nostr.nostrord.web.screens
 
-import org.nostr.nostrord.web.auth.WebAuth
+import org.nostr.nostrord.auth.AuthMethod
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.notifications.NotificationPermission
+import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.settings.NotificationLevel
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
-import org.nostr.nostrord.web.mock.Mock
-import react.ChildrenBuilder
+import org.nostr.nostrord.web.bridge.useStateFlow
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -13,28 +18,18 @@ import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useState
 import web.cssom.ClassName
-import web.html.InputType
-import web.html.password
 
 external interface SettingsScreenProps : Props {
     var onClose: () -> Unit
 }
 
 private val sections =
-    listOf(
-        "Profile",
-        "Backup Keys",
-        "Relays (NIP-65)",
-        "Notifications",
-        "Security",
-        "Experimental",
-    )
+    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Notifications", "Security", "Experimental")
 
 /**
- * Settings — layout-first React port of the Compose SettingsScreen: a full-screen
- * overlay with a section nav (Profile, Backup Keys, Relays, Notifications, Security,
- * Experimental) + Log Out, a content pane per section, and a close (ESC) button. Mock
- * data; saving/publishing/copying are stubbed.
+ * Settings — real port of the Compose SettingsScreen: a full-screen overlay with a section
+ * nav + Log Out, a content pane per section, and the close/ESC button. Panels read/write
+ * the real repository, account store, notification settings and feature flags.
  */
 val SettingsScreen =
     FC<SettingsScreenProps> { props ->
@@ -45,7 +40,6 @@ val SettingsScreen =
 
             div { className = ClassName("settings-fill dark") }
 
-            // Section nav
             div {
                 className = ClassName("settings-sidebar")
                 sections.forEach { section ->
@@ -61,26 +55,24 @@ val SettingsScreen =
                     className = ClassName("settings-nav-item danger")
                     onClick = {
                         props.onClose()
-                        launchApp { WebAuth.logout() }
+                        launchApp { AppModule.nostrRepository.logout() }
                     }
                     +"Log Out"
                 }
             }
 
-            // Content
             div {
                 className = ClassName("settings-content")
                 when (active) {
-                    "Profile" -> profilePanel()
-                    "Backup Keys" -> backupPanel()
-                    "Relays (NIP-65)" -> relaysPanel()
-                    "Notifications" -> notificationsPanel()
-                    "Security" -> securityPanel()
-                    "Experimental" -> experimentalPanel()
+                    "Profile" -> ProfilePanel()
+                    "Backup Keys" -> BackupPanel()
+                    "Relays (NIP-65)" -> RelaysPanel()
+                    "Notifications" -> NotificationsPanel()
+                    "Security" -> SecurityPanel()
+                    "Experimental" -> ExperimentalPanel()
                 }
             }
 
-            // Close button
             div {
                 className = ClassName("settings-close-col")
                 button {
@@ -101,240 +93,335 @@ val SettingsScreen =
         }
     }
 
-// ── Panels ─────────────────────────────────────────────────────────────────
+// ── Profile ──────────────────────────────────────────────────────────────────
 
-private fun ChildrenBuilder.profilePanel() {
-    // Avatar preview card
-    div {
-        className = ClassName("settings-card center")
-        div {
-            className = ClassName("avatar-tile settings-avatar avatar-fallback")
-            +Mock.me.name.take(1).uppercase()
-        }
-        div {
-            className = ClassName("settings-avatar-caption")
-            +"Avatar Preview"
-        }
-    }
-    // Form card
-    div {
-        className = ClassName("settings-card")
-        div {
-            className = ClassName("settings-section-head")
-            +"PROFILE INFORMATION"
-        }
-        settingsField("Name", "Your name", prefill = Mock.me.name)
-        settingsTextarea("About", "Tell us about yourself")
-        settingsField("Avatar URL", "https://example.com/avatar.jpg")
-        settingsField("Banner URL", "https://example.com/banner.jpg")
-        settingsField("Nostr Address (NIP-05)", "you@example.com")
-        settingsField("Lightning Address", "you@walletofsatoshi.com")
-        settingsField("Website", "https://example.com")
-        div {
-            className = ClassName("settings-form-actions")
-            button {
-                className = ClassName("settings-save")
-                +"Save"
-            }
-        }
-    }
-}
+private val ProfilePanel =
+    FC<Props> {
+        val repo = AppModule.nostrRepository
+        val pubkey = repo.getPublicKey()
+        val userMetadata = useStateFlow(repo.userMetadata)
+        val meta = pubkey?.let { userMetadata[it] }
 
-private fun ChildrenBuilder.backupPanel() {
-    div {
-        className = ClassName("settings-card")
-        div {
-            className = ClassName("field-label")
-            +"Public Key (npub)"
-        }
-        div {
-            className = ClassName("settings-key")
-            +Mock.me.npub
-        }
-        button {
-            className = ClassName("settings-outline-btn")
-            +"Copy Public Key"
-        }
-    }
-    div {
-        className = ClassName("settings-card")
-        div {
-            className = ClassName("field-label")
-            +"Private Key (nsec)"
-        }
-        div {
-            className = ClassName("settings-key danger")
-            +"nsec1••••••••••••••••••••••••••••••••••••"
-        }
-        button {
-            className = ClassName("settings-outline-btn danger")
-            +"Copy Private Key"
-        }
-    }
-    div {
-        className = ClassName("settings-card warning")
-        div {
-            className = ClassName("settings-section-head")
-            +"SECURITY TIPS"
-        }
-        div {
-            className = ClassName("settings-tip")
-            +"• Never share your private key (nsec) with anyone."
-        }
-        div {
-            className = ClassName("settings-tip")
-            +"• Store it in a password manager or write it down offline."
-        }
-        div {
-            className = ClassName("settings-tip")
-            +"• Anyone with your nsec has full control of your identity."
-        }
-    }
-}
+        val (name, setName) = useState { meta?.displayName ?: meta?.name ?: "" }
+        val (about, setAbout) = useState { meta?.about ?: "" }
+        val (picture, setPicture) = useState { meta?.picture ?: "" }
+        val (banner, setBanner) = useState { meta?.banner ?: "" }
+        val (nip05, setNip05) = useState { meta?.nip05 ?: "" }
+        val (lud16, setLud16) = useState { meta?.lud16 ?: "" }
+        val (website, setWebsite) = useState { meta?.website ?: "" }
+        val (busy, setBusy) = useState { false }
+        val (saved, setSaved) = useState { false }
 
-private fun ChildrenBuilder.relaysPanel() {
-    div {
-        className = ClassName("settings-card")
         div {
-            className = ClassName("settings-section-head")
-            +"YOUR RELAYS"
-        }
-        listOf(
-            "wss://relay.damus.io",
-            "wss://nos.lol",
-            "wss://relay.nostr.band",
-        ).forEach { url ->
+            className = ClassName("settings-card center")
             div {
-                key = url
-                className = ClassName("settings-relay-row")
-                span {
-                    className = ClassName("settings-relay-url")
-                    +url
-                }
-                span {
-                    className = ClassName("settings-relay-badge")
-                    +"read/write"
-                }
+                className = ClassName("avatar-tile settings-avatar avatar-fallback")
+                +(name.ifBlank { "U" }).take(1).uppercase()
+            }
+            div {
+                className = ClassName("settings-avatar-caption")
+                +"Avatar Preview"
             }
         }
         div {
-            className = ClassName("settings-form-actions")
-            button {
-                className = ClassName("settings-save")
-                +"Publish"
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"PROFILE INFORMATION"
+            }
+            settingsField("Name", "Your name", name) { setName(it); setSaved(false) }
+            settingsTextarea("About", "Tell us about yourself", about) { setAbout(it) }
+            settingsField("Avatar URL", "https://example.com/avatar.jpg", picture) { setPicture(it) }
+            settingsField("Banner URL", "https://example.com/banner.jpg", banner) { setBanner(it) }
+            settingsField("Nostr Address (NIP-05)", "you@example.com", nip05) { setNip05(it) }
+            settingsField("Lightning Address", "you@walletofsatoshi.com", lud16) { setLud16(it) }
+            settingsField("Website", "https://example.com", website) { setWebsite(it) }
+            if (saved) {
+                div {
+                    className = ClassName("settings-status-line")
+                    +"Profile updated successfully"
+                }
+            }
+            div {
+                className = ClassName("settings-form-actions")
+                button {
+                    className = ClassName("settings-save")
+                    disabled = busy
+                    onClick = {
+                        setBusy(true)
+                        launchApp {
+                            val result =
+                                repo.updateProfileMetadata(
+                                    displayName = name.trim().ifBlank { null },
+                                    name = name.trim().ifBlank { null },
+                                    about = about.trim().ifBlank { null },
+                                    picture = picture.trim().ifBlank { null },
+                                    banner = banner.trim().ifBlank { null },
+                                    nip05 = nip05.trim().ifBlank { null },
+                                    lud16 = lud16.trim().ifBlank { null },
+                                    website = website.trim().ifBlank { null },
+                                )
+                            setBusy(false)
+                            if (result is Result.Success) setSaved(true)
+                        }
+                    }
+                    +(if (busy) "Saving…" else "Save")
+                }
             }
         }
     }
-}
 
-private fun ChildrenBuilder.notificationsPanel() {
-    div {
-        className = ClassName("settings-card")
+// ── Backup keys ──────────────────────────────────────────────────────────────
+
+private val BackupPanel =
+    FC<Props> {
+        val repo = AppModule.nostrRepository
+        val pubkey = repo.getPublicKey()
+        val npub = pubkey?.let { Nip19.encodeNpub(it) } ?: ""
+        val isLocal = AppModule.accountStore.active?.authMethod == AuthMethod.LOCAL
+        val (revealed, setRevealed) = useState { false }
+        val nsec =
+            if (revealed && isLocal) {
+                repo.getPrivateKey()?.let { Nip19.encodeNsec(it) } ?: ""
+            } else {
+                "nsec1••••••••••••••••••••••••••••••••••••"
+            }
+
         div {
-            className = ClassName("settings-toggle-row")
+            className = ClassName("settings-card")
             div {
-                className = ClassName("settings-toggle-text")
-                div {
-                    className = ClassName("settings-toggle-label")
-                    +"Notification sound"
-                }
-                div {
-                    className = ClassName("settings-toggle-desc")
-                    +"Play a sound when a new message arrives."
-                }
+                className = ClassName("field-label")
+                +"Public Key (npub)"
+            }
+            div {
+                className = ClassName("settings-key")
+                +npub
             }
             button {
                 className = ClassName("settings-outline-btn")
-                +"Test sound"
+                onClick = { copyText(npub) }
+                +"Copy Public Key"
             }
         }
-    }
-    div {
-        className = ClassName("settings-card")
+        if (isLocal) {
+            div {
+                className = ClassName("settings-card")
+                div {
+                    className = ClassName("field-label")
+                    +"Private Key (nsec)"
+                }
+                div {
+                    className = ClassName("settings-key danger")
+                    +nsec
+                }
+                button {
+                    className = ClassName("settings-outline-btn danger")
+                    onClick = {
+                        if (!revealed) {
+                            setRevealed(true)
+                        } else {
+                            repo.getPrivateKey()?.let { copyText(Nip19.encodeNsec(it)) }
+                        }
+                    }
+                    +(if (revealed) "Copy Private Key" else "Reveal Private Key")
+                }
+            }
+        }
         div {
-            className = ClassName("settings-section-head")
-            +"DEFAULT FOR NEW GROUPS"
-        }
-        settingsRadioGroup(
-            options = listOf(
-                "All messages" to "Notify for every message.",
-                "Mentions & replies only" to "Only notify when you are mentioned or replied to.",
-                "Muted" to "Never notify.",
-            ),
-            selected = "All messages",
-        )
-    }
-    div {
-        className = ClassName("settings-card")
-        settingsToggle(
-            label = "Desktop notifications",
-            description = "Show a system popup outside the app when a new message arrives.",
-            checked = true,
-        )
-        div {
-            className = ClassName("settings-perm")
-            span {
-                className = ClassName("settings-perm-status")
-                +"Permission not granted yet."
+            className = ClassName("settings-card warning")
+            div {
+                className = ClassName("settings-section-head")
+                +"SECURITY TIPS"
             }
-            button {
-                className = ClassName("settings-outline-btn")
-                +"Request permission"
+            div {
+                className = ClassName("settings-tip")
+                +"• Never share your private key (nsec) with anyone."
+            }
+            div {
+                className = ClassName("settings-tip")
+                +"• Store it in a password manager or write it down offline."
+            }
+            div {
+                className = ClassName("settings-tip")
+                +"• Anyone with your nsec has full control of your identity."
             }
         }
     }
-}
 
-private fun ChildrenBuilder.securityPanel() {
-    div {
-        className = ClassName("settings-card")
+// ── Relays (NIP-65) ──────────────────────────────────────────────────────────
+
+private val RelaysPanel =
+    FC<Props> {
+        val repo = AppModule.nostrRepository
+        val relays = useStateFlow(repo.userRelayList)
+        val (busy, setBusy) = useState { false }
+
         div {
-            className = ClassName("settings-section-head")
-            +"APP PASSPHRASE"
-        }
-        div {
-            className = ClassName("settings-status-line")
-            +"No passphrase set"
-        }
-        settingsField("Current passphrase", "Current passphrase", password = true)
-        settingsField("New passphrase", "New passphrase", password = true)
-        settingsField("Confirm new passphrase", "Confirm new passphrase", password = true)
-        div {
-            className = ClassName("field-hint")
-            +"At least 8 characters. Must match."
-        }
-        div {
-            className = ClassName("settings-form-actions")
-            button {
-                className = ClassName("settings-save")
-                +"Change passphrase"
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"YOUR RELAYS (NIP-65)"
+            }
+            if (relays.isEmpty()) {
+                div {
+                    className = ClassName("settings-status-line")
+                    +"Using default relays."
+                }
+            }
+            relays.forEach { relay ->
+                div {
+                    key = relay.url
+                    className = ClassName("settings-relay-row")
+                    span {
+                        className = ClassName("settings-relay-url")
+                        +relay.url.removePrefix("wss://")
+                    }
+                    span {
+                        className = ClassName("settings-relay-badge")
+                        +readWriteLabel(relay)
+                    }
+                }
+            }
+            div {
+                className = ClassName("settings-form-actions")
+                button {
+                    className = ClassName("settings-save")
+                    disabled = busy || relays.isEmpty()
+                    onClick = {
+                        setBusy(true)
+                        launchApp {
+                            repo.publishRelayList(relays)
+                            setBusy(false)
+                        }
+                    }
+                    +(if (busy) "Publishing…" else "Publish")
+                }
             }
         }
     }
-}
 
-private fun ChildrenBuilder.experimentalPanel() {
-    div {
-        className = ClassName("settings-card")
-        div {
-            className = ClassName("settings-section-head")
-            +"DRAFT PROTOCOL FEATURES"
-        }
-        settingsToggle(
-            label = "NIP-29 Subgroups (draft)",
-            description = "Enable nested subgroups. This is a draft protocol feature and may change.",
-            checked = false,
-        )
+private fun readWriteLabel(relay: Nip65Relay): String =
+    when {
+        relay.read && relay.write -> "read/write"
+        relay.read -> "read"
+        relay.write -> "write"
+        else -> "—"
     }
-}
+
+// ── Notifications ────────────────────────────────────────────────────────────
+
+private val NotificationsPanel =
+    FC<Props> {
+        val settings = AppModule.notificationSettings
+        val service = AppModule.notificationService
+        val soundEnabled = useStateFlow(settings.soundEnabled)
+        val systemEnabled = useStateFlow(settings.systemNotificationsEnabled)
+        val defaultLevel = useStateFlow(settings.defaultLevel)
+        val permission = useStateFlow(service.permission)
+
+        div {
+            className = ClassName("settings-card")
+            settingsToggle("Notification sound", "Play a sound when a new message arrives.", soundEnabled) {
+                settings.setSoundEnabled(!soundEnabled)
+            }
+        }
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"DEFAULT FOR NEW GROUPS"
+            }
+            levelRadio("All messages", "Notify for every message.", defaultLevel == NotificationLevel.ALL) {
+                settings.setDefaultLevel(NotificationLevel.ALL)
+            }
+            levelRadio(
+                "Mentions & replies only",
+                "Only notify when you are mentioned or replied to.",
+                defaultLevel == NotificationLevel.MENTIONS_REPLIES,
+            ) { settings.setDefaultLevel(NotificationLevel.MENTIONS_REPLIES) }
+            levelRadio("Muted", "Never notify.", defaultLevel == NotificationLevel.MUTED) {
+                settings.setDefaultLevel(NotificationLevel.MUTED)
+            }
+        }
+        div {
+            className = ClassName("settings-card")
+            settingsToggle(
+                "Desktop notifications",
+                "Show a system popup outside the app when a new message arrives.",
+                systemEnabled,
+            ) { settings.setSystemNotificationsEnabled(!systemEnabled) }
+            if (service.isSupported()) {
+                div {
+                    className = ClassName("settings-perm")
+                    span {
+                        className = ClassName("settings-perm-status")
+                        +when (permission) {
+                            NotificationPermission.Granted -> "Permission granted"
+                            NotificationPermission.Denied -> "Permission denied in the browser."
+                            else -> "Permission not granted yet."
+                        }
+                    }
+                    if (permission != NotificationPermission.Granted) {
+                        button {
+                            className = ClassName("settings-outline-btn")
+                            onClick = { service.requestPermission() }
+                            +"Request permission"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+// ── Security ─────────────────────────────────────────────────────────────────
+
+private val SecurityPanel =
+    FC<Props> {
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"APP SECURITY"
+            }
+            div {
+                className = ClassName("settings-status-line")
+                +"No app passphrase on the web — your key is managed by the browser. Use Backup Keys to save it."
+            }
+        }
+    }
+
+// ── Experimental ─────────────────────────────────────────────────────────────
+
+private val ExperimentalPanel =
+    FC<Props> {
+        val flags = AppModule.featureFlags
+        val subgroups = useStateFlow(flags.subgroupsEnabled)
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"DRAFT PROTOCOL FEATURES"
+            }
+            settingsToggle(
+                "NIP-29 Subgroups (draft)",
+                "Enable nested subgroups. This is a draft protocol feature and may change.",
+                subgroups,
+            ) { flags.setSubgroupsEnabled(!subgroups) }
+        }
+    }
 
 // ── Shared bits ──────────────────────────────────────────────────────────────
 
-private fun ChildrenBuilder.settingsField(
+private fun copyText(text: String) {
+    val clip = kotlinx.browser.window.navigator.asDynamic().clipboard
+    if (clip != null) clip.writeText(text)
+}
+
+private fun react.ChildrenBuilder.settingsField(
     label: String,
     placeholder: String,
-    prefill: String = "",
-    password: Boolean = false,
+    value: String,
+    onChange: (String) -> Unit,
 ) {
     div {
         className = ClassName("settings-field")
@@ -345,13 +432,18 @@ private fun ChildrenBuilder.settingsField(
         input {
             className = ClassName("modal-input")
             this.placeholder = placeholder
-            if (prefill.isNotEmpty()) defaultValue = prefill
-            if (password) type = InputType.password
+            this.value = value
+            this.onChange = { event -> onChange(event.currentTarget.value) }
         }
     }
 }
 
-private fun ChildrenBuilder.settingsTextarea(label: String, placeholder: String) {
+private fun react.ChildrenBuilder.settingsTextarea(
+    label: String,
+    placeholder: String,
+    value: String,
+    onChange: (String) -> Unit,
+) {
     div {
         className = ClassName("settings-field")
         div {
@@ -362,11 +454,18 @@ private fun ChildrenBuilder.settingsTextarea(label: String, placeholder: String)
             className = ClassName("modal-textarea")
             this.placeholder = placeholder
             rows = 3
+            this.value = value
+            this.onChange = { event -> onChange(event.currentTarget.value) }
         }
     }
 }
 
-private fun ChildrenBuilder.settingsToggle(label: String, description: String, checked: Boolean) {
+private fun react.ChildrenBuilder.settingsToggle(
+    label: String,
+    description: String,
+    checked: Boolean,
+    onToggle: () -> Unit,
+) {
     div {
         className = ClassName("settings-toggle-row")
         div {
@@ -382,29 +481,34 @@ private fun ChildrenBuilder.settingsToggle(label: String, description: String, c
         }
         div {
             className = ClassName(if (checked) "switch on" else "switch")
+            onClick = { onToggle() }
             div { className = ClassName("switch-thumb") }
         }
     }
 }
 
-private fun ChildrenBuilder.settingsRadioGroup(options: List<Pair<String, String>>, selected: String) {
-    options.forEach { (label, desc) ->
+private fun react.ChildrenBuilder.levelRadio(
+    label: String,
+    description: String,
+    selected: Boolean,
+    onSelect: () -> Unit,
+) {
+    div {
+        className = ClassName("settings-radio-row")
+        onClick = { onSelect() }
         div {
-            className = ClassName("settings-radio-row")
+            className = ClassName(if (selected) "settings-radio on" else "settings-radio")
+            div { className = ClassName("settings-radio-dot") }
+        }
+        div {
+            className = ClassName("settings-toggle-text")
             div {
-                className = ClassName(if (label == selected) "settings-radio on" else "settings-radio")
-                div { className = ClassName("settings-radio-dot") }
+                className = ClassName("settings-toggle-label")
+                +label
             }
             div {
-                className = ClassName("settings-toggle-text")
-                div {
-                    className = ClassName("settings-toggle-label")
-                    +label
-                }
-                div {
-                    className = ClassName("settings-toggle-desc")
-                    +desc
-                }
+                className = ClassName("settings-toggle-desc")
+                +description
             }
         }
     }

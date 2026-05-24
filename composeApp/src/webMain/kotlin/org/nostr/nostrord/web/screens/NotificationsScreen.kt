@@ -1,23 +1,38 @@
 package org.nostr.nostrord.web.screens
 
-import org.nostr.nostrord.web.mock.Mock
-import org.nostr.nostrord.web.mock.MockNotification
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.notifications.NotificationEntry
+import org.nostr.nostrord.notifications.NotificationType
+import org.nostr.nostrord.utils.formatTimestamp
+import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.bridge.useStateFlow
 import react.ChildrenBuilder
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import web.cssom.ClassName
 
 /**
- * Notifications — layout-first React port of the Compose NotificationsScreen. Rendered in
- * the shell content (rail stays, groups sidebar hidden). Header (Mark all as read / Clear
- * all) + a list of entries (avatar + type badge, author + action, preview, group · time;
- * unread rows get a primary accent). Mock data; actions are stubbed.
+ * Notifications — real port of the Compose NotificationsScreen: the live
+ * `notificationHistoryStore.entries` (avatar + type badge, actor + action, preview,
+ * group · time; unread accent), with Mark all as read / Clear all. Rendered in the shell
+ * content (rail stays, groups sidebar hidden).
  */
 val NotificationsScreen =
     FC<Props> {
+        val store = AppModule.notificationHistoryStore
+        val entries = useStateFlow(store.entries)
+        val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
+
+        useEffect(entries.size) {
+            val actors = entries.map { it.actorPubkey }.toSet()
+            if (actors.isNotEmpty()) launchApp { AppModule.nostrRepository.requestUserMetadata(actors) }
+        }
+
         div {
             className = ClassName("notif-screen")
             div {
@@ -30,17 +45,19 @@ val NotificationsScreen =
                     className = ClassName("notif-actions")
                     button {
                         className = ClassName("notif-action-btn")
+                        onClick = { store.markAllRead() }
                         +"Mark all as read"
                     }
                     button {
                         className = ClassName("notif-action-btn")
+                        onClick = { store.clearHistory() }
                         +"Clear all"
                     }
                 }
             }
             div {
                 className = ClassName("notif-list")
-                if (Mock.sampleNotifications.isEmpty()) {
+                if (entries.isEmpty()) {
                     div {
                         className = ClassName("notif-empty")
                         div {
@@ -50,33 +67,48 @@ val NotificationsScreen =
                         div { +"No notifications yet" }
                     }
                 } else {
-                    Mock.sampleNotifications.forEach { notification ->
-                        notifItem(notification)
+                    entries.forEach { entry ->
+                        notifItem(entry, userMetadata[entry.actorPubkey])
                     }
                 }
             }
         }
     }
 
-private fun typeLabel(type: String): String =
+private fun typeClass(type: NotificationType): String =
     when (type) {
-        "reply" -> "replied to your message"
-        "mention" -> "mentioned you"
-        "reaction" -> "reacted to your message"
-        else -> "sent a message"
+        NotificationType.REPLY -> "reply"
+        NotificationType.MENTION -> "mention"
+        NotificationType.REACTION -> "reaction"
+        NotificationType.MESSAGE -> "message"
     }
 
-private fun typeGlyph(type: String, preview: String): String =
+private fun typeLabel(type: NotificationType): String =
     when (type) {
-        "reply" -> "↩"
-        "mention" -> "@"
-        "reaction" -> preview
-        else -> "💬"
+        NotificationType.REPLY -> "replied to your message"
+        NotificationType.MENTION -> "mentioned you"
+        NotificationType.REACTION -> "reacted to your message"
+        NotificationType.MESSAGE -> "sent a message"
     }
 
-private fun ChildrenBuilder.notifItem(notification: MockNotification) {
+private fun typeGlyph(entry: NotificationEntry): String =
+    when (entry.type) {
+        NotificationType.REPLY -> "↩"
+        NotificationType.MENTION -> "@"
+        NotificationType.REACTION -> entry.emoji?.takeIf { it.isNotBlank() } ?: "+"
+        NotificationType.MESSAGE -> "💬"
+    }
+
+private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserMetadata?) {
+    val actor =
+        actorMeta?.displayName?.takeIf { it.isNotBlank() }
+            ?: actorMeta?.name?.takeIf { it.isNotBlank() }
+            ?: (entry.actorPubkey.take(8) + "…")
+    val group = entry.groupName?.takeIf { it.isNotBlank() } ?: entry.groupId.take(8)
+    val preview = if (entry.type == NotificationType.REACTION) (entry.emoji ?: entry.preview) else entry.preview
+
     div {
-        className = ClassName(if (notification.read) "notif-item" else "notif-item unread")
+        className = ClassName(if (entry.read) "notif-item" else "notif-item unread")
         div { className = ClassName("notif-accent") }
         div {
             className = ClassName("notif-main")
@@ -84,11 +116,11 @@ private fun ChildrenBuilder.notifItem(notification: MockNotification) {
                 className = ClassName("notif-avatar-wrap")
                 div {
                     className = ClassName("avatar-tile notif-avatar avatar-fallback")
-                    +notification.actor.take(1).uppercase()
+                    +actor.take(1).uppercase()
                 }
                 span {
-                    className = ClassName("notif-badge ${notification.type}")
-                    +typeGlyph(notification.type, notification.preview)
+                    className = ClassName("notif-badge ${typeClass(entry.type)}")
+                    +typeGlyph(entry)
                 }
             }
             div {
@@ -97,27 +129,27 @@ private fun ChildrenBuilder.notifItem(notification: MockNotification) {
                     className = ClassName("notif-head")
                     span {
                         className = ClassName("notif-actor")
-                        +notification.actor
+                        +actor
                     }
                     +" "
                     span {
                         className = ClassName("notif-label")
-                        +typeLabel(notification.type)
+                        +typeLabel(entry.type)
                     }
                 }
                 div {
                     className = ClassName("notif-preview")
-                    +notification.preview
+                    +preview
                 }
                 div {
                     className = ClassName("notif-context")
                     div {
                         className = ClassName("avatar-tile notif-context-icon avatar-fallback")
-                        +notification.group.take(1).uppercase()
+                        +group.take(1).uppercase()
                     }
                     span {
                         className = ClassName("notif-context-name")
-                        +notification.group
+                        +group
                     }
                     span {
                         className = ClassName("notif-dot")
@@ -125,7 +157,7 @@ private fun ChildrenBuilder.notifItem(notification: MockNotification) {
                     }
                     span {
                         className = ClassName("notif-time")
-                        +notification.time
+                        +formatTimestamp(entry.createdAt)
                     }
                 }
             }
