@@ -901,7 +901,12 @@ private fun eventJsonOf(message: NostrGroupClient.NostrMessage): String = buildJ
 }.toString()
 
 private val URL_REGEX =
-    Regex("(https?://[^\\s]+)|(nostr:(?:npub1|nprofile1)[0-9a-z]+)|\\b((?:npub1|nprofile1)[0-9a-z]{20,})")
+    Regex(
+        "(data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)" +
+            "|(https?://[^\\s]+)" +
+            "|(nostr:(?:npub1|nprofile1)[0-9a-z]+)" +
+            "|\\b((?:npub1|nprofile1)[0-9a-z]{20,})",
+    )
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
 
 /** Render message text with clickable links, inline images and NIP-27 mentions. */
@@ -914,7 +919,9 @@ private fun ChildrenBuilder.renderMessageContent(
     for (match in URL_REGEX.findAll(content)) {
         if (match.range.first > last) +content.substring(last, match.range.first)
         val token = match.value
-        if (token.startsWith("http")) {
+        if (token.startsWith("data:image/")) {
+            ChatImage { imageUrl = token }
+        } else if (token.startsWith("http")) {
             val url = token.trimEnd('.', ',', ')', '!', '?', ';', ':')
             if (IMAGE_EXT.containsMatchIn(url)) {
                 ChatImage { imageUrl = url }

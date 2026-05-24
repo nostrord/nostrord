@@ -30,9 +30,16 @@ val ChatImage =
                 Unit
             }
             probe.onerror = { Unit }
-            // Cache-bust so this CORS fetch doesn't reuse the visible <img>'s non-CORS cache
-            // entry (which would taint the canvas and block getImageData).
-            probe.src = props.imageUrl + (if (props.imageUrl.contains("?")) "&" else "?") + "cors=1"
+            // Cache-bust remote URLs so this CORS fetch doesn't reuse the visible <img>'s
+            // non-CORS cache entry (which would taint the canvas and block getImageData).
+            // data: URIs are same-origin and self-contained — use them verbatim (a query
+            // suffix would corrupt the base64).
+            probe.src =
+                if (props.imageUrl.startsWith("data:")) {
+                    props.imageUrl
+                } else {
+                    props.imageUrl + (if (props.imageUrl.contains("?")) "&" else "?") + "cors=1"
+                }
         }
 
         img {
