@@ -4,6 +4,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.UploadButton
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.a
@@ -216,9 +217,10 @@ val CreateGroupModal =
                         value = picture
                         onChange = { event -> setPicture(event.currentTarget.value) }
                     }
-                    button {
-                        className = ClassName("upload-btn")
-                        +"⤴"
+                    UploadButton {
+                        cls = "upload-btn"
+                        text = "⤴"
+                        onUploaded = { setPicture(it) }
                     }
                 }
 

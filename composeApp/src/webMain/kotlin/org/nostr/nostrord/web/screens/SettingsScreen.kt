@@ -9,6 +9,7 @@ import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import react.FC
 import react.Props
@@ -136,8 +137,8 @@ private val ProfilePanel =
                 setSaved(false)
             }
             settingsTextarea("About", "Tell us about yourself", about) { setAbout(it) }
-            settingsField("Avatar URL", "https://example.com/avatar.jpg", picture) { setPicture(it) }
-            settingsField("Banner URL", "https://example.com/banner.jpg", banner) { setBanner(it) }
+            settingsUploadField("Avatar URL", "https://example.com/avatar.jpg", picture) { setPicture(it) }
+            settingsUploadField("Banner URL", "https://example.com/banner.jpg", banner) { setBanner(it) }
             settingsField("Nostr Address (NIP-05)", "you@example.com", nip05) { setNip05(it) }
             settingsField("Lightning Address", "you@walletofsatoshi.com", lud16) { setLud16(it) }
             settingsField("Website", "https://example.com", website) { setWebsite(it) }
@@ -438,6 +439,35 @@ private fun react.ChildrenBuilder.settingsField(
             this.placeholder = placeholder
             this.value = value
             this.onChange = { event -> onChange(event.currentTarget.value) }
+        }
+    }
+}
+
+private fun react.ChildrenBuilder.settingsUploadField(
+    label: String,
+    placeholder: String,
+    value: String,
+    onChange: (String) -> Unit,
+) {
+    div {
+        className = ClassName("settings-field")
+        div {
+            className = ClassName("field-label")
+            +label
+        }
+        div {
+            className = ClassName("upload-field")
+            input {
+                className = ClassName("modal-input flush")
+                this.placeholder = placeholder
+                this.value = value
+                this.onChange = { event -> onChange(event.currentTarget.value) }
+            }
+            UploadButton {
+                cls = "upload-btn"
+                text = "⤴"
+                onUploaded = onChange
+            }
         }
     }
 }

@@ -1116,6 +1116,9 @@ body {
 
 .upload-btn {
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     padding: 0 14px;
     font-size: 16px;
     color: var(--color-text-secondary);
@@ -1127,6 +1130,10 @@ body {
 
 .upload-btn:hover {
     color: var(--color-text-primary);
+}
+
+.upload-file-input {
+    display: none;
 }
 
 .access-section-title {

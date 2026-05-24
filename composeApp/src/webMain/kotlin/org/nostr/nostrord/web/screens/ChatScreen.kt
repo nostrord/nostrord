@@ -8,6 +8,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
@@ -270,9 +271,10 @@ val ChatScreen =
                 // Composer
                 div {
                     className = ClassName(if (replyingToId != null) "composer replying" else "composer")
-                    button {
-                        className = ClassName("composer-btn")
-                        +"＋"
+                    UploadButton {
+                        cls = "composer-btn"
+                        text = "＋"
+                        onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
                     }
                     input {
                         className = ClassName("composer-input")

@@ -4,6 +4,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.components.UploadButton
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -113,11 +114,19 @@ val EditGroupModal =
                     className = ClassName("field-label")
                     +"Group Image URL"
                 }
-                input {
-                    className = ClassName("modal-input")
-                    placeholder = "https://example.com/image.jpg"
-                    value = picture
-                    onChange = { event -> setPicture(event.currentTarget.value) }
+                div {
+                    className = ClassName("upload-field")
+                    input {
+                        className = ClassName("modal-input flush")
+                        placeholder = "https://example.com/image.jpg"
+                        value = picture
+                        onChange = { event -> setPicture(event.currentTarget.value) }
+                    }
+                    UploadButton {
+                        cls = "upload-btn"
+                        text = "⤴"
+                        onUploaded = { setPicture(it) }
+                    }
                 }
 
                 div {
