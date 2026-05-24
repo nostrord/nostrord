@@ -78,16 +78,15 @@ val UploadButton =
     }
 
 /** Read a picked file's bytes via the Blob arrayBuffer() promise. */
-private suspend fun readFileBytes(file: dynamic): ByteArray =
-    suspendCoroutine { cont ->
-        val promise = file.arrayBuffer()
-        promise.then(
-            { buffer: dynamic ->
-                val arr = Int8Array(buffer.unsafeCast<ArrayBuffer>())
-                cont.resume(ByteArray(arr.length) { arr[it] })
-            },
-            { _: dynamic ->
-                cont.resume(ByteArray(0))
-            },
-        )
-    }
+private suspend fun readFileBytes(file: dynamic): ByteArray = suspendCoroutine { cont ->
+    val promise = file.arrayBuffer()
+    promise.then(
+        { buffer: dynamic ->
+            val arr = Int8Array(buffer.unsafeCast<ArrayBuffer>())
+            cont.resume(ByteArray(arr.length) { arr[it] })
+        },
+        { _: dynamic ->
+            cont.resume(ByteArray(0))
+        },
+    )
+}
