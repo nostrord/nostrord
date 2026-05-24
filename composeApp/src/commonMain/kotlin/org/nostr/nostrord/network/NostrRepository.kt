@@ -282,6 +282,40 @@ class NostrRepository(
             }
         }
 
+        // Bunker (NIP-46) signer-ready recovery. On session restore / account-add
+        // the account is marked logged-in optimistically while the remote signer
+        // connects asynchronously (issue #85). connect() + NIP-42 AUTH for the
+        // group relays run before the signer can sign the AUTH event, so their
+        // group/mux REQs come back CLOSED "auth-required" and nothing retries —
+        // groups stuck on "No messages yet" / "Members 0" until app restart.
+        // When the signer transitions to ready, reconnect the group relays: fresh
+        // sockets -> fresh AUTH (now signable) -> resubscribe (messages+members).
+        // Interactive loginWithBunker connects the signer synchronously (verifying
+        // never goes true), so this never fires spuriously for a fresh login.
+        scope.launch {
+            var wasReady = sessionManager.isBunkerConnected.value &&
+                !sessionManager.isBunkerVerifying.value &&
+                sessionManager.isBunkerReady()
+            combine(
+                sessionManager.isBunkerConnected,
+                sessionManager.isBunkerVerifying,
+            ) { connected, verifying ->
+                connected && !verifying && sessionManager.isBunkerReady()
+            }.collect { ready ->
+                if (ready && !wasReady) {
+                    try {
+                        reconnect()
+                        ensureJoinedRelaysConnected(
+                            connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() },
+                        )
+                    } catch (e: Throwable) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                    }
+                }
+                wasReady = ready
+            }
+        }
+
         metadataManager.messageHandler = { msg, client -> enqueueToRelayPipeline(msg, client) }
 
         connectionManager.startNetworkMonitor()
@@ -728,13 +762,29 @@ class NostrRepository(
         // resolves, even for accounts that already have a persisted relay list.
         outboxManager.seedFromCache(pubkey)
 
-        if (activeRelay.isNotBlank()) {
-            groupManager.loadJoinedGroupsFromStorage(pubkey, activeRelay)
-        }
-        if (savedRelays.isNotEmpty()) {
-            groupManager.loadAllJoinedGroupsFromStorage(pubkey, savedRelays)
-            groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, savedRelays)
-            groupManager.loadRestrictedGroupsFromStorage(pubkey, savedRelays)
+        // Mirror initialize()/finishLoginInit's full relay+group bootstrap so a
+        // warm account swap establishes the SAME state as a cold start. The swap
+        // previously loaded joined groups but skipped prePopulateRelayList / the
+        // cursor + NIP-11 metadata bootstrap, and elected no primary when the new
+        // account had a blank current-relay slot — leaving it on empty groups /
+        // a one-relay rail / stale icons until the app was restarted.
+        val allRelays = (listOfNotNull(activeRelay.ifBlank { null }) + savedRelays).distinct()
+        val primaryRelay = activeRelay.ifBlank { allRelays.firstOrNull().orEmpty() }
+        if (primaryRelay.isNotBlank()) {
+            groupManager.prePopulateRelayList(allRelays)
+            liveCursorStore?.loadAll(allRelays)
+            _relayMetadataManager.fetchAll(allRelays)
+            groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
+            groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
+            groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
+            groupManager.loadRestrictedGroupsFromStorage(pubkey, allRelays)
+            // The account had no persisted current relay — elect one so the
+            // primary actually connects (and its cache-hit mux is set up) instead
+            // of relying on a reconnect that no-ops against a blank current relay.
+            if (activeRelay.isBlank()) {
+                SecureStorage.saveCurrentRelayUrlFor(pubkey, primaryRelay)
+                connectionManager.loadSavedRelay()
+            }
         }
 
         initializeOutboxModel()
@@ -751,12 +801,12 @@ class NostrRepository(
         // until the next AUTH challenge; clear their mux tracker and reconnect
         // them so the new identity's AUTH runs before subs go out (matches
         // [ensureJoinedRelaysConnected] in the boot path).
-        if (activeRelay.isNotBlank()) {
+        if (primaryRelay.isNotBlank()) {
             triggerReconnect()
         }
         scope.launch {
             try {
-                ensureJoinedRelaysConnected(activeRelay.takeIf { it.isNotBlank() })
+                ensureJoinedRelaysConnected(primaryRelay.takeIf { it.isNotBlank() })
             } catch (_: Exception) {}
             // Safety net for the active relay and any joined relay not covered
             // above: applies the catch-up `since` set earlier so events missed
