@@ -1736,6 +1736,7 @@ body {
 .sys-event {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
     padding: 8px 16px;
     font-size: 13px;
@@ -1813,7 +1814,6 @@ body {
 }
 .sys-event-time {
     flex-shrink: 0;
-    margin-left: auto;
     font-size: 11px;
     color: var(--color-text-muted);
     opacity: 0.7;
