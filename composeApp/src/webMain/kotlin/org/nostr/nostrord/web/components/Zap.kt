@@ -218,7 +218,12 @@ private fun ChildrenBuilder.amountStep(
         className = ClassName("btn-primary block")
         disabled = !sendEnabled || loading
         onClick = { onSend() }
-        if (loading) { +"Getting invoice…" } else { icon(Ic.Bolt); +"Get invoice" }
+        if (loading) {
+            +"Getting invoice…"
+        } else {
+            icon(Ic.Bolt)
+            +"Get invoice"
+        }
     }
 }
 
