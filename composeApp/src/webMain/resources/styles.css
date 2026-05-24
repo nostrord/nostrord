@@ -3552,3 +3552,159 @@ body {
     color: var(--color-background-dark);
     cursor: default;
 }
+
+/* ---------- Manage relay page ---------- */
+.manage {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background);
+}
+
+.manage-header {
+    flex-shrink: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    background: var(--color-background-dark);
+}
+
+.manage-back {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.manage-back:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.manage-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.manage-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.manage-relay-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--color-surface);
+    border-radius: 8px;
+}
+
+.manage-relay-icon {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.manage-relay-meta {
+    min-width: 0;
+}
+
+.manage-relay-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.manage-relay-url {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    word-break: break-all;
+}
+
+.manage-section {
+    margin: 22px 0 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+}
+
+.manage-empty {
+    padding: 16px;
+    font-size: 14px;
+    color: var(--color-text-muted);
+    background: var(--color-surface);
+    border-radius: 8px;
+}
+
+.manage-group-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--color-surface);
+    border-radius: 8px;
+    margin-bottom: 6px;
+}
+
+.manage-group-icon {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.manage-group-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.manage-leave {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-error);
+    background: transparent;
+    border: 1px solid var(--color-error);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.manage-leave:hover {
+    background: rgba(237, 66, 69, 0.12);
+}
+
+.manage-actions {
+    margin-top: 24px;
+}
+
+.manage-actions .btn-danger {
+    width: 100%;
+}

@@ -21,9 +21,9 @@ external interface HomeScreenProps : Props {
 
 /**
  * Home / group picker — real port of the Compose HomeScreenDesktop: centered relay header,
- * My Groups / Other Groups filter chips, search, and a grid of group cards (icon, name,
- * about, access badges, Join / Joined / Request). Shown when a relay is active but no group
- * is open. Card click opens the group; the button joins it.
+ * My Groups / Other Groups filter chips, search, and a grid of group cards. The header cog
+ * opens a "Manage relay" page (leave individual groups, remove the relay) — mirrors the
+ * Compose ManageRelayContent. Shown when a relay is active but no group is open.
  */
 val HomeScreen =
     FC<HomeScreenProps> { props ->
@@ -35,11 +35,10 @@ val HomeScreen =
         val kind10009 = useStateFlow(repo.kind10009Relays)
 
         val isRelaySaved = currentRelay in kind10009
-        val (optionsOpen, setOptionsOpen) = useState { false }
-        val (confirmLeave, setConfirmLeave) = useState { false }
 
         val relayMeta = relayMetadata[currentRelay]
-        val relayLabel = relayMeta?.name?.takeIf { it.isNotBlank() } ?: currentRelay.removePrefix("wss://").removePrefix("ws://")
+        val relayLabel =
+            relayMeta?.name?.takeIf { it.isNotBlank() } ?: currentRelay.removePrefix("wss://").removePrefix("ws://")
 
         val groups = groupsByRelay[currentRelay].orEmpty()
         val joined = joinedByRelay[currentRelay].orEmpty()
@@ -48,6 +47,9 @@ val HomeScreen =
 
         val (filter, setFilter) = useState { "Mine" }
         val (search, setSearch) = useState { "" }
+        val (managing, setManaging) = useState { false }
+        val (confirmRemove, setConfirmRemove) = useState { false }
+        val (leaveGroup, setLeaveGroup) = useState<GroupMetadata?> { null }
 
         val base = if (filter == "Mine") myGroups else otherGroups
         val shown =
@@ -57,130 +59,219 @@ val HomeScreen =
                     (it.about ?: "").contains(search, ignoreCase = true)
             }
 
-        div {
-            className = ClassName("home")
+        if (managing) {
+            // ── Manage relay page ────────────────────────────────────────────
             div {
-                className = ClassName("home-header")
-                WebAvatar {
-                    url = relayMeta?.icon
-                    name = relayLabel
-                    cls = "home-relay-icon"
-                }
+                className = ClassName("manage")
                 div {
-                    className = ClassName("home-title")
-                    +relayLabel
-                }
-                div {
-                    className = ClassName("home-subtitle")
-                    +"Choose a group to join and start chatting."
-                }
-
-                // Relay options (add to / remove from the kind:10009 list)
-                button {
-                    className = ClassName("home-relay-options")
-                    onClick = { setOptionsOpen(!optionsOpen) }
-                    +"⋯"
-                }
-                if (optionsOpen) {
-                    div {
-                        className = ClassName("home-relay-menu-overlay")
-                        onClick = { setOptionsOpen(false) }
+                    className = ClassName("manage-header")
+                    button {
+                        className = ClassName("manage-back")
+                        onClick = { setManaging(false) }
+                        +"←"
                     }
                     div {
-                        className = ClassName("home-relay-menu")
-                        if (isRelaySaved) {
+                        className = ClassName("manage-title")
+                        +"Manage relay"
+                    }
+                }
+                div {
+                    className = ClassName("manage-body")
+                    div {
+                        className = ClassName("manage-relay-card")
+                        WebAvatar {
+                            url = relayMeta?.icon
+                            name = relayLabel
+                            cls = "manage-relay-icon"
+                        }
+                        div {
+                            className = ClassName("manage-relay-meta")
                             div {
-                                className = ClassName("home-relay-menu-item danger")
-                                onClick = {
-                                    setOptionsOpen(false)
-                                    setConfirmLeave(true)
-                                }
-                                +"Remove relay from your list"
+                                className = ClassName("manage-relay-name")
+                                +relayLabel
                             }
-                        } else {
                             div {
-                                className = ClassName("home-relay-menu-item")
-                                onClick = {
-                                    setOptionsOpen(false)
-                                    launchApp { repo.addRelay(currentRelay) }
-                                }
-                                +"Add relay to your list"
+                                className = ClassName("manage-relay-url")
+                                +currentRelay
                             }
                         }
                     }
-                }
-            }
 
-            div {
-                className = ClassName("home-toolbar")
-                div {
-                    className = ClassName("home-filters")
-                    homeFilter("My Groups", myGroups.size, filter == "Mine") { setFilter("Mine") }
-                    homeFilter("Other Groups", otherGroups.size, filter == "Other") { setFilter("Other") }
-                }
-                input {
-                    className = ClassName("home-search")
-                    placeholder = "Search groups..."
-                    value = search
-                    onChange = { event -> setSearch(event.currentTarget.value) }
-                }
-            }
-
-            div {
-                className = ClassName("home-grid")
-                if (shown.isEmpty()) {
                     div {
-                        className = ClassName("home-empty")
-                        +(if (search.isNotBlank()) "No groups match \"$search\"" else "No groups found")
+                        className = ClassName("manage-section")
+                        +"MY GROUPS"
                     }
-                } else {
-                    shown.forEach { group ->
-                        pickGroupCard(
-                            group = group,
-                            isJoined = group.id in joined,
-                            onOpen = { props.onOpenGroup(group.id) },
-                            onJoin = { launchApp { repo.joinGroup(group.id) } },
-                        )
+                    if (myGroups.isEmpty()) {
+                        div {
+                            className = ClassName("manage-empty")
+                            +"No groups joined on this relay."
+                        }
+                    } else {
+                        myGroups.forEach { group ->
+                            div {
+                                key = group.id
+                                className = ClassName("manage-group-row")
+                                WebAvatar {
+                                    url = group.picture
+                                    name = group.name ?: group.id
+                                    cls = "manage-group-icon"
+                                }
+                                span {
+                                    className = ClassName("manage-group-name")
+                                    +(group.name ?: group.id)
+                                }
+                                button {
+                                    className = ClassName("manage-leave")
+                                    onClick = { setLeaveGroup(group) }
+                                    +"Leave"
+                                }
+                            }
+                        }
+                    }
+
+                    div {
+                        className = ClassName("manage-actions")
+                        button {
+                            className = ClassName("btn-danger")
+                            onClick = { setConfirmRemove(true) }
+                            +"Remove relay"
+                        }
                     }
                 }
             }
-
-            if (confirmLeave) {
+        } else {
+            // ── Group picker ─────────────────────────────────────────────────
+            div {
+                className = ClassName("home")
                 div {
-                    className = ClassName("modal-overlay")
-                    onClick = { setConfirmLeave(false) }
+                    className = ClassName("home-header")
+                    WebAvatar {
+                        url = relayMeta?.icon
+                        name = relayLabel
+                        cls = "home-relay-icon"
+                    }
                     div {
-                        className = ClassName("modal-card sm")
-                        onClick = { it.stopPropagation() }
-                        div {
-                            className = ClassName("modal-title")
-                            +"Leave relay?"
+                        className = ClassName("home-title")
+                        +relayLabel
+                    }
+                    div {
+                        className = ClassName("home-subtitle")
+                        +"Choose a group to join and start chatting."
+                    }
+
+                    // Top-right: manage (cog) when the relay is saved, else add (+).
+                    button {
+                        className = ClassName("home-relay-options")
+                        onClick = {
+                            if (isRelaySaved) setManaging(true) else launchApp { repo.addRelay(currentRelay) }
                         }
+                        +(if (isRelaySaved) "⚙" else "＋")
+                    }
+                }
+
+                div {
+                    className = ClassName("home-toolbar")
+                    div {
+                        className = ClassName("home-filters")
+                        homeFilter("My Groups", myGroups.size, filter == "Mine") { setFilter("Mine") }
+                        homeFilter("Other Groups", otherGroups.size, filter == "Other") { setFilter("Other") }
+                    }
+                    input {
+                        className = ClassName("home-search")
+                        placeholder = "Search groups..."
+                        value = search
+                        onChange = { event -> setSearch(event.currentTarget.value) }
+                    }
+                }
+
+                div {
+                    className = ClassName("home-grid")
+                    if (shown.isEmpty()) {
                         div {
-                            className = ClassName("modal-subtitle tight")
-                            +"$relayLabel will be removed from your list and you'll leave its groups. You can add it again anytime."
+                            className = ClassName("home-empty")
+                            +(if (search.isNotBlank()) "No groups match \"$search\"" else "No groups found")
                         }
-                        div {
-                            className = ClassName("modal-footer")
-                            button {
-                                className = ClassName("btn-text")
-                                onClick = { setConfirmLeave(false) }
-                                +"Cancel"
-                            }
-                            button {
-                                className = ClassName("btn-danger")
-                                onClick = {
-                                    setConfirmLeave(false)
-                                    launchApp { repo.removeRelay(currentRelay) }
-                                }
-                                +"Leave relay"
-                            }
+                    } else {
+                        shown.forEach { group ->
+                            pickGroupCard(
+                                group = group,
+                                isJoined = group.id in joined,
+                                onOpen = { props.onOpenGroup(group.id) },
+                                onJoin = { launchApp { repo.joinGroup(group.id) } },
+                            )
                         }
                     }
                 }
             }
         }
+
+        // Confirm: remove relay
+        if (confirmRemove) {
+            confirmDialog(
+                title = "Remove relay?",
+                message = "$relayLabel will be removed from your relay list. You'll leave its groups.",
+                confirmLabel = "Remove relay",
+                onCancel = { setConfirmRemove(false) },
+                onConfirm = {
+                    setConfirmRemove(false)
+                    setManaging(false)
+                    launchApp { repo.removeRelay(currentRelay) }
+                },
+            )
+        }
+
+        // Confirm: leave a single group
+        leaveGroup?.let { group ->
+            confirmDialog(
+                title = "Leave group?",
+                message = "You will be removed from \"${group.name ?: group.id}\".",
+                confirmLabel = "Leave",
+                onCancel = { setLeaveGroup(null) },
+                onConfirm = {
+                    setLeaveGroup(null)
+                    launchApp { repo.leaveGroup(group.id) }
+                },
+            )
+        }
     }
+
+private fun ChildrenBuilder.confirmDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    onCancel: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onCancel() }
+        div {
+            className = ClassName("modal-card sm")
+            onClick = { it.stopPropagation() }
+            div {
+                className = ClassName("modal-title")
+                +title
+            }
+            div {
+                className = ClassName("modal-subtitle tight")
+                +message
+            }
+            div {
+                className = ClassName("modal-footer")
+                button {
+                    className = ClassName("btn-text")
+                    onClick = { onCancel() }
+                    +"Cancel"
+                }
+                button {
+                    className = ClassName("btn-danger")
+                    onClick = { onConfirm() }
+                    +confirmLabel
+                }
+            }
+        }
+    }
+}
 
 private fun ChildrenBuilder.homeFilter(label: String, count: Int, active: Boolean, onClick: () -> Unit) {
     button {
@@ -252,7 +343,7 @@ private fun ChildrenBuilder.pickGroupCard(
                 } else {
                     "Join"
                 }
-                )
+            )
         }
     }
 }
