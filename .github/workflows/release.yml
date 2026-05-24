@@ -205,7 +205,7 @@ jobs:
         env:
           SIGN_WITH: ${{ secrets.ZAPSTORE_SIGN_WITH }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: zsp publish -quiet -skip-certificate-linking zapstore.yaml
+        run: zsp publish -y -verbose -skip-certificate-linking zapstore.yaml
 
   arch-pkg:
     name: Build Arch .pkg.tar.zst
