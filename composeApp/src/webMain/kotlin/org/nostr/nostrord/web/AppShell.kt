@@ -24,6 +24,7 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import react.useState
 import web.cssom.ClassName
 
@@ -55,6 +56,7 @@ val AppShell =
         val unreadByRelay = useStateFlow(repo.unreadByRelay)
         val relayMetadata = useStateFlow(repo.relayMetadata)
         val userMetadata = useStateFlow(repo.userMetadata)
+        val fullListFetched = useStateFlow(repo.fullGroupListFetchedRelays)
         val accounts = useStateFlow(AppModule.accountStore.accounts)
         val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
 
@@ -98,6 +100,14 @@ val AppShell =
         val openRelay: (Int) -> Unit = { tab ->
             setRelayTab(tab)
             setModal("relay")
+        }
+
+        // Fetch the full group list for the active relay (so Other Groups / the picker
+        // show non-joined groups). Idempotent — the repo tracks fetched relays.
+        useEffect(activeRelay, fullListFetched.size) {
+            if (activeRelay.isNotBlank() && activeRelay !in fullListFetched) {
+                launchApp { repo.requestFullGroupListForRelay(activeRelay) }
+            }
         }
 
         div {
