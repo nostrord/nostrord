@@ -314,9 +314,8 @@ private fun copyText(text: String) {
     if (clip != null) clip.writeText(text)
 }
 
-private fun formatSatsShort(sats: Long): String =
-    when {
-        sats >= 1_000_000 -> "${sats / 1_000_000}M"
-        sats >= 10_000 -> "${sats / 1_000}k"
-        else -> sats.toString()
-    }
+private fun formatSatsShort(sats: Long): String = when {
+    sats >= 1_000_000 -> "${sats / 1_000_000}M"
+    sats >= 10_000 -> "${sats / 1_000}k"
+    else -> sats.toString()
+}
