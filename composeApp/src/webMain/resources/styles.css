@@ -1955,20 +1955,38 @@ body {
 
 .msg-reply {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 2px;
-    font-size: 13px;
-    color: var(--color-text-muted);
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 4px;
+    padding: 4px 8px 4px 4px;
+    background: rgba(47, 49, 54, 0.5);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.msg-reply-bar {
+    flex-shrink: 0;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--color-primary);
+}
+
+.msg-reply-content {
+    min-width: 0;
 }
 
 .msg-reply-author {
-    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--color-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .msg-reply-text {
-    min-width: 0;
+    font-size: 12px;
+    color: var(--color-text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

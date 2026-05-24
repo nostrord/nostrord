@@ -262,7 +262,10 @@ val ChatScreen =
                                     message.createdAt - prev.createdAt > GROUP_WINDOW
                             val parent = parentMessageOf(message)?.let { messagesById[it] }
                             val replyPreview =
-                                parent?.let { displayName(it.pubkey, userMetadata[it.pubkey]) to it.content }
+                                parent?.let {
+                                    displayName(it.pubkey, userMetadata[it.pubkey]) to
+                                        it.content.replace('\n', ' ').trim().take(120)
+                                }
                             val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
                             MessageRow {
                                 key = message.id
@@ -528,13 +531,17 @@ private val MessageRow =
                 props.replyTo?.let { reply ->
                     div {
                         className = ClassName("msg-reply")
-                        span {
-                            className = ClassName("msg-reply-author")
-                            +"@${reply.first}"
-                        }
-                        span {
-                            className = ClassName("msg-reply-text")
-                            +reply.second
+                        div { className = ClassName("msg-reply-bar") }
+                        div {
+                            className = ClassName("msg-reply-content")
+                            div {
+                                className = ClassName("msg-reply-author")
+                                +reply.first
+                            }
+                            div {
+                                className = ClassName("msg-reply-text")
+                                +reply.second
+                            }
                         }
                     }
                 }
@@ -666,17 +673,16 @@ private fun ChildrenBuilder.ctxItem(icon: String, label: String, danger: Boolean
     }
 }
 
-private fun eventJsonOf(message: NostrGroupClient.NostrMessage): String =
-    buildJsonObject {
-        put("id", message.id)
-        put("pubkey", message.pubkey)
-        put("created_at", message.createdAt)
-        put("kind", message.kind)
-        put("content", message.content)
-        putJsonArray("tags") {
-            message.tags.forEach { tag -> addJsonArray { tag.forEach { add(it) } } }
-        }
-    }.toString()
+private fun eventJsonOf(message: NostrGroupClient.NostrMessage): String = buildJsonObject {
+    put("id", message.id)
+    put("pubkey", message.pubkey)
+    put("created_at", message.createdAt)
+    put("kind", message.kind)
+    put("content", message.content)
+    putJsonArray("tags") {
+        message.tags.forEach { tag -> addJsonArray { tag.forEach { add(it) } } }
+    }
+}.toString()
 
 private val URL_REGEX =
     Regex("(https?://[^\\s]+)|(nostr:(?:npub1|nprofile1)[0-9a-z]+)|\\b((?:npub1|nprofile1)[0-9a-z]{20,})")
