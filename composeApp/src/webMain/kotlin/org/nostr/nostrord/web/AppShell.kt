@@ -295,29 +295,29 @@ val AppShell =
                     className = ClassName("content-screen")
                     when {
                         notificationsOpen ->
-                        NotificationsScreen {
-                            onOpen = { relay, gid ->
-                                if (relay.isNotBlank() && relay != currentRelayUrl) {
-                                    launchApp { repo.switchRelay(relay) }
+                            NotificationsScreen {
+                                onOpen = { relay, gid ->
+                                    if (relay.isNotBlank() && relay != currentRelayUrl) {
+                                        launchApp { repo.switchRelay(relay) }
+                                    }
+                                    setSelectedGroupId(gid)
+                                    setNotificationsOpen(false)
                                 }
-                                setSelectedGroupId(gid)
-                                setNotificationsOpen(false)
                             }
-                        }
-                    !hasRelays ->
-                        OnboardingScreen {
-                            onAddRelay = { openRelay(0) }
-                            onAddRelayCustomUrl = { openRelay(1) }
-                        }
-                    selectedGroup != null ->
-                        ChatScreen {
-                            group = selectedGroup
-                            onLeave = { setSelectedGroupId(null) }
-                        }
-                    else ->
-                        HomeScreen {
-                            onOpenGroup = { setSelectedGroupId(it) }
-                        }
+                        !hasRelays ->
+                            OnboardingScreen {
+                                onAddRelay = { openRelay(0) }
+                                onAddRelayCustomUrl = { openRelay(1) }
+                            }
+                        selectedGroup != null ->
+                            ChatScreen {
+                                group = selectedGroup
+                                onLeave = { setSelectedGroupId(null) }
+                            }
+                        else ->
+                            HomeScreen {
+                                onOpenGroup = { setSelectedGroupId(it) }
+                            }
                     }
                 }
             }
