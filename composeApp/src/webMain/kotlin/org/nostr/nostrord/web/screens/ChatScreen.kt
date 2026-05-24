@@ -16,13 +16,14 @@ import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.ImageViewer
 import org.nostr.nostrord.web.components.UploadButton
-import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.messageSkeleton
+import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
@@ -836,6 +837,7 @@ private fun ChildrenBuilder.renderMessageContent(
                     className = ClassName("msg-image")
                     src = url
                     alt = ""
+                    onClick = { ImageViewer.show(url) }
                 }
             } else {
                 a {

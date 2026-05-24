@@ -13,6 +13,7 @@ import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.ImageViewerHost
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.ZapModalHost
 import org.nostr.nostrord.web.components.groupNavSkeleton
@@ -200,6 +201,9 @@ val AppShell =
 
         // NIP-57 zap modal overlay — opened from anywhere via WebZapController.
         ZapModalHost {}
+
+        // Fullscreen image viewer — opened by tapping a chat image.
+        ImageViewerHost {}
 
         div {
             className = ClassName(if (drawerOpen) "layout drawer-open" else "layout")

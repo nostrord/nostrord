@@ -4128,6 +4128,52 @@ body {
     height: 1.4em;
 }
 
+/* ===== Fullscreen image viewer (lightbox) ===== */
+.img-viewer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.9);
+    cursor: zoom-out;
+    padding: 24px;
+}
+.img-viewer-img {
+    max-width: 95vw;
+    max-height: 95vh;
+    object-fit: contain;
+    border-radius: 6px;
+    cursor: default;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+}
+.img-viewer-close {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.4);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+.img-viewer-close:hover {
+    background: rgba(0, 0, 0, 0.7);
+}
+.img-viewer-close .ico {
+    width: 24px;
+    height: 24px;
+}
+.msg-image {
+    cursor: zoom-in;
+}
+
 /* Deep-link (&e=) target message flash */
 @keyframes msg-flash {
     0% {
