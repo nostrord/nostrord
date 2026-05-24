@@ -26,16 +26,14 @@ import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
 
-private fun relayDisplayName(url: String, names: Map<String, String>): String =
-    names[url]?.takeIf { it.isNotBlank() }
-        ?: url.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+private fun relayDisplayName(url: String, names: Map<String, String>): String = names[url]?.takeIf { it.isNotBlank() }
+    ?: url.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
 
-private fun authMethodLabel(method: AuthMethod): String =
-    when (method) {
-        AuthMethod.LOCAL -> "Private key"
-        AuthMethod.BUNKER -> "Bunker (NIP-46)"
-        AuthMethod.NIP07 -> "Browser extension (NIP-07)"
-    }
+private fun authMethodLabel(method: AuthMethod): String = when (method) {
+    AuthMethod.LOCAL -> "Private key"
+    AuthMethod.BUNKER -> "Bunker (NIP-46)"
+    AuthMethod.NIP07 -> "Browser extension (NIP-07)"
+}
 
 /**
  * Logged-in shell — real data: server rail (relays from kind:10009 + group-tag relays),

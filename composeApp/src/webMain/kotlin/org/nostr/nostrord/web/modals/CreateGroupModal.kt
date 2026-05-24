@@ -261,7 +261,15 @@ val CreateGroupModal =
                         className = ClassName("btn-primary")
                         disabled = name.isBlank() || busy
                         onClick = { submit() }
-                        +(if (busy) "Creating…" else if (isSubgroup) "Create Subgroup" else "Create Group")
+                        +(
+                            if (busy) {
+                                "Creating…"
+                            } else if (isSubgroup) {
+                                "Create Subgroup"
+                            } else {
+                                "Create Group"
+                            }
+                            )
                     }
                 }
             }

@@ -37,11 +37,10 @@ object WebAuth {
         return AppModule.nostrRepository.loginSuspend(hex, pub, isNewIdentity).errorMessage()
     }
 
-    suspend fun loginWithBunker(url: String): String? =
-        when (val r = AppModule.nostrRepository.loginWithBunker(url.trim())) {
-            is Result.Success -> null
-            is Result.Error -> r.error.message.ifBlank { "Failed to connect to bunker" }
-        }
+    suspend fun loginWithBunker(url: String): String? = when (val r = AppModule.nostrRepository.loginWithBunker(url.trim())) {
+        is Result.Success -> null
+        is Result.Error -> r.error.message.ifBlank { "Failed to connect to bunker" }
+    }
 
     suspend fun loginWithExtension(): String? {
         val pubkey =
@@ -59,9 +58,8 @@ object WebAuth {
         AppModule.nostrRepository.logout()
     }
 
-    private fun Result<Unit>.errorMessage(): String? =
-        when (this) {
-            is Result.Success -> null
-            is Result.Error -> error.message.ifBlank { "Login failed" }
-        }
+    private fun Result<Unit>.errorMessage(): String? = when (this) {
+        is Result.Success -> null
+        is Result.Error -> error.message.ifBlank { "Login failed" }
+    }
 }
