@@ -4,6 +4,8 @@ import kotlinx.browser.window
 import kotlinx.coroutines.CancellationException
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.qrDataUrl
 import react.FC
 import react.Props
@@ -60,7 +62,7 @@ val BunkerQr =
                 error != null ->
                     div {
                         className = ClassName("qr-placeholder")
-                        +"⚠"
+                        icon(Ic.Warning)
                     }
                 uri == null ->
                     div {

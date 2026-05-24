@@ -138,12 +138,13 @@ private val ZapModal =
                     className = ClassName("modal-header")
                     div {
                         className = ClassName("modal-title")
-                        +"⚡ Zap $recipientName"
+                        icon(Ic.Bolt)
+                        +"Zap $recipientName"
                     }
                     button {
                         className = ClassName("modal-close")
                         onClick = { props.onDismiss() }
-                        +"✕"
+                        icon(Ic.Close)
                     }
                 }
 
@@ -217,7 +218,7 @@ private fun ChildrenBuilder.amountStep(
         className = ClassName("btn-primary block")
         disabled = !sendEnabled || loading
         onClick = { onSend() }
-        +(if (loading) "Getting invoice…" else "⚡  Get invoice")
+        if (loading) { +"Getting invoice…" } else { icon(Ic.Bolt); +"Get invoice" }
     }
 }
 
@@ -255,7 +256,8 @@ private fun ChildrenBuilder.invoiceStep(
             runCatching { window.location.href = "lightning:${invoice.bolt11}" }
                 .onFailure { setError("No Lightning wallet found. Scan the QR or copy the invoice.") }
         }
-        +"⚡  Open in wallet"
+        icon(Ic.Bolt)
+        +"Open in wallet"
     }
     div {
         className = ClassName("zap-invoice-actions")
@@ -280,17 +282,15 @@ private fun ChildrenBuilder.invoiceStep(
 private fun ChildrenBuilder.successStep(amountMsats: Long) {
     div {
         className = ClassName("zap-success")
-        div {
-            className = ClassName("zap-success-bolt")
-            +"⚡"
-        }
+        icon(Ic.Bolt, "ico zap-success-ico")
         div {
             className = ClassName("zap-success-title")
             +"Zap received"
         }
         div {
             className = ClassName("zap-success-sub")
-            +"${amountMsats / 1000} sats paid ⚡"
+            +"${amountMsats / 1000} sats paid "
+            icon(Ic.Bolt)
         }
     }
 }
@@ -301,10 +301,7 @@ fun ChildrenBuilder.zapBadge(totalMsats: Long, count: Int, zappedByMe: Boolean, 
     button {
         className = ClassName(if (zappedByMe) "zap-badge mine" else "zap-badge")
         onClick = { onSelect() }
-        span {
-            className = ClassName("zap-badge-bolt")
-            +"⚡"
-        }
+        icon(Ic.Bolt, "ico zap-badge-bolt")
         +(if (count > 1) "${formatSatsShort(sats)} · $count" else formatSatsShort(sats))
     }
 }

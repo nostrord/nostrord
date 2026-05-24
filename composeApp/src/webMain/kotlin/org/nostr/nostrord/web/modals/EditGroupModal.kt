@@ -4,7 +4,9 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
+import org.nostr.nostrord.web.components.icon
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -80,7 +82,7 @@ val EditGroupModal =
                     button {
                         className = ClassName("modal-close")
                         onClick = { props.onClose() }
-                        +"✕"
+                        icon(Ic.Close)
                     }
                 }
 
@@ -124,7 +126,7 @@ val EditGroupModal =
                     }
                     UploadButton {
                         cls = "upload-btn"
-                        text = "⤴"
+                        icon = Ic.Upload
                         onUploaded = { setPicture(it) }
                     }
                 }
@@ -133,8 +135,8 @@ val EditGroupModal =
                     className = ClassName("access-section-title")
                     +"ACCESS SETTINGS"
                 }
-                accessToggle("🔒", "Private", "Only members can read group messages", isPrivate) { setIsPrivate(!isPrivate) }
-                accessToggle("🚫", "Closed", "Join requests are ignored (invite-only)", isClosed) { setIsClosed(!isClosed) }
+                accessToggle(Ic.Lock, "Private", "Only members can read group messages", isPrivate) { setIsPrivate(!isPrivate) }
+                accessToggle(Ic.Block, "Closed", "Join requests are ignored (invite-only)", isClosed) { setIsClosed(!isClosed) }
 
                 div {
                     className = ClassName("access-section-title")
@@ -148,7 +150,7 @@ val EditGroupModal =
                     }
                     button {
                         className = ClassName("info-copy")
-                        +"⧉"
+                        icon(Ic.ContentCopy)
                     }
                 }
 

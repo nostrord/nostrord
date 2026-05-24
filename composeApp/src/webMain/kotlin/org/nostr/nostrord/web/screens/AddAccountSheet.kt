@@ -5,6 +5,8 @@ import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -88,13 +90,13 @@ val AddAccountSheet =
                     if (step == AddStep.Pick) {
                         span {
                             className = ClassName("add-sheet-icon")
-                            +"👤"
+                            icon(Ic.Person)
                         }
                     } else {
                         button {
                             className = ClassName("add-sheet-back")
                             onClick = { setStep(AddStep.Pick) }
-                            +"←"
+                            icon(Ic.ArrowBack)
                         }
                     }
                     span {
@@ -109,7 +111,7 @@ val AddAccountSheet =
                     button {
                         className = ClassName("add-sheet-close")
                         onClick = { props.onClose() }
-                        +"✕"
+                        icon(Ic.Close)
                     }
                 }
                 div { className = ClassName("add-sheet-divider") }
@@ -128,10 +130,10 @@ val AddAccountSheet =
                                 className = ClassName("add-sheet-note")
                                 +"You'll keep $activeName signed in."
                             }
-                            methodRow("🔑", "Private key") { setStep(AddStep.Key) }
-                            methodRow("🛡", "Bunker (NIP-46)") { setStep(AddStep.Bunker) }
+                            methodRow(Ic.Key, "Private key") { setStep(AddStep.Key) }
+                            methodRow(Ic.Shield, "Bunker (NIP-46)") { setStep(AddStep.Bunker) }
                             if (extensionAvailable) {
-                                methodRow("🧩", "Browser extension") { setStep(AddStep.Extension) }
+                                methodRow(Ic.Extension, "Browser extension") { setStep(AddStep.Extension) }
                             }
                         }
 
@@ -140,7 +142,7 @@ val AddAccountSheet =
                                 className = ClassName("field-with-icon")
                                 span {
                                     className = ClassName("field-icon")
-                                    +"🔑"
+                                    icon(Ic.Key)
                                 }
                                 input {
                                     className = ClassName("login-input")
@@ -152,7 +154,7 @@ val AddAccountSheet =
                                 button {
                                     className = ClassName("field-eye")
                                     onClick = { setShowKey(!showKey) }
-                                    +(if (showKey) "🙈" else "👁")
+                                    if (showKey) icon(Ic.VisibilityOff) else icon(Ic.Visibility)
                                 }
                             }
                             button {
@@ -175,7 +177,8 @@ val AddAccountSheet =
                             button {
                                 className = ClassName("login-outline-success")
                                 onClick = { generate() }
-                                +"✨  Generate New Identity"
+                                icon(Ic.AutoAwesome)
+                                +"Generate New Identity"
                             }
                             generatedKey?.let { generatedKeyCard(it) }
                         }
@@ -183,7 +186,7 @@ val AddAccountSheet =
                         AddStep.Bunker -> {
                             div {
                                 className = ClassName("bunker-desc")
-                                span { +"🛡" }
+                                icon(Ic.Shield)
                                 span { +"Connect to a remote signer for secure key management" }
                             }
                             div {
@@ -191,13 +194,13 @@ val AddAccountSheet =
                                 button {
                                     className = ClassName(if (bunkerMode == AddBunkerMode.Qr) "login-tab selected" else "login-tab")
                                     onClick = { setBunkerMode(AddBunkerMode.Qr) }
-                                    span { +"▦" }
+                                    icon(Ic.QrCode)
                                     span { +"QR Code" }
                                 }
                                 button {
                                     className = ClassName(if (bunkerMode == AddBunkerMode.Url) "login-tab selected" else "login-tab")
                                     onClick = { setBunkerMode(AddBunkerMode.Url) }
-                                    span { +"⌨" }
+                                    icon(Ic.Keyboard)
                                     span { +"Bunker URL" }
                                 }
                             }
@@ -209,7 +212,7 @@ val AddAccountSheet =
                                         className = ClassName("field-with-icon")
                                         span {
                                             className = ClassName("field-icon")
-                                            +"🔗"
+                                            icon(Ic.Link)
                                         }
                                         input {
                                             className = ClassName("login-input")
@@ -233,7 +236,7 @@ val AddAccountSheet =
                                 className = ClassName("ext-content")
                                 span {
                                     className = ClassName("ext-icon")
-                                    +"🧩"
+                                    icon(Ic.Extension)
                                 }
                                 div {
                                     className = ClassName("ext-title")
@@ -256,13 +259,13 @@ val AddAccountSheet =
         }
     }
 
-private fun ChildrenBuilder.methodRow(icon: String, label: String, onSelect: () -> Unit) {
+private fun ChildrenBuilder.methodRow(ic: Ic, label: String, onSelect: () -> Unit) {
     div {
         className = ClassName("add-method-row")
         onClick = { onSelect() }
         span {
             className = ClassName("add-method-icon")
-            +icon
+            icon(ic)
         }
         span {
             className = ClassName("add-method-label")
@@ -270,7 +273,7 @@ private fun ChildrenBuilder.methodRow(icon: String, label: String, onSelect: () 
         }
         span {
             className = ClassName("add-method-chevron")
-            +"›"
+            icon(Ic.ChevronRight)
         }
     }
 }
@@ -280,7 +283,7 @@ private fun ChildrenBuilder.generatedKeyCard(privateKey: String) {
         className = ClassName("genkey-card")
         div {
             className = ClassName("genkey-head")
-            span { +"⚠" }
+            icon(Ic.Warning)
             span {
                 className = ClassName("genkey-title")
                 +"SAVE YOUR PRIVATE KEY"

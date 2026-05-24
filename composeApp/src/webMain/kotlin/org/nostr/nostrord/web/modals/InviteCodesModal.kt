@@ -4,6 +4,8 @@ import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.icon
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -75,7 +77,7 @@ val InviteCodesModal =
                     button {
                         className = ClassName("modal-close")
                         onClick = { props.onClose() }
-                        +"✕"
+                        icon(Ic.Close)
                     }
                 }
 

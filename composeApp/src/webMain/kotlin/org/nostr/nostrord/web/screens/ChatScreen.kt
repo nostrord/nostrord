@@ -15,9 +15,11 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
+import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.messageSkeleton
 import org.nostr.nostrord.web.components.zapBadge
@@ -213,7 +215,7 @@ val ChatScreen =
                     button {
                         className = ClassName("chat-members-btn")
                         onClick = { setMembersOpen(!membersOpen) }
-                        +"👥"
+                        icon(Ic.People)
                     }
                     if (!canPost) {
                         if (isPending) {
@@ -232,7 +234,7 @@ val ChatScreen =
                         button {
                             className = ClassName("chat-icon-btn")
                             onClick = { setMenuOpen(!menuOpen) }
-                            +"⋮"
+                            icon(Ic.MoreVert)
                         }
                     }
 
@@ -396,7 +398,7 @@ val ChatScreen =
                                 button {
                                     className = ClassName("composer-reply-close")
                                     onClick = { setReplyingToId(null) }
-                                    +"✕"
+                                    icon(Ic.Close)
                                 }
                             }
                         }
@@ -407,7 +409,7 @@ val ChatScreen =
                         className = ClassName(if (replyingToId != null) "composer replying" else "composer")
                         UploadButton {
                             cls = "composer-btn"
-                            text = "＋"
+                            icon = Ic.AttachFile
                             onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
                         }
                         input {
@@ -424,13 +426,13 @@ val ChatScreen =
                         }
                         button {
                             className = ClassName("composer-btn")
-                            +"😊"
+                            icon(Ic.EmojiEmotions)
                         }
                         button {
                             className = ClassName(if (draft.isNotBlank()) "composer-send active" else "composer-send")
                             disabled = draft.isBlank()
                             onClick = { send() }
-                            +"➤"
+                            icon(Ic.Send)
                         }
                     }
                 }
@@ -449,7 +451,7 @@ val ChatScreen =
                     button {
                         className = ClassName("member-add-btn")
                         onClick = { setModal("addmember") }
-                        +"＋"
+                        icon(Ic.PersonAdd)
                     }
                 }
                 div {
@@ -697,27 +699,27 @@ private val MessageRow =
                     className = ClassName("msg-action-btn")
                     title = "Add reaction"
                     onClick = { props.onReact("👍") }
-                    +"😊"
+                    icon(Ic.EmojiEmotions)
                 }
                 button {
                     className = ClassName("msg-action-btn")
                     title = "Reply"
                     onClick = { props.onReply() }
-                    +"↩"
+                    icon(Ic.Reply)
                 }
                 if (props.canZap) {
                     button {
                         className = ClassName("msg-action-btn zap")
                         title = "Zap"
                         onClick = { props.onZap() }
-                        +"⚡"
+                        icon(Ic.Bolt)
                     }
                 }
                 button {
                     className = ClassName("msg-action-btn")
                     title = "More"
                     onClick = { setMenuOpen(!menuOpen) }
-                    +"⋯"
+                    icon(Ic.MoreVert)
                 }
             }
 
@@ -729,36 +731,36 @@ private val MessageRow =
                 }
                 div {
                     className = ClassName("ctx-menu")
-                    ctxItem("😊", "Add Reaction") {
+                    ctxItem(Ic.EmojiEmotions, "Add Reaction") {
                         props.onReact("👍")
                         setMenuOpen(false)
                     }
-                    ctxItem("↩", "Reply") {
+                    ctxItem(Ic.Reply, "Reply") {
                         props.onReply()
                         setMenuOpen(false)
                     }
                     if (props.canZap) {
-                        ctxItem("⚡", "Zap") {
+                        ctxItem(Ic.Bolt, "Zap") {
                             props.onZap()
                             setMenuOpen(false)
                         }
                     }
                     div { className = ClassName("ctx-divider") }
-                    ctxItem("📋", "Copy Text") {
+                    ctxItem(Ic.ContentCopy, "Copy Text") {
                         copyToClipboard(props.content)
                         setMenuOpen(false)
                     }
-                    ctxItem("🔗", "Copy Message Link") {
+                    ctxItem(Ic.Link, "Copy Message Link") {
                         copyToClipboard(props.messageLink)
                         setMenuOpen(false)
                     }
-                    ctxItem("{ }", "Copy Event JSON") {
+                    ctxItem(Ic.Code, "Copy Event JSON") {
                         copyToClipboard(props.eventJson)
                         setMenuOpen(false)
                     }
                     if (props.canDelete) {
                         div { className = ClassName("ctx-divider") }
-                        ctxItem("🗑", "Delete Message", danger = true) {
+                        ctxItem(Ic.Delete, "Delete Message", danger = true) {
                             props.onDelete()
                             setMenuOpen(false)
                         }
@@ -768,13 +770,13 @@ private val MessageRow =
         }
     }
 
-private fun ChildrenBuilder.ctxItem(icon: String, label: String, danger: Boolean = false, onSelect: () -> Unit) {
+private fun ChildrenBuilder.ctxItem(ic: Ic, label: String, danger: Boolean = false, onSelect: () -> Unit) {
     div {
         className = ClassName(if (danger) "ctx-item danger" else "ctx-item")
         onClick = { onSelect() }
         span {
             className = ClassName("ctx-item-icon")
-            +icon
+            icon(ic)
         }
         span { +label }
     }

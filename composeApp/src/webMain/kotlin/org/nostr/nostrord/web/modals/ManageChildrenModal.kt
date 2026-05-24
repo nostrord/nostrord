@@ -1,5 +1,7 @@
 package org.nostr.nostrord.web.modals
 
+import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -53,7 +55,7 @@ val ManageChildrenModal =
                     button {
                         className = ClassName("modal-close")
                         onClick = { props.onClose() }
-                        +"✕"
+                        icon(Ic.Close)
                     }
                 }
 
@@ -74,7 +76,7 @@ val ManageChildrenModal =
                 }
 
                 accessToggle(
-                    "🚫",
+                    Ic.Block,
                     "Closed children",
                     "Only children listed below are accepted; all other parent claims are rejected.",
                     closed,

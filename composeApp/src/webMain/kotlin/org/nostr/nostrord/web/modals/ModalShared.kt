@@ -1,5 +1,7 @@
 package org.nostr.nostrord.web.modals
 
+import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.span
@@ -7,7 +9,7 @@ import web.cssom.ClassName
 
 /** Access-settings toggle row (Private / Closed) — mirrors Compose `AccessToggleRow`. */
 internal fun ChildrenBuilder.accessToggle(
-    icon: String,
+    ic: Ic,
     label: String,
     description: String,
     checked: Boolean,
@@ -18,7 +20,7 @@ internal fun ChildrenBuilder.accessToggle(
         onClick = { onToggle() }
         span {
             className = ClassName("access-icon")
-            +icon
+            icon(ic)
         }
         div {
             className = ClassName("access-text")

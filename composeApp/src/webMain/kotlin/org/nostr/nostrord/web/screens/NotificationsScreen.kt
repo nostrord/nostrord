@@ -7,7 +7,9 @@ import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -67,7 +69,7 @@ val NotificationsScreen =
                         className = ClassName("notif-empty")
                         div {
                             className = ClassName("notif-empty-icon")
-                            +"🔔"
+                            icon(Ic.Notifications)
                         }
                         div { +"No notifications yet" }
                     }
@@ -97,11 +99,11 @@ private fun typeLabel(type: NotificationType): String = when (type) {
     NotificationType.MESSAGE -> "sent a message"
 }
 
-private fun typeGlyph(entry: NotificationEntry): String = when (entry.type) {
-    NotificationType.REPLY -> "↩"
-    NotificationType.MENTION -> "@"
-    NotificationType.REACTION -> entry.emoji?.takeIf { it.isNotBlank() } ?: "+"
-    NotificationType.MESSAGE -> "💬"
+private fun typeIcon(entry: NotificationEntry): Ic = when (entry.type) {
+    NotificationType.REPLY -> Ic.Reply
+    NotificationType.MENTION -> Ic.Person
+    NotificationType.REACTION -> Ic.EmojiEmotions
+    NotificationType.MESSAGE -> Ic.Forum
 }
 
 private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserMetadata?, onSelect: () -> Unit) {
@@ -127,7 +129,7 @@ private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserM
                 }
                 span {
                     className = ClassName("notif-badge ${typeClass(entry.type)}")
-                    +typeGlyph(entry)
+                    icon(typeIcon(entry))
                 }
             }
             div {

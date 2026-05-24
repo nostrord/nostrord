@@ -4,6 +4,8 @@ import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -48,7 +50,7 @@ val ShareGroupModal =
                     button {
                         className = ClassName("modal-close")
                         onClick = { props.onClose() }
-                        +"✕"
+                        icon(Ic.Close)
                     }
                 }
 

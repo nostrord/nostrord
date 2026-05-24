@@ -4102,6 +4102,32 @@ body {
     color: var(--color-warning-orange);
 }
 
+/* ===== Material icons (inline SVG, mirror the native Compose icons) ===== */
+.ico {
+    width: 1.2em;
+    height: 1.2em;
+    fill: currentColor;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+/* Large standalone icons that replaced oversized emoji */
+.zap-success-ico {
+    width: 48px;
+    height: 48px;
+    color: var(--color-warning-orange);
+}
+.qr-placeholder .ico {
+    width: 40px;
+    height: 40px;
+}
+.add-sheet-icon .ico,
+.ext-icon .ico,
+.benefits-head .ico,
+.bunker-desc > .ico {
+    width: 1.4em;
+    height: 1.4em;
+}
+
 /* Deep-link (&e=) target message flash */
 @keyframes msg-flash {
     0% {

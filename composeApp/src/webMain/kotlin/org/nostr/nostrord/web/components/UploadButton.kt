@@ -25,8 +25,8 @@ external interface UploadButtonProps : Props {
     /** Class for the clickable label (e.g. "composer-btn" / "upload-btn"). */
     var cls: String
 
-    /** Idle label/icon text. */
-    var text: String
+    /** Idle icon shown when not uploading. */
+    var icon: Ic
 }
 
 /**
@@ -40,7 +40,7 @@ val UploadButton =
 
         label {
             className = ClassName(props.cls)
-            +(if (busy) "…" else props.text)
+            if (busy) +"…" else icon(props.icon)
             input {
                 className = ClassName("upload-file-input")
                 type = InputType.file

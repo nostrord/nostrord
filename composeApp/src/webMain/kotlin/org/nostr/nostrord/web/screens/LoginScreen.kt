@@ -3,6 +3,8 @@ package org.nostr.nostrord.web.screens
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -25,11 +27,11 @@ private enum class Tab { Key, Bunker, Extension }
 
 private enum class BunkerMode { Qr, Url }
 
-private fun ChildrenBuilder.tabButton(selected: Boolean, icon: String, label: String, onSelect: () -> Unit) {
+private fun ChildrenBuilder.tabButton(selected: Boolean, ic: Ic, label: String, onSelect: () -> Unit) {
     button {
         className = ClassName(if (selected) "login-tab selected" else "login-tab")
         onClick = { onSelect() }
-        span { +icon }
+        icon(ic)
         span { +label }
     }
 }
@@ -39,7 +41,7 @@ private fun ChildrenBuilder.benefit(text: String) {
         className = ClassName("benefit")
         span {
             className = ClassName("benefit-check")
-            +"✓"
+            icon(Ic.Check)
         }
         span { +text }
     }
@@ -50,7 +52,7 @@ private fun ChildrenBuilder.generatedKeyCard(privateKey: String) {
         className = ClassName("genkey-card")
         div {
             className = ClassName("genkey-head")
-            span { +"⚠" }
+            icon(Ic.Warning)
             span {
                 className = ClassName("genkey-title")
                 +"SAVE YOUR PRIVATE KEY"
@@ -129,10 +131,10 @@ val LoginScreen =
 
                     div {
                         className = ClassName("login-tabs")
-                        tabButton(tab == Tab.Key, "🔑", "Private Key") { setTab(Tab.Key) }
-                        tabButton(tab == Tab.Bunker, "🛡", "Bunker") { setTab(Tab.Bunker) }
+                        tabButton(tab == Tab.Key, Ic.Key, "Private Key") { setTab(Tab.Key) }
+                        tabButton(tab == Tab.Bunker, Ic.Shield, "Bunker") { setTab(Tab.Bunker) }
                         if (extensionAvailable) {
-                            tabButton(tab == Tab.Extension, "🧩", "Extension") { setTab(Tab.Extension) }
+                            tabButton(tab == Tab.Extension, Ic.Extension, "Extension") { setTab(Tab.Extension) }
                         }
                     }
 
@@ -150,7 +152,7 @@ val LoginScreen =
                                     className = ClassName("field-with-icon")
                                     span {
                                         className = ClassName("field-icon")
-                                        +"🔑"
+                                        icon(Ic.Key)
                                     }
                                     input {
                                         className = ClassName("login-input")
@@ -162,7 +164,7 @@ val LoginScreen =
                                     button {
                                         className = ClassName("field-eye")
                                         onClick = { setShowKey(!showKey) }
-                                        +(if (showKey) "🙈" else "👁")
+                                        if (showKey) icon(Ic.VisibilityOff) else icon(Ic.Visibility)
                                     }
                                 }
                                 button {
@@ -185,7 +187,8 @@ val LoginScreen =
                                 button {
                                     className = ClassName("login-outline-success")
                                     onClick = { generate() }
-                                    +"✨  Generate New Identity"
+                                    icon(Ic.AutoAwesome)
+                                    +"Generate New Identity"
                                 }
                                 generatedKey?.let { generatedKeyCard(it) }
                             }
@@ -193,7 +196,7 @@ val LoginScreen =
                             Tab.Bunker -> {
                                 div {
                                     className = ClassName("bunker-desc")
-                                    span { +"🛡" }
+                                    icon(Ic.Shield)
                                     span { +"Connect to a remote signer for secure key management" }
                                 }
                                 div {
@@ -201,13 +204,13 @@ val LoginScreen =
                                     button {
                                         className = ClassName(if (bunkerMode == BunkerMode.Qr) "login-tab selected" else "login-tab")
                                         onClick = { setBunkerMode(BunkerMode.Qr) }
-                                        span { +"▦" }
+                                        icon(Ic.QrCode)
                                         span { +"QR Code" }
                                     }
                                     button {
                                         className = ClassName(if (bunkerMode == BunkerMode.Url) "login-tab selected" else "login-tab")
                                         onClick = { setBunkerMode(BunkerMode.Url) }
-                                        span { +"⌨" }
+                                        icon(Ic.Keyboard)
                                         span { +"Bunker URL" }
                                     }
                                 }
@@ -218,7 +221,7 @@ val LoginScreen =
                                             className = ClassName("field-with-icon")
                                             span {
                                                 className = ClassName("field-icon")
-                                                +"🔗"
+                                                icon(Ic.Link)
                                             }
                                             input {
                                                 className = ClassName("login-input")
@@ -243,7 +246,7 @@ val LoginScreen =
                                     className = ClassName("bunker-benefits")
                                     div {
                                         className = ClassName("benefits-head")
-                                        span { +"🔒" }
+                                        icon(Ic.Lock)
                                         span {
                                             className = ClassName("benefits-title")
                                             +"Why use a Bunker?"
@@ -261,7 +264,7 @@ val LoginScreen =
                                     className = ClassName("ext-content")
                                     span {
                                         className = ClassName("ext-icon")
-                                        +"🧩"
+                                        icon(Ic.Extension)
                                     }
                                     div {
                                         className = ClassName("ext-title")

@@ -4,8 +4,10 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.groupCardSkeleton
+import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -71,7 +73,7 @@ val HomeScreen =
                     button {
                         className = ClassName("manage-back")
                         onClick = { setManaging(false) }
-                        +"←"
+                        icon(Ic.ArrowBack)
                     }
                     div {
                         className = ClassName("manage-title")
@@ -168,7 +170,7 @@ val HomeScreen =
                         onClick = {
                             if (isRelaySaved) setManaging(true) else launchApp { repo.addRelay(currentRelay) }
                         }
-                        +(if (isRelaySaved) "⚙" else "＋")
+                        if (isRelaySaved) icon(Ic.Settings) else icon(Ic.Add)
                     }
                 }
 

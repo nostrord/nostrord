@@ -4,7 +4,9 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
+import org.nostr.nostrord.web.components.icon
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.a
@@ -124,7 +126,7 @@ val CreateGroupModal =
                     button {
                         className = ClassName("modal-close")
                         onClick = { props.onClose() }
-                        +"✕"
+                        icon(Ic.Close)
                     }
                 }
 
@@ -219,7 +221,7 @@ val CreateGroupModal =
                     }
                     UploadButton {
                         cls = "upload-btn"
-                        text = "⤴"
+                        icon = Ic.Upload
                         onUploaded = { setPicture(it) }
                     }
                 }
@@ -230,14 +232,14 @@ val CreateGroupModal =
                     +"ACCESS SETTINGS"
                 }
                 accessToggle(
-                    icon = "🔒",
+                    ic = Ic.Lock,
                     label = "Private",
                     description = "Only members can read group messages",
                     checked = isPrivate,
                     onToggle = { setIsPrivate(!isPrivate) },
                 )
                 accessToggle(
-                    icon = "🚫",
+                    ic = Ic.Block,
                     label = "Closed",
                     description = "Join requests are ignored (invite-only)",
                     checked = isClosed,

@@ -12,9 +12,11 @@ import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.ZapModalHost
 import org.nostr.nostrord.web.components.groupNavSkeleton
+import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
@@ -205,7 +207,7 @@ val AppShell =
             button {
                 className = ClassName("mobile-menu-btn")
                 onClick = { setDrawerOpen(true) }
-                +"☰"
+                icon(Ic.Menu)
             }
             div {
                 className = ClassName("sidebar-backdrop")
@@ -249,7 +251,7 @@ val AppShell =
                             onClick = { openRelay(0) }
                             div {
                                 className = ClassName("avatar-tile rail-icon rail-add")
-                                +"+"
+                                icon(Ic.Add)
                             }
                         }
                     }
@@ -258,7 +260,7 @@ val AppShell =
                         onClick = { setNotificationsOpen(true) }
                         div {
                             className = ClassName("avatar-tile rail-icon rail-bell")
-                            +"🔔"
+                            icon(Ic.Notifications)
                         }
                         if (notifUnread > 0) {
                             span {
@@ -446,7 +448,7 @@ val AppShell =
                                     span { +(if (meNpub.isNotBlank()) meNpub.take(16) + "…" else "") }
                                     span {
                                         className = ClassName("me-npub-copy")
-                                        +(if (copied) "✓" else "⧉")
+                                        if (copied) icon(Ic.Check) else icon(Ic.ContentCopy)
                                     }
                                 }
                             }
@@ -488,7 +490,7 @@ val AppShell =
                                 if (isActiveAccount) {
                                     span {
                                         className = ClassName("me-check")
-                                        +"✓"
+                                        icon(Ic.Check)
                                     }
                                 }
                                 if (accounts.size > 1) {
@@ -498,7 +500,7 @@ val AppShell =
                                             it.stopPropagation()
                                             launchApp { AppModule.accountManager.removeAccount(account.pubkey) }
                                         }
-                                        +"🗑"
+                                        icon(Ic.Delete)
                                     }
                                 }
                             }
@@ -513,7 +515,7 @@ val AppShell =
                             }
                             span {
                                 className = ClassName("me-action-icon")
-                                +"＋"
+                                icon(Ic.Add)
                             }
                             span { +"Add account" }
                         }
@@ -526,7 +528,7 @@ val AppShell =
                             }
                             span {
                                 className = ClassName("me-action-icon")
-                                +"⚙"
+                                icon(Ic.Settings)
                             }
                             span { +"Settings" }
                         }
@@ -539,7 +541,7 @@ val AppShell =
                             }
                             span {
                                 className = ClassName("me-action-icon")
-                                +"⤴"
+                                icon(Ic.Logout)
                             }
                             span { +"Sign out" }
                         }
@@ -581,7 +583,7 @@ private fun ChildrenBuilder.sectionToggle(label: String, expanded: Boolean, onTo
         onClick = { onToggle() }
         span {
             className = ClassName(if (expanded) "sidebar-chevron" else "sidebar-chevron collapsed")
-            +"▼"
+            icon(Ic.ExpandMore)
         }
         span {
             className = ClassName("sidebar-section-label")
