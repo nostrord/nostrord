@@ -2155,6 +2155,14 @@ body {
     border-radius: 8px;
     object-fit: cover;
 }
+.msg-video {
+    display: block;
+    max-width: 360px;
+    max-height: 300px;
+    margin-top: 4px;
+    border-radius: 8px;
+    background: #000;
+}
 
 .msg-mention {
     color: var(--color-primary);

@@ -46,6 +46,7 @@ import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
+import react.dom.html.ReactHTML.video
 import react.useEffect
 import react.useRef
 import react.useState
@@ -910,6 +911,7 @@ private val URL_REGEX =
             "|\\b((?:npub1|nprofile1)[0-9a-z]{20,})",
     )
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
+private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", RegexOption.IGNORE_CASE)
 
 /** Render message text with clickable links, inline images and NIP-27 mentions. */
 private fun ChildrenBuilder.renderMessageContent(
@@ -927,6 +929,15 @@ private fun ChildrenBuilder.renderMessageContent(
             val url = token.trimEnd('.', ',', ')', '!', '?', ';', ':')
             if (IMAGE_EXT.containsMatchIn(url)) {
                 ChatImage { imageUrl = url }
+            } else if (VIDEO_EXT.containsMatchIn(url)) {
+                video {
+                    className = ClassName("msg-video")
+                    src = url
+                    controls = true
+                    // Show a preview frame without downloading/playing the whole file (no autoplay).
+                    preload = "metadata"
+                    playsInline = true
+                }
             } else {
                 a {
                     className = ClassName("msg-link")
