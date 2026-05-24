@@ -13,7 +13,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.formatTime
-import org.nostr.nostrord.utils.getDateLabel
+import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.ChatImage
@@ -319,67 +319,64 @@ val ChatScreen =
                             +"No messages yet. Say hello 👋"
                         }
                     } else {
-                        messages.forEachIndexed { i, message ->
-                            val prev = messages.getOrNull(i - 1)
-                            // A date separator starts each new calendar day; the message after one
-                            // always opens a fresh group (shows avatar + name).
-                            val showDateSep =
-                                prev == null || getDateLabel(prev.createdAt) != getDateLabel(message.createdAt)
-                            val firstInGroup =
-                                showDateSep ||
-                                    prev == null ||
-                                    prev.pubkey != message.pubkey ||
-                                    message.createdAt - prev.createdAt > GROUP_WINDOW
-                            if (showDateSep) {
-                                div {
-                                    key = "date-${message.id}"
-                                    className = ClassName("date-sep")
-                                    span {
-                                        className = ClassName("date-sep-label")
-                                        +getDateLabel(message.createdAt)
+                        buildWebChatItems(messages).forEach { item ->
+                            when (item) {
+                                is WebChatItem.DateSeparator ->
+                                    div {
+                                        key = "date-${item.date}"
+                                        className = ClassName("date-sep")
+                                        span {
+                                            className = ClassName("date-sep-label")
+                                            +item.date
+                                        }
+                                    }
+
+                                is WebChatItem.SystemEvent -> systemEventRow(item, userMetadata) { setProfilePubkey(it) }
+
+                                is WebChatItem.Message -> {
+                                    val message = item.message
+                                    val parent = parentMessageOf(message)?.let { messagesById[it] }
+                                    val replyPreview =
+                                        parent?.let {
+                                            displayName(it.pubkey, userMetadata[it.pubkey]) to
+                                                it.content.replace('\n', ' ').trim().take(120)
+                                        }
+                                    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
+                                    val authorMeta = userMetadata[message.pubkey]
+                                    val zapInfo = zapsByMsg[message.id]
+                                    MessageRow {
+                                        key = message.id
+                                        domId = "msg-${message.id}"
+                                        highlighted = message.id == highlightId
+                                        pubkey = message.pubkey
+                                        name = displayName(message.pubkey, userMetadata[message.pubkey])
+                                        avatarUrl = userMetadata[message.pubkey]?.picture
+                                        time = formatTime(message.createdAt)
+                                        content = message.content
+                                        this.firstInGroup = item.firstInGroup
+                                        isAuthorAdmin = message.pubkey in admins
+                                        reactions = reactionsByMsg[message.id].orEmpty()
+                                        this.myPubkey = myPubkey
+                                        this.userMetadata = userMetadata
+                                        canZap =
+                                            message.pubkey != myPubkey &&
+                                            (!authorMeta?.lud16.isNullOrBlank() || !authorMeta?.lud06.isNullOrBlank())
+                                        zapTotalMsats = zapInfo?.totalMsats ?: 0L
+                                        zapCount = zapInfo?.count ?: 0
+                                        zappedByMe = myPubkey != null && zapInfo != null && myPubkey in zapInfo.zappers
+                                        onZap = { WebZapController.request(message.pubkey, message.id) }
+                                        replyTo = replyPreview
+                                        canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
+                                        messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
+                                        eventJson = eventJsonOf(message)
+                                        onUser = { setProfilePubkey(it) }
+                                        onReply = { setReplyingToId(message.id) }
+                                        onReact = { emoji ->
+                                            launchApp { repo.sendReaction(group.id, message.id, message.pubkey, emoji) }
+                                        }
+                                        onDelete = { launchApp { repo.deleteMessage(group.id, message.id) } }
                                     }
                                 }
-                            }
-                            val parent = parentMessageOf(message)?.let { messagesById[it] }
-                            val replyPreview =
-                                parent?.let {
-                                    displayName(it.pubkey, userMetadata[it.pubkey]) to
-                                        it.content.replace('\n', ' ').trim().take(120)
-                                }
-                            val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
-                            val authorMeta = userMetadata[message.pubkey]
-                            val zapInfo = zapsByMsg[message.id]
-                            MessageRow {
-                                key = message.id
-                                domId = "msg-${message.id}"
-                                highlighted = message.id == highlightId
-                                pubkey = message.pubkey
-                                name = displayName(message.pubkey, userMetadata[message.pubkey])
-                                avatarUrl = userMetadata[message.pubkey]?.picture
-                                time = formatTime(message.createdAt)
-                                content = message.content
-                                this.firstInGroup = firstInGroup
-                                isAuthorAdmin = message.pubkey in admins
-                                reactions = reactionsByMsg[message.id].orEmpty()
-                                this.myPubkey = myPubkey
-                                this.userMetadata = userMetadata
-                                canZap =
-                                    message.pubkey != myPubkey &&
-                                    (!authorMeta?.lud16.isNullOrBlank() || !authorMeta?.lud06.isNullOrBlank())
-                                zapTotalMsats = zapInfo?.totalMsats ?: 0L
-                                zapCount = zapInfo?.count ?: 0
-                                zappedByMe = myPubkey != null && zapInfo != null && myPubkey in zapInfo.zappers
-                                onZap = { WebZapController.request(message.pubkey, message.id) }
-                                replyTo = replyPreview
-                                canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
-                                messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
-                                eventJson = eventJsonOf(message)
-                                onUser = { setProfilePubkey(it) }
-                                onReply = { setReplyingToId(message.id) }
-                                onReact = { emoji ->
-                                    launchApp { repo.sendReaction(group.id, message.id, message.pubkey, emoji) }
-                                }
-                                onDelete = { launchApp { repo.deleteMessage(group.id, message.id) } }
                             }
                         }
                     }
@@ -818,6 +815,73 @@ private fun ChildrenBuilder.ctxItem(ic: Ic, label: String, danger: Boolean = fal
             icon(ic)
         }
         span { +label }
+    }
+}
+
+/** A moderation/system event row (join / role change / removed / left), matching native. */
+private fun ChildrenBuilder.systemEventRow(
+    event: WebChatItem.SystemEvent,
+    userMetadata: Map<String, UserMetadata>,
+    onUser: (String) -> Unit,
+) {
+    val typeClass =
+        when (event.type) {
+            SystemEventType.JOINED -> "joined"
+            SystemEventType.ROLE_CHANGED -> "role"
+            SystemEventType.REMOVED -> "removed"
+            SystemEventType.LEFT -> "left"
+        }
+    val typeIcon =
+        when (event.type) {
+            SystemEventType.JOINED -> Ic.Login
+            SystemEventType.ROLE_CHANGED -> Ic.Shield
+            SystemEventType.REMOVED -> Ic.PersonRemove
+            SystemEventType.LEFT -> Ic.Logout
+        }
+    div {
+        className = ClassName("sys-event")
+        div {
+            className = ClassName("sys-event-icon $typeClass")
+            icon(typeIcon)
+        }
+        if (event.totalUsers > 1) {
+            div {
+                className = ClassName("sys-event-avatars")
+                (listOf(event.pubkey) + event.additionalUsers).take(4).forEach { pk ->
+                    WebAvatar {
+                        url = userMetadata[pk]?.picture
+                        name = displayName(pk, userMetadata[pk])
+                        cls = "sys-event-avatar"
+                    }
+                }
+                val overflow = event.totalUsers - 4
+                if (overflow > 0) {
+                    span {
+                        className = ClassName("sys-event-overflow")
+                        +"+$overflow"
+                    }
+                }
+            }
+        } else {
+            WebAvatar {
+                url = userMetadata[event.pubkey]?.picture
+                name = displayName(event.pubkey, userMetadata[event.pubkey])
+                cls = "sys-event-avatar clickable"
+                onClick = { onUser(event.pubkey) }
+            }
+        }
+        span {
+            className = ClassName("sys-event-text")
+            span {
+                className = ClassName("sys-event-name")
+                +(if (event.totalUsers > 1) "${event.totalUsers} members" else displayName(event.pubkey, userMetadata[event.pubkey]))
+            }
+            +" ${event.action}"
+        }
+        span {
+            className = ClassName("sys-event-time")
+            +formatTimestamp(event.createdAt)
+        }
     }
 }
 

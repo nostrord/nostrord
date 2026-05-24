@@ -1732,6 +1732,92 @@ body {
     font-weight: 600;
     color: var(--color-text-secondary);
 }
+/* Moderation / system event rows (join / role change / removed / left) — mirrors native. */
+.sys-event {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+.sys-event-icon {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+.sys-event-icon .ico {
+    width: 14px;
+    height: 14px;
+}
+.sys-event-icon.joined {
+    color: var(--color-success);
+    background: rgba(87, 242, 135, 0.15);
+}
+.sys-event-icon.role {
+    color: var(--color-warning-orange);
+    background: rgba(255, 165, 0, 0.15);
+}
+.sys-event-icon.removed {
+    color: var(--color-error);
+    background: rgba(237, 66, 69, 0.15);
+}
+.sys-event-icon.left {
+    color: var(--color-text-muted);
+    background: rgba(114, 118, 125, 0.18);
+}
+.sys-event-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.sys-event-avatar.clickable {
+    cursor: pointer;
+}
+.sys-event-avatars {
+    display: flex;
+    align-items: center;
+}
+.sys-event-avatars .sys-event-avatar {
+    margin-right: -8px;
+    border: 2px solid var(--color-background);
+}
+.sys-event-overflow {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 2px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-text-secondary);
+    background: var(--color-surface);
+    border-radius: 50%;
+}
+.sys-event-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sys-event-name {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+.sys-event-time {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    opacity: 0.7;
+}
 
 .chat-empty {
     height: 100%;
