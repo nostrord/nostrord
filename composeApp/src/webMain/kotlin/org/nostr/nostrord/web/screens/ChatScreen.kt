@@ -11,16 +11,16 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
-import org.nostr.nostrord.web.components.WebZapController
-import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.messageSkeleton
+import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.EditGroupModal
@@ -50,6 +50,12 @@ import web.dom.document
 external interface ChatScreenProps : Props {
     var group: GroupMetadata
     var onLeave: () -> Unit
+
+    /** A deep-linked (&e=) message to scroll to + highlight once it's loaded, or null. */
+    var scrollToMessageId: String?
+
+    /** Called once the [scrollToMessageId] target has been scrolled into view. */
+    var onScrolledToMessage: () -> Unit
 }
 
 // Window (seconds) for grouping consecutive messages from the same author.
@@ -116,6 +122,8 @@ val ChatScreen =
         val (profilePubkey, setProfilePubkey) = useState<String?> { null }
         val (menuOpen, setMenuOpen) = useState { false }
         val (replyingToId, setReplyingToId) = useState<String?> { null }
+        // The deep-linked message currently flashing (cleared after the highlight animation).
+        val (highlightId, setHighlightId) = useState<String?> { null }
         // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
 
@@ -143,6 +151,18 @@ val ChatScreen =
                 }
                 atBottom.current == true -> el.scrollTop = el.scrollHeight.toDouble()
             }
+        }
+        // Deep-link target: once the message is loaded, scroll it into view and flash it.
+        // Runs after the auto-scroll effect so it wins the race on group entry. Waits across
+        // message loads (keeps trying as messages.size grows) until the target appears.
+        useEffect(props.scrollToMessageId, messages.size) {
+            val target = props.scrollToMessageId ?: return@useEffect
+            if (target !in messagesById) return@useEffect
+            val el = document.getElementById(ElementId("msg-$target")) ?: return@useEffect
+            el.asDynamic().scrollIntoView(js("({ behavior: 'smooth', block: 'center' })"))
+            setHighlightId(target)
+            props.onScrolledToMessage()
+            window.setTimeout({ setHighlightId(null) }, 2_600)
         }
 
         fun send() {
@@ -311,6 +331,8 @@ val ChatScreen =
                             val zapInfo = zapsByMsg[message.id]
                             MessageRow {
                                 key = message.id
+                                domId = "msg-${message.id}"
+                                highlighted = message.id == highlightId
                                 pubkey = message.pubkey
                                 name = displayName(message.pubkey, userMetadata[message.pubkey])
                                 avatarUrl = userMetadata[message.pubkey]?.picture
@@ -529,6 +551,8 @@ private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false,
 }
 
 external interface MessageRowProps : Props {
+    var domId: String
+    var highlighted: Boolean
     var pubkey: String
     var name: String
     var avatarUrl: String?
@@ -559,9 +583,12 @@ private val MessageRow =
         val (menuOpen, setMenuOpen) = useState { false }
 
         div {
+            id = ElementId(props.domId)
             className =
                 ClassName(
-                    (if (props.firstInGroup) "msg first" else "msg grouped") + if (menuOpen) " menu-open" else "",
+                    (if (props.firstInGroup) "msg first" else "msg grouped") +
+                        (if (menuOpen) " menu-open" else "") +
+                        (if (props.highlighted) " highlight" else ""),
                 )
             onContextMenu = { event ->
                 event.preventDefault()

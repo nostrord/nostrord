@@ -112,6 +112,8 @@ val AppShell =
 
         val (drawerOpen, setDrawerOpen) = useState { false }
         val (selectedGroupId, setSelectedGroupId) = useState<String?> { null }
+        // A deep-link (&e=) message to scroll to + highlight once the chat opens.
+        val (scrollToEventId, setScrollToEventId) = useState<String?> { null }
         val (menuOpen, setMenuOpen) = useState { false }
         val (copied, setCopied) = useState { false }
         val (modal, setModal) = useState<String?> { null }
@@ -144,6 +146,7 @@ val AppShell =
                         if (!ctx.inviteCode.isNullOrBlank()) repo.joinGroup(ctx.groupId, ctx.inviteCode)
                     }
                     setSelectedGroupId(ctx.groupId)
+                    ctx.messageId?.takeIf { it.isNotBlank() }?.let { setScrollToEventId(it) }
                 }
                 is ExternalLaunchContext.OpenNotifications -> {
                     ctx.relayUrl?.let { url -> launchApp { repo.switchRelay(url) } }
@@ -401,6 +404,8 @@ val AppShell =
                             ChatScreen {
                                 group = selectedGroup
                                 onLeave = { setSelectedGroupId(null) }
+                                scrollToMessageId = scrollToEventId
+                                onScrolledToMessage = { setScrollToEventId(null) }
                             }
                         else ->
                             HomeScreen {

@@ -4101,3 +4101,16 @@ body {
 .msg-action-btn.zap:hover {
     color: var(--color-warning-orange);
 }
+
+/* Deep-link (&e=) target message flash */
+@keyframes msg-flash {
+    0% {
+        background: rgba(88, 101, 242, 0.30);
+    }
+    100% {
+        background: transparent;
+    }
+}
+.msg.highlight {
+    animation: msg-flash 2.4s ease-out;
+}
