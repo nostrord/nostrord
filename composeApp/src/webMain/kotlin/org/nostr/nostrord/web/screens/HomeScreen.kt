@@ -5,6 +5,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.groupCardSkeleton
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -33,8 +34,10 @@ val HomeScreen =
         val groupsByRelay = useStateFlow(repo.groupsByRelay)
         val joinedByRelay = useStateFlow(repo.joinedGroupsByRelay)
         val kind10009 = useStateFlow(repo.kind10009Relays)
+        val loadingRelays = useStateFlow(repo.loadingRelays)
 
         val isRelaySaved = currentRelay in kind10009
+        val groupsLoading = currentRelay in loadingRelays
 
         val relayMeta = relayMetadata[currentRelay]
         val relayLabel =
@@ -186,7 +189,9 @@ val HomeScreen =
 
                 div {
                     className = ClassName("home-grid")
-                    if (shown.isEmpty()) {
+                    if (groupsLoading && groups.isEmpty()) {
+                        repeat(6) { groupCardSkeleton() }
+                    } else if (shown.isEmpty()) {
                         div {
                             className = ClassName("home-empty")
                             +(if (search.isNotBlank()) "No groups match \"$search\"" else "No groups found")

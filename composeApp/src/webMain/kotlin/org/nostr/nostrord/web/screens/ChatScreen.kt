@@ -17,6 +17,8 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.memberSkeleton
+import org.nostr.nostrord.web.components.messageSkeleton
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.EditGroupModal
@@ -89,6 +91,7 @@ val ChatScreen =
         val relayUrl = useStateFlow(repo.currentRelayUrl)
         val isLoadingMore = useStateFlow(repo.isLoadingMore)[group.id] ?: false
         val hasMore = useStateFlow(repo.hasMoreMessages)[group.id] ?: true
+        val membersLoading = group.id in useStateFlow(repo.loadingMembers)
         val myPubkey = repo.getPublicKey()
 
         val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
@@ -280,7 +283,9 @@ val ChatScreen =
                             +"Loading earlier messages…"
                         }
                     }
-                    if (messages.isEmpty()) {
+                    if (isLoadingMore && messages.isEmpty()) {
+                        repeat(8) { messageSkeleton() }
+                    } else if (messages.isEmpty()) {
                         div {
                             className = ClassName("chat-empty")
                             +"No messages yet. Say hello 👋"
@@ -422,22 +427,26 @@ val ChatScreen =
                 }
                 div {
                     className = ClassName("member-scroll")
-                    if (adminMembers.isNotEmpty()) {
-                        memberSection("Admins", adminMembers.size)
-                        adminMembers.forEach { pubkey ->
-                            memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = true) { setProfilePubkey(it) }
+                    if (membersLoading && members.isEmpty()) {
+                        repeat(6) { memberSkeleton() }
+                    } else {
+                        if (adminMembers.isNotEmpty()) {
+                            memberSection("Admins", adminMembers.size)
+                            adminMembers.forEach { pubkey ->
+                                memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = true) { setProfilePubkey(it) }
+                            }
                         }
-                    }
-                    if (plainMembers.isNotEmpty()) {
-                        memberSection("Members", plainMembers.size)
-                        plainMembers.forEach { pubkey ->
-                            memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = false) { setProfilePubkey(it) }
+                        if (plainMembers.isNotEmpty()) {
+                            memberSection("Members", plainMembers.size)
+                            plainMembers.forEach { pubkey ->
+                                memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = false) { setProfilePubkey(it) }
+                            }
                         }
-                    }
-                    if (members.isEmpty()) {
-                        div {
-                            className = ClassName("member-section")
-                            +"No members yet"
+                        if (members.isEmpty()) {
+                            div {
+                                className = ClassName("member-section")
+                                +"No members yet"
+                            }
                         }
                     }
                 }

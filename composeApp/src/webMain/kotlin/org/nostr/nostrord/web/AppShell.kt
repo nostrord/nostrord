@@ -13,6 +13,7 @@ import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.groupNavSkeleton
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
@@ -78,6 +79,7 @@ val AppShell =
         val unreadByRelay = useStateFlow(repo.unreadByRelay)
         val relayMetadata = useStateFlow(repo.relayMetadata)
         val userMetadata = useStateFlow(repo.userMetadata)
+        val loadingRelays = useStateFlow(repo.loadingRelays)
         val fullListFetched = useStateFlow(repo.fullGroupListFetchedRelays)
         val accounts = useStateFlow(AppModule.accountStore.accounts)
         val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
@@ -96,6 +98,7 @@ val AppShell =
         val joinedIds = joinedByRelay[activeRelay].orEmpty()
         val myGroups = groups.filter { it.id in joinedIds }
         val otherGroups = groups.filter { it.id !in joinedIds }
+        val groupsLoading = activeRelay in loadingRelays
 
         val activePubkey = repo.getPublicKey()
         val meMetadata = activePubkey?.let { userMetadata[it] }
@@ -285,18 +288,22 @@ val AppShell =
                                 setDrawerOpen(false)
                             }
 
-                            sectionToggle("My Groups", myExpanded) { setMyExpanded(!myExpanded) }
-                            if (myExpanded) {
-                                myGroups.forEach { group ->
-                                    sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
-                                }
-                            }
-
-                            if (otherGroups.isNotEmpty()) {
-                                sectionToggle("Other Groups", otherExpanded) { setOtherExpanded(!otherExpanded) }
-                                if (otherExpanded) {
-                                    otherGroups.forEach { group ->
+                            if (groupsLoading && groups.isEmpty()) {
+                                repeat(6) { groupNavSkeleton() }
+                            } else {
+                                sectionToggle("My Groups", myExpanded) { setMyExpanded(!myExpanded) }
+                                if (myExpanded) {
+                                    myGroups.forEach { group ->
                                         sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
+                                    }
+                                }
+
+                                if (otherGroups.isNotEmpty()) {
+                                    sectionToggle("Other Groups", otherExpanded) { setOtherExpanded(!otherExpanded) }
+                                    if (otherExpanded) {
+                                        otherGroups.forEach { group ->
+                                            sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
+                                        }
                                     }
                                 }
                             }

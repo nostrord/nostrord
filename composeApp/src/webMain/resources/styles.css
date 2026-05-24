@@ -3833,3 +3833,131 @@ body {
 .manage-actions .btn-danger {
     width: 100%;
 }
+
+/* ---------- Skeleton loaders (shimmer) ---------- */
+.skel {
+    background: linear-gradient(
+        90deg,
+        var(--color-surface-variant) 25%,
+        var(--color-hover) 37%,
+        var(--color-surface-variant) 63%
+    );
+    background-size: 400% 100%;
+    animation: skel-shimmer 1.4s ease infinite;
+    border-radius: 4px;
+}
+
+@keyframes skel-shimmer {
+    0% {
+        background-position: 100% 0;
+    }
+    100% {
+        background-position: 0 0;
+    }
+}
+
+.skel-line {
+    height: 12px;
+}
+
+.w-30 {
+    width: 30%;
+}
+
+.w-40 {
+    width: 40%;
+}
+
+.w-50 {
+    width: 50%;
+}
+
+.w-60 {
+    width: 60%;
+}
+
+.w-75 {
+    width: 75%;
+}
+
+.w-80 {
+    width: 80%;
+}
+
+/* Home picker card skeleton */
+.skel-pick-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--color-background-dark);
+    border-radius: 8px;
+}
+
+.skel-pick-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 8px;
+}
+
+.skel-pick-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Groups sidebar row skeleton */
+.skel-nav-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+}
+
+.skel-nav-icon {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    border-radius: 50%;
+}
+
+/* Member sidebar row skeleton */
+.skel-member-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 8px;
+}
+
+.skel-member-avatar {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 50%;
+}
+
+/* Chat message skeleton */
+.skel-msg {
+    display: flex;
+    gap: 16px;
+    padding: 8px 16px;
+}
+
+.skel-msg-avatar {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 50%;
+}
+
+.skel-msg-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding-top: 4px;
+}
