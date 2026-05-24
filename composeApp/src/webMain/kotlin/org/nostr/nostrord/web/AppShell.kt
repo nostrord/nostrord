@@ -12,6 +12,7 @@ import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.ImageViewerHost
 import org.nostr.nostrord.web.components.WebAvatar
@@ -240,6 +241,7 @@ val AppShell =
                                 WebAvatar {
                                     url = relayMetadata[relay]?.icon
                                     seed = relay
+                                    kind = AvatarKind.RELAY
                                     name = relayDisplayName(relay, relayNames)
                                     cls = "rail-icon"
                                 }
@@ -610,6 +612,7 @@ private fun ChildrenBuilder.sidebarGroupRow(group: GroupMetadata, selected: Bool
         WebAvatar {
             url = group.picture
             seed = group.id
+            kind = AvatarKind.GROUP
             name = group.name ?: group.id
             cls = "group-icon-sm"
         }

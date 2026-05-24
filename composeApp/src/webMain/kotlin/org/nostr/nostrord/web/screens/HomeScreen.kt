@@ -5,6 +5,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.groupCardSkeleton
 import org.nostr.nostrord.web.components.icon
@@ -87,6 +88,7 @@ val HomeScreen =
                         WebAvatar {
                             url = relayMeta?.icon
                             seed = currentRelay
+                            kind = AvatarKind.RELAY
                             name = relayLabel
                             cls = "manage-relay-icon"
                         }
@@ -120,6 +122,7 @@ val HomeScreen =
                                 WebAvatar {
                                     url = group.picture
                                     seed = group.id
+                                    kind = AvatarKind.GROUP
                                     name = group.name ?: group.id
                                     cls = "manage-group-icon"
                                 }
@@ -155,6 +158,7 @@ val HomeScreen =
                     WebAvatar {
                         url = relayMeta?.icon
                         seed = currentRelay
+                        kind = AvatarKind.RELAY
                         name = relayLabel
                         cls = "home-relay-icon"
                     }
@@ -303,6 +307,7 @@ private fun ChildrenBuilder.pickGroupCard(
         WebAvatar {
             url = group.picture
             seed = group.id
+            kind = AvatarKind.GROUP
             name = group.name ?: group.id
             cls = "pick-icon"
         }

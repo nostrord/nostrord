@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
@@ -51,6 +52,7 @@ val GroupInfoModal =
                     WebAvatar {
                         url = group.picture
                         seed = group.id
+                        kind = AvatarKind.GROUP
                         name = groupName
                         cls = "info-cover-icon"
                     }

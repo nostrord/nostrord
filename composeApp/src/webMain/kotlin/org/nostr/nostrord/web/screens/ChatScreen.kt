@@ -16,6 +16,7 @@ import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.ChatImage
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
@@ -199,6 +200,7 @@ val ChatScreen =
                         WebAvatar {
                             url = group.picture
                             seed = group.id
+                            kind = AvatarKind.GROUP
                             name = groupName
                             cls = "chat-header-icon"
                         }

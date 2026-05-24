@@ -548,6 +548,44 @@ body {
 .avatar-photo.loaded {
     opacity: 1;
 }
+/* Groups are rounded squares (users stay circular via their cls). */
+.avatar-stack.group {
+    border-radius: 25%;
+}
+/* Initial-letter fallback for groups/relays (matches native: white bold letter on a colour). */
+.avatar-letter {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+}
+.avatar-color-0 {
+    background: #5865f2;
+}
+.avatar-color-1 {
+    background: #57f287;
+}
+.avatar-color-2 {
+    background: #fee75c;
+}
+.avatar-color-3 {
+    background: #eb459e;
+}
+.avatar-color-4 {
+    background: #ed4245;
+}
+.avatar-color-5 {
+    background: #9b59b6;
+}
+.avatar-color-6 {
+    background: #3498db;
+}
+.avatar-color-7 {
+    background: #e67e22;
+}
 
 .rail-icon {
     width: 48px;
