@@ -8,6 +8,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -29,6 +30,7 @@ import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.span
 import react.useEffect
 import react.useEffectOnce
+import react.useRef
 import react.useState
 import web.cssom.ClassName
 
@@ -40,6 +42,23 @@ private fun authMethodLabel(method: AuthMethod): String = when (method) {
     AuthMethod.BUNKER -> "Bunker (NIP-46)"
     AuthMethod.NIP07 -> "Browser extension (NIP-07)"
 }
+
+/** Build the URL query that reflects the current navigation (round-trips with main.kt). */
+private fun searchFor(relay: String, groupId: String?, notifications: Boolean): String {
+    val host = relay.removePrefix("wss://").removePrefix("ws://")
+    return when {
+        notifications -> "?view=notifications"
+        groupId != null && relay.isNotBlank() -> "?relay=$host&group=$groupId"
+        relay.isNotBlank() -> "?relay=$host"
+        else -> ""
+    }
+}
+
+private fun parseSearch(search: String): Map<String, String> =
+    search.removePrefix("?").split("&").filter { it.isNotEmpty() }.associate { part ->
+        val i = part.indexOf("=")
+        if (i >= 0) part.substring(0, i) to part.substring(i + 1) else part to ""
+    }
 
 /**
  * Logged-in shell — real data: server rail (relays from kind:10009 + group-tag relays),
@@ -99,6 +118,7 @@ val AppShell =
         val (addAccountOpen, setAddAccountOpen) = useState { false }
         val (myExpanded, setMyExpanded) = useState { true }
         val (otherExpanded, setOtherExpanded) = useState { true }
+        val firstNav = useRef(true)
 
         val selectedGroup: GroupMetadata? = groups.firstOrNull { it.id == selectedGroupId }
 
@@ -128,10 +148,37 @@ val AppShell =
                 }
                 else -> {}
             }
-            if (ctx != null) {
-                StartupResolver.clearExternalLaunchContext()
-                // Drop the query from the URL bar so a refresh doesn't re-trigger it.
-                window.history.replaceState(null, "", window.location.pathname)
+            if (ctx != null) StartupResolver.clearExternalLaunchContext()
+        }
+
+        // Keep the URL in sync with navigation so it's shareable and back/forward works.
+        useEffect(activeRelay, selectedGroupId, notificationsOpen) {
+            val target = window.location.pathname + searchFor(activeRelay, selectedGroupId, notificationsOpen)
+            val current = window.location.pathname + window.location.search
+            if (target != current) {
+                if (firstNav.current == true) {
+                    window.history.replaceState(null, "", target)
+                } else {
+                    window.history.pushState(null, "", target)
+                }
+            }
+            firstNav.current = false
+        }
+
+        // Browser back/forward → apply the URL to state.
+        useEffectOnce {
+            window.asDynamic().addEventListener("popstate") {
+                val params = parseSearch(window.location.search)
+                if (params["view"] == "notifications") {
+                    setNotificationsOpen(true)
+                } else {
+                    setNotificationsOpen(false)
+                    val relay = params["relay"]?.takeIf { it.isNotBlank() }?.toRelayUrl()
+                    if (relay != null && relay != repo.currentRelayUrl.value) {
+                        launchApp { repo.switchRelay(relay) }
+                    }
+                    setSelectedGroupId(params["group"]?.takeIf { it.isNotBlank() })
+                }
             }
         }
 
