@@ -1585,6 +1585,15 @@ body {
     padding: 16px 0;
 }
 
+.chat-empty {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    font-size: 15px;
+}
+
 .chat-date {
     display: flex;
     align-items: center;

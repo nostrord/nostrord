@@ -1,9 +1,11 @@
 package org.nostr.nostrord.web.screens
 
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.web.mock.Mock
-import org.nostr.nostrord.web.mock.MockMember
-import org.nostr.nostrord.web.mock.MockMessage
+import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.utils.formatTime
+import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.EditGroupModal
@@ -21,30 +23,75 @@ import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import react.useState
 import web.cssom.ClassName
+import web.dom.ElementId
+import web.dom.document
 
 external interface ChatScreenProps : Props {
     var group: GroupMetadata
     var onLeave: () -> Unit
 }
 
+// Window (seconds) for grouping consecutive messages from the same author.
+private const val GROUP_WINDOW = 5 * 60
+
+private fun displayName(pubkey: String, meta: UserMetadata?): String =
+    meta?.displayName?.takeIf { it.isNotBlank() }
+        ?: meta?.name?.takeIf { it.isNotBlank() }
+        ?: (pubkey.take(8) + "…")
+
 /**
- * Chat view — layout-first React port of the Compose GroupScreenDesktop: header +
- * grouped messages + composer in the main column, members sidebar on the right (collapses
- * to a drawer on narrow screens). Mock conversation; sending/joining is stubbed.
+ * Chat view — real data port of the Compose GroupScreenDesktop: header + grouped messages
+ * (live `messages` flow) + composer (`sendMessage`), members sidebar (`groupMembers` /
+ * `groupAdmins`, split into Admins / Members). Opening the group requests its messages and
+ * the author/member metadata. Moderation modals are wired; their submits land later.
  */
 val ChatScreen =
     FC<ChatScreenProps> { props ->
         val group = props.group
         val groupName = group.name?.takeIf { it.isNotBlank() } ?: "Group"
+        val repo = AppModule.nostrRepository
+
+        val messagesByGroup = useStateFlow(repo.messages)
+        val membersByGroup = useStateFlow(repo.groupMembers)
+        val adminsByGroup = useStateFlow(repo.groupAdmins)
+        val userMetadata = useStateFlow(repo.userMetadata)
+
+        val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
+        val members = membersByGroup[group.id].orEmpty()
+        val admins = adminsByGroup[group.id].orEmpty().toSet()
+        val adminMembers = members.filter { it in admins }
+        val plainMembers = members.filter { it !in admins }
+
         val (draft, setDraft) = useState { "" }
         val (membersOpen, setMembersOpen) = useState { false }
         val (infoOpen, setInfoOpen) = useState { false }
-        val (profileName, setProfileName) = useState<String?> { null }
+        val (profilePubkey, setProfilePubkey) = useState<String?> { null }
         val (menuOpen, setMenuOpen) = useState { false }
-        // moderation modal: "edit" | "share" | "members" | "addmember" | "invite" | "requests"
+        // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
+
+        // Load messages + author/member metadata when the group (or its rosters) change.
+        useEffect(group.id) {
+            launchApp { repo.requestGroupMessages(group.id) }
+        }
+        useEffect(group.id, members.size, messages.size) {
+            val pubkeys = (members + messages.map { it.pubkey }).toSet()
+            if (pubkeys.isNotEmpty()) launchApp { repo.requestUserMetadata(pubkeys) }
+        }
+        // Keep the message list pinned to the latest message.
+        useEffect(messages.size) {
+            document.getElementById(ElementId("chat-messages"))?.let { it.scrollTop = it.scrollHeight.toDouble() }
+        }
+
+        fun send() {
+            val text = draft.trim()
+            if (text.isEmpty()) return
+            setDraft("")
+            launchApp { repo.sendMessage(group.id, text) }
+        }
 
         div {
             className = ClassName(if (membersOpen) "chat members-open" else "chat")
@@ -139,13 +186,29 @@ val ChatScreen =
                 // Messages
                 div {
                     className = ClassName("chat-messages")
-                    div {
-                        className = ClassName("chat-date")
-                        span { +Mock.sampleDate }
-                    }
-                    systemEvent("fiatjaf joined the group")
-                    Mock.sampleMessages.forEach { message ->
-                        messageRow(message) { setProfileName(it) }
+                    id = ElementId("chat-messages")
+                    if (messages.isEmpty()) {
+                        div {
+                            className = ClassName("chat-empty")
+                            +"No messages yet. Say hello 👋"
+                        }
+                    } else {
+                        messages.forEachIndexed { i, message ->
+                            val prev = messages.getOrNull(i - 1)
+                            val firstInGroup =
+                                prev == null ||
+                                    prev.pubkey != message.pubkey ||
+                                    message.createdAt - prev.createdAt > GROUP_WINDOW
+                            messageRow(
+                                pubkey = message.pubkey,
+                                name = displayName(message.pubkey, userMetadata[message.pubkey]),
+                                time = formatTime(message.createdAt),
+                                content = message.content,
+                                firstInGroup = firstInGroup,
+                                isAdmin = message.pubkey in admins,
+                                onUser = { setProfilePubkey(it) },
+                            )
+                        }
                     }
                 }
 
@@ -161,6 +224,12 @@ val ChatScreen =
                         placeholder = "Message $groupName"
                         value = draft
                         onChange = { event -> setDraft(event.currentTarget.value) }
+                        onKeyDown = { event ->
+                            if (event.key == "Enter" && !event.shiftKey) {
+                                event.preventDefault()
+                                send()
+                            }
+                        }
                     }
                     button {
                         className = ClassName("composer-btn")
@@ -169,7 +238,7 @@ val ChatScreen =
                     button {
                         className = ClassName(if (draft.isNotBlank()) "composer-send active" else "composer-send")
                         disabled = draft.isBlank()
-                        onClick = { setDraft("") }
+                        onClick = { send() }
                         +"➤"
                     }
                 }
@@ -184,7 +253,7 @@ val ChatScreen =
                 className = ClassName("member-sidebar")
                 div {
                     className = ClassName("member-header")
-                    span { +"Members — ${Mock.sampleMembers.size}" }
+                    span { +"Members — ${members.size}" }
                     button {
                         className = ClassName("member-add-btn")
                         onClick = { setModal("addmember") }
@@ -200,15 +269,23 @@ val ChatScreen =
                 }
                 div {
                     className = ClassName("member-scroll")
-                    val online = Mock.sampleMembers.filter { it.online }
-                    val offline = Mock.sampleMembers.filter { !it.online }
-                    if (online.isNotEmpty()) {
-                        memberSection("Online", online.size)
-                        online.forEach { member -> memberRow(member, online = true) { setProfileName(it) } }
+                    if (adminMembers.isNotEmpty()) {
+                        memberSection("Admins", adminMembers.size)
+                        adminMembers.forEach { pubkey ->
+                            memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), isAdmin = true) { setProfilePubkey(it) }
+                        }
                     }
-                    if (offline.isNotEmpty()) {
-                        memberSection("Offline", offline.size)
-                        offline.forEach { member -> memberRow(member, online = false) { setProfileName(it) } }
+                    if (plainMembers.isNotEmpty()) {
+                        memberSection("Members", plainMembers.size)
+                        plainMembers.forEach { pubkey ->
+                            memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), isAdmin = false) { setProfilePubkey(it) }
+                        }
+                    }
+                    if (members.isEmpty()) {
+                        div {
+                            className = ClassName("member-section")
+                            +"No members yet"
+                        }
                     }
                 }
             }
@@ -219,10 +296,10 @@ val ChatScreen =
                     onClose = { setInfoOpen(false) }
                 }
             }
-            profileName?.let { name ->
+            profilePubkey?.let { pubkey ->
                 UserProfileModal {
-                    this.name = name
-                    onClose = { setProfileName(null) }
+                    this.pubkey = pubkey
+                    onClose = { setProfilePubkey(null) }
                 }
             }
 
@@ -259,35 +336,43 @@ private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false,
     }
 }
 
-private fun ChildrenBuilder.messageRow(message: MockMessage, onUser: (String) -> Unit) {
+private fun ChildrenBuilder.messageRow(
+    pubkey: String,
+    name: String,
+    time: String,
+    content: String,
+    firstInGroup: Boolean,
+    isAdmin: Boolean,
+    onUser: (String) -> Unit,
+) {
     div {
-        className = ClassName(if (message.firstInGroup) "msg first" else "msg grouped")
+        className = ClassName(if (firstInGroup) "msg first" else "msg grouped")
         div {
             className = ClassName("msg-gutter")
-            if (message.firstInGroup) {
+            if (firstInGroup) {
                 div {
                     className = ClassName("avatar-tile msg-avatar avatar-fallback clickable")
-                    onClick = { onUser(message.author) }
-                    +message.author.take(1).uppercase()
+                    onClick = { onUser(pubkey) }
+                    +name.take(1).uppercase()
                 }
             } else {
                 span {
                     className = ClassName("msg-hover-time")
-                    +message.time
+                    +time
                 }
             }
         }
         div {
             className = ClassName("msg-body")
-            if (message.firstInGroup) {
+            if (firstInGroup) {
                 div {
                     className = ClassName("msg-meta")
                     span {
                         className = ClassName("msg-author clickable")
-                        onClick = { onUser(message.author) }
-                        +message.author
+                        onClick = { onUser(pubkey) }
+                        +name
                     }
-                    if (message.admin) {
+                    if (isAdmin) {
                         span {
                             className = ClassName("msg-admin")
                             +"ADMIN"
@@ -295,26 +380,15 @@ private fun ChildrenBuilder.messageRow(message: MockMessage, onUser: (String) ->
                     }
                     span {
                         className = ClassName("msg-time")
-                        +message.time
+                        +time
                     }
                 }
             }
             div {
                 className = ClassName("msg-text")
-                +message.content
+                +content
             }
         }
-    }
-}
-
-private fun ChildrenBuilder.systemEvent(text: String) {
-    div {
-        className = ClassName("system-event")
-        span {
-            className = ClassName("system-event-icon")
-            +"→"
-        }
-        span { +text }
     }
 }
 
@@ -325,25 +399,22 @@ private fun ChildrenBuilder.memberSection(title: String, count: Int) {
     }
 }
 
-private fun ChildrenBuilder.memberRow(member: MockMember, online: Boolean, onUser: (String) -> Unit) {
+private fun ChildrenBuilder.memberRow(pubkey: String, name: String, isAdmin: Boolean, onUser: (String) -> Unit) {
     div {
         className = ClassName("member-row")
-        onClick = { onUser(member.name) }
+        onClick = { onUser(pubkey) }
         div {
             className = ClassName("member-avatar-wrap")
             div {
-                className = ClassName(if (online) "avatar-tile member-avatar avatar-fallback" else "avatar-tile member-avatar avatar-fallback dimmed")
-                +member.name.take(1).uppercase()
-            }
-            span {
-                className = ClassName(if (online) "member-dot online" else "member-dot")
+                className = ClassName("avatar-tile member-avatar avatar-fallback")
+                +name.take(1).uppercase()
             }
         }
         span {
-            className = ClassName(if (online) "member-name" else "member-name dimmed")
-            +member.name
+            className = ClassName("member-name")
+            +name
         }
-        if (member.admin) {
+        if (isAdmin) {
             span {
                 className = ClassName("member-admin")
                 +"ADMIN"

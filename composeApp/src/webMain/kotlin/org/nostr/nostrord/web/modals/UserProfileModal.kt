@@ -1,28 +1,41 @@
 package org.nostr.nostrord.web.modals
 
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.bridge.useStateFlow
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import web.cssom.ClassName
 
 external interface UserProfileModalProps : Props {
-    var name: String
+    var pubkey: String
     var onClose: () -> Unit
 }
 
 /**
- * User profile modal — layout-first React port of the Compose UserProfileModal: banner +
- * overlapping avatar, display name + @handle, ABOUT, PUBLIC KEY (npub) with copy, and the
- * NIP-05 identifier. Derives mock fields from the name; copy is stubbed.
+ * User profile modal — real data port of the Compose UserProfileModal: banner + avatar,
+ * display name + @handle, ABOUT, PUBLIC KEY (npub) with copy, and NIP-05, read from the
+ * live `userMetadata` (fetched on open). Copy is stubbed.
  */
 val UserProfileModal =
     FC<UserProfileModalProps> { props ->
-        val name = props.name
-        val handle = name.lowercase()
-        val npub = "npub1${handle}q0xq8r5wz3m9v4k2h7t6y8u3w0e5r2t9p4a"
-        val nip05 = "$handle@nostr.com"
+        val pubkey = props.pubkey
+        val meta = useStateFlow(AppModule.nostrRepository.userMetadata)[pubkey]
+        val npub = Nip19.encodeNpub(pubkey)
+        val name =
+            meta?.displayName?.takeIf { it.isNotBlank() }
+                ?: meta?.name?.takeIf { it.isNotBlank() }
+                ?: (npub.take(12) + "…")
+        val handle = meta?.name?.takeIf { it.isNotBlank() }
+
+        useEffect(pubkey) {
+            launchApp { AppModule.nostrRepository.requestUserMetadata(setOf(pubkey)) }
+        }
 
         div {
             className = ClassName("modal-overlay")
@@ -50,18 +63,22 @@ val UserProfileModal =
                         className = ClassName("info-name")
                         +name
                     }
-                    div {
-                        className = ClassName("profile-handle")
-                        +"@$handle"
+                    if (handle != null && handle != name) {
+                        div {
+                            className = ClassName("profile-handle")
+                            +"@$handle"
+                        }
                     }
 
-                    div {
-                        className = ClassName("settings-section-head")
-                        +"ABOUT"
-                    }
-                    div {
-                        className = ClassName("info-about")
-                        +"Nostr enthusiast building on NIP-29 groups."
+                    if (!meta?.about.isNullOrBlank()) {
+                        div {
+                            className = ClassName("settings-section-head")
+                            +"ABOUT"
+                        }
+                        div {
+                            className = ClassName("info-about")
+                            +(meta?.about ?: "")
+                        }
                     }
 
                     div {
@@ -80,13 +97,15 @@ val UserProfileModal =
                         }
                     }
 
-                    div {
-                        className = ClassName("settings-section-head")
-                        +"NIP-05"
-                    }
-                    div {
-                        className = ClassName("info-about")
-                        +nip05
+                    if (!meta?.nip05.isNullOrBlank()) {
+                        div {
+                            className = ClassName("settings-section-head")
+                            +"NIP-05"
+                        }
+                        div {
+                            className = ClassName("info-about")
+                            +(meta?.nip05 ?: "")
+                        }
                     }
                 }
             }
