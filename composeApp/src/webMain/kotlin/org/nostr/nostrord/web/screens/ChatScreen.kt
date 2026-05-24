@@ -1,5 +1,6 @@
 package org.nostr.nostrord.web.screens
 
+import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.UserMetadata
@@ -49,6 +50,11 @@ private fun parentMessageOf(message: org.nostr.nostrord.network.NostrGroupClient
     return message.tags
         .firstOrNull { it.size >= 2 && it[0] == "q" && it[1].length == 64 && it[1].all { c -> c.isLetterOrDigit() } }
         ?.get(1)
+}
+
+private fun copyToClipboard(text: String) {
+    val clip = window.navigator.asDynamic().clipboard
+    if (clip != null) clip.writeText(text)
 }
 
 private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.displayName?.takeIf { it.isNotBlank() }
@@ -263,11 +269,13 @@ val ChatScreen =
                                 myPubkey = myPubkey,
                                 userMetadata = userMetadata,
                                 replyTo = replyTo,
+                                canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins),
                                 onUser = { setProfilePubkey(it) },
                                 onReply = { setReplyingToId(message.id) },
                                 onReact = { emoji ->
                                     launchApp { repo.sendReaction(group.id, message.id, message.pubkey, emoji) }
                                 },
+                                onDelete = { launchApp { repo.deleteMessage(group.id, message.id) } },
                             )
                         }
                     }
@@ -466,9 +474,11 @@ private fun ChildrenBuilder.messageRow(
     myPubkey: String?,
     userMetadata: Map<String, UserMetadata>,
     replyTo: Pair<String, String>?,
+    canDelete: Boolean,
     onUser: (String) -> Unit,
     onReply: () -> Unit,
     onReact: (String) -> Unit,
+    onDelete: () -> Unit,
 ) {
     div {
         className = ClassName(if (firstInGroup) "msg first" else "msg grouped")
@@ -561,6 +571,20 @@ private fun ChildrenBuilder.messageRow(
                     title = "Reply"
                     onClick = { onReply() }
                     +"↩"
+                }
+                button {
+                    className = ClassName("reaction-add")
+                    title = "Copy text"
+                    onClick = { copyToClipboard(content) }
+                    +"📋"
+                }
+                if (canDelete) {
+                    button {
+                        className = ClassName("reaction-add")
+                        title = "Delete"
+                        onClick = { onDelete() }
+                        +"🗑"
+                    }
                 }
             }
         }
