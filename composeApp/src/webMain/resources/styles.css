@@ -590,25 +590,34 @@ body {
 .rail-icon {
     width: 48px;
     height: 48px;
-    border-radius: 24px;
+    border-radius: 16px;
     font-size: 20px;
     transition: border-radius 0.15s ease;
 }
 
 .rail-item:hover .rail-icon,
 .rail-item.active .rail-icon {
-    border-radius: 16px;
+    border-radius: 12px;
 }
 
-.rail-item.active::before {
+/* Left pill marker — white, grows from 0 to 20px on hover and 36px when active (mirrors native). */
+.rail-item::before {
     content: "";
     position: absolute;
     left: 0;
-    top: 6px;
-    bottom: 6px;
+    top: 50%;
+    transform: translateY(-50%);
     width: 4px;
+    height: 0;
     border-radius: 0 4px 4px 0;
     background: #fff;
+    transition: height 0.15s ease;
+}
+.rail-item:hover::before {
+    height: 20px;
+}
+.rail-item.active::before {
+    height: 36px;
 }
 
 .rail-add {
