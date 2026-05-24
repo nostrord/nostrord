@@ -13,6 +13,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.formatTime
+import org.nostr.nostrord.utils.getDateLabel
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.ChatImage
@@ -320,10 +321,25 @@ val ChatScreen =
                     } else {
                         messages.forEachIndexed { i, message ->
                             val prev = messages.getOrNull(i - 1)
+                            // A date separator starts each new calendar day; the message after one
+                            // always opens a fresh group (shows avatar + name).
+                            val showDateSep =
+                                prev == null || getDateLabel(prev.createdAt) != getDateLabel(message.createdAt)
                             val firstInGroup =
-                                prev == null ||
+                                showDateSep ||
+                                    prev == null ||
                                     prev.pubkey != message.pubkey ||
                                     message.createdAt - prev.createdAt > GROUP_WINDOW
+                            if (showDateSep) {
+                                div {
+                                    key = "date-${message.id}"
+                                    className = ClassName("date-sep")
+                                    span {
+                                        className = ClassName("date-sep-label")
+                                        +getDateLabel(message.createdAt)
+                                    }
+                                }
+                            }
                             val parent = parentMessageOf(message)?.let { messagesById[it] }
                             val replyPreview =
                                 parent?.let {
