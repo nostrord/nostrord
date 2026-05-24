@@ -1,9 +1,10 @@
 package org.nostr.nostrord.web.screens
 
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
-import org.nostr.nostrord.web.mock.Mock
+import org.nostr.nostrord.web.bridge.useStateFlow
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -45,6 +46,13 @@ val AddAccountSheet =
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
         val extensionAvailable = Nip07.isAvailable()
+
+        val activePubkey = AppModule.nostrRepository.getPublicKey()
+        val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
+        val activeName =
+            activePubkey?.let { userMetadata[it] }?.let { it.displayName?.ifBlank { null } ?: it.name?.ifBlank { null } }
+                ?: AppModule.accountStore.active?.label
+                ?: "your account"
 
         // Run an add-account action; on success (null) the warm-swap activates the new
         // account and the sheet closes, otherwise the error is shown.
@@ -118,7 +126,7 @@ val AddAccountSheet =
                         AddStep.Pick -> {
                             p {
                                 className = ClassName("add-sheet-note")
-                                +"You'll keep ${Mock.me.name} signed in."
+                                +"You'll keep $activeName signed in."
                             }
                             methodRow("🔑", "Private key") { setStep(AddStep.Key) }
                             methodRow("🛡", "Bunker (NIP-46)") { setStep(AddStep.Bunker) }

@@ -1,6 +1,5 @@
 package org.nostr.nostrord.web.modals
 
-import org.nostr.nostrord.web.mock.Mock
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -14,6 +13,10 @@ import web.cssom.ClassName
 external interface ManageChildrenModalProps : Props {
     var onClose: () -> Unit
 }
+
+// Placeholder data — the subgroups draft feature's submit/listing isn't wired yet.
+private val approvedChildren = listOf("Design" to "g2", "Random" to "g3")
+private val pendingClaims = listOf("Bots" to "g8", "Memes" to "g9")
 
 /**
  * Manage-children modal — layout-first React port of the Compose ManageChildrenModal
@@ -44,7 +47,7 @@ val ManageChildrenModal =
                             +(
                                 "Children fall into bilaterally approved, admin-attested, and pending claims. " +
                                     "Only bilateral approval removes the ⚠ warning for other clients."
-                            )
+                                )
                         }
                     }
                     button {
@@ -79,22 +82,22 @@ val ManageChildrenModal =
 
                 div {
                     className = ClassName("access-section-title")
-                    +"APPROVED CHILDREN — BILATERAL (${Mock.sampleApprovedChildren.size})"
+                    +"APPROVED CHILDREN — BILATERAL (${approvedChildren.size})"
                 }
                 div {
                     className = ClassName("mod-list")
-                    Mock.sampleApprovedChildren.forEach { (name, id) ->
+                    approvedChildren.forEach { (name, id) ->
                         childRow(name, id, approved = true)
                     }
                 }
 
                 div {
                     className = ClassName("access-section-title")
-                    +"PENDING CLAIMS (${Mock.samplePendingClaims.size})"
+                    +"PENDING CLAIMS (${pendingClaims.size})"
                 }
                 div {
                     className = ClassName("mod-list")
-                    Mock.samplePendingClaims.forEach { (name, id) ->
+                    pendingClaims.forEach { (name, id) ->
                         childRow(name, id, approved = false)
                     }
                 }
