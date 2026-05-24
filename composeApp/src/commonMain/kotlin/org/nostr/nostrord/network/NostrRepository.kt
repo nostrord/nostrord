@@ -581,6 +581,30 @@ class NostrRepository(
             // for the same reason; the cold-start re-login path was the only
             // one missing it.
             connectionManager.loadSavedRelay()
+            // Re-hydrate joined-group state from local storage, exactly as the
+            // cold-boot path (initialize) does at lines 377-380. Previously this
+            // re-login branch relied solely on the kind:10009 outbox fetch to
+            // repopulate the group list; when that network fetch was slow or the
+            // bunker signer was unreachable (#85), nothing loaded the locally
+            // persisted groups as a fallback. The result (#88): every group was
+            // stuck on "No messages yet" and the relay's groups were never
+            // subscribed, intermittently, depending on outbox-fetch timing.
+            val activeRelay = connectionManager.currentRelayUrl.value
+            val savedRelays = SecureStorage.loadRelayListFor(newPubkey)
+            val allRelays = (listOfNotNull(activeRelay.ifBlank { null }) + savedRelays).distinct()
+            val primaryRelay = activeRelay.ifBlank { allRelays.firstOrNull().orEmpty() }
+            if (primaryRelay.isNotBlank()) {
+                groupManager.prePopulateRelayList(allRelays)
+                // Mirror the rest of initialize()'s sibling bootstrap, not just the
+                // joined-group loaders: without loadAll the first mux subscription
+                // has no persisted `since` cursor, and without fetchAll the relay
+                // rail shows stale NIP-11 icons/names after re-login.
+                liveCursorStore?.loadAll(allRelays)
+                _relayMetadataManager.fetchAll(allRelays)
+                groupManager.loadJoinedGroupsFromStorage(newPubkey, primaryRelay)
+                groupManager.loadAllJoinedGroupsFromStorage(newPubkey, allRelays)
+                groupManager.restoreJoinedGroupMetadataFromStorage(newPubkey, allRelays)
+            }
             unreadManager.initialize(newPubkey)
             notificationSettings?.initialize(newPubkey)
             notificationHistoryStore?.initialize(newPubkey)
@@ -592,6 +616,13 @@ class NostrRepository(
             if (!isNewIdentity) initializeOutboxModel()
             sessionManager.setLoggedIn(true)
             scope.launch { connect() }
+            // Open sockets for joined groups that live on secondary (non-primary)
+            // relays too. connect() only handles the primary; without this those
+            // groups stay on "No messages yet" until the user manually switches to
+            // their relay — the same #88 symptom, confined to non-primary relays.
+            if (primaryRelay.isNotBlank()) {
+                scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
+            }
         }
         scope.launch { requestUserMetadata(setOf(newPubkey)) }
     }
@@ -939,11 +970,16 @@ class NostrRepository(
                     }
                 } else if (
                     SecureStorage.isGroupFetchLazy(relayUrl) &&
-                    !groupManager.hasFullGroupListBeenFetched(relayUrl) &&
+                    relayUrl.normalizeRelayUrl() !in groupManager.fullGroupListFetchedRelays.value &&
                     SecureStorage.getBooleanPref("sidebar_other_expanded_$relayUrl", default = true)
                 ) {
                     // Cache is fresh (partial, joined-only) but OTHER GROUPS is open and the full
-                    // list was never fetched. Trigger a full fetch now so the sidebar populates.
+                    // list was never fetched THIS SESSION. Trigger a full fetch now so the sidebar
+                    // populates automatically on connect — don't make the user click the homescreen
+                    // OTHER GROUPS tab. We check the in-memory set, not hasFullGroupListBeenFetched:
+                    // a stale persisted timestamp (or a previous session's full fetch) would
+                    // otherwise satisfy that guard while the cache holds only joined groups,
+                    // leaving OTHER GROUPS empty until a manual fetch.
                     groupManager.markPendingFullFetch(relayUrl)
                     groupManager.markRelayLoading(relayUrl)
                     client.requestGroups()
@@ -1060,14 +1096,16 @@ class NostrRepository(
                 requestGroupsForRelay(client, newRelayUrl)
             } else if (
                 SecureStorage.isGroupFetchLazy(newRelayUrl) &&
-                !groupManager.hasFullGroupListBeenFetched(newRelayUrl) &&
+                newRelayUrl.normalizeRelayUrl() !in groupManager.fullGroupListFetchedRelays.value &&
                 SecureStorage.getBooleanPref("sidebar_other_expanded_$newRelayUrl", default = true)
             ) {
                 // Cache holds only the joined-group subset (from a previous lazy
                 // fetch) but OTHER GROUPS is open and this session hasn't
                 // received a full EOSE — fire the full fetch so the sidebar
                 // populates instead of flashing "no other groups". Mirrors the
-                // equivalent branch in connect().
+                // equivalent branch in connect(). We check the in-memory session
+                // set rather than hasFullGroupListBeenFetched so a stale persisted
+                // timestamp can't suppress the auto-fetch on switching to a relay.
                 groupManager.markPendingFullFetch(newRelayUrl)
                 groupManager.markRelayLoading(newRelayUrl)
                 client.requestGroups()
@@ -2474,6 +2512,14 @@ class NostrRepository(
         if (connectionManager.getPrimaryClient() === client) {
             val now = epochSeconds()
             val lastAt = lastRequestGroupsAt[relayUrl] ?: 0L
+            // Any full-list result captured BEFORE auth is untrustworthy: an
+            // auth-required relay may answer the unauthenticated group-list REQ
+            // with an empty EOSE (rather than CLOSED auth-required), which marks
+            // the relay "fully fetched" and would make sessionFetched below skip
+            // this authed fetch — leaving OTHER GROUPS empty even when expanded
+            // (observed on hzrd149's relay). Drop that pre-auth marker so the
+            // post-auth fetch always runs once.
+            groupManager.invalidateFullGroupListFetch(relayUrl)
             // Bypass the 10s dedup when THIS SESSION hasn't received an EOSE for
             // the full group list yet. The previous REQ likely raced AUTH and was
             // CLOSED auth-required, so skipping the retry leaves OTHER GROUPS

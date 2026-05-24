@@ -585,6 +585,19 @@ class NostrGroupClient(
         // relay clients are active concurrently. The ID must be stable per relay
         // so the EOSE handler can map it back to the originating relay URL.
         val subId = "group-list-${relayUrl.hashCode().toUInt()}"
+        // CLOSE the sub id before re-REQ'ing. requestGroupsForIds() reuses this
+        // same id for the lazy joined-only (#d-filtered) fetch; sending an
+        // unfiltered REQ on a sub that is still open with a narrower filter is a
+        // re-REQ that some relays do not re-evaluate — they keep serving the old
+        // (#d) filter or treat it as already-EOSEd, so the OTHER GROUPS full
+        // fetch comes back empty (observed on hzrd149's relay). An explicit CLOSE
+        // guarantees the relay runs the widened filter as a fresh subscription.
+        sendJson(
+            buildJsonArray {
+                add("CLOSE")
+                add(subId)
+            },
+        )
         val req = buildJsonArray {
             add("REQ")
             add(subId)
@@ -612,6 +625,15 @@ class NostrGroupClient(
     suspend fun requestGroupsForIds(groupIds: List<String>) {
         if (groupIds.isEmpty()) return
         val subId = groupListSubscriptionId()
+        // CLOSE before re-REQ — see requestGroups(). This sub id is shared with
+        // the unfiltered full fetch; closing first guarantees the relay applies
+        // this #d filter as a fresh subscription instead of mishandling a re-REQ.
+        sendJson(
+            buildJsonArray {
+                add("CLOSE")
+                add(subId)
+            },
+        )
         val req = buildJsonArray {
             add("REQ")
             add(subId)

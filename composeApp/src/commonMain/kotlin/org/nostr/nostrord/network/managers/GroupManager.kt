@@ -187,6 +187,16 @@ class GroupManager(
     private val _loadingRelays = MutableStateFlow<Set<String>>(emptySet())
     val loadingRelays: StateFlow<Set<String>> = _loadingRelays.asStateFlow()
 
+    // Safety-net timers so the sidebar skeleton can never spin forever. Every
+    // clear of [_loadingRelays] is otherwise event-driven (group-list EOSE,
+    // CLOSED, or a connection Error/Reconnecting). A relay that connects, accepts
+    // the REQ, then never sends EOSE nor CLOSED — common after a slow/flaky
+    // NIP-46 bunker AUTH where the 2s awaitAuthOrTimeout races the signer — would
+    // leave the relay stuck in _loadingRelays indefinitely (#88). Each
+    // markRelayLoading arms a per-relay watchdog; markRelayLoaded / EOSE cancel it.
+    private val loadingWatchdogs = mutableMapOf<String, Job>()
+    private val loadingWatchdogTimeoutMs = 15_000L
+
     // Relays for which requestGroups() (unfiltered, no #d tag) was sent this session but
     // EOSE hasn't arrived yet. Lets handleEoseSuspend() distinguish a full fetch from a
     // lazy (joined-only) fetch when the same sub ID is reused.
@@ -228,12 +238,47 @@ class GroupManager(
         return SecureStorage.isFullGroupListCacheFresh(normalized, epochSeconds())
     }
 
+    /**
+     * Discard any record that the FULL group list was fetched for [relayUrl] —
+     * both the in-memory session flag and the persisted freshness timestamp.
+     * Called when a relay completes NIP-42 AUTH: an auth-required relay answers
+     * the pre-AUTH unauthenticated group-list REQ with an EMPTY EOSE, which
+     * handleEoseSuspend records as "fully fetched", falsely satisfying the dedup
+     * in resubscribeAfterAuth and suppressing the real post-AUTH fetch — leaving
+     * OTHER GROUPS empty even when expanded (observed on hzrd149's relay).
+     */
+    fun invalidateFullGroupListFetch(relayUrl: String) {
+        val normalized = relayUrl.normalizeRelayUrl()
+        _fullGroupListFetchedRelays.update { it - normalized }
+        try {
+            SecureStorage.saveFullGroupListEoseTimestamp(normalized, 0L)
+        } catch (_: Exception) {}
+    }
+
     fun markRelayLoading(relayUrl: String) {
-        _loadingRelays.update { it + relayUrl.normalizeRelayUrl() }
+        val normalized = relayUrl.normalizeRelayUrl()
+        _loadingRelays.update { it + normalized }
+        // (Re)arm the watchdog: if no EOSE/CLOSED/error clears this relay within
+        // the grace period, force-clear it so the skeleton stops spinning.
+        loadingWatchdogs.remove(normalized)?.cancel()
+        loadingWatchdogs[normalized] = scope.launch {
+            delay(loadingWatchdogTimeoutMs)
+            _loadingRelays.update { it - normalized }
+            // Also release any stuck full-fetch marker. Otherwise hasPendingFullFetch
+            // stays true forever (the REQ got neither EOSE nor CLOSED), and the
+            // permanent dedup guard in requestFullGroupListForRelay silently drops
+            // every subsequent OTHER GROUPS expand — leaving the panel empty until
+            // app restart. Releasing it lets re-opening OTHER GROUPS retry the fetch.
+            pendingFullFetchRelays.remove(normalized)
+            pendingFetchSeenGroups.remove(normalized)
+            loadingWatchdogs.remove(normalized)
+        }
     }
 
     fun markRelayLoaded(relayUrl: String) {
-        _loadingRelays.update { it - relayUrl.normalizeRelayUrl() }
+        val normalized = relayUrl.normalizeRelayUrl()
+        _loadingRelays.update { it - normalized }
+        loadingWatchdogs.remove(normalized)?.cancel()
     }
 
     /**
@@ -1880,6 +1925,7 @@ class GroupManager(
             val normalizedRelay = sourceRelayUrl.normalizeRelayUrl()
             _completeGroupLoadRelays.update { it + normalizedRelay }
             _loadingRelays.update { it - normalizedRelay }
+            loadingWatchdogs.remove(normalizedRelay)?.cancel()
             val now = epochSeconds()
             val isFull = pendingFullFetchRelays.remove(normalizedRelay)
             if (isFull) {
@@ -3018,6 +3064,8 @@ class GroupManager(
         _completeGroupLoadRelays.value = emptySet()
         _fullGroupListFetchedRelays.value = emptySet()
         _loadingRelays.value = emptySet()
+        loadingWatchdogs.values.forEach { it.cancel() }
+        loadingWatchdogs.clear()
         // Without clearing this, an in-flight full fetch from the previous account
         // leaves the relay flagged as "pending", and the new account's expand of
         // OTHER GROUPS is silently skipped by requestFullGroupListForRelay's guard.
