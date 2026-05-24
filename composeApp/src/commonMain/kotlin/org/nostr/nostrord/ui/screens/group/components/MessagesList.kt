@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -116,6 +117,7 @@ fun MessagesList(
     val currentChatItems by rememberUpdatedState(chatItems)
 
     val coroutineScope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
     var reactingToMessageId by remember { mutableStateOf<String?>(null) }
     // Hoisted so only one message context menu can be open at a time
     var openContextMenuId by remember { mutableStateOf<String?>(null) }
@@ -498,7 +500,15 @@ fun MessagesList(
                                                         id == lastClosedMenuId &&
                                                             mark != null &&
                                                             mark.elapsedNow() < 350.milliseconds
-                                                    if (!recentlyClosed) openContextMenuId = id
+                                                    if (!recentlyClosed) {
+                                                        // Drop input focus before the focusable
+                                                        // menu Popup opens. Otherwise dismissing
+                                                        // it (e.g. Android back) returns focus to
+                                                        // the message field and re-shows the
+                                                        // keyboard instead of just closing the menu.
+                                                        focusManager.clearFocus(force = true)
+                                                        openContextMenuId = id
+                                                    }
                                                 } else if (openContextMenuId == id) {
                                                     closeContextMenu()
                                                 }
