@@ -1741,6 +1741,27 @@ body {
     text-decoration: underline;
 }
 
+.msg-reply {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
+.msg-reply-author {
+    flex-shrink: 0;
+    color: var(--color-primary);
+}
+
+.msg-reply-text {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .msg-reactions {
     display: flex;
     flex-wrap: wrap;
@@ -1791,6 +1812,42 @@ body {
 
 .reaction-add:hover {
     color: var(--color-text-primary);
+}
+
+.composer-reply {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 16px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-variant);
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid var(--color-background);
+}
+
+.composer-reply-name {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+
+.composer-reply-close {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.composer-reply-close:hover {
+    color: var(--color-text-primary);
+}
+
+.composer.replying {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
 }
 
 .composer {

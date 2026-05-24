@@ -42,6 +42,14 @@ external interface ChatScreenProps : Props {
 // Window (seconds) for grouping consecutive messages from the same author.
 private const val GROUP_WINDOW = 5 * 60
 
+/** Parent message id of a reply — the "q" tag with a 64-char hex event id (kind 9 only). */
+private fun parentMessageOf(message: org.nostr.nostrord.network.NostrGroupClient.NostrMessage): String? {
+    if (message.kind != 9) return null
+    return message.tags
+        .firstOrNull { it.size >= 2 && it[0] == "q" && it[1].length == 64 && it[1].all { c -> c.isLetterOrDigit() } }
+        ?.get(1)
+}
+
 private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.displayName?.takeIf { it.isNotBlank() }
     ?: meta?.name?.takeIf { it.isNotBlank() }
     ?: (pubkey.take(8) + "…")
@@ -67,6 +75,7 @@ val ChatScreen =
         val myPubkey = repo.getPublicKey()
 
         val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
+        val messagesById = messages.associateBy { it.id }
         val members = membersByGroup[group.id].orEmpty()
         val admins = adminsByGroup[group.id].orEmpty().toSet()
         val adminMembers = members.filter { it in admins }
@@ -77,6 +86,7 @@ val ChatScreen =
         val (infoOpen, setInfoOpen) = useState { false }
         val (profilePubkey, setProfilePubkey) = useState<String?> { null }
         val (menuOpen, setMenuOpen) = useState { false }
+        val (replyingToId, setReplyingToId) = useState<String?> { null }
         // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
 
@@ -96,8 +106,10 @@ val ChatScreen =
         fun send() {
             val text = draft.trim()
             if (text.isEmpty()) return
+            val replyId = replyingToId
             setDraft("")
-            launchApp { repo.sendMessage(group.id, text) }
+            setReplyingToId(null)
+            launchApp { repo.sendMessage(group.id, text, replyToMessageId = replyId) }
         }
 
         div {
@@ -209,6 +221,9 @@ val ChatScreen =
                                 prev == null ||
                                     prev.pubkey != message.pubkey ||
                                     message.createdAt - prev.createdAt > GROUP_WINDOW
+                            val parent = parentMessageOf(message)?.let { messagesById[it] }
+                            val replyTo =
+                                parent?.let { displayName(it.pubkey, userMetadata[it.pubkey]) to it.content }
                             messageRow(
                                 pubkey = message.pubkey,
                                 name = displayName(message.pubkey, userMetadata[message.pubkey]),
@@ -220,7 +235,9 @@ val ChatScreen =
                                 reactions = reactionsByMsg[message.id].orEmpty(),
                                 myPubkey = myPubkey,
                                 userMetadata = userMetadata,
+                                replyTo = replyTo,
                                 onUser = { setProfilePubkey(it) },
+                                onReply = { setReplyingToId(message.id) },
                                 onReact = { emoji ->
                                     launchApp { repo.sendReaction(group.id, message.id, message.pubkey, emoji) }
                                 },
@@ -229,9 +246,30 @@ val ChatScreen =
                     }
                 }
 
+                // Reply banner (above the composer)
+                replyingToId?.let { id ->
+                    messagesById[id]?.let { parent ->
+                        div {
+                            className = ClassName("composer-reply")
+                            span {
+                                +"Replying to "
+                                span {
+                                    className = ClassName("composer-reply-name")
+                                    +displayName(parent.pubkey, userMetadata[parent.pubkey])
+                                }
+                            }
+                            button {
+                                className = ClassName("composer-reply-close")
+                                onClick = { setReplyingToId(null) }
+                                +"✕"
+                            }
+                        }
+                    }
+                }
+
                 // Composer
                 div {
-                    className = ClassName("composer")
+                    className = ClassName(if (replyingToId != null) "composer replying" else "composer")
                     button {
                         className = ClassName("composer-btn")
                         +"＋"
@@ -382,7 +420,9 @@ private fun ChildrenBuilder.messageRow(
     reactions: Map<String, GroupManager.ReactionInfo>,
     myPubkey: String?,
     userMetadata: Map<String, UserMetadata>,
+    replyTo: Pair<String, String>?,
     onUser: (String) -> Unit,
+    onReply: () -> Unit,
     onReact: (String) -> Unit,
 ) {
     div {
@@ -405,6 +445,19 @@ private fun ChildrenBuilder.messageRow(
         }
         div {
             className = ClassName("msg-body")
+            if (replyTo != null) {
+                div {
+                    className = ClassName("msg-reply")
+                    span {
+                        className = ClassName("msg-reply-author")
+                        +"@${replyTo.first}"
+                    }
+                    span {
+                        className = ClassName("msg-reply-text")
+                        +replyTo.second
+                    }
+                }
+            }
             if (firstInGroup) {
                 div {
                     className = ClassName("msg-meta")
@@ -448,6 +501,12 @@ private fun ChildrenBuilder.messageRow(
                     title = "React"
                     onClick = { onReact("👍") }
                     +"+"
+                }
+                button {
+                    className = ClassName("reaction-add")
+                    title = "Reply"
+                    onClick = { onReply() }
+                    +"↩"
                 }
             }
         }
