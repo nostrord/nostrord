@@ -3,6 +3,7 @@ package org.nostr.nostrord.web.modals
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.WebAvatar
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -109,9 +110,10 @@ val MemberManagementModal =
                         div {
                             key = pubkey
                             className = ClassName("mod-row")
-                            div {
-                                className = ClassName("avatar-tile mod-avatar avatar-fallback")
-                                +nameOf(pubkey).take(1).uppercase()
+                            WebAvatar {
+                                url = userMetadata[pubkey]?.picture
+                                name = nameOf(pubkey)
+                                cls = "mod-avatar"
                             }
                             div {
                                 className = ClassName("mod-name-wrap")

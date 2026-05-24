@@ -6,6 +6,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.EditGroupModal
@@ -106,9 +107,10 @@ val ChatScreen =
                     div {
                         className = ClassName("chat-header-title")
                         onClick = { setInfoOpen(true) }
-                        div {
-                            className = ClassName("avatar-tile chat-header-icon avatar-fallback")
-                            +groupName.take(1).uppercase()
+                        WebAvatar {
+                            url = group.picture
+                            name = groupName
+                            cls = "chat-header-icon"
                         }
                         div {
                             className = ClassName("chat-header-meta")
@@ -204,6 +206,7 @@ val ChatScreen =
                             messageRow(
                                 pubkey = message.pubkey,
                                 name = displayName(message.pubkey, userMetadata[message.pubkey]),
+                                avatarUrl = userMetadata[message.pubkey]?.picture,
                                 time = formatTime(message.createdAt),
                                 content = message.content,
                                 firstInGroup = firstInGroup,
@@ -274,13 +277,13 @@ val ChatScreen =
                     if (adminMembers.isNotEmpty()) {
                         memberSection("Admins", adminMembers.size)
                         adminMembers.forEach { pubkey ->
-                            memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), isAdmin = true) { setProfilePubkey(it) }
+                            memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = true) { setProfilePubkey(it) }
                         }
                     }
                     if (plainMembers.isNotEmpty()) {
                         memberSection("Members", plainMembers.size)
                         plainMembers.forEach { pubkey ->
-                            memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), isAdmin = false) { setProfilePubkey(it) }
+                            memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = false) { setProfilePubkey(it) }
                         }
                     }
                     if (members.isEmpty()) {
@@ -359,6 +362,7 @@ private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false,
 private fun ChildrenBuilder.messageRow(
     pubkey: String,
     name: String,
+    avatarUrl: String?,
     time: String,
     content: String,
     firstInGroup: Boolean,
@@ -370,10 +374,11 @@ private fun ChildrenBuilder.messageRow(
         div {
             className = ClassName("msg-gutter")
             if (firstInGroup) {
-                div {
-                    className = ClassName("avatar-tile msg-avatar avatar-fallback clickable")
+                WebAvatar {
+                    url = avatarUrl
+                    this.name = name
+                    cls = "msg-avatar clickable"
                     onClick = { onUser(pubkey) }
-                    +name.take(1).uppercase()
                 }
             } else {
                 span {
@@ -419,15 +424,16 @@ private fun ChildrenBuilder.memberSection(title: String, count: Int) {
     }
 }
 
-private fun ChildrenBuilder.memberRow(pubkey: String, name: String, isAdmin: Boolean, onUser: (String) -> Unit) {
+private fun ChildrenBuilder.memberRow(pubkey: String, name: String, avatarUrl: String?, isAdmin: Boolean, onUser: (String) -> Unit) {
     div {
         className = ClassName("member-row")
         onClick = { onUser(pubkey) }
         div {
             className = ClassName("member-avatar-wrap")
-            div {
-                className = ClassName("avatar-tile member-avatar avatar-fallback")
-                +name.take(1).uppercase()
+            WebAvatar {
+                url = avatarUrl
+                this.name = name
+                cls = "member-avatar"
             }
         }
         span {

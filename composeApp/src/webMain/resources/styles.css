@@ -477,6 +477,12 @@ body {
     font-weight: 600;
 }
 
+.avatar-img {
+    display: block;
+    object-fit: cover;
+    background: var(--color-background-dark);
+}
+
 .rail-icon {
     width: 48px;
     height: 48px;

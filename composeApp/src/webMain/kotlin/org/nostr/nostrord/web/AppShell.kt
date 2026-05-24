@@ -8,6 +8,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
@@ -128,9 +129,10 @@ val AppShell =
                                     setSelectedGroupId(null)
                                     if (relay != currentRelayUrl) launchApp { repo.switchRelay(relay) }
                                 }
-                                div {
-                                    className = ClassName("avatar-tile rail-icon avatar-fallback")
-                                    +relayDisplayName(relay, relayNames).take(1).uppercase()
+                                WebAvatar {
+                                    url = relayMetadata[relay]?.icon
+                                    name = relayDisplayName(relay, relayNames)
+                                    cls = "rail-icon"
                                 }
                                 if (unread > 0) {
                                     span {
@@ -160,9 +162,10 @@ val AppShell =
                     div {
                         className = ClassName("rail-account")
                         onClick = { setMenuOpen(!menuOpen) }
-                        div {
-                            className = ClassName("avatar-tile rail-icon avatar-fallback")
-                            +meName.take(1).uppercase()
+                        WebAvatar {
+                            url = meMetadata?.picture
+                            name = meName
+                            cls = "rail-icon"
                         }
                     }
                 }
@@ -191,9 +194,10 @@ val AppShell =
                                         setNotificationsOpen(false)
                                         setDrawerOpen(false)
                                     }
-                                    div {
-                                        className = ClassName("avatar-tile group-icon-sm avatar-fallback")
-                                        +(group.name ?: group.id).take(1).uppercase()
+                                    WebAvatar {
+                                        url = group.picture
+                                        name = group.name ?: group.id
+                                        cls = "group-icon-sm"
                                     }
                                     span {
                                         className = ClassName("sidebar-group-name")
@@ -284,9 +288,10 @@ val AppShell =
 
                         div {
                             className = ClassName("me-header")
-                            div {
-                                className = ClassName("avatar-tile me-avatar-lg avatar-fallback")
-                                +meName.take(1).uppercase()
+                            WebAvatar {
+                                url = meMetadata?.picture
+                                name = meName
+                                cls = "me-avatar-lg"
                             }
                             div {
                                 className = ClassName("me-header-meta")
@@ -327,9 +332,10 @@ val AppShell =
                                         launchApp { AppModule.accountManager.switchAccount(account.pubkey) }
                                     }
                                 }
-                                div {
-                                    className = ClassName("avatar-tile me-avatar-sm avatar-fallback")
-                                    +name.take(1).uppercase()
+                                WebAvatar {
+                                    url = meta?.picture
+                                    this.name = name
+                                    cls = "me-avatar-sm"
                                 }
                                 div {
                                     className = ClassName("me-account-meta")

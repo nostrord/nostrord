@@ -3,12 +3,13 @@ package org.nostr.nostrord.web.screens
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
-import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.WebAvatar
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -114,9 +115,10 @@ private val ProfilePanel =
 
         div {
             className = ClassName("settings-card center")
-            div {
-                className = ClassName("avatar-tile settings-avatar avatar-fallback")
-                +(name.ifBlank { "U" }).take(1).uppercase()
+            WebAvatar {
+                url = picture.ifBlank { null }
+                this.name = name.ifBlank { "U" }
+                cls = "settings-avatar"
             }
             div {
                 className = ClassName("settings-avatar-caption")
@@ -129,7 +131,10 @@ private val ProfilePanel =
                 className = ClassName("settings-section-head")
                 +"PROFILE INFORMATION"
             }
-            settingsField("Name", "Your name", name) { setName(it); setSaved(false) }
+            settingsField("Name", "Your name", name) {
+                setName(it)
+                setSaved(false)
+            }
             settingsTextarea("About", "Tell us about yourself", about) { setAbout(it) }
             settingsField("Avatar URL", "https://example.com/avatar.jpg", picture) { setPicture(it) }
             settingsField("Banner URL", "https://example.com/banner.jpg", banner) { setBanner(it) }
@@ -300,13 +305,12 @@ private val RelaysPanel =
         }
     }
 
-private fun readWriteLabel(relay: Nip65Relay): String =
-    when {
-        relay.read && relay.write -> "read/write"
-        relay.read -> "read"
-        relay.write -> "write"
-        else -> "—"
-    }
+private fun readWriteLabel(relay: Nip65Relay): String = when {
+    relay.read && relay.write -> "read/write"
+    relay.read -> "read"
+    relay.write -> "write"
+    else -> "—"
+}
 
 // ── Notifications ────────────────────────────────────────────────────────────
 

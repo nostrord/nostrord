@@ -4,6 +4,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.WebAvatar
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -51,9 +52,10 @@ val UserProfileModal =
                         onClick = { props.onClose() }
                         +"✕"
                     }
-                    div {
-                        className = ClassName("avatar-tile profile-avatar avatar-fallback")
-                        +name.take(1).uppercase()
+                    WebAvatar {
+                        url = meta?.picture
+                        this.name = name
+                        cls = "profile-avatar"
                     }
                 }
 

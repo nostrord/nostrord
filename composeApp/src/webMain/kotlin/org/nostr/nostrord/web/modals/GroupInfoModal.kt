@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.web.components.WebAvatar
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -37,9 +38,10 @@ val GroupInfoModal =
                         onClick = { props.onClose() }
                         +"✕"
                     }
-                    div {
-                        className = ClassName("avatar-tile info-cover-icon avatar-fallback")
-                        +groupName.take(1).uppercase()
+                    WebAvatar {
+                        url = group.picture
+                        name = groupName
+                        cls = "info-cover-icon"
                     }
                 }
 

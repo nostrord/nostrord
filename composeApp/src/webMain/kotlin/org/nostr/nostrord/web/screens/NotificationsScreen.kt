@@ -7,6 +7,7 @@ import org.nostr.nostrord.notifications.NotificationType
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.WebAvatar
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -75,29 +76,26 @@ val NotificationsScreen =
         }
     }
 
-private fun typeClass(type: NotificationType): String =
-    when (type) {
-        NotificationType.REPLY -> "reply"
-        NotificationType.MENTION -> "mention"
-        NotificationType.REACTION -> "reaction"
-        NotificationType.MESSAGE -> "message"
-    }
+private fun typeClass(type: NotificationType): String = when (type) {
+    NotificationType.REPLY -> "reply"
+    NotificationType.MENTION -> "mention"
+    NotificationType.REACTION -> "reaction"
+    NotificationType.MESSAGE -> "message"
+}
 
-private fun typeLabel(type: NotificationType): String =
-    when (type) {
-        NotificationType.REPLY -> "replied to your message"
-        NotificationType.MENTION -> "mentioned you"
-        NotificationType.REACTION -> "reacted to your message"
-        NotificationType.MESSAGE -> "sent a message"
-    }
+private fun typeLabel(type: NotificationType): String = when (type) {
+    NotificationType.REPLY -> "replied to your message"
+    NotificationType.MENTION -> "mentioned you"
+    NotificationType.REACTION -> "reacted to your message"
+    NotificationType.MESSAGE -> "sent a message"
+}
 
-private fun typeGlyph(entry: NotificationEntry): String =
-    when (entry.type) {
-        NotificationType.REPLY -> "↩"
-        NotificationType.MENTION -> "@"
-        NotificationType.REACTION -> entry.emoji?.takeIf { it.isNotBlank() } ?: "+"
-        NotificationType.MESSAGE -> "💬"
-    }
+private fun typeGlyph(entry: NotificationEntry): String = when (entry.type) {
+    NotificationType.REPLY -> "↩"
+    NotificationType.MENTION -> "@"
+    NotificationType.REACTION -> entry.emoji?.takeIf { it.isNotBlank() } ?: "+"
+    NotificationType.MESSAGE -> "💬"
+}
 
 private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserMetadata?) {
     val actor =
@@ -114,9 +112,10 @@ private fun ChildrenBuilder.notifItem(entry: NotificationEntry, actorMeta: UserM
             className = ClassName("notif-main")
             div {
                 className = ClassName("notif-avatar-wrap")
-                div {
-                    className = ClassName("avatar-tile notif-avatar avatar-fallback")
-                    +actor.take(1).uppercase()
+                WebAvatar {
+                    url = actorMeta?.picture
+                    name = actor
+                    cls = "notif-avatar"
                 }
                 span {
                     className = ClassName("notif-badge ${typeClass(entry.type)}")
