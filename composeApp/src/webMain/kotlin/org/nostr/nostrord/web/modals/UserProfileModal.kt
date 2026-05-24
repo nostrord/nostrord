@@ -9,6 +9,7 @@ import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
+import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.span
 import react.useEffect
 import web.cssom.ClassName
@@ -47,6 +48,13 @@ val UserProfileModal =
 
                 div {
                     className = ClassName("profile-banner")
+                    if (!meta?.banner.isNullOrBlank()) {
+                        img {
+                            className = ClassName("cover-img")
+                            src = meta?.banner ?: ""
+                            alt = ""
+                        }
+                    }
                     button {
                         className = ClassName("info-cover-close")
                         onClick = { props.onClose() }

@@ -534,7 +534,16 @@ private fun ChildrenBuilder.messageRow(
                     button {
                         className = ClassName(if (mine) "reaction-badge mine" else "reaction-badge")
                         onClick = { onReact(emoji) }
-                        +emoji
+                        val emojiUrl = info.emojiUrl
+                        if (!emojiUrl.isNullOrBlank()) {
+                            img {
+                                className = ClassName("reaction-emoji")
+                                src = emojiUrl
+                                alt = emoji
+                            }
+                        } else {
+                            +emoji
+                        }
                         span {
                             className = ClassName("reaction-count")
                             +info.reactors.size.toString()

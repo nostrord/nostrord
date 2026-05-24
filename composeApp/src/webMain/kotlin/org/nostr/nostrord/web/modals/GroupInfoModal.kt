@@ -7,6 +7,7 @@ import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
+import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.span
 import web.cssom.ClassName
 
@@ -33,6 +34,13 @@ val GroupInfoModal =
 
                 div {
                     className = ClassName("info-cover")
+                    if (!group.picture.isNullOrBlank()) {
+                        img {
+                            className = ClassName("cover-img")
+                            src = group.picture ?: ""
+                            alt = ""
+                        }
+                    }
                     button {
                         className = ClassName("info-cover-close")
                         onClick = { props.onClose() }
