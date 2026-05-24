@@ -36,6 +36,7 @@ val HomeScreen =
 
         val isRelaySaved = currentRelay in kind10009
         val (optionsOpen, setOptionsOpen) = useState { false }
+        val (confirmLeave, setConfirmLeave) = useState { false }
 
         val relayMeta = relayMetadata[currentRelay]
         val relayLabel = relayMeta?.name?.takeIf { it.isNotBlank() } ?: currentRelay.removePrefix("wss://").removePrefix("ws://")
@@ -92,7 +93,7 @@ val HomeScreen =
                                 className = ClassName("home-relay-menu-item danger")
                                 onClick = {
                                     setOptionsOpen(false)
-                                    launchApp { repo.removeRelay(currentRelay) }
+                                    setConfirmLeave(true)
                                 }
                                 +"Remove relay from your list"
                             }
@@ -140,6 +141,41 @@ val HomeScreen =
                             onOpen = { props.onOpenGroup(group.id) },
                             onJoin = { launchApp { repo.joinGroup(group.id) } },
                         )
+                    }
+                }
+            }
+
+            if (confirmLeave) {
+                div {
+                    className = ClassName("modal-overlay")
+                    onClick = { setConfirmLeave(false) }
+                    div {
+                        className = ClassName("modal-card sm")
+                        onClick = { it.stopPropagation() }
+                        div {
+                            className = ClassName("modal-title")
+                            +"Leave relay?"
+                        }
+                        div {
+                            className = ClassName("modal-subtitle tight")
+                            +"$relayLabel will be removed from your list and you'll leave its groups. You can add it again anytime."
+                        }
+                        div {
+                            className = ClassName("modal-footer")
+                            button {
+                                className = ClassName("btn-text")
+                                onClick = { setConfirmLeave(false) }
+                                +"Cancel"
+                            }
+                            button {
+                                className = ClassName("btn-danger")
+                                onClick = {
+                                    setConfirmLeave(false)
+                                    launchApp { repo.removeRelay(currentRelay) }
+                                }
+                                +"Leave relay"
+                            }
+                        }
                     }
                 }
             }

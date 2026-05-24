@@ -1323,6 +1323,21 @@ body {
     cursor: default;
 }
 
+.btn-danger {
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-error);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn-danger:hover {
+    background: #c93b3e;
+}
+
 /* Add-relay tabs */
 .modal-tabs {
     display: flex;
