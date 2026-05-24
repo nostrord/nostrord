@@ -778,6 +778,13 @@ class NostrRepository(
             groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
             groupManager.loadRestrictedGroupsFromStorage(pubkey, allRelays)
+            // Point GroupManager's current-relay flow at the new primary so the
+            // derived joinedGroups (My Groups — sidebar AND homescreen) reflects
+            // this account immediately. applyActiveAccountChange.clear() nulled it,
+            // and the warm-swap path only re-sets it if reconnect() actually runs
+            // (non-blank relay + a live message handler) via resubscribeAllGroups
+            // — so without this, My Groups stayed empty after an account switch.
+            groupManager.restoreGroupsForRelay(primaryRelay)
             // The account had no persisted current relay — elect one so the
             // primary actually connects (and its cache-hit mux is set up) instead
             // of relying on a reconnect that no-ops against a blank current relay.
