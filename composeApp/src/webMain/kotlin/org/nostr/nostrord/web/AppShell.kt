@@ -415,7 +415,11 @@ val AppShell =
                         initialTab = relayTab
                         onClose = { setModal(null) }
                         onAdded = { url ->
-                            launchApp { repo.switchRelay(url) }
+                            // Persist to the kind:10009 list, then switch to it.
+                            launchApp {
+                                repo.addRelay(url)
+                                repo.switchRelay(url)
+                            }
                             setModal(null)
                         }
                     }

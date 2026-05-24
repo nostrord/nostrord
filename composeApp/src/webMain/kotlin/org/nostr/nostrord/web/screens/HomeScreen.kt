@@ -32,6 +32,10 @@ val HomeScreen =
         val relayMetadata = useStateFlow(repo.relayMetadata)
         val groupsByRelay = useStateFlow(repo.groupsByRelay)
         val joinedByRelay = useStateFlow(repo.joinedGroupsByRelay)
+        val kind10009 = useStateFlow(repo.kind10009Relays)
+
+        val isRelaySaved = currentRelay in kind10009
+        val (optionsOpen, setOptionsOpen) = useState { false }
 
         val relayMeta = relayMetadata[currentRelay]
         val relayLabel = relayMeta?.name?.takeIf { it.isNotBlank() } ?: currentRelay.removePrefix("wss://").removePrefix("ws://")
@@ -68,6 +72,41 @@ val HomeScreen =
                 div {
                     className = ClassName("home-subtitle")
                     +"Choose a group to join and start chatting."
+                }
+
+                // Relay options (add to / remove from the kind:10009 list)
+                button {
+                    className = ClassName("home-relay-options")
+                    onClick = { setOptionsOpen(!optionsOpen) }
+                    +"⋯"
+                }
+                if (optionsOpen) {
+                    div {
+                        className = ClassName("home-relay-menu-overlay")
+                        onClick = { setOptionsOpen(false) }
+                    }
+                    div {
+                        className = ClassName("home-relay-menu")
+                        if (isRelaySaved) {
+                            div {
+                                className = ClassName("home-relay-menu-item danger")
+                                onClick = {
+                                    setOptionsOpen(false)
+                                    launchApp { repo.removeRelay(currentRelay) }
+                                }
+                                +"Remove relay from your list"
+                            }
+                        } else {
+                            div {
+                                className = ClassName("home-relay-menu-item")
+                                onClick = {
+                                    setOptionsOpen(false)
+                                    launchApp { repo.addRelay(currentRelay) }
+                                }
+                                +"Add relay to your list"
+                            }
+                        }
+                    }
                 }
             }
 
@@ -169,7 +208,15 @@ private fun ChildrenBuilder.pickGroupCard(
                 it.stopPropagation()
                 if (!isJoined) onJoin()
             }
-            +(if (isJoined) "Joined" else if (!group.isOpen) "Request" else "Join")
+            +(
+                if (isJoined) {
+                    "Joined"
+                } else if (!group.isOpen) {
+                    "Request"
+                } else {
+                    "Join"
+                }
+                )
         }
     }
 }
