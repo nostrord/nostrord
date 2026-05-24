@@ -54,11 +54,10 @@ private fun searchFor(relay: String, groupId: String?, notifications: Boolean): 
     }
 }
 
-private fun parseSearch(search: String): Map<String, String> =
-    search.removePrefix("?").split("&").filter { it.isNotEmpty() }.associate { part ->
-        val i = part.indexOf("=")
-        if (i >= 0) part.substring(0, i) to part.substring(i + 1) else part to ""
-    }
+private fun parseSearch(search: String): Map<String, String> = search.removePrefix("?").split("&").filter { it.isNotEmpty() }.associate { part ->
+    val i = part.indexOf("=")
+    if (i >= 0) part.substring(0, i) to part.substring(i + 1) else part to ""
+}
 
 /**
  * Logged-in shell — real data: server rail (relays from kind:10009 + group-tag relays),
@@ -346,7 +345,8 @@ val AppShell =
                 className = ClassName("content")
 
                 // Connection status banner (disconnected / reconnecting / error)
-                if (hasRelays && !notificationsOpen &&
+                if (hasRelays &&
+                    !notificationsOpen &&
                     connState != ConnectionManager.ConnectionState.Connected &&
                     connState != ConnectionManager.ConnectionState.Connecting
                 ) {
