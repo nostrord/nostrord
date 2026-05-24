@@ -48,24 +48,14 @@ val UploadButton =
                 disabled = busy
                 onChange = { event ->
                     val target = event.currentTarget
-                    val f = target.asDynamic().files?.get(0)
+                    val fileList = target.asDynamic().files
+                    val f = if (fileList != null && (fileList.length as Int) > 0) fileList[0] else null
                     if (f != null) {
                         setBusy(true)
                         launchApp {
                             try {
-                                val bytes = readFileBytes(f)
-                                val mime = (f.type.unsafeCast<String?>())?.takeIf { it.isNotBlank() } ?: "image/jpeg"
-                                val name = f.name.unsafeCast<String?>() ?: "image"
-                                if (bytes.isNotEmpty()) {
-                                    val result =
-                                        NostrBuildUploader.upload(
-                                            bytes,
-                                            name,
-                                            mime,
-                                            AppModule.nostrRepository::buildNip98AuthHeader,
-                                        )
-                                    if (result is Result.Success) props.onUploaded(result.data.url)
-                                }
+                                val url = uploadBlob(f)
+                                if (url != null) props.onUploaded(url)
                             } finally {
                                 setBusy(false)
                                 target.asDynamic().value = ""
@@ -76,6 +66,25 @@ val UploadButton =
             }
         }
     }
+
+/**
+ * Upload a picked/pasted File (or Blob) to nostr.build (NIP-98 auth via the repository).
+ * Returns the media URL, or null on failure. Reusable by the file picker and Ctrl+V paste.
+ */
+suspend fun uploadBlob(file: dynamic): String? {
+    val bytes = readFileBytes(file)
+    if (bytes.isEmpty()) return null
+    val mime = (file.type.unsafeCast<String?>())?.takeIf { it.isNotBlank() } ?: "image/jpeg"
+    val name = (file.name.unsafeCast<String?>())?.takeIf { it.isNotBlank() } ?: "image"
+    val result =
+        NostrBuildUploader.upload(
+            bytes,
+            name,
+            mime,
+            AppModule.nostrRepository::buildNip98AuthHeader,
+        )
+    return if (result is Result.Success) result.data.url else null
+}
 
 /** Read a picked file's bytes via the Blob arrayBuffer() promise. */
 private suspend fun readFileBytes(file: dynamic): ByteArray = suspendCoroutine { cont ->

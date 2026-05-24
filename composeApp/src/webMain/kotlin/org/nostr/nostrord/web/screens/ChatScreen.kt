@@ -17,6 +17,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
+import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.icon
@@ -421,6 +422,27 @@ val ChatScreen =
                                 if (event.key == "Enter" && !event.shiftKey) {
                                     event.preventDefault()
                                     send()
+                                }
+                            }
+                            // Ctrl/Cmd+V of an image: upload it and append the URL to the draft.
+                            onPaste = { event ->
+                                val items = event.asDynamic().clipboardData?.items
+                                val count = (items?.length as? Int) ?: 0
+                                for (i in 0 until count) {
+                                    val item = items[i]
+                                    val type = item.type.unsafeCast<String?>()
+                                    if (item.kind == "file" && type != null && type.startsWith("image/")) {
+                                        val file = item.getAsFile()
+                                        if (file != null) {
+                                            event.preventDefault()
+                                            launchApp {
+                                                val url = uploadBlob(file)
+                                                if (url != null) {
+                                                    setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
