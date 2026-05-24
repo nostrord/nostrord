@@ -1712,6 +1712,13 @@ body {
     font-size: 15px;
 }
 
+.chat-loading-more {
+    padding: 10px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
 .chat-date {
     display: flex;
     align-items: center;

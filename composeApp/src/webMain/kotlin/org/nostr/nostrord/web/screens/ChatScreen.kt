@@ -37,6 +37,7 @@ import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
 import react.useEffect
+import react.useRef
 import react.useState
 import web.cssom.ClassName
 import web.dom.ElementId
@@ -86,6 +87,8 @@ val ChatScreen =
         val userMetadata = useStateFlow(repo.userMetadata)
         val reactionsByMsg = useStateFlow(repo.reactions)
         val relayUrl = useStateFlow(repo.currentRelayUrl)
+        val isLoadingMore = useStateFlow(repo.isLoadingMore)[group.id] ?: false
+        val hasMore = useStateFlow(repo.hasMoreMessages)[group.id] ?: true
         val myPubkey = repo.getPublicKey()
 
         val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
@@ -110,6 +113,11 @@ val ChatScreen =
         // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
 
+        // Scroll/pagination bookkeeping (refs so they don't trigger re-render).
+        val loadingOlder = useRef(false)
+        val prevScrollHeight = useRef(0.0)
+        val atBottom = useRef(true)
+
         // Load messages + author/member metadata when the group (or its rosters) change.
         useEffect(group.id) {
             launchApp { repo.requestGroupMessages(group.id) }
@@ -118,9 +126,17 @@ val ChatScreen =
             val pubkeys = (members + messages.map { it.pubkey }).toSet()
             if (pubkeys.isNotEmpty()) launchApp { repo.requestUserMetadata(pubkeys) }
         }
-        // Keep the message list pinned to the latest message.
+        // After messages change: restore position when older messages were prepended,
+        // otherwise pin to the bottom only if the user was already near it.
         useEffect(messages.size) {
-            document.getElementById(ElementId("chat-messages"))?.let { it.scrollTop = it.scrollHeight.toDouble() }
+            val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
+            when {
+                loadingOlder.current == true -> {
+                    el.scrollTop = el.scrollHeight.toDouble() - (prevScrollHeight.current ?: 0.0)
+                    loadingOlder.current = false
+                }
+                atBottom.current == true -> el.scrollTop = el.scrollHeight.toDouble()
+            }
         }
 
         fun send() {
@@ -248,6 +264,22 @@ val ChatScreen =
                 div {
                     className = ClassName("chat-messages")
                     id = ElementId("chat-messages")
+                    onScroll = { event ->
+                        val el = event.currentTarget
+                        val sh = el.scrollHeight.toDouble()
+                        atBottom.current = (sh - el.scrollTop - el.clientHeight.toDouble()) < 120.0
+                        if (el.scrollTop < 80.0 && hasMore && !isLoadingMore && loadingOlder.current != true) {
+                            loadingOlder.current = true
+                            prevScrollHeight.current = sh
+                            launchApp { repo.loadMoreMessages(group.id) }
+                        }
+                    }
+                    if (isLoadingMore && messages.isNotEmpty()) {
+                        div {
+                            className = ClassName("chat-loading-more")
+                            +"Loading earlier messages…"
+                        }
+                    }
                     if (messages.isEmpty()) {
                         div {
                             className = ClassName("chat-empty")
