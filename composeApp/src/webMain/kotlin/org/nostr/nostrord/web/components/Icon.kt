@@ -71,6 +71,7 @@ enum class Ic(val d: String) {
     MoreVert(
         "M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z",
     ),
+
     // Outlined emoji_emotions: eyes (circles → arc subpaths) + mouth + face ring, merged into one path.
     EmojiEmotions(
         "M14 9.5a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0zM7 9.5a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0z" +
