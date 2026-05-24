@@ -1,6 +1,8 @@
 package org.nostr.nostrord.web.modals
 
-import org.nostr.nostrord.web.mock.Mock
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.bridge.useStateFlow
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -9,15 +11,40 @@ import react.dom.html.ReactHTML.span
 import web.cssom.ClassName
 
 external interface JoinRequestsModalProps : Props {
+    var groupId: String
     var onClose: () -> Unit
 }
 
 /**
- * Join-requests modal — layout-first React port of the Compose JoinRequestsModal: pending
- * requesters with Approve / Reject, or an empty state. Mock data; actions are stubbed.
+ * Join-requests modal — real port of the Compose JoinRequestsModal: pending requesters
+ * derived from the group's `messages` (kind:9021, minus current members and anyone whose
+ * latest event is a leave kind:9022), with Approve (`addUser`) / Reject (`rejectJoinRequest`).
  */
 val JoinRequestsModal =
     FC<JoinRequestsModalProps> { props ->
+        val repo = AppModule.nostrRepository
+        val msgs = useStateFlow(repo.messages)[props.groupId].orEmpty()
+        val members = useStateFlow(repo.groupMembers)[props.groupId].orEmpty().toSet()
+        val userMetadata = useStateFlow(repo.userMetadata)
+
+        val lastLeave =
+            msgs.filter { it.kind == 9022 }
+                .groupBy { it.pubkey }
+                .mapValues { (_, events) -> events.maxOf { it.createdAt } }
+        // (pubkey, eventId) newest first
+        val pending =
+            msgs.filter { it.kind == 9021 && it.pubkey !in members }
+                .filter { req -> lastLeave[req.pubkey].let { it == null || req.createdAt > it } }
+                .distinctBy { it.pubkey }
+                .sortedByDescending { it.createdAt }
+
+        fun nameOf(pubkey: String): String {
+            val meta = userMetadata[pubkey]
+            return meta?.displayName?.takeIf { it.isNotBlank() }
+                ?: meta?.name?.takeIf { it.isNotBlank() }
+                ?: (pubkey.take(8) + "…")
+        }
+
         div {
             className = ClassName("modal-overlay")
             onClick = { props.onClose() }
@@ -31,7 +58,7 @@ val JoinRequestsModal =
                         className = ClassName("modal-header-text")
                         div {
                             className = ClassName("modal-title")
-                            +"Join Requests (${Mock.sampleJoinRequests.size})"
+                            +"Join Requests (${pending.size})"
                         }
                     }
                     button {
@@ -41,7 +68,7 @@ val JoinRequestsModal =
                     }
                 }
 
-                if (Mock.sampleJoinRequests.isEmpty()) {
+                if (pending.isEmpty()) {
                     div {
                         className = ClassName("mod-empty")
                         +"No pending requests"
@@ -49,26 +76,28 @@ val JoinRequestsModal =
                 } else {
                     div {
                         className = ClassName("mod-list")
-                        Mock.sampleJoinRequests.forEach { name ->
+                        pending.forEach { req ->
                             div {
-                                key = name
+                                key = req.id
                                 className = ClassName("mod-row")
                                 div {
                                     className = ClassName("avatar-tile mod-avatar avatar-fallback")
-                                    +name.take(1).uppercase()
+                                    +nameOf(req.pubkey).take(1).uppercase()
                                 }
                                 span {
                                     className = ClassName("mod-name")
-                                    +name
+                                    +nameOf(req.pubkey)
                                 }
                                 div {
                                     className = ClassName("mod-actions")
                                     button {
                                         className = ClassName("mod-btn primary")
+                                        onClick = { launchApp { repo.addUser(props.groupId, req.pubkey) } }
                                         +"Approve"
                                     }
                                     button {
                                         className = ClassName("mod-btn danger")
+                                        onClick = { launchApp { repo.rejectJoinRequest(props.groupId, req.id) } }
                                         +"Reject"
                                     }
                                 }

@@ -1,6 +1,9 @@
 package org.nostr.nostrord.web.modals
 
+import kotlinx.browser.window
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.web.bridge.useStateFlow
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -15,14 +18,16 @@ external interface ShareGroupModalProps : Props {
 }
 
 /**
- * Share-group modal — layout-first React port of the Compose ShareGroupModal: a shareable
- * web Link and the Nostr Address (naddr), each with a Copy button. Copy is stubbed.
+ * Share-group modal — real port of the Compose ShareGroupModal: a shareable web Link
+ * (built from the active relay + group id) and the naddr, each with a working Copy button.
  */
 val ShareGroupModal =
     FC<ShareGroupModalProps> { props ->
         val group = props.group
-        val link = "https://nostrord.com/open/?relay=groups.0xchat.com&group=${group.id}"
-        val naddr = "naddr1qq8x_${group.id}_w3z9k2v4h7t6y8u3w0e5r2t9p4a"
+        val relayUrl = useStateFlow(AppModule.nostrRepository.currentRelayUrl)
+        val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
+        val link = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}"
+        val naddr = "nostr:naddr — relay $relayHost · group ${group.id}"
 
         div {
             className = ClassName("modal-overlay")
@@ -53,6 +58,11 @@ val ShareGroupModal =
         }
     }
 
+private fun copyToClipboard(text: String) {
+    val clip = window.navigator.asDynamic().clipboard
+    if (clip != null) clip.writeText(text)
+}
+
 private fun ChildrenBuilder.shareField(label: String, value: String) {
     div {
         className = ClassName("field-label")
@@ -67,6 +77,7 @@ private fun ChildrenBuilder.shareField(label: String, value: String) {
         }
         button {
             className = ClassName("btn-primary")
+            onClick = { copyToClipboard(value) }
             +"Copy"
         }
     }

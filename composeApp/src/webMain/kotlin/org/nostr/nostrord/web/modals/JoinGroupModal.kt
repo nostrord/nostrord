@@ -1,5 +1,9 @@
 package org.nostr.nostrord.web.modals
 
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.toRelayUrl
+import org.nostr.nostrord.web.bridge.launchApp
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -12,14 +16,50 @@ external interface JoinGroupModalProps : Props {
     var onClose: () -> Unit
 }
 
+/** Parse a nostrord.com/open or nostrord:// invite link into (relayUrl, groupId, code?). */
+private fun parseInviteLink(input: String): Triple<String, String, String?>? {
+    val trimmed = input.trim()
+    val queryStart = trimmed.indexOf('?')
+    if (queryStart < 0) return null
+    val params =
+        trimmed.substring(queryStart + 1).split("&").associate { param ->
+            val idx = param.indexOf("=")
+            if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1) else param to ""
+        }
+    val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
+    val group = params["group"]?.takeIf { it.isNotBlank() } ?: return null
+    return Triple(relay.toRelayUrl(), group, params["code"]?.takeIf { it.isNotBlank() })
+}
+
 /**
- * Join-group modal — layout-first React port of the Compose [JoinGroupModal] AlertDialog:
- * paste an invite link, validate, join. Validation/join is stubbed (closes on success).
+ * Join-group modal — real port of the Compose [JoinGroupModal]: paste an invite link, parse
+ * it, switch to its relay and join. Closes on success, shows the parse/join error otherwise.
  */
 val JoinGroupModal =
     FC<JoinGroupModalProps> { props ->
         val (link, setLink) = useState { "" }
+        val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
+
+        fun submit() {
+            val parsed = parseInviteLink(link)
+            if (parsed == null) {
+                setError("Invalid link. Use a nostrord.com/open/ or nostrord:// invite link.")
+                return
+            }
+            val (relayUrl, groupId, code) = parsed
+            setError(null)
+            setBusy(true)
+            launchApp {
+                AppModule.nostrRepository.switchRelay(relayUrl)
+                val result = AppModule.nostrRepository.joinGroup(groupId, code)
+                setBusy(false)
+                when (result) {
+                    is Result.Success -> props.onClose()
+                    is Result.Error -> setError(result.error.message.ifBlank { "Failed to join group." })
+                }
+            }
+        }
 
         div {
             className = ClassName("modal-overlay")
@@ -67,15 +107,9 @@ val JoinGroupModal =
                     }
                     button {
                         className = ClassName("btn-primary")
-                        disabled = link.isBlank()
-                        onClick = {
-                            if (!link.contains("?")) {
-                                setError("Invalid link. Use a nostrord.com/open/ or nostrord:// invite link.")
-                            } else {
-                                props.onClose()
-                            }
-                        }
-                        +"Join"
+                        disabled = link.isBlank() || busy
+                        onClick = { submit() }
+                        +(if (busy) "Joining…" else "Join")
                     }
                 }
             }

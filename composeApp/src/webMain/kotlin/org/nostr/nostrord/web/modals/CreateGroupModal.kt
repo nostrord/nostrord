@@ -1,6 +1,9 @@
 package org.nostr.nostrord.web.modals
 
-import org.nostr.nostrord.web.mock.Mock
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.bridge.useStateFlow
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.a
@@ -19,6 +22,12 @@ external interface CreateGroupModalProps : Props {
 
     /** When true, render as "Create Subgroup" (a child of the current group). */
     var subgroup: Boolean?
+
+    /** Parent group id when creating a subgroup. */
+    var parentGroupId: String?
+
+    /** Relay to create on; defaults to the active relay. */
+    var relayUrl: String?
 }
 
 /**
@@ -30,16 +39,65 @@ external interface CreateGroupModalProps : Props {
 val CreateGroupModal =
     FC<CreateGroupModalProps> { props ->
         val isSubgroup = props.subgroup == true
+        val repo = AppModule.nostrRepository
+        val kind10009 = useStateFlow(repo.kind10009Relays)
+        val groupTagRelays = useStateFlow(repo.groupTagRelays)
+        val currentRelayUrl = useStateFlow(repo.currentRelayUrl)
+        val relayList =
+            (kind10009.toList() + groupTagRelays.toList() + currentRelayUrl)
+                .filter { it.isNotBlank() }
+                .distinct()
+
         val (name, setName) = useState { "" }
         val (groupId, setGroupId) = useState { "" }
-        val (selectedRelay, setSelectedRelay) = useState { Mock.activeRelay.url }
+        val (selectedRelay, setSelectedRelay) = useState { props.relayUrl ?: currentRelayUrl }
         val (about, setAbout) = useState { "" }
         val (picture, setPicture) = useState { "" }
         val (isPrivate, setIsPrivate) = useState { false }
         val (isClosed, setIsClosed) = useState { false }
+        val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
 
         val relayWebUrl = selectedRelay.replace("wss://", "https://").replace("ws://", "http://")
+
+        fun submit() {
+            if (name.isBlank()) {
+                setError("Group name is required.")
+                return
+            }
+            setError(null)
+            setBusy(true)
+            launchApp {
+                val result =
+                    if (isSubgroup && props.parentGroupId != null) {
+                        repo.createSubgroup(
+                            parentGroupId = props.parentGroupId!!,
+                            name = name.trim(),
+                            about = about.trim().ifBlank { null },
+                            relayUrl = selectedRelay,
+                            isPrivate = isPrivate,
+                            isClosed = isClosed,
+                            picture = picture.trim().ifBlank { null },
+                            customGroupId = groupId.trim().ifBlank { null },
+                        )
+                    } else {
+                        repo.createGroup(
+                            name = name.trim(),
+                            about = about.trim().ifBlank { null },
+                            relayUrl = selectedRelay,
+                            isPrivate = isPrivate,
+                            isClosed = isClosed,
+                            picture = picture.trim().ifBlank { null },
+                            customGroupId = groupId.trim().ifBlank { null },
+                        )
+                    }
+                setBusy(false)
+                when (result) {
+                    is Result.Success -> props.onClose()
+                    is Result.Error -> setError(result.error.message.ifBlank { "Failed to create group." })
+                }
+            }
+        }
 
         div {
             className = ClassName("modal-overlay")
@@ -115,10 +173,10 @@ val CreateGroupModal =
                     className = ClassName("modal-select")
                     value = selectedRelay
                     onChange = { event -> setSelectedRelay(event.currentTarget.value) }
-                    Mock.relays.forEach { relay ->
+                    relayList.forEach { relay ->
                         option {
-                            value = relay.url
-                            +relay.url.removePrefix("wss://")
+                            value = relay
+                            +relay.removePrefix("wss://")
                         }
                     }
                 }
@@ -201,15 +259,9 @@ val CreateGroupModal =
                     }
                     button {
                         className = ClassName("btn-primary")
-                        disabled = name.isBlank()
-                        onClick = {
-                            if (name.isBlank()) {
-                                setError("Group name is required.")
-                            } else {
-                                props.onClose()
-                            }
-                        }
-                        +(if (isSubgroup) "Create Subgroup" else "Create Group")
+                        disabled = name.isBlank() || busy
+                        onClick = { submit() }
+                        +(if (busy) "Creating…" else if (isSubgroup) "Create Subgroup" else "Create Group")
                     }
                 }
             }

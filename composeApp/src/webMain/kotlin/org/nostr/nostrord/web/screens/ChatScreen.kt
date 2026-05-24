@@ -37,10 +37,9 @@ external interface ChatScreenProps : Props {
 // Window (seconds) for grouping consecutive messages from the same author.
 private const val GROUP_WINDOW = 5 * 60
 
-private fun displayName(pubkey: String, meta: UserMetadata?): String =
-    meta?.displayName?.takeIf { it.isNotBlank() }
-        ?: meta?.name?.takeIf { it.isNotBlank() }
-        ?: (pubkey.take(8) + "…")
+private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.displayName?.takeIf { it.isNotBlank() }
+    ?: meta?.name?.takeIf { it.isNotBlank() }
+    ?: (pubkey.take(8) + "…")
 
 /**
  * Chat view — real data port of the Compose GroupScreenDesktop: header + grouped messages
@@ -58,6 +57,7 @@ val ChatScreen =
         val membersByGroup = useStateFlow(repo.groupMembers)
         val adminsByGroup = useStateFlow(repo.groupAdmins)
         val userMetadata = useStateFlow(repo.userMetadata)
+        val relayUrl = useStateFlow(repo.currentRelayUrl)
 
         val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
         val members = membersByGroup[group.id].orEmpty()
@@ -173,10 +173,12 @@ val ChatScreen =
                             div { className = ClassName("chat-menu-divider") }
                             chatMenuItem("Delete Group", danger = true) {
                                 setMenuOpen(false)
+                                launchApp { repo.deleteGroup(group.id) }
                                 props.onLeave()
                             }
                             chatMenuItem("Leave Group", danger = true) {
                                 setMenuOpen(false)
+                                launchApp { repo.leaveGroup(group.id) }
                                 props.onLeave()
                             }
                         }
@@ -314,13 +316,31 @@ val ChatScreen =
                         this.group = group
                         onClose = { setModal(null) }
                     }
-                "members" -> MemberManagementModal { onClose = { setModal(null) } }
-                "addmember" -> AddMemberModal { onClose = { setModal(null) } }
-                "invite" -> InviteCodesModal { onClose = { setModal(null) } }
-                "requests" -> JoinRequestsModal { onClose = { setModal(null) } }
+                "members" ->
+                    MemberManagementModal {
+                        groupId = group.id
+                        onClose = { setModal(null) }
+                    }
+                "addmember" ->
+                    AddMemberModal {
+                        groupId = group.id
+                        onClose = { setModal(null) }
+                    }
+                "invite" ->
+                    InviteCodesModal {
+                        groupId = group.id
+                        onClose = { setModal(null) }
+                    }
+                "requests" ->
+                    JoinRequestsModal {
+                        groupId = group.id
+                        onClose = { setModal(null) }
+                    }
                 "subgroup" ->
                     CreateGroupModal {
                         subgroup = true
+                        parentGroupId = group.id
+                        this.relayUrl = relayUrl
                         onClose = { setModal(null) }
                     }
                 "children" -> ManageChildrenModal { onClose = { setModal(null) } }

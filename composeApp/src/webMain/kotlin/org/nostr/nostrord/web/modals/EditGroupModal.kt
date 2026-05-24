@@ -1,6 +1,9 @@
 package org.nostr.nostrord.web.modals
 
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.web.bridge.launchApp
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -17,15 +20,45 @@ external interface EditGroupModalProps : Props {
 }
 
 /**
- * Edit-group modal — layout-first React port of the Compose EditGroupModal: name,
- * description, image URL, the Private / Closed access toggles, and the read-only group ID
- * with copy. Prefilled from the group; Save is stubbed.
+ * Edit-group modal — real port of the Compose EditGroupModal: name, description, image URL,
+ * the Private / Closed access toggles, and the read-only group ID. Prefilled from the group;
+ * Save calls `editGroup(groupId, name, about?, isPrivate, isClosed, picture?)`.
  */
 val EditGroupModal =
     FC<EditGroupModalProps> { props ->
         val group = props.group
+        val (name, setName) = useState { group.name ?: "" }
+        val (about, setAbout) = useState { group.about ?: "" }
+        val (picture, setPicture) = useState { group.picture ?: "" }
         val (isPrivate, setIsPrivate) = useState { !group.isPublic }
         val (isClosed, setIsClosed) = useState { !group.isOpen }
+        val (busy, setBusy) = useState { false }
+        val (error, setError) = useState<String?> { null }
+
+        fun submit() {
+            if (name.isBlank()) {
+                setError("Group name is required.")
+                return
+            }
+            setError(null)
+            setBusy(true)
+            launchApp {
+                val result =
+                    AppModule.nostrRepository.editGroup(
+                        groupId = group.id,
+                        name = name.trim(),
+                        about = about.trim().ifBlank { null },
+                        isPrivate = isPrivate,
+                        isClosed = isClosed,
+                        picture = picture.trim().ifBlank { null },
+                    )
+                setBusy(false)
+                when (result) {
+                    is Result.Success -> props.onClose()
+                    is Result.Error -> setError(result.error.message.ifBlank { "Failed to update group." })
+                }
+            }
+        }
 
         div {
             className = ClassName("modal-overlay")
@@ -57,7 +90,11 @@ val EditGroupModal =
                 input {
                     className = ClassName("modal-input")
                     placeholder = "#example"
-                    if (!group.name.isNullOrBlank()) defaultValue = group.name
+                    value = name
+                    onChange = { event ->
+                        setName(event.currentTarget.value)
+                        setError(null)
+                    }
                 }
 
                 div {
@@ -68,7 +105,8 @@ val EditGroupModal =
                     className = ClassName("modal-textarea")
                     placeholder = "What is this group about?"
                     rows = 3
-                    if (!group.about.isNullOrBlank()) defaultValue = group.about
+                    value = about
+                    onChange = { event -> setAbout(event.currentTarget.value) }
                 }
 
                 div {
@@ -78,6 +116,8 @@ val EditGroupModal =
                 input {
                     className = ClassName("modal-input")
                     placeholder = "https://example.com/image.jpg"
+                    value = picture
+                    onChange = { event -> setPicture(event.currentTarget.value) }
                 }
 
                 div {
@@ -103,6 +143,13 @@ val EditGroupModal =
                     }
                 }
 
+                if (error != null) {
+                    div {
+                        className = ClassName("modal-error")
+                        +error
+                    }
+                }
+
                 div {
                     className = ClassName("modal-footer")
                     button {
@@ -112,8 +159,9 @@ val EditGroupModal =
                     }
                     button {
                         className = ClassName("btn-primary")
-                        onClick = { props.onClose() }
-                        +"Save Changes"
+                        disabled = name.isBlank() || busy
+                        onClick = { submit() }
+                        +(if (busy) "Saving…" else "Save Changes")
                     }
                 }
             }
