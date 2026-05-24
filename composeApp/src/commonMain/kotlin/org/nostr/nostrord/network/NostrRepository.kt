@@ -94,6 +94,15 @@ class NostrRepository(
     private val lastRequestGroupsAt = mutableMapOf<String, Long>()
 
     /**
+     * Relays for which a post-AUTH group-list fetch has already been issued this
+     * session. resubscribeAfterAuth invalidates the (possibly pre-AUTH, empty-EOSE)
+     * full-list marker only on the FIRST auth completion per relay; thereafter the
+     * in-session marker is trustworthy, so subsequent re-AUTH challenges fall back
+     * to the normal 10s dedup instead of force-refetching the full list every time.
+     */
+    private val authedGroupListFetchedRelays = mutableSetOf<String>()
+
+    /**
      * Relays for which the UI requested the full OTHER GROUPS list while the
      * corresponding client wasn't yet primary/connected/AUTHed. Drained by
      * [drainFullFetchRequest] from connect()/switchRelay()/resubscribeAfterAuth
@@ -658,6 +667,7 @@ class NostrRepository(
         // mux/message refresh paths skip work for the new session, leaving
         // every group stuck on "No messages yet" until the user restarted.
         lastRequestGroupsAt.clear()
+        authedGroupListFetchedRelays.clear()
         lastGapDetectionAt.clear()
         pendingFullFetchMutex.withLock { pendingFullFetchRequests.clear() }
         _closedGroupSubscriptions.value = emptySet()
@@ -2512,14 +2522,19 @@ class NostrRepository(
         if (connectionManager.getPrimaryClient() === client) {
             val now = epochSeconds()
             val lastAt = lastRequestGroupsAt[relayUrl] ?: 0L
-            // Any full-list result captured BEFORE auth is untrustworthy: an
-            // auth-required relay may answer the unauthenticated group-list REQ
-            // with an empty EOSE (rather than CLOSED auth-required), which marks
-            // the relay "fully fetched" and would make sessionFetched below skip
-            // this authed fetch — leaving OTHER GROUPS empty even when expanded
-            // (observed on hzrd149's relay). Drop that pre-auth marker so the
-            // post-auth fetch always runs once.
-            groupManager.invalidateFullGroupListFetch(relayUrl)
+            val normalized = relayUrl.normalizeRelayUrl()
+            // On the FIRST auth completion for this relay this session, any full-list
+            // result captured so far is untrustworthy: an auth-required relay may
+            // answer the unauthenticated pre-AUTH group-list REQ with an empty EOSE
+            // (rather than CLOSED auth-required), which marks the relay "fully
+            // fetched" and would make sessionFetched below skip this authed fetch —
+            // leaving OTHER GROUPS empty even when expanded (observed on hzrd149's
+            // relay). Invalidate only once: after the first authed fetch the marker
+            // is trustworthy, so relays that re-issue AUTH periodically fall back to
+            // the 10s dedup instead of re-fetching the full list on every challenge.
+            if (normalized !in authedGroupListFetchedRelays) {
+                groupManager.invalidateFullGroupListFetch(relayUrl)
+            }
             // Bypass the 10s dedup when THIS SESSION hasn't received an EOSE for
             // the full group list yet. The previous REQ likely raced AUTH and was
             // CLOSED auth-required, so skipping the retry leaves OTHER GROUPS
@@ -2528,10 +2543,10 @@ class NostrRepository(
             // so a fresh re-login doesn't get fooled by the still-fresh persisted
             // cache from a previous session; that cache predates the auth-required
             // CLOSED on this socket.
-            val sessionFetched = relayUrl.normalizeRelayUrl() in
-                groupManager.fullGroupListFetchedRelays.value
+            val sessionFetched = normalized in groupManager.fullGroupListFetchedRelays.value
             if (!sessionFetched || now - lastAt > 10L) {
                 lastRequestGroupsAt[relayUrl] = now
+                authedGroupListFetchedRelays.add(normalized)
                 groupManager.markRelayLoading(relayUrl)
                 requestGroupsForRelay(client, relayUrl)
             }

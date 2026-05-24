@@ -195,19 +195,24 @@ class GroupManager(
     // leave the relay stuck in _loadingRelays indefinitely (#88). Each
     // markRelayLoading arms a per-relay watchdog; markRelayLoaded / EOSE cancel it.
     private val loadingWatchdogs = mutableMapOf<String, Job>()
-    private val loadingWatchdogTimeoutMs = 15_000L
+    private val loadingWatchdogTimeoutMs = 30_000L
 
     // Relays for which requestGroups() (unfiltered, no #d tag) was sent this session but
-    // EOSE hasn't arrived yet. Lets handleEoseSuspend() distinguish a full fetch from a
-    // lazy (joined-only) fetch when the same sub ID is reused.
-    private val pendingFullFetchRelays = mutableSetOf<String>()
+    // EOSE hasn't arrived yet, mapped to the epoch-seconds the REQ was sent. Lets
+    // handleEoseSuspend() distinguish a full fetch from a lazy (joined-only) fetch when
+    // the same sub ID is reused. The timestamp makes the dedup self-expiring: a REQ that
+    // never gets EOSE/CLOSED stops blocking retries after [pendingFullFetchStaleSeconds]
+    // without the loading watchdog having to erase the marker (which would mis-classify a
+    // genuinely slow EOSE that arrives later as a partial fetch).
+    private val pendingFullFetchRelays = mutableMapOf<String, Long>()
+    private val pendingFullFetchStaleSeconds = 30L
 
     // Group IDs seen during an in-flight full fetch; cleared on EOSE to prune stale groups.
     private val pendingFetchSeenGroups = mutableMapOf<String, MutableSet<String>>()
 
     fun markPendingFullFetch(relayUrl: String) {
         val normalized = relayUrl.normalizeRelayUrl()
-        pendingFullFetchRelays.add(normalized)
+        pendingFullFetchRelays[normalized] = epochSeconds()
         pendingFetchSeenGroups[normalized] = mutableSetOf()
     }
 
@@ -225,7 +230,12 @@ class GroupManager(
      * Used by [NostrRepository.requestFullGroupListForRelay] to skip a duplicate REQ when
      * [requestGroupsForRelay] already scheduled a full fetch on connect.
      */
-    fun hasPendingFullFetch(relayUrl: String): Boolean = relayUrl.normalizeRelayUrl() in pendingFullFetchRelays
+    fun hasPendingFullFetch(relayUrl: String): Boolean {
+        val sentAt = pendingFullFetchRelays[relayUrl.normalizeRelayUrl()] ?: return false
+        // A marker older than the stale window means the REQ got neither EOSE nor
+        // CLOSED; stop treating it as in-flight so a re-open of OTHER GROUPS can retry.
+        return epochSeconds() - sentAt < pendingFullFetchStaleSeconds
+    }
 
     // Relays whose FULL group list (unfiltered requestGroups()) EOSE was received this session.
     // Updated by handleEoseSuspend when the relay is in pendingFullFetchRelays.
@@ -239,39 +249,43 @@ class GroupManager(
     }
 
     /**
-     * Discard any record that the FULL group list was fetched for [relayUrl] —
-     * both the in-memory session flag and the persisted freshness timestamp.
-     * Called when a relay completes NIP-42 AUTH: an auth-required relay answers
-     * the pre-AUTH unauthenticated group-list REQ with an EMPTY EOSE, which
-     * handleEoseSuspend records as "fully fetched", falsely satisfying the dedup
-     * in resubscribeAfterAuth and suppressing the real post-AUTH fetch — leaving
-     * OTHER GROUPS empty even when expanded (observed on hzrd149's relay).
+     * Discard the IN-MEMORY record that the FULL group list was fetched for
+     * [relayUrl] this session. Called once per relay when it completes NIP-42
+     * AUTH: an auth-required relay answers the pre-AUTH unauthenticated
+     * group-list REQ with an EMPTY EOSE, which handleEoseSuspend records as
+     * "fully fetched", falsely satisfying the dedup in resubscribeAfterAuth and
+     * suppressing the real post-AUTH fetch — leaving OTHER GROUPS empty even when
+     * expanded (observed on hzrd149's relay). Deliberately does NOT touch the
+     * persisted freshness timestamp: that survives across sessions and clearing
+     * it on every auth would defeat the cross-session cache.
      */
     fun invalidateFullGroupListFetch(relayUrl: String) {
-        val normalized = relayUrl.normalizeRelayUrl()
-        _fullGroupListFetchedRelays.update { it - normalized }
-        try {
-            SecureStorage.saveFullGroupListEoseTimestamp(normalized, 0L)
-        } catch (_: Exception) {}
+        _fullGroupListFetchedRelays.update { it - relayUrl.normalizeRelayUrl() }
     }
 
     fun markRelayLoading(relayUrl: String) {
         val normalized = relayUrl.normalizeRelayUrl()
         _loadingRelays.update { it + normalized }
         // (Re)arm the watchdog: if no EOSE/CLOSED/error clears this relay within
-        // the grace period, force-clear it so the skeleton stops spinning.
+        // the grace period, force-clear ONLY the skeleton flag so it stops
+        // spinning. The pending-full-fetch dedup is released separately by the
+        // self-expiring timestamp in hasPendingFullFetch — the watchdog must not
+        // erase pendingFullFetchRelays, or a genuinely slow EOSE arriving after the
+        // timeout would be mis-classified as a partial fetch (isFull=false), skip
+        // pruning, and never mark the relay fully fetched.
         loadingWatchdogs.remove(normalized)?.cancel()
         loadingWatchdogs[normalized] = scope.launch {
-            delay(loadingWatchdogTimeoutMs)
-            _loadingRelays.update { it - normalized }
-            // Also release any stuck full-fetch marker. Otherwise hasPendingFullFetch
-            // stays true forever (the REQ got neither EOSE nor CLOSED), and the
-            // permanent dedup guard in requestFullGroupListForRelay silently drops
-            // every subsequent OTHER GROUPS expand — leaving the panel empty until
-            // app restart. Releasing it lets re-opening OTHER GROUPS retry the fetch.
-            pendingFullFetchRelays.remove(normalized)
-            pendingFetchSeenGroups.remove(normalized)
-            loadingWatchdogs.remove(normalized)
+            try {
+                delay(loadingWatchdogTimeoutMs)
+                _loadingRelays.update { it - normalized }
+            } finally {
+                // Remove self only if still the current watchdog for this relay, so a
+                // watchdog re-armed by a concurrent markRelayLoading isn't evicted
+                // (which would leave it uncancellable and able to clear a later fetch).
+                if (loadingWatchdogs[normalized] === coroutineContext[Job]) {
+                    loadingWatchdogs.remove(normalized)
+                }
+            }
         }
     }
 
@@ -1927,7 +1941,7 @@ class GroupManager(
             _loadingRelays.update { it - normalizedRelay }
             loadingWatchdogs.remove(normalizedRelay)?.cancel()
             val now = epochSeconds()
-            val isFull = pendingFullFetchRelays.remove(normalizedRelay)
+            val isFull = pendingFullFetchRelays.remove(normalizedRelay) != null
             if (isFull) {
                 // Save the dedicated full-list timestamp so hasFullGroupListBeenFetched()
                 // returns true after an app restart.
@@ -3064,7 +3078,9 @@ class GroupManager(
         _completeGroupLoadRelays.value = emptySet()
         _fullGroupListFetchedRelays.value = emptySet()
         _loadingRelays.value = emptySet()
-        loadingWatchdogs.values.forEach { it.cancel() }
+        // Snapshot before cancelling: a watchdog already past its delay may call
+        // loadingWatchdogs.remove() from its finally during iteration.
+        loadingWatchdogs.values.toList().forEach { it.cancel() }
         loadingWatchdogs.clear()
         // Without clearing this, an in-flight full fetch from the previous account
         // leaves the relay flagged as "pending", and the new account's expand of
