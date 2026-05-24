@@ -14,15 +14,15 @@ import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
 import org.nostr.nostrord.web.screens.AddAccountSheet
 import org.nostr.nostrord.web.screens.ChatScreen
+import org.nostr.nostrord.web.screens.HomeScreen
 import org.nostr.nostrord.web.screens.NotificationsScreen
 import org.nostr.nostrord.web.screens.OnboardingScreen
 import org.nostr.nostrord.web.screens.SettingsScreen
+import react.ChildrenBuilder
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
-import react.dom.html.ReactHTML.h1
-import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
@@ -69,6 +69,7 @@ val AppShell =
         val groups = groupsByRelay[activeRelay].orEmpty()
         val joinedIds = joinedByRelay[activeRelay].orEmpty()
         val myGroups = groups.filter { it.id in joinedIds }
+        val otherGroups = groups.filter { it.id !in joinedIds }
 
         val activePubkey = repo.getPublicKey()
         val meMetadata = activePubkey?.let { userMetadata[it] }
@@ -88,6 +89,8 @@ val AppShell =
         val (settingsOpen, setSettingsOpen) = useState { false }
         val (notificationsOpen, setNotificationsOpen) = useState { false }
         val (addAccountOpen, setAddAccountOpen) = useState { false }
+        val (myExpanded, setMyExpanded) = useState { true }
+        val (otherExpanded, setOtherExpanded) = useState { true }
 
         val selectedGroup: GroupMetadata? = groups.firstOrNull { it.id == selectedGroupId }
 
@@ -180,34 +183,25 @@ val AppShell =
                     if (hasRelays) {
                         div {
                             className = ClassName("sidebar-scroll")
-                            div {
-                                className = ClassName("sidebar-section-title")
-                                +"My groups"
+
+                            val openGroup: (String) -> Unit = { id ->
+                                setSelectedGroupId(id)
+                                setNotificationsOpen(false)
+                                setDrawerOpen(false)
                             }
-                            myGroups.forEach { group ->
-                                val unread = unreadCounts[group.id] ?: 0
-                                div {
-                                    key = group.id
-                                    className = ClassName(if (selectedGroupId == group.id) "sidebar-group selected" else "sidebar-group")
-                                    onClick = {
-                                        setSelectedGroupId(group.id)
-                                        setNotificationsOpen(false)
-                                        setDrawerOpen(false)
-                                    }
-                                    WebAvatar {
-                                        url = group.picture
-                                        name = group.name ?: group.id
-                                        cls = "group-icon-sm"
-                                    }
-                                    span {
-                                        className = ClassName("sidebar-group-name")
-                                        +(group.name ?: group.id)
-                                    }
-                                    if (unread > 0) {
-                                        span {
-                                            className = ClassName("sidebar-unread")
-                                            +unread.toString()
-                                        }
+
+                            sectionToggle("My Groups", myExpanded) { setMyExpanded(!myExpanded) }
+                            if (myExpanded) {
+                                myGroups.forEach { group ->
+                                    sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
+                                }
+                            }
+
+                            if (otherGroups.isNotEmpty()) {
+                                sectionToggle("Other Groups", otherExpanded) { setOtherExpanded(!otherExpanded) }
+                                if (otherExpanded) {
+                                    otherGroups.forEach { group ->
+                                        sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
                                     }
                                 }
                             }
@@ -267,13 +261,8 @@ val AppShell =
                             onLeave = { setSelectedGroupId(null) }
                         }
                     else ->
-                        div {
-                            className = ClassName("home-welcome")
-                            div {
-                                className = ClassName("home-welcome-inner")
-                                h1 { +"Nostrord" }
-                                p { +"Select a group from the sidebar to start chatting." }
-                            }
+                        HomeScreen {
+                            onOpenGroup = { setSelectedGroupId(it) }
                         }
                 }
             }
@@ -433,3 +422,41 @@ val AppShell =
             }
         }
     }
+
+private fun ChildrenBuilder.sectionToggle(label: String, expanded: Boolean, onToggle: () -> Unit) {
+    div {
+        className = ClassName("sidebar-section-toggle")
+        onClick = { onToggle() }
+        span {
+            className = ClassName(if (expanded) "sidebar-chevron" else "sidebar-chevron collapsed")
+            +"▼"
+        }
+        span {
+            className = ClassName("sidebar-section-label")
+            +label
+        }
+    }
+}
+
+private fun ChildrenBuilder.sidebarGroupRow(group: GroupMetadata, selected: Boolean, unread: Int, onOpen: (String) -> Unit) {
+    div {
+        key = group.id
+        className = ClassName(if (selected) "sidebar-group selected" else "sidebar-group")
+        onClick = { onOpen(group.id) }
+        WebAvatar {
+            url = group.picture
+            name = group.name ?: group.id
+            cls = "group-icon-sm"
+        }
+        span {
+            className = ClassName("sidebar-group-name")
+            +(group.name ?: group.id)
+        }
+        if (unread > 0) {
+            span {
+                className = ClassName("sidebar-unread")
+                +unread.toString()
+            }
+        }
+    }
+}

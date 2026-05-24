@@ -561,6 +561,31 @@ body {
     padding: 8px;
 }
 
+.sidebar-section-toggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 4px 4px;
+    cursor: pointer;
+}
+
+.sidebar-chevron {
+    font-size: 8px;
+    color: var(--color-text-muted);
+    transition: transform 0.15s ease;
+}
+
+.sidebar-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
+.sidebar-section-label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--color-text-muted);
+}
+
 .sidebar-section-title {
     padding: 8px 8px 4px;
     font-size: 11px;
@@ -3098,3 +3123,212 @@ body {
     }
 }
 
+
+/* ---------- Home / group picker ---------- */
+.home {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background);
+}
+
+.home-header {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 24px 16px;
+}
+
+.home-relay-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    font-size: 26px;
+    font-weight: 700;
+}
+
+.home-title {
+    margin-top: 12px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.home-subtitle {
+    margin-top: 4px;
+    font-size: 14px;
+    color: var(--color-text-muted);
+}
+
+.home-toolbar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 24px;
+}
+
+.home-filters {
+    display: flex;
+    gap: 6px;
+}
+
+.home-filter {
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: var(--color-background-dark);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.home-filter:hover {
+    background: var(--color-surface-variant);
+    color: var(--color-text-secondary);
+}
+
+.home-filter.active {
+    color: #ffffff;
+    background: var(--color-primary);
+}
+
+.home-search {
+    flex: 1;
+    min-width: 160px;
+    max-width: 280px;
+    padding: 7px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--color-text-primary);
+    background: var(--color-background-dark);
+    border: none;
+    border-radius: 6px;
+    outline: none;
+}
+
+.home-search::placeholder {
+    color: var(--color-text-muted);
+}
+
+.home-grid {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 24px 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+    align-content: start;
+}
+
+.home-empty {
+    grid-column: 1 / -1;
+    padding: 40px 0;
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 14px;
+}
+
+.pick-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--color-background-dark);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.pick-card:hover {
+    background: var(--color-surface);
+    border-color: var(--color-surface-variant);
+}
+
+.pick-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.pick-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.pick-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pick-about {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pick-badges {
+    display: flex;
+    gap: 6px;
+    margin-top: 7px;
+}
+
+.pick-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 10px;
+}
+
+.pick-badge.private {
+    color: #eb459e;
+    background: rgba(235, 69, 158, 0.15);
+}
+
+.pick-badge.closed {
+    color: #faa61a;
+    background: rgba(250, 166, 26, 0.15);
+}
+
+.pick-badge.open {
+    color: var(--color-success);
+    background: rgba(87, 242, 135, 0.15);
+}
+
+.pick-btn {
+    flex-shrink: 0;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.pick-btn:hover {
+    background: var(--color-primary-variant);
+}
+
+.pick-btn.joined {
+    background: var(--color-success);
+    color: var(--color-background-dark);
+    cursor: default;
+}
