@@ -18,6 +18,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.ChatImage
+import org.nostr.nostrord.web.components.EmojiPicker
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
@@ -131,6 +132,8 @@ val ChatScreen =
         val (replyingToId, setReplyingToId) = useState<String?> { null }
         // The deep-linked message currently flashing (cleared after the highlight animation).
         val (highlightId, setHighlightId) = useState<String?> { null }
+        // Composer emoji picker open state.
+        val (emojiOpen, setEmojiOpen) = useState { false }
         // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
 
@@ -465,7 +468,8 @@ val ChatScreen =
                             }
                         }
                         button {
-                            className = ClassName("composer-btn")
+                            className = ClassName(if (emojiOpen) "composer-btn active" else "composer-btn")
+                            onClick = { setEmojiOpen(!emojiOpen) }
                             icon(Ic.EmojiEmotions)
                         }
                         button {
@@ -473,6 +477,15 @@ val ChatScreen =
                             disabled = draft.isBlank()
                             onClick = { send() }
                             icon(Ic.Send)
+                        }
+                        if (emojiOpen) {
+                            div {
+                                className = ClassName("emoji-overlay")
+                                onClick = { setEmojiOpen(false) }
+                                EmojiPicker {
+                                    onPick = { emoji -> setDraft { prev -> prev + emoji } }
+                                }
+                            }
                         }
                     }
                 }
@@ -623,6 +636,7 @@ external interface MessageRowProps : Props {
 private val MessageRow =
     FC<MessageRowProps> { props ->
         val (menuOpen, setMenuOpen) = useState { false }
+        val (reactOpen, setReactOpen) = useState { false }
 
         div {
             id = ElementId(props.domId)
@@ -739,7 +753,7 @@ private val MessageRow =
                 button {
                     className = ClassName("msg-action-btn")
                     title = "Add reaction"
-                    onClick = { props.onReact("👍") }
+                    onClick = { setReactOpen(true) }
                     icon(Ic.EmojiEmotions)
                 }
                 button {
@@ -773,8 +787,8 @@ private val MessageRow =
                 div {
                     className = ClassName("ctx-menu")
                     ctxItem(Ic.EmojiEmotions, "Add Reaction") {
-                        props.onReact("👍")
                         setMenuOpen(false)
+                        setReactOpen(true)
                     }
                     ctxItem(Ic.Reply, "Reply") {
                         props.onReply()
@@ -804,6 +818,20 @@ private val MessageRow =
                         ctxItem(Ic.Delete, "Delete Message", danger = true) {
                             props.onDelete()
                             setMenuOpen(false)
+                        }
+                    }
+                }
+            }
+
+            // Reaction emoji picker (opened from the 😊 hover action or the context menu).
+            if (reactOpen) {
+                div {
+                    className = ClassName("emoji-overlay")
+                    onClick = { setReactOpen(false) }
+                    EmojiPicker {
+                        onPick = { emoji ->
+                            props.onReact(emoji)
+                            setReactOpen(false)
                         }
                     }
                 }

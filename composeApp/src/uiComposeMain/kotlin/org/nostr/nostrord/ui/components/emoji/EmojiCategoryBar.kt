@@ -23,22 +23,20 @@ import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 
-enum class EmojiGroup(
-    val label: String,
-    val icon: ImageVector,
-    val groupKey: String,
-) {
-    RECENT("Recent", Icons.Outlined.Schedule, ""),
-    SMILEYS("Smileys", Icons.Outlined.EmojiEmotions, "Smileys & Emotion"),
-    PEOPLE("People", Icons.Outlined.EmojiPeople, "People & Body"),
-    NATURE("Nature", Icons.Outlined.EmojiNature, "Animals & Nature"),
-    FOOD("Food", Icons.Outlined.EmojiFoodBeverage, "Food & Drink"),
-    TRAVEL("Travel", Icons.Outlined.EmojiTransportation, "Travel & Places"),
-    ACTIVITIES("Activities", Icons.Outlined.EmojiEvents, "Activities"),
-    OBJECTS("Objects", Icons.Outlined.EmojiObjects, "Objects"),
-    SYMBOLS("Symbols", Icons.Outlined.EmojiSymbols, "Symbols"),
-    FLAGS("Flags", Icons.Outlined.Flag, "Flags"),
-}
+/** Category icon for the tab bar (the EmojiGroup enum itself is shared, pure, in commonMain). */
+private fun EmojiGroup.toIcon(): ImageVector =
+    when (this) {
+        EmojiGroup.RECENT -> Icons.Outlined.Schedule
+        EmojiGroup.SMILEYS -> Icons.Outlined.EmojiEmotions
+        EmojiGroup.PEOPLE -> Icons.Outlined.EmojiPeople
+        EmojiGroup.NATURE -> Icons.Outlined.EmojiNature
+        EmojiGroup.FOOD -> Icons.Outlined.EmojiFoodBeverage
+        EmojiGroup.TRAVEL -> Icons.Outlined.EmojiTransportation
+        EmojiGroup.ACTIVITIES -> Icons.Outlined.EmojiEvents
+        EmojiGroup.OBJECTS -> Icons.Outlined.EmojiObjects
+        EmojiGroup.SYMBOLS -> Icons.Outlined.EmojiSymbols
+        EmojiGroup.FLAGS -> Icons.Outlined.Flag
+    }
 
 @Composable
 fun EmojiCategoryBar(
@@ -57,7 +55,7 @@ fun EmojiCategoryBar(
                 modifier = Modifier.size(36.dp),
             ) {
                 Icon(
-                    imageVector = group.icon,
+                    imageVector = group.toIcon(),
                     contentDescription = group.label,
                     tint =
                     if (activeCategory == group) {
