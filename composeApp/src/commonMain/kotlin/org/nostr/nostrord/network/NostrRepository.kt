@@ -590,6 +590,12 @@ class NostrRepository(
             // for the same reason; the cold-start re-login path was the only
             // one missing it.
             connectionManager.loadSavedRelay()
+            // Seed the relay rail (kind:10009 set) from the per-account cache so
+            // ALL of the user's relays show immediately, exactly as initialize()
+            // does on cold boot. Without this, the rail showed only the current
+            // relay after re-login until the slow network kind:10009 fetch landed
+            // (or the user restarted the app).
+            outboxManager.seedFromCache(newPubkey)
             // Re-hydrate joined-group state from local storage, exactly as the
             // cold-boot path (initialize) does at lines 377-380. Previously this
             // re-login branch relied solely on the kind:10009 outbox fetch to
