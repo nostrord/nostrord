@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.EmojiEmotions
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Icon
@@ -47,6 +48,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -56,6 +58,8 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
+import org.nostr.nostrord.ui.components.zap.ZapBadge
+import org.nostr.nostrord.ui.components.zap.ZapController
 import org.nostr.nostrord.ui.theme.NostrordAnimation
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -131,6 +135,13 @@ fun MessageItem(
 
     // Collect cached events from repository for parent message lookup
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
+
+    // NIP-57 zaps: offer the action when the author has a Lightning address (and isn't
+    // the current user), and surface the running total for this message.
+    val zapTotals by AppModule.nostrRepository.zaps.collectAsState()
+    val zapInfo = zapTotals[message.id]
+    val canZap = message.pubkey != currentUserPubkey &&
+        (!metadata?.lud16.isNullOrBlank() || !metadata?.lud06.isNullOrBlank())
 
     // Look up parent via caller-provided resolver, then in cachedEvents
     val parentMessage =
@@ -382,8 +393,11 @@ fun MessageItem(
                                 text = displayName,
                                 color = Color.White,
                                 style = NostrordTypography.Username,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier =
                                 Modifier
+                                    .weight(1f, fill = false)
                                     .clickable { currentOnUsernameClick(message.pubkey) }
                                     .pointerHoverIcon(PointerIcon.Hand),
                             )
@@ -392,6 +406,7 @@ fun MessageItem(
                                 text = formatTime(message.createdAt),
                                 color = NostrordColors.TextMuted,
                                 style = NostrordTypography.Timestamp,
+                                maxLines = 1,
                             )
                         }
                         Spacer(modifier = Modifier.height(Spacing.xs))
@@ -431,6 +446,16 @@ fun MessageItem(
                             onReactionClick = onReactionBadgeClick,
                         )
                     }
+
+                    // Zap total badge
+                    if (zapInfo != null && zapInfo.totalMsats > 0) {
+                        ZapBadge(
+                            totalMsats = zapInfo.totalMsats,
+                            count = zapInfo.count,
+                            zappedByMe = currentUserPubkey != null && currentUserPubkey in zapInfo.zappers,
+                            onClick = { if (canZap) ZapController.request(message.pubkey, message.id) },
+                        )
+                    }
                 }
             }
 
@@ -455,6 +480,8 @@ fun MessageItem(
                             onReplyClick = currentOnReplyClick,
                             onReactionClick = currentOnReactionClick,
                             onMoreClick = { onContextMenuOpenChange(true) },
+                            canZap = canZap,
+                            onZapClick = { ZapController.request(message.pubkey, message.id) },
                         )
                     }
                 }
@@ -475,10 +502,12 @@ fun MessageItem(
                         MessageContextAction.CopyEventJson -> currentOnCopyJson()
                         MessageContextAction.PinMessage -> currentOnPinMessage()
                         MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
+                        MessageContextAction.ZapMessage -> ZapController.request(message.pubkey, message.id)
                     }
                 },
                 isAuthor = isAuthor,
                 isAdmin = isAdmin,
+                canZap = canZap,
             )
         }
     }
@@ -498,6 +527,8 @@ private fun MessageActions(
     onReplyClick: () -> Unit,
     onReactionClick: () -> Unit,
     onMoreClick: () -> Unit,
+    canZap: Boolean,
+    onZapClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -531,7 +562,21 @@ private fun MessageActions(
             },
             onClick = onReplyClick,
         )
-        // 3. More (three dots)
+        // 3. Zap (when the author has a Lightning address) — highlights amber on hover
+        if (canZap) {
+            ActionButton(
+                icon = { isHovered ->
+                    Icon(
+                        Icons.Outlined.Bolt,
+                        contentDescription = "Zap",
+                        tint = if (isHovered) NostrordColors.Warning else NostrordColors.TextSecondary,
+                        modifier = Modifier.size(Spacing.iconSm + Spacing.xs), // 16dp
+                    )
+                },
+                onClick = onZapClick,
+            )
+        }
+        // 4. More (three dots)
         ActionButton(
             icon = {
                 Icon(
@@ -550,7 +595,7 @@ private fun MessageActions(
  */
 @Composable
 private fun ActionButton(
-    icon: @Composable () -> Unit,
+    icon: @Composable (isHovered: Boolean) -> Unit,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -570,7 +615,7 @@ private fun ActionButton(
         CompositionLocalProvider(
             LocalContentColor provides if (isHovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
         ) {
-            icon()
+            icon(isHovered)
         }
     }
 }

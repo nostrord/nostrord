@@ -11,3 +11,4 @@ actual fun getPlatform(): Platform = AndroidPlatform()
 actual val isAndroid: Boolean = true
 actual val isHandheldPlatform: Boolean = true
 actual val platformDisplayName: String = "Nostrord Android"
+actual val autoFocusTextInput: Boolean = false

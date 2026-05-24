@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -31,6 +33,7 @@ import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.RelayReconnectScheduler
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
+import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.startup.StartupResolver
@@ -61,6 +64,7 @@ class NostrRepository(
     private val groupManager: GroupManager,
     private val metadataManager: MetadataManager,
     private val outboxManager: OutboxManager,
+    private val zapManager: ZapManager,
     private val unreadManager: UnreadManager,
     private val pendingEventManager: org.nostr.nostrord.network.managers.PendingEventManager? = null,
     private val relayMetadataManager: RelayMetadataManager? = null,
@@ -86,12 +90,25 @@ class NostrRepository(
     private val GAP_DETECTION_COOLDOWN_S = 30L
     private val lastGapDetectionAt = mutableMapOf<String, Long>()
 
+    /** How long the zap modal waits for a payment confirmation, and the receipt poll cadence. */
+    private val ZAP_PAYMENT_WATCH_MS = 90_000L
+    private val ZAP_PAYMENT_POLL_MS = 3_000L
+
     /**
      * Epoch-seconds of the last requestGroups() call per relay.
      * Prevents resubscribeAfterAuth from sending a duplicate group-list REQ when
      * connect() already sent one within the last 10 seconds.
      */
     private val lastRequestGroupsAt = mutableMapOf<String, Long>()
+
+    /**
+     * Relays for which a post-AUTH group-list fetch has already been issued this
+     * session. resubscribeAfterAuth invalidates the (possibly pre-AUTH, empty-EOSE)
+     * full-list marker only on the FIRST auth completion per relay; thereafter the
+     * in-session marker is trustworthy, so subsequent re-AUTH challenges fall back
+     * to the normal 10s dedup instead of force-refetching the full list every time.
+     */
+    private val authedGroupListFetchedRelays = mutableSetOf<String>()
 
     /**
      * Relays for which the UI requested the full OTHER GROUPS list while the
@@ -181,6 +198,9 @@ class NostrRepository(
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
+
+    // NIP-57 zap totals per zapped event id.
+    override val zaps: StateFlow<Map<String, ZapManager.ZapInfo>> = zapManager.zaps
     override val groupMembers: StateFlow<Map<String, List<String>>> = groupManager.groupMembers
     override val groupAdmins: StateFlow<Map<String, List<String>>> = groupManager.groupAdmins
     override val groupRoles: StateFlow<Map<String, List<RoleDefinition>>> = groupManager.groupRoles
@@ -270,6 +290,40 @@ class NostrRepository(
                         groupManager.markRelayLoaded(relay)
                     }
                 }
+            }
+        }
+
+        // Bunker (NIP-46) signer-ready recovery. On session restore / account-add
+        // the account is marked logged-in optimistically while the remote signer
+        // connects asynchronously (issue #85). connect() + NIP-42 AUTH for the
+        // group relays run before the signer can sign the AUTH event, so their
+        // group/mux REQs come back CLOSED "auth-required" and nothing retries —
+        // groups stuck on "No messages yet" / "Members 0" until app restart.
+        // When the signer transitions to ready, reconnect the group relays: fresh
+        // sockets -> fresh AUTH (now signable) -> resubscribe (messages+members).
+        // Interactive loginWithBunker connects the signer synchronously (verifying
+        // never goes true), so this never fires spuriously for a fresh login.
+        scope.launch {
+            var wasReady = sessionManager.isBunkerConnected.value &&
+                !sessionManager.isBunkerVerifying.value &&
+                sessionManager.isBunkerReady()
+            combine(
+                sessionManager.isBunkerConnected,
+                sessionManager.isBunkerVerifying,
+            ) { connected, verifying ->
+                connected && !verifying && sessionManager.isBunkerReady()
+            }.collect { ready ->
+                if (ready && !wasReady) {
+                    try {
+                        reconnect()
+                        ensureJoinedRelaysConnected(
+                            connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() },
+                        )
+                    } catch (e: Throwable) {
+                        if (e is kotlinx.coroutines.CancellationException) throw e
+                    }
+                }
+                wasReady = ready
             }
         }
 
@@ -486,6 +540,8 @@ class NostrRepository(
         Result.Error(AppError.Auth.BunkerError(e.message ?: "Bunker connection failed", e))
     }
 
+    override val defaultNostrConnectRelays: List<String> = sessionManager.defaultNostrConnectRelays
+
     override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, org.nostr.nostrord.nostr.Nip46Client> = sessionManager.createNostrConnectSession(relays)
 
     override suspend fun completeNostrConnectLogin(
@@ -579,6 +635,36 @@ class NostrRepository(
             // for the same reason; the cold-start re-login path was the only
             // one missing it.
             connectionManager.loadSavedRelay()
+            // Seed the relay rail (kind:10009 set) from the per-account cache so
+            // ALL of the user's relays show immediately, exactly as initialize()
+            // does on cold boot. Without this, the rail showed only the current
+            // relay after re-login until the slow network kind:10009 fetch landed
+            // (or the user restarted the app).
+            outboxManager.seedFromCache(newPubkey)
+            // Re-hydrate joined-group state from local storage, exactly as the
+            // cold-boot path (initialize) does at lines 377-380. Previously this
+            // re-login branch relied solely on the kind:10009 outbox fetch to
+            // repopulate the group list; when that network fetch was slow or the
+            // bunker signer was unreachable (#85), nothing loaded the locally
+            // persisted groups as a fallback. The result (#88): every group was
+            // stuck on "No messages yet" and the relay's groups were never
+            // subscribed, intermittently, depending on outbox-fetch timing.
+            val activeRelay = connectionManager.currentRelayUrl.value
+            val savedRelays = SecureStorage.loadRelayListFor(newPubkey)
+            val allRelays = (listOfNotNull(activeRelay.ifBlank { null }) + savedRelays).distinct()
+            val primaryRelay = activeRelay.ifBlank { allRelays.firstOrNull().orEmpty() }
+            if (primaryRelay.isNotBlank()) {
+                groupManager.prePopulateRelayList(allRelays)
+                // Mirror the rest of initialize()'s sibling bootstrap, not just the
+                // joined-group loaders: without loadAll the first mux subscription
+                // has no persisted `since` cursor, and without fetchAll the relay
+                // rail shows stale NIP-11 icons/names after re-login.
+                liveCursorStore?.loadAll(allRelays)
+                _relayMetadataManager.fetchAll(allRelays)
+                groupManager.loadJoinedGroupsFromStorage(newPubkey, primaryRelay)
+                groupManager.loadAllJoinedGroupsFromStorage(newPubkey, allRelays)
+                groupManager.restoreJoinedGroupMetadataFromStorage(newPubkey, allRelays)
+            }
             unreadManager.initialize(newPubkey)
             notificationSettings?.initialize(newPubkey)
             notificationHistoryStore?.initialize(newPubkey)
@@ -590,6 +676,13 @@ class NostrRepository(
             if (!isNewIdentity) initializeOutboxModel()
             sessionManager.setLoggedIn(true)
             scope.launch { connect() }
+            // Open sockets for joined groups that live on secondary (non-primary)
+            // relays too. connect() only handles the primary; without this those
+            // groups stay on "No messages yet" until the user manually switches to
+            // their relay — the same #88 symptom, confined to non-primary relays.
+            if (primaryRelay.isNotBlank()) {
+                scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
+            }
         }
         scope.launch { requestUserMetadata(setOf(newPubkey)) }
     }
@@ -625,6 +718,7 @@ class NostrRepository(
         // mux/message refresh paths skip work for the new session, leaving
         // every group stuck on "No messages yet" until the user restarted.
         lastRequestGroupsAt.clear()
+        authedGroupListFetchedRelays.clear()
         lastGapDetectionAt.clear()
         pendingFullFetchMutex.withLock { pendingFullFetchRequests.clear() }
         _closedGroupSubscriptions.value = emptySet()
@@ -679,13 +773,36 @@ class NostrRepository(
         // resolves, even for accounts that already have a persisted relay list.
         outboxManager.seedFromCache(pubkey)
 
-        if (activeRelay.isNotBlank()) {
-            groupManager.loadJoinedGroupsFromStorage(pubkey, activeRelay)
-        }
-        if (savedRelays.isNotEmpty()) {
-            groupManager.loadAllJoinedGroupsFromStorage(pubkey, savedRelays)
-            groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, savedRelays)
-            groupManager.loadRestrictedGroupsFromStorage(pubkey, savedRelays)
+        // Mirror initialize()/finishLoginInit's full relay+group bootstrap so a
+        // warm account swap establishes the SAME state as a cold start. The swap
+        // previously loaded joined groups but skipped prePopulateRelayList / the
+        // cursor + NIP-11 metadata bootstrap, and elected no primary when the new
+        // account had a blank current-relay slot — leaving it on empty groups /
+        // a one-relay rail / stale icons until the app was restarted.
+        val allRelays = (listOfNotNull(activeRelay.ifBlank { null }) + savedRelays).distinct()
+        val primaryRelay = activeRelay.ifBlank { allRelays.firstOrNull().orEmpty() }
+        if (primaryRelay.isNotBlank()) {
+            groupManager.prePopulateRelayList(allRelays)
+            liveCursorStore?.loadAll(allRelays)
+            _relayMetadataManager.fetchAll(allRelays)
+            groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
+            groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
+            groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
+            groupManager.loadRestrictedGroupsFromStorage(pubkey, allRelays)
+            // Point GroupManager's current-relay flow at the new primary so the
+            // derived joinedGroups (My Groups — sidebar AND homescreen) reflects
+            // this account immediately. applyActiveAccountChange.clear() nulled it,
+            // and the warm-swap path only re-sets it if reconnect() actually runs
+            // (non-blank relay + a live message handler) via resubscribeAllGroups
+            // — so without this, My Groups stayed empty after an account switch.
+            groupManager.restoreGroupsForRelay(primaryRelay)
+            // The account had no persisted current relay — elect one so the
+            // primary actually connects (and its cache-hit mux is set up) instead
+            // of relying on a reconnect that no-ops against a blank current relay.
+            if (activeRelay.isBlank()) {
+                SecureStorage.saveCurrentRelayUrlFor(pubkey, primaryRelay)
+                connectionManager.loadSavedRelay()
+            }
         }
 
         initializeOutboxModel()
@@ -702,12 +819,12 @@ class NostrRepository(
         // until the next AUTH challenge; clear their mux tracker and reconnect
         // them so the new identity's AUTH runs before subs go out (matches
         // [ensureJoinedRelaysConnected] in the boot path).
-        if (activeRelay.isNotBlank()) {
+        if (primaryRelay.isNotBlank()) {
             triggerReconnect()
         }
         scope.launch {
             try {
-                ensureJoinedRelaysConnected(activeRelay.takeIf { it.isNotBlank() })
+                ensureJoinedRelaysConnected(primaryRelay.takeIf { it.isNotBlank() })
             } catch (_: Exception) {}
             // Safety net for the active relay and any joined relay not covered
             // above: applies the catch-up `since` set earlier so events missed
@@ -937,17 +1054,30 @@ class NostrRepository(
                     }
                 } else if (
                     SecureStorage.isGroupFetchLazy(relayUrl) &&
-                    !groupManager.hasFullGroupListBeenFetched(relayUrl) &&
+                    relayUrl.normalizeRelayUrl() !in groupManager.fullGroupListFetchedRelays.value &&
                     SecureStorage.getBooleanPref("sidebar_other_expanded_$relayUrl", default = true)
                 ) {
                     // Cache is fresh (partial, joined-only) but OTHER GROUPS is open and the full
-                    // list was never fetched. Trigger a full fetch now so the sidebar populates.
+                    // list was never fetched THIS SESSION. Trigger a full fetch now so the sidebar
+                    // populates automatically on connect — don't make the user click the homescreen
+                    // OTHER GROUPS tab. We check the in-memory set, not hasFullGroupListBeenFetched:
+                    // a stale persisted timestamp (or a previous session's full fetch) would
+                    // otherwise satisfy that guard while the cache holds only joined groups,
+                    // leaving OTHER GROUPS empty until a manual fetch.
                     groupManager.markPendingFullFetch(relayUrl)
                     groupManager.markRelayLoading(relayUrl)
                     client.requestGroups()
                 } else {
                     // Cache hit — no EOSE will arrive, so clear the early loading mark.
                     groupManager.markRelayLoaded(relayUrl)
+                    // No group-list REQ was sent, so the EOSE-driven mux setup
+                    // (handleEoseSuspend -> refreshMuxSubscriptionsForRelay) never
+                    // fires. Set up the live chat + metadata mux now, otherwise the
+                    // primary relay's groups show "No messages yet" and "Members 0"
+                    // until a re-AUTH or the 5-min periodic refresh. This path is hit
+                    // whenever login hydrates joined groups from storage (#88), which
+                    // makes the relay a cache hit and skips the group-list fetch.
+                    groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
                 }
                 drainFullFetchRequest(client, relayUrl)
                 // After AUTH (or if no AUTH needed), request metadata for private
@@ -1058,20 +1188,27 @@ class NostrRepository(
                 requestGroupsForRelay(client, newRelayUrl)
             } else if (
                 SecureStorage.isGroupFetchLazy(newRelayUrl) &&
-                !groupManager.hasFullGroupListBeenFetched(newRelayUrl) &&
+                newRelayUrl.normalizeRelayUrl() !in groupManager.fullGroupListFetchedRelays.value &&
                 SecureStorage.getBooleanPref("sidebar_other_expanded_$newRelayUrl", default = true)
             ) {
                 // Cache holds only the joined-group subset (from a previous lazy
                 // fetch) but OTHER GROUPS is open and this session hasn't
                 // received a full EOSE — fire the full fetch so the sidebar
                 // populates instead of flashing "no other groups". Mirrors the
-                // equivalent branch in connect().
+                // equivalent branch in connect(). We check the in-memory session
+                // set rather than hasFullGroupListBeenFetched so a stale persisted
+                // timestamp can't suppress the auto-fetch on switching to a relay.
                 groupManager.markPendingFullFetch(newRelayUrl)
                 groupManager.markRelayLoading(newRelayUrl)
                 client.requestGroups()
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
+                // As in connect(): a cache hit sends no group-list REQ, so the
+                // EOSE-driven mux setup won't fire. Refresh the chat + metadata mux
+                // for the new primary now so messages/members load instead of
+                // showing "No messages yet" / "Members 0".
+                groupManager.refreshMuxSubscriptionsForRelay(newRelayUrl)
             }
             drainFullFetchRequest(client, newRelayUrl)
             // Request metadata for private groups not in the cache (kind 10009 joined
@@ -1594,6 +1731,68 @@ class NostrRepository(
         )
     }
 
+    override suspend fun requestZapInvoice(
+        recipientPubkey: String,
+        amountSats: Long,
+        comment: String,
+        eventId: String?,
+    ): Result<ZapManager.ZapInvoice> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return zapManager.requestInvoice(
+            recipientPubkey = recipientPubkey,
+            amountSats = amountSats,
+            comment = comment,
+            eventId = eventId,
+            senderPubkey = pubKey,
+            signEvent = { sessionManager.signEvent(it) },
+        )
+    }
+
+    override suspend fun watchZapPayment(
+        bolt11: String,
+        recipientPubkey: String,
+        eventId: String?,
+    ): Boolean {
+        // Poll the receipt relays for the matching kind:9735 while awaiting the flow.
+        val matched = withTimeoutOrNull(ZAP_PAYMENT_WATCH_MS) {
+            coroutineScope {
+                val poller = launch {
+                    while (isActive) {
+                        pollZapReceipts(recipientPubkey, eventId)
+                        delay(ZAP_PAYMENT_POLL_MS)
+                    }
+                }
+                try {
+                    zapManager.paidInvoices.first { it.equals(bolt11, ignoreCase = true) }
+                } finally {
+                    poller.cancel()
+                }
+            }
+        }
+        return matched != null
+    }
+
+    /** One poll cycle: re-request the zap receipt from connected + general relays. */
+    private suspend fun pollZapReceipts(recipientPubkey: String, eventId: String?) {
+        // Same relays the receipt was asked to be published to (see ZapManager.receiptRelays).
+        zapManager.receiptRelays().forEach { url ->
+            try {
+                val client = connectionManager.getClientForRelay(url)
+                    ?: connectionManager.getOrConnectRelay(url) { msg, c -> enqueueToRelayPipeline(msg, c) }
+                if (client != null && client.isConnected()) {
+                    if (eventId != null) {
+                        client.requestZapReceipts(listOf(eventId))
+                    } else {
+                        client.requestZapReceiptsForRecipient(recipientPubkey)
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+            }
+        }
+    }
+
     override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> = groupManager.getMessagesForGroup(groupId)
 
     // Unread message operations
@@ -1911,6 +2110,29 @@ class NostrRepository(
      * Fix: both initializeOutboxModel and connectToRelayBackground now use this unified
      * handler so the first-connection handler always handles both NIP-29 and outbox events.
      */
+    /**
+     * Fetch NIP-57 zap receipts (kind 9735) for [messageIds] from general-purpose relays.
+     * NIP-29 group relays don't serve zap receipts (they carry no `h` tag), so we query
+     * connected outbox/bootstrap relays — connecting a couple if none are open. Responses
+     * route through the relay pipeline → kind 9735 → ZapManager aggregation.
+     */
+    private fun fetchZapReceiptsFromGeneralRelays(messageIds: List<String>) {
+        if (messageIds.isEmpty()) return
+        scope.launch {
+            // Query the exact relays the zap request asked the receipt to be published to —
+            // not the NIP-29 group relay, which rejects the (h-less) 9735.
+            zapManager.receiptRelays().forEach { url ->
+                try {
+                    val client = connectionManager.getClientForRelay(url)
+                        ?: connectionManager.getOrConnectRelay(url) { msg, c -> enqueueToRelayPipeline(msg, c) }
+                    if (client != null && client.isConnected()) client.requestZapReceipts(messageIds)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                }
+            }
+        }
+    }
+
     private fun handleUnifiedMessage(msg: String, client: NostrGroupClient) {
         // Parse once — every downstream handler reuses this JsonArray.
         val arr = try {
@@ -2034,6 +2256,9 @@ class NostrRepository(
                                     // Will be closed when its own EOSE arrives via reactions_ prefix
                                 }
                             } catch (_: Exception) {}
+                            // Zap receipts (kind 9735) carry no `h` tag, so they live on
+                            // general relays, not the NIP-29 group relay — fetch them there.
+                            fetchZapReceiptsFromGeneralRelays(messageIds)
                         }
                     }
                     // Close one-shot subs after EOSE so the relay slot is freed.
@@ -2044,6 +2269,7 @@ class NostrRepository(
                         subId.startsWith("e_") ||
                         subId.startsWith("a_") ||
                         subId.startsWith("reactions_") ||
+                        subId.startsWith("zaps_") ||
                         subId.startsWith("event_")
                     ) {
                         try {
@@ -2216,6 +2442,11 @@ class NostrRepository(
                     0 -> {
                         val parsed = client.parseUserMetadata(event) ?: return
                         metadataManager.handleMetadataEvent(parsed.pubkey, parsed.metadata, parsed.createdAt)
+                    }
+
+                    9735 -> {
+                        // NIP-57 zap receipt — aggregate per zapped event id for UI totals.
+                        zapManager.handleZapReceipt(event)
                     }
 
                     7 -> {
@@ -2472,6 +2703,19 @@ class NostrRepository(
         if (connectionManager.getPrimaryClient() === client) {
             val now = epochSeconds()
             val lastAt = lastRequestGroupsAt[relayUrl] ?: 0L
+            val normalized = relayUrl.normalizeRelayUrl()
+            // On the FIRST auth completion for this relay this session, any full-list
+            // result captured so far is untrustworthy: an auth-required relay may
+            // answer the unauthenticated pre-AUTH group-list REQ with an empty EOSE
+            // (rather than CLOSED auth-required), which marks the relay "fully
+            // fetched" and would make sessionFetched below skip this authed fetch —
+            // leaving OTHER GROUPS empty even when expanded (observed on hzrd149's
+            // relay). Invalidate only once: after the first authed fetch the marker
+            // is trustworthy, so relays that re-issue AUTH periodically fall back to
+            // the 10s dedup instead of re-fetching the full list on every challenge.
+            if (normalized !in authedGroupListFetchedRelays) {
+                groupManager.invalidateFullGroupListFetch(relayUrl)
+            }
             // Bypass the 10s dedup when THIS SESSION hasn't received an EOSE for
             // the full group list yet. The previous REQ likely raced AUTH and was
             // CLOSED auth-required, so skipping the retry leaves OTHER GROUPS
@@ -2480,10 +2724,10 @@ class NostrRepository(
             // so a fresh re-login doesn't get fooled by the still-fresh persisted
             // cache from a previous session; that cache predates the auth-required
             // CLOSED on this socket.
-            val sessionFetched = relayUrl.normalizeRelayUrl() in
-                groupManager.fullGroupListFetchedRelays.value
+            val sessionFetched = normalized in groupManager.fullGroupListFetchedRelays.value
             if (!sessionFetched || now - lastAt > 10L) {
                 lastRequestGroupsAt[relayUrl] = now
+                authedGroupListFetchedRelays.add(normalized)
                 groupManager.markRelayLoading(relayUrl)
                 requestGroupsForRelay(client, relayUrl)
             }

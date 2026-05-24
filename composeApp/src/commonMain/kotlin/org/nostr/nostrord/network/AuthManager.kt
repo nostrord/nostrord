@@ -70,8 +70,15 @@ class AuthManager(
     private val _authUrl = MutableStateFlow<String?>(null)
     val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
 
-    // Default relays for nostrconnect:// QR code flow
-    val defaultNostrConnectRelays = listOf("wss://relay.damus.io", "wss://nos.lol")
+    // Default relays for nostrconnect:// QR code flow. relay.nsec.app is a
+    // dedicated NIP-46 relay; damus.io / nos.lol are general-purpose fallbacks.
+    // Users can override these per-session in the QR login screen.
+    val defaultNostrConnectRelays =
+        listOf(
+            "wss://relay.nsec.app",
+            "wss://relay.damus.io",
+            "wss://nos.lol",
+        )
 
     fun clearAuthUrl() {
         _authUrl.value = null
@@ -538,11 +545,9 @@ class AuthManager(
                 },
                 onRevoked = {
                     if (nip46Client !== client) return@backgroundConnect
-                    handlePermissionDenied()
-                    authScope.launch {
-                        delay(1500)
-                        _isBunkerVerifying.value = false
-                    }
+                    // Couldn't reach or verify the signer — keep the user signed
+                    // in and let the banner offer a retry instead of logging out.
+                    markSignerUnreachable()
                 },
             )
         }
@@ -570,64 +575,85 @@ class AuthManager(
         bunkerUrl: String,
         savedUserPubkey: String,
     ): Boolean {
-        try {
-            val bunkerInfo = parseBunkerUrl(bunkerUrl)
-            val savedClientPrivateKey =
-                SecureStorage.getBunkerClientPrivateKeyFor(savedUserPubkey)
-                    ?: SecureStorage.getBunkerClientPrivateKey()
-
-            val newNip46Client =
-                if (savedClientPrivateKey != null) {
-                    Nip46Client(savedClientPrivateKey)
-                } else {
-                    Nip46Client()
-                }
-
-            bunkerUserPubkey = savedUserPubkey
-            isBunkerLogin = true
-
-            newNip46Client.onAuthUrl = { url ->
-                _authUrl.value = url
+        val bunkerInfo =
+            try {
+                parseBunkerUrl(bunkerUrl)
+            } catch (_: Exception) {
+                // A corrupt/unparseable stored URL is the only restore failure
+                // that genuinely logs out — there is nothing to reconnect to.
+                _isLoggedIn.value = false
+                _isBunkerVerifying.value = false
+                clearBunkerCredentials()
+                return false
             }
 
-            // Set logged-in and verifying states BEFORE the slow relay connection so the UI
-            // immediately shows "Reconnecting to signer..." instead of a blank spinner.
-            _isLoggedIn.value = true
-            _isBunkerVerifying.value = true
+        val savedClientPrivateKey =
+            SecureStorage.getBunkerClientPrivateKeyFor(savedUserPubkey)
+                ?: SecureStorage.getBunkerClientPrivateKey()
 
-            newNip46Client.connectRelaysOnly(bunkerInfo.pubkey, bunkerInfo.relays)
+        val newNip46Client =
+            if (savedClientPrivateKey != null) {
+                Nip46Client(savedClientPrivateKey)
+            } else {
+                Nip46Client()
+            }
+
+        bunkerUserPubkey = savedUserPubkey
+        isBunkerLogin = true
+        newNip46Client.onAuthUrl = { url ->
+            _authUrl.value = url
+        }
+        nip46Client = newNip46Client
+
+        // Stay logged in immediately; the relay connection below is best-effort.
+        // The UI shows "Reconnecting to signer..." while verifying. If the bunker
+        // relay is offline we keep the user on this account and only mark the
+        // signer disconnected — dropping the session here would force the user to
+        // re-paste the bunker URI (issue #85).
+        _isLoggedIn.value = true
+        _isBunkerVerifying.value = true
+        _isBunkerConnected.value = true
+
+        if (savedClientPrivateKey == null) {
+            SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
+            SecureStorage.saveBunkerClientPrivateKeyFor(
+                savedUserPubkey,
+                newNip46Client.clientPrivateKey,
+            )
+        }
+
+        // The slow relay connect + identity verification run async so a hung or
+        // offline bunker never blocks startup or tears down the session. Mirrors
+        // installBunkerClient (the multi-account path).
+        authScope.launch {
+            try {
+                newNip46Client.connectRelaysOnly(bunkerInfo.pubkey, bunkerInfo.relays)
+            } catch (_: Exception) {
+                // Relay unreachable — keep the user signed in and surface the
+                // disconnected state so the UI can offer a one-tap reconnect.
+                if (nip46Client === newNip46Client) {
+                    _isBunkerConnected.value = false
+                    _isBunkerVerifying.value = false
+                }
+                return@launch
+            }
             newNip46Client.backgroundConnect(
                 secret = bunkerInfo.secret,
-                onSuccess = { _isBunkerVerifying.value = false },
+                onSuccess = {
+                    if (nip46Client === newNip46Client) _isBunkerVerifying.value = false
+                },
                 onRevoked = {
-                    // Set isLoggedIn=false FIRST (keeps loading screen visible, prevents auth flash),
-                    // then delay briefly to show "Logging out..." before releasing the loading screen.
-                    handlePermissionDenied()
-                    authScope.launch {
-                        delay(1500)
-                        _isBunkerVerifying.value = false
-                    }
+                    // Couldn't reach or verify the signer on restore — stay
+                    // logged in and let the banner offer a retry. We can't tell
+                    // an offline signer from a deleted connection apart, so we
+                    // never drop the session here (issue #85).
+                    if (nip46Client !== newNip46Client) return@backgroundConnect
+                    markSignerUnreachable()
                 },
             )
-
-            nip46Client = newNip46Client
-            _isBunkerConnected.value = true
-
-            if (savedClientPrivateKey == null) {
-                SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
-                SecureStorage.saveBunkerClientPrivateKeyFor(
-                    savedUserPubkey,
-                    newNip46Client.clientPrivateKey,
-                )
-            }
-
-            return true
-        } catch (e: Exception) {
-            _isLoggedIn.value = false
-            _isBunkerVerifying.value = false
-            clearBunkerCredentials()
-            return false
         }
+
+        return true
     }
 
     private fun restorePrivateKeySession(privateKeyHex: String): Boolean = try {
@@ -721,6 +747,12 @@ class AuthManager(
                 sessionSigner.signEvent(event)
             } catch (e: NostrSigner.SigningException) {
                 if (isPermissionError(e)) {
+                    if (sessionSigner is NostrSigner.Bunker) {
+                        // Can't tell an offline signer from a deleted connection
+                        // apart — surface a reconnectable error, never log out.
+                        markSignerUnreachable()
+                        throw Exception("Couldn't reach your signer. Please reconnect.")
+                    }
                     handlePermissionDenied()
                     throw Exception("Signing permission denied. Please login again.")
                 }
@@ -764,8 +796,10 @@ class AuthManager(
             return parseSignedEvent(signedEventJson)
         } catch (e: Exception) {
             if (isPermissionError(e)) {
-                handlePermissionDenied()
-                throw Exception("Signing permission denied. Please login again.")
+                // Can't tell an offline signer from a deleted connection apart —
+                // surface a reconnectable error, never log out (issue #85).
+                markSignerUnreachable()
+                throw Exception("Couldn't reach your signer. Please reconnect.")
             }
             throw e
         }
@@ -781,6 +815,23 @@ class AuthManager(
         return msg.contains("no permission") ||
             msg.contains("not authorized") ||
             msg.contains("permission denied")
+    }
+
+    /**
+     * The bunker signer can't be reached or refused a request. The app cannot
+     * tell "signer offline" from "connection deleted on the signer" apart — both
+     * surface as a timeout or an error — so this NEVER logs the user out or wipes
+     * credentials. It only marks the signer disconnected; [BunkerStatusBanner]
+     * then explains the situation and lets the user choose to reconnect or log
+     * out. (issue #85)
+     */
+    private fun markSignerUnreachable() {
+        nip46Client?.disconnect()
+        nip46Client = null
+        _isBunkerConnected.value = false
+        _isBunkerVerifying.value = false
+        // isBunkerLogin, bunkerUserPubkey, the stored bunker URL and isLoggedIn
+        // are left intact so reconnectBunker() can re-read the saved URL on retry.
     }
 
     private fun handlePermissionDenied() {
@@ -851,8 +902,6 @@ class AuthManager(
         _isBunkerConnected.value = false
         // Reset the verifying flag so a hung backgroundConnect does not keep
         // the UI stuck on "Reconnecting to signer..." after logout completes.
-        // The delay(1500) clearer in installBunkerClient / restoreBunkerSession
-        // is best-effort; this is the deterministic path.
         _isBunkerVerifying.value = false
 
         SecureStorage.clearPrivateKey()

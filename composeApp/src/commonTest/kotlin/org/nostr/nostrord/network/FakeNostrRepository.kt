@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.update
 import org.nostr.nostrord.network.RoleDefinition
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.nostr.Nip46Client
@@ -142,6 +143,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         calls += "loginWithBunker"
         return loginWithBunkerAction(bunkerUrl)
     }
+
+    override val defaultNostrConnectRelays: List<String> = listOf("wss://relay.nsec.app")
 
     override suspend fun createNostrConnectSession(relays: List<String>): Pair<String, Nip46Client> = error("createNostrConnectSession not implemented in fake")
 
@@ -376,6 +379,29 @@ class FakeNostrRepository : NostrRepositoryApi {
         targetPubkey: String,
         emoji: String,
     ): Result<Unit> = Result.Success(Unit)
+
+    override val zaps: StateFlow<Map<String, ZapManager.ZapInfo>> = MutableStateFlow(emptyMap())
+
+    override suspend fun requestZapInvoice(
+        recipientPubkey: String,
+        amountSats: Long,
+        comment: String,
+        eventId: String?,
+    ): Result<ZapManager.ZapInvoice> = Result.Success(
+        ZapManager.ZapInvoice(
+            bolt11 = "lnbc10n1fake",
+            amountMsats = amountSats * 1_000L,
+            recipientPubkey = recipientPubkey,
+            eventId = eventId,
+            comment = comment,
+        ),
+    )
+
+    override suspend fun watchZapPayment(
+        bolt11: String,
+        recipientPubkey: String,
+        eventId: String?,
+    ): Boolean = false
 
     override suspend fun publishRelayList(relays: List<Nip65Relay>): Result<Unit> = Result.Success(Unit)
 

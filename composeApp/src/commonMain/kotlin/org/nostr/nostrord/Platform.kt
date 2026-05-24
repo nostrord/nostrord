@@ -23,3 +23,11 @@ expect val isHandheldPlatform: Boolean
  * (and revoke individually).
  */
 expect val platformDisplayName: String
+
+/**
+ * Whether the message input should grab focus automatically when a chat opens.
+ * True only in mouse + physical-keyboard environments (desktop, and desktop web).
+ * False on touch devices (Android, iOS, and coarse-pointer web) where auto-focus
+ * would pop the on-screen keyboard the moment a group is opened.
+ */
+expect val autoFocusTextInput: Boolean

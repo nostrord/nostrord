@@ -25,6 +25,7 @@ import org.nostr.nostrord.network.managers.PendingEventManager
 import org.nostr.nostrord.network.managers.RelayMetadataManager
 import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
+import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.nostr.Nip19
@@ -210,6 +211,15 @@ object AppModule {
 
     val metadataManager: MetadataManager by lazy {
         MetadataManager(
+            connectionManager = connectionManager,
+            outboxManager = outboxManager,
+            scope = appScope,
+        )
+    }
+
+    val zapManager: ZapManager by lazy {
+        ZapManager(
+            metadataManager = metadataManager,
             connectionManager = connectionManager,
             outboxManager = outboxManager,
             scope = appScope,
@@ -453,6 +463,7 @@ object AppModule {
             groupManager = groupManager,
             metadataManager = metadataManager,
             outboxManager = outboxManager,
+            zapManager = zapManager,
             unreadManager = unreadManager,
             pendingEventManager = pendingEventManager,
             relayMetadataManager = relayMetadataManager,

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
@@ -66,6 +67,8 @@ sealed class MessageContextAction {
 
     data object Reply : MessageContextAction()
 
+    data object ZapMessage : MessageContextAction()
+
     data object CopyText : MessageContextAction()
 
     data object CopyMessageLink : MessageContextAction()
@@ -100,6 +103,7 @@ fun MessageContextMenu(
     onAction: (MessageContextAction) -> Unit,
     isAuthor: Boolean = false,
     isAdmin: Boolean = false,
+    canZap: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     // Only render Popup when visible to avoid layout participation
@@ -142,6 +146,7 @@ fun MessageContextMenu(
                         onDismiss = onDismiss,
                         isAuthor = isAuthor,
                         isAdmin = isAdmin,
+                        canZap = canZap,
                     )
                 }
             }
@@ -158,6 +163,7 @@ private fun ContextMenuContent(
     onDismiss: () -> Unit,
     isAuthor: Boolean,
     isAdmin: Boolean,
+    canZap: Boolean,
 ) {
     Column(
         modifier =
@@ -195,6 +201,18 @@ private fun ContextMenuContent(
                 onDismiss()
             },
         )
+
+        // Zap (only when the author has a Lightning address and zaps are enabled)
+        if (canZap) {
+            ContextMenuItem(
+                icon = Icons.Outlined.Bolt,
+                label = "Zap",
+                onClick = {
+                    onAction(MessageContextAction.ZapMessage)
+                    onDismiss()
+                },
+            )
+        }
 
         ContextMenuDivider()
 

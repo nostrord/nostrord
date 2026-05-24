@@ -112,6 +112,8 @@ data class UserMetadata(
     val nip05: String?,
     val banner: String? = null,
     val lud16: String? = null,
+    /** LNURL-pay bech32 (`lnurl1...`) — NIP-57 fallback when lud16 is absent. */
+    val lud06: String? = null,
     val website: String? = null,
     /** Original kind:0 content JSON — preserved so updates can merge without losing unknown fields. */
     val rawContentJson: String? = null,
@@ -585,6 +587,19 @@ class NostrGroupClient(
         // relay clients are active concurrently. The ID must be stable per relay
         // so the EOSE handler can map it back to the originating relay URL.
         val subId = "group-list-${relayUrl.hashCode().toUInt()}"
+        // CLOSE the sub id before re-REQ'ing. requestGroupsForIds() reuses this
+        // same id for the lazy joined-only (#d-filtered) fetch; sending an
+        // unfiltered REQ on a sub that is still open with a narrower filter is a
+        // re-REQ that some relays do not re-evaluate — they keep serving the old
+        // (#d) filter or treat it as already-EOSEd, so the OTHER GROUPS full
+        // fetch comes back empty (observed on hzrd149's relay). An explicit CLOSE
+        // guarantees the relay runs the widened filter as a fresh subscription.
+        sendJson(
+            buildJsonArray {
+                add("CLOSE")
+                add(subId)
+            },
+        )
         val req = buildJsonArray {
             add("REQ")
             add(subId)
@@ -612,6 +627,15 @@ class NostrGroupClient(
     suspend fun requestGroupsForIds(groupIds: List<String>) {
         if (groupIds.isEmpty()) return
         val subId = groupListSubscriptionId()
+        // CLOSE before re-REQ — see requestGroups(). This sub id is shared with
+        // the unfiltered full fetch; closing first guarantees the relay applies
+        // this #d filter as a fresh subscription instead of mishandling a re-REQ.
+        sendJson(
+            buildJsonArray {
+                add("CLOSE")
+                add(subId)
+            },
+        )
         val req = buildJsonArray {
             add("REQ")
             add(subId)
@@ -724,9 +748,53 @@ class NostrGroupClient(
                         buildJsonArray {
                             add(7)
                             add(9321)
+                            add(9735) // NIP-57 zap receipts
                         },
                     )
                     put("#e", buildJsonArray { messageIds.forEach { add(it) } })
+                },
+            )
+        }.toString()
+        send(subscription)
+        return subId
+    }
+
+    /**
+     * Fetch NIP-57 zap receipts (kind 9735) for specific event IDs. Used against
+     * general-purpose relays: zap receipts carry no `h` tag, so NIP-29 group relays do
+     * not serve them — they live on the relays named in the zap request's `relays` tag.
+     */
+    suspend fun requestZapReceipts(eventIds: List<String>): String? {
+        if (eventIds.isEmpty()) return null
+        val subId = "zaps_${epochMillis()}"
+        val subscription = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(9735) }
+                    put("#e", buildJsonArray { eventIds.forEach { add(it) } })
+                },
+            )
+        }.toString()
+        send(subscription)
+        return subId
+    }
+
+    /**
+     * Fetch recent zap receipts (kind 9735) addressed to [recipientPubkey] (`#p`). Used to
+     * confirm a profile zap, which carries no zapped-event id.
+     */
+    suspend fun requestZapReceiptsForRecipient(recipientPubkey: String, limit: Int = 20): String? {
+        val subId = "zaps_${epochMillis()}"
+        val subscription = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(9735) }
+                    put("#p", buildJsonArray { add(recipientPubkey) })
+                    put("limit", limit)
                 },
             )
         }.toString()
@@ -1241,6 +1309,7 @@ class NostrGroupClient(
                     nip05 = metadata["nip05"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                     banner = metadata["banner"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                     lud16 = metadata["lud16"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
+                    lud06 = metadata["lud06"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                     website = metadata["website"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() },
                     rawContentJson = content,
                 ),
