@@ -43,9 +43,11 @@ import react.FC
 import react.Props
 import react.dom.html.ReactHTML.a
 import react.dom.html.ReactHTML.button
+import react.dom.html.ReactHTML.code
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
+import react.dom.html.ReactHTML.pre
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.video
 import react.useEffect
@@ -1012,8 +1014,73 @@ private val URL_REGEX =
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
 private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", RegexOption.IGNORE_CASE)
 
-/** Render message text with clickable links, inline images, NIP-27 mentions and event refs. */
+private val CODE_BLOCK_REGEX = Regex("```(?:([A-Za-z0-9_+-]*)\n)?([\\s\\S]*?)```")
+private val INLINE_CODE_REGEX = Regex("`([^`\n]+)`")
+
+/**
+ * Render message text: fenced code blocks (```), then inline `code`, then links / images /
+ * videos / NIP-27 mentions / event & group refs in the remaining text — mirroring native.
+ */
 private fun ChildrenBuilder.renderMessageContent(
+    content: String,
+    userMetadata: Map<String, UserMetadata>,
+    messagesById: Map<String, NostrGroupClient.NostrMessage>,
+    onUser: (String) -> Unit,
+    onEventRef: (String) -> Unit,
+    onGroupRef: (String, String?) -> Unit,
+) {
+    var last = 0
+    for (block in CODE_BLOCK_REGEX.findAll(content)) {
+        if (block.range.first > last) {
+            renderInline(content.substring(last, block.range.first), userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        }
+        val lang = block.groupValues[1].takeIf { it.isNotBlank() }
+        div {
+            className = ClassName("code-block")
+            if (lang != null) {
+                div {
+                    className = ClassName("code-lang")
+                    +lang
+                }
+            }
+            pre {
+                className = ClassName("code-pre")
+                +block.groupValues[2].trim('\n')
+            }
+        }
+        last = block.range.last + 1
+    }
+    if (last < content.length) {
+        renderInline(content.substring(last), userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+    }
+}
+
+/** Render a non-code text span: inline `code` as monospace, the rest through [renderEntities]. */
+private fun ChildrenBuilder.renderInline(
+    text: String,
+    userMetadata: Map<String, UserMetadata>,
+    messagesById: Map<String, NostrGroupClient.NostrMessage>,
+    onUser: (String) -> Unit,
+    onEventRef: (String) -> Unit,
+    onGroupRef: (String, String?) -> Unit,
+) {
+    var last = 0
+    for (m in INLINE_CODE_REGEX.findAll(text)) {
+        if (m.range.first > last) {
+            renderEntities(text.substring(last, m.range.first), userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        }
+        code {
+            className = ClassName("msg-code")
+            +m.groupValues[1]
+        }
+        last = m.range.last + 1
+    }
+    if (last < text.length) {
+        renderEntities(text.substring(last), userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+    }
+}
+
+private fun ChildrenBuilder.renderEntities(
     content: String,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,

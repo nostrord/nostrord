@@ -2327,6 +2327,39 @@ body {
     height: 16px;
 }
 
+/* Fenced code block + inline code (mirrors native CodeBlockContent / Monospace) */
+.code-block {
+    margin: 4px 0;
+    max-width: 100%;
+    background: #2b2d31;
+    border-radius: 6px;
+    overflow: hidden;
+}
+.code-lang {
+    padding: 6px 12px;
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+.code-pre {
+    margin: 0;
+    padding: 12px;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #e3e5e8;
+    white-space: pre;
+    tab-size: 2;
+}
+.msg-code {
+    padding: 1px 5px;
+    background: #2b2d31;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    color: #e3e5e8;
+}
+
 .msg-mention {
     color: var(--color-primary);
     cursor: pointer;
