@@ -219,6 +219,11 @@ val ChatScreen =
         // After messages change: restore position when older messages were prepended,
         // otherwise pin to the bottom only if the user was already near it.
         useEffect(messages.size) {
+            // While a deep-link target (?e=) is pending, the seek effect owns scrolling. atBottom
+            // is true on entry, so without this the auto-scroll would pin the view to the bottom on
+            // every page the seek loads — the target would load but never come into view (mirrors
+            // native's AutoScrollEffect `enabled = !isSeekingTarget`).
+            if (props.scrollToMessageId != null) return@useEffect
             val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
             when {
                 loadingOlder.current == true -> {
@@ -232,17 +237,38 @@ val ChatScreen =
                 }
             }
         }
-        // Deep-link target: once the message is loaded, scroll it into view and flash it.
-        // Runs after the auto-scroll effect so it wins the race on group entry. Waits across
-        // message loads (keeps trying as messages.size grows) until the target appears.
-        useEffect(props.scrollToMessageId, messages.size) {
+        // Deep-link target (?e=<id>): fetch the exact event by id once. This is the fast path —
+        // a single targeted REQ that lands the message even when it's far older than the loaded
+        // window, instead of paginating the whole history (mirrors native's fetchMessageById).
+        useEffect(props.scrollToMessageId, group.id) {
             val target = props.scrollToMessageId ?: return@useEffect
-            if (target !in messagesById) return@useEffect
-            val el = document.getElementById(ElementId("msg-$target")) ?: return@useEffect
-            el.asDynamic().scrollIntoView(js("({ behavior: 'smooth', block: 'center' })"))
-            setHighlightId(target)
-            props.onScrolledToMessage()
-            window.setTimeout({ setHighlightId(null) }, 2_600)
+            launchApp { repo.fetchGroupMessageById(group.id, target) }
+        }
+        // Then seek to it: scroll into view + flash once it's loaded. While it's still missing and
+        // older messages remain, paginate one page at a time until it appears (or history runs
+        // out) — covers the case where the direct fetch is dropped. hasMore/isLoadingMore are keys
+        // so the loop advances after each page lands. Runs after the auto-scroll effect so it wins
+        // the race on group entry.
+        useEffect(props.scrollToMessageId, messages.size, hasMore, isLoadingMore) {
+            val target = props.scrollToMessageId ?: return@useEffect
+            if (target in messagesById) {
+                val el = document.getElementById(ElementId("msg-$target")) ?: return@useEffect
+                // Instant centering — smooth gets interrupted by the pagination re-renders. Pin
+                // atBottom off so the auto-scroll effect can't yank the view back to the bottom
+                // once the target is consumed and a late page lands.
+                val center = js("({ behavior: 'auto', block: 'center' })")
+                el.asDynamic().scrollIntoView(center)
+                atBottom.current = false
+                setHighlightId(target)
+                props.onScrolledToMessage()
+                // Re-center after late avatars/images above the target shift the layout.
+                window.setTimeout({
+                    document.getElementById(ElementId("msg-$target"))?.asDynamic()?.scrollIntoView(center)
+                }, 400)
+                window.setTimeout({ setHighlightId(null) }, 3_000)
+            } else if (messages.isNotEmpty() && hasMore && !isLoadingMore) {
+                launchApp { repo.loadMoreMessages(group.id) }
+            }
         }
 
         fun send() {
