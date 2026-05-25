@@ -49,6 +49,7 @@ import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.video
 import react.useEffect
+import react.useEffectOnce
 import react.useRef
 import react.useState
 import web.cssom.ClassName
@@ -1037,8 +1038,22 @@ private fun ChildrenBuilder.renderMessageContent(
             when (val entity = Nip19.decode(token.removePrefix("nostr:"))) {
                 is Nip19.Entity.Npub -> mentionSpan(entity.pubkey, userMetadata, onUser)
                 is Nip19.Entity.Nprofile -> mentionSpan(entity.pubkey, userMetadata, onUser)
-                is Nip19.Entity.Nevent -> eventRefChip(entity.eventId, messagesById, userMetadata, onEventRef)
-                is Nip19.Entity.Note -> eventRefChip(entity.eventId, messagesById, userMetadata, onEventRef)
+                is Nip19.Entity.Nevent ->
+                    QuotedEvent {
+                        eventId = entity.eventId
+                        relays = entity.relays
+                        author = entity.author
+                        localById = messagesById
+                        onScrollTo = onEventRef
+                    }
+                is Nip19.Entity.Note ->
+                    QuotedEvent {
+                        eventId = entity.eventId
+                        relays = emptyList()
+                        author = null
+                        localById = messagesById
+                        onScrollTo = onEventRef
+                    }
                 is Nip19.Entity.Naddr ->
                     if (entity.kind == 39000) {
                         GroupLinkCard {
@@ -1069,29 +1084,71 @@ private fun ChildrenBuilder.mentionSpan(pubkey: String, userMetadata: Map<String
     }
 }
 
-/** A decoded nevent/note reference — clickable chip that scrolls to the quoted message. */
-private fun ChildrenBuilder.eventRefChip(
-    eventId: String,
-    messagesById: Map<String, NostrGroupClient.NostrMessage>,
-    userMetadata: Map<String, UserMetadata>,
-    onEventRef: (String) -> Unit,
-) {
-    val ref = messagesById[eventId]
-    span {
-        className = ClassName("msg-event-ref")
-        onClick = { onEventRef(eventId) }
-        icon(Ic.Reply, "ico msg-event-ref-ico")
-        if (ref != null) {
-            span {
-                className = ClassName("msg-event-ref-author")
-                +displayName(ref.pubkey, userMetadata[ref.pubkey])
+private external interface QuotedEventProps : Props {
+    var eventId: String
+    var relays: List<String>
+    var author: String?
+    var localById: Map<String, NostrGroupClient.NostrMessage>
+    var onScrollTo: (String) -> Unit
+}
+
+/**
+ * A decoded nevent/note reference rendered as a quote card (author + content), mirroring the
+ * native QuotedEvent. Resolves the event from the current group or the global event cache, and
+ * fetches it by id from the nevent's relay hints when unknown. Clicking scrolls to it if loaded.
+ */
+private val QuotedEvent =
+    FC<QuotedEventProps> { props ->
+        val repo = AppModule.nostrRepository
+        val cached = useStateFlow(repo.cachedEvents)
+        val userMetadata = useStateFlow(repo.userMetadata)
+
+        val local = props.localById[props.eventId]
+        val cachedEv = cached[props.eventId]
+        val pubkey = local?.pubkey ?: cachedEv?.pubkey ?: props.author
+        val content = local?.content ?: cachedEv?.content
+
+        useEffectOnce {
+            if (props.eventId !in cached && local == null) {
+                launchApp { repo.requestEventById(props.eventId, props.relays, props.author) }
             }
-            +" ${ref.content.replace('\n', ' ').trim().take(80)}"
-        } else {
-            +"Quoted message"
+        }
+        useEffect(pubkey) {
+            val pk = pubkey
+            if (pk != null && userMetadata[pk] == null) {
+                launchApp { repo.requestUserMetadata(setOf(pk)) }
+            }
+        }
+
+        div {
+            className = ClassName("quoted-event")
+            onClick = { props.onScrollTo(props.eventId) }
+            if (content != null && pubkey != null) {
+                div {
+                    className = ClassName("quoted-event-head")
+                    WebAvatar {
+                        url = userMetadata[pubkey]?.picture
+                        seed = pubkey
+                        this.name = displayName(pubkey, userMetadata[pubkey])
+                        cls = "quoted-event-avatar"
+                    }
+                    span {
+                        className = ClassName("quoted-event-author")
+                        +displayName(pubkey, userMetadata[pubkey])
+                    }
+                }
+                div {
+                    className = ClassName("quoted-event-content")
+                    +content.replace('\n', ' ').trim().take(280)
+                }
+            } else {
+                span {
+                    className = ClassName("quoted-event-loading")
+                    +"Loading quoted message…"
+                }
+            }
         }
     }
-}
 
 private external interface GroupLinkCardProps : Props {
     var groupId: String

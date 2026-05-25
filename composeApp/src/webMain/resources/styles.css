@@ -2199,6 +2199,51 @@ body {
     color: var(--color-text-primary);
 }
 
+/* nevent/note quoted-event card (mirrors native QuotedEvent) */
+.quoted-event {
+    display: block;
+    max-width: 420px;
+    margin: 4px 0;
+    padding: 8px 10px;
+    background: var(--color-input);
+    border-left: 3px solid var(--color-primary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.quoted-event:hover {
+    background: var(--color-surface-variant);
+}
+.quoted-event-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+.quoted-event-avatar {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+}
+.quoted-event-author {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+.quoted-event-content {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+.quoted-event-loading {
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
 /* naddr group reference card (mirrors native GroupLinkCard) */
 .group-link-card {
     display: flex;
