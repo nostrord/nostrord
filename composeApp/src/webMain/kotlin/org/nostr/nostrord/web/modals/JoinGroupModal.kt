@@ -4,6 +4,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -60,6 +61,8 @@ val JoinGroupModal =
                 }
             }
         }
+
+        useEscClose { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")

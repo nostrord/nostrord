@@ -6,6 +6,7 @@ import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -58,6 +59,8 @@ val AddMemberModal =
                 }
             }
         }
+
+        useEscClose { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")

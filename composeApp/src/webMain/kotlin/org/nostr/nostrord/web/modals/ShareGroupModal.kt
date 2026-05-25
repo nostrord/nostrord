@@ -7,6 +7,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -34,6 +35,8 @@ val ShareGroupModal =
         // Author = the relay's own pubkey (NIP-11), like native; falls back to zero bytes inside encodeNaddr.
         val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
         val naddr = "nostr:" + Nip19.encodeNaddr(identifier = group.id, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey)
+
+        useEscClose { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")

@@ -8,6 +8,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -42,6 +43,7 @@ val UserProfileModal =
         useEffect(pubkey) {
             launchApp { AppModule.nostrRepository.requestUserMetadata(setOf(pubkey)) }
         }
+        useEscClose { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")

@@ -7,6 +7,7 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.a
@@ -101,6 +102,8 @@ val CreateGroupModal =
                 }
             }
         }
+
+        useEscClose { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")

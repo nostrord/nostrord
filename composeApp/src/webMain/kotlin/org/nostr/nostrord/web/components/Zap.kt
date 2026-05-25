@@ -87,6 +87,8 @@ private val ZapModal =
 
         val amountSats = amountText.toLongOrNull() ?: 0L
 
+        useEscClose { props.onDismiss() }
+
         // Fetch the recipient's metadata (for name + Lightning address) if we don't have it.
         useEffectOnce {
             if (userMetadata[props.recipientPubkey] == null) {

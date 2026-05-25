@@ -6,6 +6,7 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -52,6 +53,8 @@ val MemberManagementModal =
                     }
                 }
                 .filter { query.isBlank() || nameOf(it).contains(query, ignoreCase = true) }
+
+        useEscClose { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")

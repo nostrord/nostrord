@@ -2,6 +2,7 @@ package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -28,6 +29,8 @@ private val pendingClaims = listOf("Bots" to "g8", "Memes" to "g9")
 val ManageChildrenModal =
     FC<ManageChildrenModalProps> { props ->
         val (closed, setClosed) = useState { false }
+
+        useEscClose { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")

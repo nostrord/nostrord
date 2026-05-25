@@ -5,6 +5,7 @@ import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -48,6 +49,8 @@ val AddRelayModal =
         val groupTagRelays = useStateFlow(AppModule.nostrRepository.groupTagRelays)
         val connected = kind10009 + groupTagRelays
         val onAdded: (String) -> Unit = props.onAdded ?: { props.onClose() }
+
+        useEscClose { props.onClose() }
 
         div {
             className = ClassName("modal-overlay")

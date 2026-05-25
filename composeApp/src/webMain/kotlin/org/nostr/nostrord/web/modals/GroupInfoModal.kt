@@ -8,6 +8,7 @@ import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -35,6 +36,8 @@ val GroupInfoModal =
         val groupLevels = useStateFlow(notificationSettings.groupLevels)
         val defaultLevel = useStateFlow(notificationSettings.defaultLevel)
         val level = groupLevels[group.id] ?: defaultLevel
+        useEscClose { props.onClose() }
+
         div {
             className = ClassName("modal-overlay")
             onClick = { props.onClose() }
