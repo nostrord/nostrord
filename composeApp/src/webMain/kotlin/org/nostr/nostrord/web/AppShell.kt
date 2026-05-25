@@ -200,6 +200,14 @@ val AppShell =
             }
         }
 
+        // Track the open group: suppress its notifications and clear its unread count + feed
+        // entries (mirrors native setActiveGroup + markAsRead on group entry).
+        useEffect(selectedGroupId, notificationsOpen) {
+            val active = if (notificationsOpen) null else selectedGroupId
+            repo.setActiveGroup(active)
+            if (active != null) repo.markGroupAsRead(active)
+        }
+
         // NIP-57 zap modal overlay — opened from anywhere via WebZapController.
         ZapModalHost {}
 

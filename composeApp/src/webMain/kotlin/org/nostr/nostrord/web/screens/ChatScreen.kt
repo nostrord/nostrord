@@ -225,7 +225,11 @@ val ChatScreen =
                     el.scrollTop = el.scrollHeight.toDouble() - (prevScrollHeight.current ?: 0.0)
                     loadingOlder.current = false
                 }
-                atBottom.current == true -> el.scrollTop = el.scrollHeight.toDouble()
+                atBottom.current == true -> {
+                    el.scrollTop = el.scrollHeight.toDouble()
+                    // Messages seen at the bottom are read — clear their unread + notification entries.
+                    repo.markGroupAsRead(group.id)
+                }
             }
         }
         // Deep-link target: once the message is loaded, scroll it into view and flash it.

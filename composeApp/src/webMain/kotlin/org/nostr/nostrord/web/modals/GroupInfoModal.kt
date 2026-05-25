@@ -1,6 +1,9 @@
 package org.nostr.nostrord.web.modals
 
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.settings.NotificationLevel
+import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
@@ -28,6 +31,10 @@ val GroupInfoModal =
     FC<GroupInfoModalProps> { props ->
         val group = props.group
         val groupName = group.name?.takeIf { it.isNotBlank() } ?: "Group"
+        val notificationSettings = AppModule.notificationSettings
+        val groupLevels = useStateFlow(notificationSettings.groupLevels)
+        val defaultLevel = useStateFlow(notificationSettings.defaultLevel)
+        val level = groupLevels[group.id] ?: defaultLevel
         div {
             className = ClassName("modal-overlay")
             onClick = { props.onClose() }
@@ -97,9 +104,19 @@ val GroupInfoModal =
                         className = ClassName("settings-section-head")
                         +"NOTIFICATIONS"
                     }
-                    infoRadio("All messages", "Notify for every message in this group.", selected = true)
-                    infoRadio("Mentions & replies only", "Notify on replies, @mentions, and reactions to your messages.", selected = false)
-                    infoRadio("Muted", "Silence everything, including replies, mentions and reactions.", selected = false)
+                    infoRadio("All messages", "Notify for every message in this group.", level == NotificationLevel.ALL) {
+                        notificationSettings.setGroupLevel(group.id, NotificationLevel.ALL)
+                    }
+                    infoRadio(
+                        "Mentions & replies only",
+                        "Notify on replies, @mentions, and reactions to your messages.",
+                        level == NotificationLevel.MENTIONS_REPLIES,
+                    ) {
+                        notificationSettings.setGroupLevel(group.id, NotificationLevel.MENTIONS_REPLIES)
+                    }
+                    infoRadio("Muted", "Silence everything, including replies, mentions and reactions.", level == NotificationLevel.MUTED) {
+                        notificationSettings.setGroupLevel(group.id, NotificationLevel.MUTED)
+                    }
 
                     div {
                         className = ClassName("settings-section-head")
@@ -121,9 +138,10 @@ val GroupInfoModal =
         }
     }
 
-private fun ChildrenBuilder.infoRadio(label: String, description: String, selected: Boolean) {
+private fun ChildrenBuilder.infoRadio(label: String, description: String, selected: Boolean, onSelect: () -> Unit) {
     div {
         className = ClassName("settings-radio-row")
+        onClick = { onSelect() }
         div {
             className = ClassName(if (selected) "settings-radio on" else "settings-radio")
             div { className = ClassName("settings-radio-dot") }
