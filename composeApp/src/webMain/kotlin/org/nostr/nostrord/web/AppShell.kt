@@ -33,6 +33,7 @@ import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
+import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
 import react.useEffect
 import react.useEffectOnce
@@ -127,6 +128,8 @@ val AppShell =
         val (addAccountOpen, setAddAccountOpen) = useState { false }
         val (myExpanded, setMyExpanded) = useState { true }
         val (otherExpanded, setOtherExpanded) = useState { true }
+        // Groups sidebar search query (filters My Groups + Other Groups by name/id, like native).
+        val (groupQuery, setGroupQuery) = useState { "" }
         val firstNav = useRef(true)
 
         val selectedGroup: GroupMetadata? = groups.firstOrNull { it.id == selectedGroupId }
@@ -347,6 +350,16 @@ val AppShell =
                     }
                     if (hasRelays) {
                         div {
+                            className = ClassName("sidebar-search")
+                            icon(Ic.Search, "sidebar-search-icon")
+                            input {
+                                className = ClassName("sidebar-search-input")
+                                placeholder = "Search groups"
+                                value = groupQuery
+                                onChange = { event -> setGroupQuery(event.currentTarget.value) }
+                            }
+                        }
+                        div {
                             className = ClassName("sidebar-scroll")
 
                             val openGroup: (String) -> Unit = { id ->
@@ -355,22 +368,36 @@ val AppShell =
                                 setDrawerOpen(false)
                             }
 
+                            val groupQ = groupQuery.trim().lowercase()
+                            fun matchesQuery(g: org.nostr.nostrord.network.GroupMetadata): Boolean = groupQ.isEmpty() ||
+                                (g.name ?: "").lowercase().contains(groupQ) ||
+                                g.id.lowercase().contains(groupQ)
+                            val shownMy = myGroups.filter(::matchesQuery)
+                            val shownOther = otherGroups.filter(::matchesQuery)
+
                             if (groupsLoading && groups.isEmpty()) {
                                 repeat(6) { groupNavSkeleton() }
                             } else {
                                 sectionToggle("My Groups", myExpanded) { setMyExpanded(!myExpanded) }
                                 if (myExpanded) {
-                                    myGroups.forEach { group ->
+                                    shownMy.forEach { group ->
                                         sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
                                     }
                                 }
 
-                                if (otherGroups.isNotEmpty()) {
+                                if (shownOther.isNotEmpty()) {
                                     sectionToggle("Other Groups", otherExpanded) { setOtherExpanded(!otherExpanded) }
                                     if (otherExpanded) {
-                                        otherGroups.forEach { group ->
+                                        shownOther.forEach { group ->
                                             sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
                                         }
+                                    }
+                                }
+
+                                if (groupQ.isNotEmpty() && shownMy.isEmpty() && shownOther.isEmpty()) {
+                                    div {
+                                        className = ClassName("sidebar-section-label")
+                                        +"No groups found"
                                     }
                                 }
                             }

@@ -701,6 +701,39 @@ body {
     padding: 8px;
 }
 
+.sidebar-search {
+    flex-shrink: 0;
+    position: relative;
+    padding: 8px 12px 4px;
+}
+
+.sidebar-search-icon {
+    position: absolute;
+    left: 21px;
+    top: calc(50% + 2px);
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    fill: var(--color-text-muted);
+    pointer-events: none;
+}
+
+.sidebar-search-input {
+    width: 100%;
+    padding: 6px 10px 6px 32px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--color-text-primary);
+    background: var(--color-background-dark);
+    border: none;
+    border-radius: 4px;
+    outline: none;
+}
+
+.sidebar-search-input::placeholder {
+    color: var(--color-text-muted);
+}
+
 .sidebar-section-toggle {
     display: flex;
     align-items: center;
@@ -2701,11 +2734,23 @@ body {
 .member-search {
     flex-shrink: 0;
     padding: 8px 12px;
+    position: relative;
+}
+
+.member-search-icon {
+    position: absolute;
+    left: 21px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    fill: var(--color-text-muted);
+    pointer-events: none;
 }
 
 .member-search-input {
     width: 100%;
-    padding: 6px 10px;
+    padding: 6px 10px 6px 32px;
     font-size: 13px;
     font-family: inherit;
     color: var(--color-text-primary);

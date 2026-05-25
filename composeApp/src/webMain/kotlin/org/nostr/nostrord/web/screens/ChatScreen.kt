@@ -162,6 +162,8 @@ val ChatScreen =
         val (profilePubkey, setProfilePubkey) = useState<String?> { null }
         val (menuOpen, setMenuOpen) = useState { false }
         val (replyingToId, setReplyingToId) = useState<String?> { null }
+        // Members sidebar search query.
+        val (memberQuery, setMemberQuery) = useState { "" }
         // The deep-linked message currently flashing (cleared after the highlight animation).
         val (highlightId, setHighlightId) = useState<String?> { null }
         // Composer emoji picker open state.
@@ -664,32 +666,48 @@ val ChatScreen =
                 }
                 div {
                     className = ClassName("member-search")
+                    icon(Ic.Search, "member-search-icon")
                     input {
                         className = ClassName("member-search-input")
                         placeholder = "Search members"
+                        value = memberQuery
+                        onChange = { event -> setMemberQuery(event.currentTarget.value) }
                     }
                 }
                 div {
                     className = ClassName("member-scroll")
+                    val memberQ = memberQuery.trim().lowercase()
+                    val shownAdmins =
+                        if (memberQ.isEmpty()) {
+                            adminMembers
+                        } else {
+                            adminMembers.filter { displayName(it, userMetadata[it]).lowercase().contains(memberQ) }
+                        }
+                    val shownPlain =
+                        if (memberQ.isEmpty()) {
+                            plainMembers
+                        } else {
+                            plainMembers.filter { displayName(it, userMetadata[it]).lowercase().contains(memberQ) }
+                        }
                     if (membersLoading && members.isEmpty()) {
                         repeat(6) { memberSkeleton() }
                     } else {
-                        if (adminMembers.isNotEmpty()) {
-                            memberSection("Admins", adminMembers.size)
-                            adminMembers.forEach { pubkey ->
+                        if (shownAdmins.isNotEmpty()) {
+                            memberSection("Admins", shownAdmins.size)
+                            shownAdmins.forEach { pubkey ->
                                 memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = true) { setProfilePubkey(it) }
                             }
                         }
-                        if (plainMembers.isNotEmpty()) {
-                            memberSection("Members", plainMembers.size)
-                            plainMembers.forEach { pubkey ->
+                        if (shownPlain.isNotEmpty()) {
+                            memberSection("Members", shownPlain.size)
+                            shownPlain.forEach { pubkey ->
                                 memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = false) { setProfilePubkey(it) }
                             }
                         }
-                        if (members.isEmpty()) {
+                        if (shownAdmins.isEmpty() && shownPlain.isEmpty()) {
                             div {
                                 className = ClassName("member-section")
-                                +"No members yet"
+                                +(if (members.isEmpty()) "No members yet" else "No members found")
                             }
                         }
                     }
