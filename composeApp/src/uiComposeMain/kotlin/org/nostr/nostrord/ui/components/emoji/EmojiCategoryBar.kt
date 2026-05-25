@@ -24,19 +24,18 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 
 /** Category icon for the tab bar (the EmojiGroup enum itself is shared, pure, in commonMain). */
-private fun EmojiGroup.toIcon(): ImageVector =
-    when (this) {
-        EmojiGroup.RECENT -> Icons.Outlined.Schedule
-        EmojiGroup.SMILEYS -> Icons.Outlined.EmojiEmotions
-        EmojiGroup.PEOPLE -> Icons.Outlined.EmojiPeople
-        EmojiGroup.NATURE -> Icons.Outlined.EmojiNature
-        EmojiGroup.FOOD -> Icons.Outlined.EmojiFoodBeverage
-        EmojiGroup.TRAVEL -> Icons.Outlined.EmojiTransportation
-        EmojiGroup.ACTIVITIES -> Icons.Outlined.EmojiEvents
-        EmojiGroup.OBJECTS -> Icons.Outlined.EmojiObjects
-        EmojiGroup.SYMBOLS -> Icons.Outlined.EmojiSymbols
-        EmojiGroup.FLAGS -> Icons.Outlined.Flag
-    }
+private fun EmojiGroup.toIcon(): ImageVector = when (this) {
+    EmojiGroup.RECENT -> Icons.Outlined.Schedule
+    EmojiGroup.SMILEYS -> Icons.Outlined.EmojiEmotions
+    EmojiGroup.PEOPLE -> Icons.Outlined.EmojiPeople
+    EmojiGroup.NATURE -> Icons.Outlined.EmojiNature
+    EmojiGroup.FOOD -> Icons.Outlined.EmojiFoodBeverage
+    EmojiGroup.TRAVEL -> Icons.Outlined.EmojiTransportation
+    EmojiGroup.ACTIVITIES -> Icons.Outlined.EmojiEvents
+    EmojiGroup.OBJECTS -> Icons.Outlined.EmojiObjects
+    EmojiGroup.SYMBOLS -> Icons.Outlined.EmojiSymbols
+    EmojiGroup.FLAGS -> Icons.Outlined.Flag
+}
 
 @Composable
 fun EmojiCategoryBar(

@@ -19,19 +19,18 @@ external interface EmojiPickerProps : Props {
     var onPick: (String) -> Unit
 }
 
-private fun tabIcon(group: EmojiGroup): Ic =
-    when (group) {
-        EmojiGroup.RECENT -> Ic.Schedule
-        EmojiGroup.SMILEYS -> Ic.EmojiEmotions
-        EmojiGroup.PEOPLE -> Ic.EmojiPeople
-        EmojiGroup.NATURE -> Ic.EmojiNature
-        EmojiGroup.FOOD -> Ic.EmojiFood
-        EmojiGroup.TRAVEL -> Ic.EmojiTravel
-        EmojiGroup.ACTIVITIES -> Ic.EmojiEvents
-        EmojiGroup.OBJECTS -> Ic.EmojiObjects
-        EmojiGroup.SYMBOLS -> Ic.EmojiSymbols
-        EmojiGroup.FLAGS -> Ic.Flag
-    }
+private fun tabIcon(group: EmojiGroup): Ic = when (group) {
+    EmojiGroup.RECENT -> Ic.Schedule
+    EmojiGroup.SMILEYS -> Ic.EmojiEmotions
+    EmojiGroup.PEOPLE -> Ic.EmojiPeople
+    EmojiGroup.NATURE -> Ic.EmojiNature
+    EmojiGroup.FOOD -> Ic.EmojiFood
+    EmojiGroup.TRAVEL -> Ic.EmojiTravel
+    EmojiGroup.ACTIVITIES -> Ic.EmojiEvents
+    EmojiGroup.OBJECTS -> Ic.EmojiObjects
+    EmojiGroup.SYMBOLS -> Ic.EmojiSymbols
+    EmojiGroup.FLAGS -> Ic.Flag
+}
 
 /**
  * Emoji picker popover — mirrors the native EmojiPicker: search, category tabs, a recents row,
