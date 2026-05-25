@@ -429,6 +429,13 @@ val AppShell =
                                 onLeave = { setSelectedGroupId(null) }
                                 scrollToMessageId = scrollToEventId
                                 onScrolledToMessage = { setScrollToEventId(null) }
+                                onNavigateGroup = { gid, relay ->
+                                    setNotificationsOpen(false)
+                                    if (relay != null && relay != currentRelayUrl) {
+                                        launchApp { repo.switchRelay(relay) }
+                                    }
+                                    setSelectedGroupId(gid)
+                                }
                             }
                         else ->
                             HomeScreen {

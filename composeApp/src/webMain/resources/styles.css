@@ -2164,7 +2164,8 @@ body {
     background: #000;
 }
 
-.msg-event-ref {
+.msg-event-ref,
+.msg-group-ref {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -2182,7 +2183,8 @@ body {
     white-space: nowrap;
     text-overflow: ellipsis;
 }
-.msg-event-ref:hover {
+.msg-event-ref:hover,
+.msg-group-ref:hover {
     background: var(--color-surface-variant);
 }
 .msg-event-ref-ico {

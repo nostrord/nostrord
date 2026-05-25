@@ -64,6 +64,9 @@ external interface ChatScreenProps : Props {
 
     /** Called once the [scrollToMessageId] target has been scrolled into view. */
     var onScrolledToMessage: () -> Unit
+
+    /** Open another group (from a decoded naddr reference): (groupId, relayUrl?). */
+    var onNavigateGroup: (String, String?) -> Unit
 }
 
 // Window (seconds) for grouping consecutive messages from the same author.
@@ -375,6 +378,7 @@ val ChatScreen =
                                         this.userMetadata = userMetadata
                                         this.messagesById = messagesById
                                         onEventRef = { id -> scrollToMessage(id) }
+                                        onGroupRef = { gid, relay -> props.onNavigateGroup(gid, relay) }
                                         canZap =
                                             message.pubkey != myPubkey &&
                                             (!authorMeta?.lud16.isNullOrBlank() || !authorMeta?.lud06.isNullOrBlank())
@@ -631,6 +635,7 @@ external interface MessageRowProps : Props {
     var userMetadata: Map<String, UserMetadata>
     var messagesById: Map<String, NostrGroupClient.NostrMessage>
     var onEventRef: (String) -> Unit
+    var onGroupRef: (String, String?) -> Unit
     var replyTo: Pair<String, String>?
     var onReplyClick: () -> Unit
     var canDelete: Boolean
@@ -724,7 +729,14 @@ private val MessageRow =
                 }
                 div {
                     className = ClassName("msg-text")
-                    renderMessageContent(props.content, props.userMetadata, props.messagesById, props.onUser, props.onEventRef)
+                    renderMessageContent(
+                        props.content,
+                        props.userMetadata,
+                        props.messagesById,
+                        props.onUser,
+                        props.onEventRef,
+                        props.onGroupRef,
+                    )
                 }
                 if (props.reactions.isNotEmpty()) {
                     div {
@@ -950,8 +962,8 @@ private val URL_REGEX =
     Regex(
         "(data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)" +
             "|(https?://[^\\s]+)" +
-            "|(nostr:(?:npub1|nprofile1|nevent1|note1)[0-9a-z]+)" +
-            "|\\b((?:npub1|nprofile1|nevent1|note1)[0-9a-z]{20,})",
+            "|(nostr:(?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]+)" +
+            "|\\b((?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]{20,})",
     )
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
 private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", RegexOption.IGNORE_CASE)
@@ -963,6 +975,7 @@ private fun ChildrenBuilder.renderMessageContent(
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
     onEventRef: (String) -> Unit,
+    onGroupRef: (String, String?) -> Unit,
 ) {
     var last = 0
     for (match in URL_REGEX.findAll(content)) {
@@ -997,6 +1010,16 @@ private fun ChildrenBuilder.renderMessageContent(
                 is Nip19.Entity.Nprofile -> mentionSpan(entity.pubkey, userMetadata, onUser)
                 is Nip19.Entity.Nevent -> eventRefChip(entity.eventId, messagesById, userMetadata, onEventRef)
                 is Nip19.Entity.Note -> eventRefChip(entity.eventId, messagesById, userMetadata, onEventRef)
+                is Nip19.Entity.Naddr ->
+                    if (entity.kind == 39000) {
+                        groupRefChip(entity.identifier, entity.relays.firstOrNull(), onGroupRef)
+                    } else {
+                        a {
+                            className = ClassName("msg-link")
+                            href = "https://njump.me/${token.removePrefix("nostr:")}"
+                            +"[article]"
+                        }
+                    }
                 else -> +token
             }
         }
@@ -1034,6 +1057,16 @@ private fun ChildrenBuilder.eventRefChip(
         } else {
             +"Quoted message"
         }
+    }
+}
+
+/** A decoded naddr group reference (kind 39000) — clickable chip that opens the group. */
+private fun ChildrenBuilder.groupRefChip(groupId: String, relayUrl: String?, onGroupRef: (String, String?) -> Unit) {
+    span {
+        className = ClassName("msg-group-ref")
+        onClick = { onGroupRef(groupId, relayUrl) }
+        icon(Ic.People, "ico msg-event-ref-ico")
+        +groupId.take(28)
     }
 }
 
