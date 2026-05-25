@@ -192,6 +192,18 @@ val AppShell =
             }
         }
 
+        // Escape closes the Settings overlay / account sheet / account menu (state setters are
+        // stable, so a single persistent listener is safe; closing an already-closed one is a no-op).
+        useEffectOnce {
+            window.asDynamic().addEventListener("keydown") { e: dynamic ->
+                if (e.key == "Escape") {
+                    setSettingsOpen(false)
+                    setAddAccountOpen(false)
+                    setMenuOpen(false)
+                }
+            }
+        }
+
         // Fetch the full group list for the active relay (so Other Groups / the picker
         // show non-joined groups). Idempotent — the repo tracks fetched relays.
         useEffect(activeRelay, fullListFetched.size) {
