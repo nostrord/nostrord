@@ -600,6 +600,12 @@ body {
     border-radius: 12px;
 }
 
+/* The account avatar at the bottom of the rail is a user — keep it circular
+   (relays are rounded squares; native shows the account as a circle). */
+.rail-account .rail-icon {
+    border-radius: 50%;
+}
+
 /* Left pill marker — white, grows from 0 to 20px on hover and 36px when active (mirrors native). */
 .rail-item::before {
     content: "";
