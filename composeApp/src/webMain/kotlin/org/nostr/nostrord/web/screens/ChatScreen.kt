@@ -123,6 +123,7 @@ val ChatScreen =
         val messagesById = messages.associateBy { it.id }
         val members = membersByGroup[group.id].orEmpty()
         val admins = adminsByGroup[group.id].orEmpty().toSet()
+        val isAdmin = myPubkey != null && myPubkey in admins
         val adminMembers = members.filter { it in admins }
         val plainMembers = members.filter { it !in admins }
         // Can post = an actual member (kind:39002), or in our list for an open group.
@@ -271,39 +272,46 @@ val ChatScreen =
                         }
                         div {
                             className = ClassName("chat-menu")
-                            chatMenuItem("Edit Group") {
-                                setMenuOpen(false)
-                                setModal("edit")
+                            // Admin-only moderation actions (mirrors native: gated by isAdmin).
+                            if (isAdmin) {
+                                chatMenuItem("Edit Group") {
+                                    setMenuOpen(false)
+                                    setModal("edit")
+                                }
+                                chatMenuItem("Manage Members") {
+                                    setMenuOpen(false)
+                                    setModal("members")
+                                }
+                                // Invite codes only matter for closed groups (native gates on isClosed).
+                                if (!group.isOpen) {
+                                    chatMenuItem("Invite Codes") {
+                                        setMenuOpen(false)
+                                        setModal("invite")
+                                    }
+                                    chatMenuItem("Join Requests") {
+                                        setMenuOpen(false)
+                                        setModal("requests")
+                                    }
+                                }
+                                chatMenuItem("Create Subgroup") {
+                                    setMenuOpen(false)
+                                    setModal("subgroup")
+                                }
+                                chatMenuItem("Manage Children") {
+                                    setMenuOpen(false)
+                                    setModal("children")
+                                }
+                                chatMenuItem("Delete Group", danger = true) {
+                                    setMenuOpen(false)
+                                    launchApp { repo.deleteGroup(group.id) }
+                                    props.onLeave()
+                                }
+                                div { className = ClassName("chat-menu-divider") }
                             }
-                            chatMenuItem("Manage Members") {
-                                setMenuOpen(false)
-                                setModal("members")
-                            }
-                            chatMenuItem("Invite Codes") {
-                                setMenuOpen(false)
-                                setModal("invite")
-                            }
-                            chatMenuItem("Join Requests") {
-                                setMenuOpen(false)
-                                setModal("requests")
-                            }
-                            chatMenuItem("Create Subgroup") {
-                                setMenuOpen(false)
-                                setModal("subgroup")
-                            }
-                            chatMenuItem("Manage Children") {
-                                setMenuOpen(false)
-                                setModal("children")
-                            }
+                            // Available to everyone.
                             chatMenuItem("Share") {
                                 setMenuOpen(false)
                                 setModal("share")
-                            }
-                            div { className = ClassName("chat-menu-divider") }
-                            chatMenuItem("Delete Group", danger = true) {
-                                setMenuOpen(false)
-                                launchApp { repo.deleteGroup(group.id) }
-                                props.onLeave()
                             }
                             chatMenuItem("Leave Group", danger = true) {
                                 setMenuOpen(false)
