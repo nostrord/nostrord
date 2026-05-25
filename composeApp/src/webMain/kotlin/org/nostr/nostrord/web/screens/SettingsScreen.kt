@@ -103,6 +103,11 @@ val SettingsScreen =
                     icon(Ic.ArrowBack)
                     +active
                 }
+                // Desktop-only panel title with a divider (mirrors native; mobile uses the back row).
+                div {
+                    className = ClassName("settings-content-title")
+                    +active
+                }
                 when (active) {
                     "Profile" -> ProfilePanel()
                     "Backup Keys" -> BackupPanel()
@@ -375,27 +380,8 @@ private val NotificationsPanel =
                     +"Test sound"
                 }
             }
-        }
-        div {
-            className = ClassName("settings-card")
-            div {
-                className = ClassName("settings-section-head")
-                +"DEFAULT FOR NEW GROUPS"
-            }
-            levelRadio("All messages", "Notify for every message.", defaultLevel == NotificationLevel.ALL) {
-                settings.setDefaultLevel(NotificationLevel.ALL)
-            }
-            levelRadio(
-                "Mentions & replies only",
-                "Only notify when you are mentioned or replied to.",
-                defaultLevel == NotificationLevel.MENTIONS_REPLIES,
-            ) { settings.setDefaultLevel(NotificationLevel.MENTIONS_REPLIES) }
-            levelRadio("Muted", "Never notify.", defaultLevel == NotificationLevel.MUTED) {
-                settings.setDefaultLevel(NotificationLevel.MUTED)
-            }
-        }
-        div {
-            className = ClassName("settings-card")
+            // Desktop notifications live in the same box, separated by a divider (native layout).
+            div { className = ClassName("settings-card-divider") }
             settingsToggle(
                 "Desktop notifications",
                 "Show a system popup outside the app when a new message arrives.",
@@ -420,6 +406,28 @@ private val NotificationsPanel =
                         }
                     }
                 }
+            }
+        }
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"DEFAULT FOR NEW GROUPS"
+            }
+            div {
+                className = ClassName("settings-section-desc")
+                +"Applied to groups you haven't set individually. Change a single group from its info screen."
+            }
+            levelRadio("All messages", "Notify for every message.", defaultLevel == NotificationLevel.ALL) {
+                settings.setDefaultLevel(NotificationLevel.ALL)
+            }
+            levelRadio(
+                "Mentions & replies only",
+                "Only notify when you are mentioned or replied to.",
+                defaultLevel == NotificationLevel.MENTIONS_REPLIES,
+            ) { settings.setDefaultLevel(NotificationLevel.MENTIONS_REPLIES) }
+            levelRadio("Muted", "Never notify.", defaultLevel == NotificationLevel.MUTED) {
+                settings.setDefaultLevel(NotificationLevel.MUTED)
             }
         }
     }
