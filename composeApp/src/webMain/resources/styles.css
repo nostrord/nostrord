@@ -1957,12 +1957,7 @@ body {
 .msg {
     position: relative;
     display: flex;
-    padding: 1px 16px;
-}
-/* First message of an author group gets a clear gap above; grouped ones stay tight. */
-.msg.first {
-    margin-top: 16px;
-    padding-top: 2px;
+    padding: 6px 16px;
 }
 
 .msg:hover {
@@ -2069,9 +2064,15 @@ body {
     background: var(--color-divider);
 }
 
-.msg.grouped {
-    padding-top: 1px;
-    padding-bottom: 1px;
+/* Hairline above each grouped (same-author) message, aligned with content (after the gutter). */
+.msg.grouped::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 72px;
+    right: 16px;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .msg-gutter {
