@@ -54,6 +54,7 @@ import react.useState
 import web.cssom.ClassName
 import web.dom.ElementId
 import web.dom.document
+import web.html.HTMLDivElement
 
 external interface ChatScreenProps : Props {
     var group: GroupMetadata
@@ -656,6 +657,28 @@ private val MessageRow =
     FC<MessageRowProps> { props ->
         val (menuOpen, setMenuOpen) = useState { false }
         val (reactOpen, setReactOpen) = useState { false }
+        // Anchor (viewport x,y) for the context menu; positioned/flipped by the effect below.
+        val (menuAt, setMenuAt) = useState<Pair<Int, Int>?> { null }
+        val menuRef = useRef<HTMLDivElement>(null)
+
+        // Place the fixed context menu at its anchor, flipping left/up when it would overflow.
+        useEffect(menuOpen) {
+            if (!menuOpen) return@useEffect
+            val el = menuRef.current?.asDynamic() ?: return@useEffect
+            val anchor = menuAt ?: return@useEffect
+            val w = el.offsetWidth as Int
+            val h = el.offsetHeight as Int
+            val vw = window.innerWidth
+            val vh = window.innerHeight
+            var left = anchor.first - w
+            if (left < 8) left = 8
+            if (left + w > vw - 8) left = (vw - 8 - w).coerceAtLeast(8)
+            var top = anchor.second
+            if (top + h > vh - 8) top = (anchor.second - h).coerceAtLeast(8)
+            el.style.left = "${left}px"
+            el.style.top = "${top}px"
+            el.style.visibility = "visible"
+        }
 
         div {
             id = ElementId(props.domId)
@@ -667,6 +690,7 @@ private val MessageRow =
                 )
             onContextMenu = { event ->
                 event.preventDefault()
+                setMenuAt(event.clientX.toInt() to event.clientY.toInt())
                 setMenuOpen(true)
             }
 
@@ -800,7 +824,11 @@ private val MessageRow =
                 button {
                     className = ClassName("msg-action-btn")
                     title = "More"
-                    onClick = { setMenuOpen(!menuOpen) }
+                    onClick = { event ->
+                        val r = event.currentTarget.getBoundingClientRect()
+                        setMenuAt(r.right.toInt() to r.bottom.toInt())
+                        setMenuOpen(!menuOpen)
+                    }
                     icon(Ic.MoreVert)
                 }
             }
@@ -812,6 +840,7 @@ private val MessageRow =
                     onClick = { setMenuOpen(false) }
                 }
                 div {
+                    ref = menuRef
                     className = ClassName("ctx-menu")
                     ctxItem(Ic.EmojiEmotions, "Add Reaction") {
                         setMenuOpen(false)

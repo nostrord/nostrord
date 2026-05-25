@@ -2021,9 +2021,10 @@ body {
 }
 
 .ctx-menu {
-    position: absolute;
-    top: 16px;
-    right: 16px;
+    position: fixed;
+    left: 0;
+    top: 0;
+    visibility: hidden;
     z-index: 61;
     width: 210px;
     padding: 6px;
