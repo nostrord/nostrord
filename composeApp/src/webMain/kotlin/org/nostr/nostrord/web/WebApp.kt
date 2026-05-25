@@ -2,6 +2,7 @@ package org.nostr.nostrord.web
 
 import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.notifications.installPlatformFocusListeners
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.screens.LoginScreen
@@ -29,6 +30,9 @@ val WebApp =
             document
                 .getElementById(ElementId("composeApplication"))
                 ?.setAttribute("data-app-ready", "true")
+            // Track tab focus so notifications/unread are suppressed while the app is visible
+            // (mirrors native App.kt; without this the focus-gated dispatch never updates).
+            installPlatformFocusListeners(AppModule.focusTracker)
             launchApp {
                 withTimeoutOrNull(30_000) { repo.initialize() } ?: repo.forceInitialized()
             }
