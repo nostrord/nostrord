@@ -2183,6 +2183,9 @@ body {
     border-radius: 4px;
     cursor: pointer;
 }
+.msg-reply:hover {
+    background: rgba(47, 49, 54, 0.9);
+}
 
 .msg-reply-bar {
     flex-shrink: 0;

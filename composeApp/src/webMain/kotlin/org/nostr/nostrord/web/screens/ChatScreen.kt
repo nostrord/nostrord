@@ -188,6 +188,14 @@ val ChatScreen =
             launchApp { repo.joinGroup(group.id) }
         }
 
+        // Scroll a loaded message into view and flash it (used by reply-preview clicks).
+        fun scrollToMessage(id: String) {
+            val el = document.getElementById(ElementId("msg-$id")) ?: return
+            el.asDynamic().scrollIntoView(js("({ behavior: 'smooth', block: 'center' })"))
+            setHighlightId(id)
+            window.setTimeout({ setHighlightId(null) }, 2_600)
+        }
+
         div {
             className = ClassName(if (membersOpen) "chat members-open" else "chat")
 
@@ -373,6 +381,7 @@ val ChatScreen =
                                         zappedByMe = myPubkey != null && zapInfo != null && myPubkey in zapInfo.zappers
                                         onZap = { WebZapController.request(message.pubkey, message.id) }
                                         replyTo = replyPreview
+                                        onReplyClick = { parent?.let { scrollToMessage(it.id) } }
                                         canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
                                         messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
                                         eventJson = eventJsonOf(message)
@@ -619,6 +628,7 @@ external interface MessageRowProps : Props {
     var myPubkey: String?
     var userMetadata: Map<String, UserMetadata>
     var replyTo: Pair<String, String>?
+    var onReplyClick: () -> Unit
     var canDelete: Boolean
     var canZap: Boolean
     var zapTotalMsats: Long
@@ -672,7 +682,8 @@ private val MessageRow =
                 className = ClassName("msg-body")
                 props.replyTo?.let { reply ->
                     div {
-                        className = ClassName("msg-reply")
+                        className = ClassName("msg-reply clickable")
+                        onClick = { props.onReplyClick() }
                         div { className = ClassName("msg-reply-bar") }
                         div {
                             className = ClassName("msg-reply-content")
