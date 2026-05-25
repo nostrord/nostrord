@@ -33,6 +33,15 @@ val WebApp =
             // Track tab focus so notifications/unread are suppressed while the app is visible
             // (mirrors native App.kt; without this the focus-gated dispatch never updates).
             installPlatformFocusListeners(AppModule.focusTracker)
+            // Drive the repository lifecycle from page visibility, mirroring native App.kt's
+            // ON_PAUSE → onBackground / ON_RESUME → onForeground. The Compose web got this for
+            // free via the shared Lifecycle observer; the React shell must wire it explicitly.
+            // onBackground() flushes LiveCursorStore to storage — without it every reload
+            // resumes group subscriptions from the default window instead of the last-seen
+            // cursor, re-fetching history each time (the cache regression vs native/old web).
+            document.asDynamic().addEventListener("visibilitychange") {
+                if (document.asDynamic().hidden as Boolean) repo.onBackground() else repo.onForeground()
+            }
             launchApp {
                 withTimeoutOrNull(30_000) { repo.initialize() } ?: repo.forceInitialized()
             }
