@@ -531,10 +531,12 @@ body {
     background: var(--color-background-dark);
 }
 
-/* Identicon-first avatar: identicon underneath, photo fades in over it once loaded. */
+/* Identicon-first avatar: fallback underneath, photo fades in over it once loaded. The
+   solid background is the backdrop for transparent avatars after the fallback is removed. */
 .avatar-stack {
     position: relative;
     overflow: hidden;
+    background: var(--color-surface-variant);
 }
 .avatar-iden {
     position: absolute;

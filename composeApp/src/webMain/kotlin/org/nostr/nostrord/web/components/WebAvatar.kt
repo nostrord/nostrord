@@ -68,11 +68,15 @@ val WebAvatar =
             className = ClassName("avatar-tile ${props.cls} avatar-stack" + if (kind == AvatarKind.GROUP) " group" else "")
             props.onClick?.let { cb -> onClick = { cb() } }
 
-            // Always-present fallback underneath.
-            if (kind == AvatarKind.USER) {
-                identicon(seed)
-            } else {
-                letterAvatar(seed, props.name)
+            // Fallback underneath while the photo loads. Removed once it has loaded so a
+            // transparent avatar shows the tile's solid background instead of the
+            // identicon/letter bleeding through. Stays if the photo is missing or fails.
+            if (!loaded) {
+                if (kind == AvatarKind.USER) {
+                    identicon(seed)
+                } else {
+                    letterAvatar(seed, props.name)
+                }
             }
 
             // Real picture on top: hidden until it loads, removed on error so the fallback shows.
