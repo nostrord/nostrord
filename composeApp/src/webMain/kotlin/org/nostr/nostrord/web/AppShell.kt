@@ -212,6 +212,23 @@ val AppShell =
             }
         }
 
+        // Re-establish the active relay's connection + group subscriptions when the
+        // account changes. Mirrors native HomeScreen's `LaunchedEffect(Unit) { vm.connect() }`,
+        // which re-runs because the screen remounts after adding/switching an account.
+        // The web shell never remounts on a warm account swap, so without this the new
+        // account's groups stay empty (My Groups AND the picker) until a manual relay
+        // switch or restart — connect() routes a cache-hit relay through the #88
+        // refreshMux branch and re-sends the group-list REQ. Fires only on a real
+        // account change (not relay switches within an account), once the relay resolves.
+        val connectedAccount = useRef<String>(null)
+        useEffect(activeAccountId, activeRelay) {
+            val acct = activeAccountId
+            if (acct != null && acct != connectedAccount.current && activeRelay.isNotBlank()) {
+                connectedAccount.current = acct
+                launchApp { repo.connect() }
+            }
+        }
+
         // Track the open group: suppress its notifications and clear its unread count + feed
         // entries (mirrors native setActiveGroup + markAsRead on group entry).
         useEffect(selectedGroupId, notificationsOpen) {
