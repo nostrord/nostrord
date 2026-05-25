@@ -2847,12 +2847,25 @@ body {
 }
 
 .settings-nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     padding: 8px 10px;
     border-radius: 4px;
     font-size: 14px;
     font-weight: 500;
     color: var(--color-text-secondary);
     cursor: pointer;
+}
+/* Chevron + mobile list header only appear in the compact (single-column) layout. */
+.settings-nav-chevron,
+.settings-mobile-header {
+    display: none;
+}
+.settings-nav-chevron .ico {
+    width: 18px;
+    height: 18px;
+    color: var(--color-text-muted);
 }
 
 .settings-nav-item:hover {
@@ -3139,22 +3152,96 @@ body {
     color: var(--color-text-secondary);
 }
 
+/* Mobile-only back row (settings panel → section list). */
+.settings-back {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px 0;
+    background: transparent;
+    border: none;
+    color: var(--color-text-primary);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.settings-back .ico {
+    width: 22px;
+    height: 22px;
+}
+
 @media (max-width: 720px) {
     .settings-fill {
         display: none;
     }
-
+    /* Single-column: the sidebar (list) and the content (panel) each take the full width;
+       only one shows at a time, toggled by .show-panel — mirrors native's list↔panel. */
     .settings-sidebar {
-        width: 160px;
-        padding-left: 16px;
+        width: auto;
+        flex: 1;
+        padding: 0;
     }
-
+    .settings-mobile-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px;
+    }
+    .settings-mobile-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--color-text-primary);
+    }
+    .settings-mobile-close {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        background: var(--color-surface-variant);
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+    }
+    .settings-mobile-close .ico {
+        width: 20px;
+        height: 20px;
+    }
+    /* Full-width tappable rows with a chevron and hairline dividers. */
+    .settings-nav-item {
+        padding: 14px 16px;
+        border-radius: 0;
+        border-bottom: 1px solid var(--color-divider);
+        font-size: 16px;
+    }
+    .settings-nav-chevron {
+        display: flex;
+    }
+    .settings-nav-divider {
+        display: none;
+    }
     .settings-content {
-        padding: 24px 16px 80px 20px;
+        width: auto;
+        flex: 1;
+        padding: 16px 16px 80px;
     }
-
+    .settings-content > * {
+        max-width: none;
+    }
+    .settings-back {
+        display: flex;
+    }
     .settings-close-col {
-        width: 56px;
+        display: none;
+    }
+    .settings-overlay:not(.show-panel) .settings-content {
+        display: none;
+    }
+    .settings-overlay.show-panel .settings-sidebar {
+        display: none;
     }
 }
 

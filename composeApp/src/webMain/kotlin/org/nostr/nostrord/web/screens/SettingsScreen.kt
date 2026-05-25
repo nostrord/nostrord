@@ -39,20 +39,45 @@ private val sections =
 val SettingsScreen =
     FC<SettingsScreenProps> { props ->
         val (active, setActive) = useState { "Profile" }
+        // Mobile: false = section list, true = selected panel (with a back button). Ignored on desktop.
+        val (mobilePanel, setMobilePanel) = useState { false }
 
         div {
-            className = ClassName("settings-overlay")
+            className = ClassName(if (mobilePanel) "settings-overlay show-panel" else "settings-overlay")
 
             div { className = ClassName("settings-fill dark") }
 
             div {
                 className = ClassName("settings-sidebar")
+                // Mobile-only list header with title + round close (CSS hides it on desktop).
+                div {
+                    className = ClassName("settings-mobile-header")
+                    span {
+                        className = ClassName("settings-mobile-title")
+                        +"Settings"
+                    }
+                    button {
+                        className = ClassName("settings-mobile-close")
+                        onClick = { props.onClose() }
+                        icon(Ic.Close)
+                    }
+                }
                 sections.forEach { section ->
                     div {
                         key = section
                         className = ClassName(if (section == active) "settings-nav-item active" else "settings-nav-item")
-                        onClick = { setActive(section) }
-                        +section
+                        onClick = {
+                            setActive(section)
+                            setMobilePanel(true)
+                        }
+                        span {
+                            className = ClassName("settings-nav-label")
+                            +section
+                        }
+                        span {
+                            className = ClassName("settings-nav-chevron")
+                            icon(Ic.ChevronRight)
+                        }
                     }
                 }
                 div { className = ClassName("settings-nav-divider") }
@@ -62,12 +87,22 @@ val SettingsScreen =
                         props.onClose()
                         launchApp { AppModule.nostrRepository.logout() }
                     }
-                    +"Log Out"
+                    span {
+                        className = ClassName("settings-nav-label")
+                        +"Log Out"
+                    }
                 }
             }
 
             div {
                 className = ClassName("settings-content")
+                // Mobile-only back row (CSS hides it on desktop) — returns to the section list.
+                button {
+                    className = ClassName("settings-back")
+                    onClick = { setMobilePanel(false) }
+                    icon(Ic.ArrowBack)
+                    +active
+                }
                 when (active) {
                     "Profile" -> ProfilePanel()
                     "Backup Keys" -> BackupPanel()
