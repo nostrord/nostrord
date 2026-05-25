@@ -781,9 +781,23 @@ private val MessageRow =
                                 } else {
                                     +emoji
                                 }
-                                span {
-                                    className = ClassName("reaction-count")
-                                    +info.reactors.size.toString()
+                                // Stacked avatars of who reacted (up to 3, overlapping), then +N overflow.
+                                div {
+                                    className = ClassName("reaction-avatars")
+                                    info.reactors.take(3).forEach { reactor ->
+                                        WebAvatar {
+                                            url = props.userMetadata[reactor]?.picture
+                                            seed = reactor
+                                            this.name = displayName(reactor, props.userMetadata[reactor])
+                                            cls = "reaction-avatar"
+                                        }
+                                    }
+                                }
+                                if (info.reactors.size > 3) {
+                                    span {
+                                        className = ClassName("reaction-count")
+                                        +"+${info.reactors.size - 3}"
+                                    }
                                 }
                             }
                         }

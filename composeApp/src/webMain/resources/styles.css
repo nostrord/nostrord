@@ -2415,6 +2415,21 @@ body {
     font-size: 11px;
     opacity: 0.85;
 }
+/* Stacked reactor avatars inside a reaction badge (up to 3, overlapping). */
+.reaction-avatars {
+    display: inline-flex;
+    align-items: center;
+}
+.reaction-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--color-surface-variant);
+    flex-shrink: 0;
+}
+.reaction-avatar + .reaction-avatar {
+    margin-left: -6px;
+}
 
 .reaction-add {
     display: none;
