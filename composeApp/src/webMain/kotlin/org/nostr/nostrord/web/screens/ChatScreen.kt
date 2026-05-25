@@ -58,6 +58,7 @@ import web.cssom.ClassName
 import web.dom.ElementId
 import web.dom.document
 import web.html.HTMLDivElement
+import kotlin.math.abs
 
 external interface ChatScreenProps : Props {
     var group: GroupMetadata
@@ -664,6 +665,13 @@ private val MessageRow =
         val (menuAt, setMenuAt) = useState<Pair<Int, Int>?> { null }
         val menuRef = useRef<HTMLDivElement>(null)
 
+        // Swipe-to-reply (touch): drag the row left past a threshold to reply (mirrors native).
+        val rowRef = useRef<HTMLDivElement>(null)
+        val touchStartX = useRef(0.0)
+        val touchStartY = useRef(0.0)
+        val swiping = useRef(false)
+        val swipeArmed = useRef(false)
+
         // Place the fixed context menu at its anchor, flipping left/up when it would overflow.
         useEffect(menuOpen) {
             if (!menuOpen) return@useEffect
@@ -691,10 +699,45 @@ private val MessageRow =
                         (if (menuOpen) " menu-open" else "") +
                         (if (props.highlighted) " highlight" else ""),
                 )
+            ref = rowRef
             onContextMenu = { event ->
                 event.preventDefault()
                 setMenuAt(event.clientX.toInt() to event.clientY.toInt())
                 setMenuOpen(true)
+            }
+            onTouchStart = { event ->
+                val t = event.asDynamic().touches[0]
+                touchStartX.current = t.clientX as Double
+                touchStartY.current = t.clientY as Double
+                swiping.current = false
+                swipeArmed.current = false
+            }
+            onTouchMove = { event ->
+                val t = event.asDynamic().touches[0]
+                val dx = (t.clientX as Double) - (touchStartX.current ?: 0.0)
+                val dy = (t.clientY as Double) - (touchStartY.current ?: 0.0)
+                if (swiping.current != true && abs(dx) > 10.0 && abs(dx) > abs(dy)) {
+                    swiping.current = true
+                }
+                if (swiping.current == true && dx < 0) {
+                    val off = dx.coerceAtLeast(-80.0)
+                    rowRef.current?.asDynamic()?.style?.transform = "translateX(${off}px)"
+                    swipeArmed.current = off <= -56.0
+                }
+            }
+            onTouchEnd = {
+                val el = rowRef.current?.asDynamic()
+                if (el != null) {
+                    el.style.transition = "transform 0.15s ease"
+                    el.style.transform = "translateX(0)"
+                    window.setTimeout({
+                        el.style.transition = ""
+                        el.style.transform = ""
+                    }, 180)
+                }
+                if (swipeArmed.current == true) props.onReply()
+                swiping.current = false
+                swipeArmed.current = false
             }
 
             div {
