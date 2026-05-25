@@ -338,9 +338,11 @@ private val RelaysPanel =
             className = ClassName("settings-card")
             div {
                 className = ClassName("settings-info-text")
-                +("NIP-65 relay list (kind 10002) is where other clients find your profile and your joined " +
-                    "groups list (kind 10009). Write relays are where you publish; read relays are for " +
-                    "cross-network discoverability. Group messages are separate — they live on each group's relay.")
+                +(
+                    "NIP-65 relay list (kind 10002) is where other clients find your profile and your joined " +
+                        "groups list (kind 10009). Write relays are where you publish; read relays are for " +
+                        "cross-network discoverability. Group messages are separate — they live on each group's relay."
+                    )
             }
         }
 
