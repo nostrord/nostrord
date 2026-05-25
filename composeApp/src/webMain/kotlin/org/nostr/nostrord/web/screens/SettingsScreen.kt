@@ -3,11 +3,13 @@ package org.nostr.nostrord.web.screens
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
@@ -19,10 +21,14 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
+import react.dom.html.ReactHTML.label
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
+import react.useEffect
 import react.useState
 import web.cssom.ClassName
+import web.html.InputType
+import web.html.checkbox
 
 external interface SettingsScreenProps : Props {
     var onClose: () -> Unit
@@ -300,61 +306,182 @@ private val BackupPanel =
 
 // ── Relays (NIP-65) ──────────────────────────────────────────────────────────
 
+private fun defaultRelays(): List<Nip65Relay> = RelayListManager.DEFAULT_FALLBACK_RELAYS.map { Nip65Relay(it) }
+
 private val RelaysPanel =
     FC<Props> {
         val repo = AppModule.nostrRepository
-        val relays = useStateFlow(repo.userRelayList)
-        val (busy, setBusy) = useState { false }
+        val loaded = useStateFlow(repo.userRelayList)
+        val usingDefaults = loaded.isEmpty()
 
+        // Editable copy; reseeds when the server list first populates (or clears).
+        val (relays, setRelays) = useState { if (loaded.isEmpty()) defaultRelays() else loaded }
+        useEffect(loaded.isEmpty()) {
+            setRelays(if (loaded.isEmpty()) defaultRelays() else loaded)
+        }
+
+        val (newUrl, setNewUrl) = useState { "" }
+        val (newRead, setNewRead) = useState { true }
+        val (newWrite, setNewWrite) = useState { true }
+        val (busy, setBusy) = useState { false }
+        val (status, setStatus) = useState<String?> { null }
+
+        fun addRelay() {
+            val url = newUrl.trim().toRelayUrl()
+            if (url.isBlank() || relays.any { it.url == url }) return
+            setRelays(relays + Nip65Relay(url, newRead, newWrite))
+            setNewUrl("")
+        }
+
+        // Info card
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-info-text")
+                +("NIP-65 relay list (kind 10002) is where other clients find your profile and your joined " +
+                    "groups list (kind 10009). Write relays are where you publish; read relays are for " +
+                    "cross-network discoverability. Group messages are separate — they live on each group's relay.")
+            }
+        }
+
+        // Using-defaults warning
+        if (usingDefaults) {
+            div {
+                className = ClassName("settings-warn-card")
+                icon(Ic.Warning, "ico settings-warn-ico")
+                div {
+                    className = ClassName("settings-warn-text")
+                    div {
+                        className = ClassName("settings-warn-title")
+                        +"Using default relays"
+                    }
+                    div {
+                        className = ClassName("settings-warn-body")
+                        +"No relay list (kind 10002) was found for this account. Publish your relay list so others can find your profile and groups."
+                    }
+                }
+            }
+        }
+
+        // Relay list + add
         div {
             className = ClassName("settings-card")
             div {
                 className = ClassName("settings-section-head")
-                +"YOUR RELAYS (NIP-65)"
+                +"YOUR RELAYS"
             }
-            if (relays.isEmpty()) {
-                div {
-                    className = ClassName("settings-status-line")
-                    +"Using default relays."
-                }
-            }
-            relays.forEach { relay ->
+            relays.forEachIndexed { i, relay ->
                 div {
                     key = relay.url
-                    className = ClassName("settings-relay-row")
+                    className = ClassName("relay-row")
                     span {
-                        className = ClassName("settings-relay-url")
-                        +relay.url.removePrefix("wss://")
+                        className = ClassName("relay-row-url")
+                        +relay.url.removePrefix("wss://").removePrefix("ws://")
                     }
-                    span {
-                        className = ClassName("settings-relay-badge")
-                        +readWriteLabel(relay)
+                    relayChip("R", relay.read) {
+                        setRelays(relays.mapIndexed { j, r -> if (j == i) r.copy(read = !r.read) else r })
+                    }
+                    relayChip("W", relay.write) {
+                        setRelays(relays.mapIndexed { j, r -> if (j == i) r.copy(write = !r.write) else r })
+                    }
+                    button {
+                        className = ClassName("relay-row-remove")
+                        onClick = { setRelays(relays.filterIndexed { j, _ -> j != i }) }
+                        icon(Ic.Close)
+                    }
+                }
+            }
+            if (relays.none { it.read }) {
+                div {
+                    className = ClassName("relay-warn")
+                    +"No read relay — cross-network discoverability will be limited."
+                }
+            }
+            if (relays.none { it.write }) {
+                div {
+                    className = ClassName("relay-warn")
+                    +"No write relay — your profile and joined groups list won't be discoverable."
+                }
+            }
+
+            div {
+                className = ClassName("settings-section-head relay-add-head")
+                +"ADD RELAY"
+            }
+            input {
+                className = ClassName("modal-input")
+                placeholder = "relay.example.com"
+                value = newUrl
+                onChange = { event -> setNewUrl(event.currentTarget.value) }
+                onKeyDown = { event ->
+                    if (event.key == "Enter") {
+                        event.preventDefault()
+                        addRelay()
                     }
                 }
             }
             div {
-                className = ClassName("settings-form-actions")
-                button {
-                    className = ClassName("settings-save")
-                    disabled = busy || relays.isEmpty()
-                    onClick = {
-                        setBusy(true)
-                        launchApp {
-                            repo.publishRelayList(relays)
-                            setBusy(false)
-                        }
+                className = ClassName("relay-add-row")
+                label {
+                    className = ClassName("relay-check")
+                    input {
+                        type = InputType.checkbox
+                        checked = newRead
+                        onChange = { event -> setNewRead(event.currentTarget.checked) }
                     }
-                    +(if (busy) "Publishing…" else "Publish")
+                    +"Read"
                 }
+                label {
+                    className = ClassName("relay-check")
+                    input {
+                        type = InputType.checkbox
+                        checked = newWrite
+                        onChange = { event -> setNewWrite(event.currentTarget.checked) }
+                    }
+                    +"Write"
+                }
+                button {
+                    className = ClassName("relay-add-btn")
+                    disabled = newUrl.isBlank()
+                    onClick = { addRelay() }
+                    icon(Ic.Add)
+                    +"Add"
+                }
+            }
+        }
+
+        // Save & Publish
+        div {
+            className = ClassName("relay-save-row")
+            status?.let {
+                span {
+                    className = ClassName("relay-save-status")
+                    +it
+                }
+            }
+            button {
+                className = ClassName("settings-save")
+                disabled = busy
+                onClick = {
+                    setBusy(true)
+                    setStatus(null)
+                    launchApp {
+                        val result = repo.publishRelayList(relays)
+                        setBusy(false)
+                        setStatus(if (result is Result.Success) "Relay list published" else "Failed to publish")
+                    }
+                }
+                +(if (busy) "Publishing…" else "Save & Publish")
             }
         }
     }
 
-private fun readWriteLabel(relay: Nip65Relay): String = when {
-    relay.read && relay.write -> "read/write"
-    relay.read -> "read"
-    relay.write -> "write"
-    else -> "—"
+private fun react.ChildrenBuilder.relayChip(label: String, active: Boolean, onToggle: () -> Unit) {
+    button {
+        className = ClassName(if (active) "relay-chip on" else "relay-chip")
+        onClick = { onToggle() }
+        +label
+    }
 }
 
 // ── Notifications ────────────────────────────────────────────────────────────
