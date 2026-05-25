@@ -128,6 +128,10 @@ enum class Ic(val d: String) {
     Search(
         "M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z",
     ),
+    OpenInNew(
+        "M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z",
+    ),
+    Download("M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"),
 }
 
 /** Render a Material icon as inline SVG (24×24 viewBox); colour/size come from CSS (`fill: currentColor`). */

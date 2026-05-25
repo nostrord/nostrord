@@ -4645,10 +4645,14 @@ body {
     background: #15171a;
     padding: 12px;
 }
-.img-viewer-close {
+.img-viewer-bar {
     position: absolute;
     top: 16px;
     right: 16px;
+    display: flex;
+    gap: 8px;
+}
+.img-viewer-action {
     width: 40px;
     height: 40px;
     display: flex;
@@ -4660,12 +4664,12 @@ body {
     border-radius: 50%;
     cursor: pointer;
 }
-.img-viewer-close:hover {
+.img-viewer-action:hover {
     background: rgba(0, 0, 0, 0.7);
 }
-.img-viewer-close .ico {
-    width: 24px;
-    height: 24px;
+.img-viewer-action .ico {
+    width: 22px;
+    height: 22px;
 }
 .msg-image {
     cursor: zoom-in;

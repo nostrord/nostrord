@@ -1,5 +1,6 @@
 package org.nostr.nostrord.web.components
 
+import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,23 +47,58 @@ val ImageViewerHost =
         }
 
         if (current != null) {
+            val url = current.url
             div {
                 className = ClassName("img-viewer-overlay")
                 onClick = { ImageViewer.dismiss() }
-                button {
-                    className = ClassName("img-viewer-close")
-                    onClick = {
-                        it.stopPropagation()
-                        ImageViewer.dismiss()
+                div {
+                    className = ClassName("img-viewer-bar")
+                    onClick = { it.stopPropagation() }
+                    button {
+                        className = ClassName("img-viewer-action")
+                        title = "Open in new tab"
+                        onClick = { window.open(url, "_blank") }
+                        icon(Ic.OpenInNew)
                     }
-                    icon(Ic.Close)
+                    button {
+                        className = ClassName("img-viewer-action")
+                        title = "Download"
+                        onClick = { downloadImage(url) }
+                        icon(Ic.Download)
+                    }
+                    button {
+                        className = ClassName("img-viewer-action")
+                        title = "Close"
+                        onClick = { ImageViewer.dismiss() }
+                        icon(Ic.Close)
+                    }
                 }
                 img {
                     className = ClassName("img-viewer-img" + (current.backdrop?.let { " $it" } ?: ""))
-                    src = current.url
+                    src = url
                     alt = ""
                     onClick = { it.stopPropagation() }
                 }
             }
         }
     }
+
+/** Download [url] as a file. Fetches a blob (so cross-origin images save instead of opening); falls back to a new tab. */
+private fun downloadImage(url: String) {
+    val name = url.substringBefore('?').substringAfterLast('/').ifBlank { "image" }
+    val w = window.asDynamic()
+    w.fetch(url)
+        .then { resp: dynamic -> resp.blob() }
+        .then { blob: dynamic ->
+            val objectUrl = w.URL.createObjectURL(blob)
+            val anchor = document.createElement("a")
+            val a = anchor.asDynamic()
+            a.href = objectUrl
+            a.download = name
+            document.body?.appendChild(anchor)
+            a.click()
+            anchor.remove()
+            w.URL.revokeObjectURL(objectUrl)
+        }
+        .catch { _: dynamic -> w.open(url, "_blank") }
+}
