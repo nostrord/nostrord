@@ -67,7 +67,15 @@ html, body {
 body {
     background: var(--color-background-dark);
     color: var(--color-text-content);
-    font-family: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    /* Native system-font stack: matches Compose's FontFamily.SansSerif on every
+       platform (San Francisco on macOS/iOS, Segoe UI on Windows, Roboto on
+       Android/ChromeOS). "Noto Sans" is kept only as a late fallback for Linux
+       desktops that ship it — leading with it would make Linux diverge since it
+       isn't loaded via @font-face. Emoji families are appended so color emoji
+       render consistently within text runs. */
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji",
+        "Segoe UI Emoji", "Noto Color Emoji";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
 }
