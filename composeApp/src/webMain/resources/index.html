@@ -20,24 +20,14 @@
     <link rel="dns-prefetch" href="https://purplepag.es">
     <link rel="preconnect" href="https://relay.damus.io" crossorigin>
 
-    <!-- Tier 1: Latin (~560KB) — preload, gates render -->
-    <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSans-Regular.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
-    <link rel="preload" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSans-Bold.ttf" as="fetch" type="font/ttf" crossorigin fetchpriority="high"/>
-
-    <!-- Emoji + CJK + RTL — prefetch, loads in background -->
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoColorEmoji.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansJP-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansSC-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansKR-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansArabic-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansHebrew-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-
-    <!-- Tier 3: Rare scripts -->
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansThai-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansCherokee-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansSymbols-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansSymbols2-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
-    <link rel="prefetch" href="./composeResources/nostrord.composeapp.generated.resources/font/NotoSansMath-Regular.ttf" as="fetch" type="font/ttf" crossorigin/>
+    <!--
+      No bundled web fonts: the React/DOM UI renders text and emoji with the OS
+      system fonts (see the `font-family` stack in styles.css). The old Noto
+      preloads (Latin/CJK/RTL/Symbols/NotoColorEmoji) only existed for Compose
+      Canvas/Skiko, which can't reach system fonts — they don't apply to the DOM
+      and most of those files no longer ship. Native (Skia) still bundles
+      NotoColorEmoji via composeResources; the web doesn't reference it.
+    -->
 
     <link type="text/css" rel="stylesheet" href="styles.css">
     <!-- Crypto libraries - defer loading to not block render -->
