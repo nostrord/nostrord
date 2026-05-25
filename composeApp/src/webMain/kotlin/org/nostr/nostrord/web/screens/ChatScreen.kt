@@ -1012,7 +1012,11 @@ private fun ChildrenBuilder.renderMessageContent(
                 is Nip19.Entity.Note -> eventRefChip(entity.eventId, messagesById, userMetadata, onEventRef)
                 is Nip19.Entity.Naddr ->
                     if (entity.kind == 39000) {
-                        groupRefChip(entity.identifier, entity.relays.firstOrNull(), onGroupRef)
+                        GroupLinkCard {
+                            groupId = entity.identifier
+                            relayUrl = entity.relays.firstOrNull()
+                            onNavigate = onGroupRef
+                        }
                     } else {
                         a {
                             className = ClassName("msg-link")
@@ -1060,15 +1064,63 @@ private fun ChildrenBuilder.eventRefChip(
     }
 }
 
-/** A decoded naddr group reference (kind 39000) — clickable chip that opens the group. */
-private fun ChildrenBuilder.groupRefChip(groupId: String, relayUrl: String?, onGroupRef: (String, String?) -> Unit) {
-    span {
-        className = ClassName("msg-group-ref")
-        onClick = { onGroupRef(groupId, relayUrl) }
-        icon(Ic.People, "ico msg-event-ref-ico")
-        +groupId.take(28)
-    }
+private external interface GroupLinkCardProps : Props {
+    var groupId: String
+    var relayUrl: String?
+    var onNavigate: (String, String?) -> Unit
 }
+
+/**
+ * A decoded naddr group reference (kind 39000) rendered as a card (avatar + name + about +
+ * relay), mirroring the native GroupLinkCard. Resolves metadata from groupsByRelay and fetches
+ * a preview if unknown; clicking opens the group.
+ */
+private val GroupLinkCard =
+    FC<GroupLinkCardProps> { props ->
+        val repo = AppModule.nostrRepository
+        val groupsByRelay = useStateFlow(repo.groupsByRelay)
+        val meta = groupsByRelay.values.flatten().firstOrNull { it.id == props.groupId }
+        val name = meta?.name?.takeIf { it.isNotBlank() } ?: props.groupId
+        val relayDisplay = props.relayUrl?.removePrefix("wss://")?.removePrefix("ws://")?.trimEnd('/')
+
+        useEffect(props.groupId, props.relayUrl, meta?.name) {
+            val relay = props.relayUrl
+            if (relay != null && meta?.name == null) {
+                launchApp { repo.fetchGroupPreview(props.groupId, relay) }
+            }
+        }
+
+        div {
+            className = ClassName("group-link-card")
+            onClick = { props.onNavigate(props.groupId, props.relayUrl) }
+            WebAvatar {
+                url = meta?.picture
+                seed = props.groupId
+                kind = AvatarKind.GROUP
+                this.name = name
+                cls = "group-link-avatar"
+            }
+            div {
+                className = ClassName("group-link-meta")
+                div {
+                    className = ClassName("group-link-name")
+                    +name
+                }
+                meta?.about?.takeIf { it.isNotBlank() }?.let { about ->
+                    div {
+                        className = ClassName("group-link-about")
+                        +about
+                    }
+                }
+                relayDisplay?.let {
+                    div {
+                        className = ClassName("group-link-relay")
+                        +it
+                    }
+                }
+            }
+        }
+    }
 
 private fun ChildrenBuilder.memberSection(title: String, count: Int) {
     div {

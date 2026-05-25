@@ -2198,6 +2198,56 @@ body {
     color: var(--color-text-primary);
 }
 
+/* naddr group reference card (mirrors native GroupLinkCard) */
+.group-link-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: 380px;
+    margin: 4px 0;
+    padding: 8px;
+    background: var(--color-surface);
+    border-radius: 12px;
+    cursor: pointer;
+}
+.group-link-card:hover {
+    background: var(--color-surface-variant);
+}
+.group-link-avatar {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    font-size: 18px;
+    font-weight: 700;
+}
+.group-link-meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.group-link-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.group-link-about {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.group-link-relay {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .msg-mention {
     color: var(--color-primary);
     cursor: pointer;
