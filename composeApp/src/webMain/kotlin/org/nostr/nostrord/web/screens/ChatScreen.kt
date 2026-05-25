@@ -94,6 +94,27 @@ private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.dis
     ?: meta?.name?.takeIf { it.isNotBlank() }
     ?: (pubkey.take(8) + "…")
 
+/** Active mention being typed in the composer: the trigger (@ or %), its query, and start index. */
+private data class MentionCtx(val trigger: Char, val query: String, val start: Int)
+
+/** A single autocomplete suggestion: how to show it and the `nostr:` reference to insert. */
+private data class MentionMatch(val label: String, val picture: String?, val seed: String, val group: Boolean, val ref: String)
+
+/**
+ * Find the mention being typed at [cursor]: the nearest `@`/`%` that starts a word and runs
+ * unbroken (no whitespace) up to the cursor. Returns null when there's no active mention.
+ */
+private fun detectMention(text: String, cursor: Int): MentionCtx? {
+    val before = text.take(cursor)
+    val idx = maxOf(before.lastIndexOf('@'), before.lastIndexOf('%'))
+    if (idx < 0) return null
+    val boundary = idx == 0 || before[idx - 1].isWhitespace()
+    if (!boundary) return null
+    val query = before.substring(idx + 1)
+    if (query.any { it.isWhitespace() }) return null
+    return MentionCtx(before[idx], query, idx)
+}
+
 /**
  * Chat view — real data port of the Compose GroupScreenDesktop: header + grouped messages
  * (live `messages` flow) + composer (`sendMessage`), members sidebar (`groupMembers` /
@@ -113,6 +134,8 @@ val ChatScreen =
         val userMetadata = useStateFlow(repo.userMetadata)
         val reactionsByMsg = useStateFlow(repo.reactions)
         val zapsByMsg = useStateFlow(repo.zaps)
+        val allGroups = useStateFlow(repo.groups)
+        val relayMetadata = useStateFlow(repo.relayMetadata)
         val relayUrl = useStateFlow(repo.currentRelayUrl)
         val isLoadingMore = useStateFlow(repo.isLoadingMore)[group.id] ?: false
         val hasMore = useStateFlow(repo.hasMoreMessages)[group.id] ?: true
@@ -143,6 +166,40 @@ val ChatScreen =
         val (highlightId, setHighlightId) = useState<String?> { null }
         // Composer emoji picker open state.
         val (emojiOpen, setEmojiOpen) = useState { false }
+        // Active @user / %group mention being typed in the composer.
+        val (mention, setMention) = useState<MentionCtx?> { null }
+
+        // Autocomplete suggestions for the active mention (members for @, groups for %).
+        val mentionMatches: List<MentionMatch> =
+            when (mention?.trigger) {
+                '@' ->
+                    members.asSequence()
+                        .map { pk -> pk to displayName(pk, userMetadata[pk]) }
+                        .filter { (_, nm) -> mention.query.isBlank() || nm.contains(mention.query, ignoreCase = true) }
+                        .take(6)
+                        .map { (pk, nm) ->
+                            MentionMatch(nm, userMetadata[pk]?.picture, pk, group = false, ref = "nostr:" + Nip19.encodeNpub(pk))
+                        }
+                        .toList()
+                '%' ->
+                    allGroups.asSequence()
+                        .filter { g -> mention.query.isBlank() || (g.name ?: g.id).contains(mention.query, ignoreCase = true) }
+                        .take(6)
+                        .map { g ->
+                            val ref = "nostr:" + Nip19.encodeNaddr(g.id, relayUrl, 39000, relayMetadata[relayUrl]?.pubkey)
+                            MentionMatch(g.name ?: g.id, g.picture, g.id, group = true, ref = ref)
+                        }
+                        .toList()
+                else -> emptyList()
+            }
+
+        // Replace the typed "@query"/"%query" with the chosen nostr: reference.
+        fun insertMention(ref: String) {
+            val m = mention ?: return
+            val cursorEnd = (m.start + 1 + m.query.length).coerceAtMost(draft.length)
+            setDraft(draft.take(m.start) + ref + " " + draft.substring(cursorEnd))
+            setMention(null)
+        }
         // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
 
@@ -466,13 +523,26 @@ val ChatScreen =
                             className = ClassName("composer-input")
                             placeholder = "Message $groupName"
                             value = draft
-                            onChange = { event -> setDraft(event.currentTarget.value) }
+                            onChange = { event ->
+                                val v = event.currentTarget.value
+                                setDraft(v)
+                                val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
+                                setMention(detectMention(v, cursor))
+                            }
                             onKeyDown = { event ->
-                                if (event.key == "Enter" && !event.shiftKey) {
-                                    event.preventDefault()
-                                    send()
+                                when {
+                                    mention != null && mentionMatches.isNotEmpty() && event.key == "Enter" -> {
+                                        event.preventDefault()
+                                        insertMention(mentionMatches.first().ref)
+                                    }
+                                    mention != null && event.key == "Escape" -> setMention(null)
+                                    event.key == "Enter" && !event.shiftKey -> {
+                                        event.preventDefault()
+                                        send()
+                                    }
                                 }
                             }
+                            onBlur = { window.setTimeout({ setMention(null) }, 150) }
                             // Ctrl/Cmd+V of an image: upload it and append the URL to the draft.
                             onPaste = { event ->
                                 val items = event.asDynamic().clipboardData?.items
@@ -490,6 +560,33 @@ val ChatScreen =
                                                     setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
                                                 }
                                             }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (mention != null && mentionMatches.isNotEmpty()) {
+                            div {
+                                className = ClassName("mention-popup")
+                                mentionMatches.forEach { mm ->
+                                    div {
+                                        key = mm.ref
+                                        className = ClassName("mention-row")
+                                        // mousedown (before blur) + preventDefault keeps input focus.
+                                        onMouseDown = { e ->
+                                            e.preventDefault()
+                                            insertMention(mm.ref)
+                                        }
+                                        WebAvatar {
+                                            url = mm.picture
+                                            seed = mm.seed
+                                            this.name = mm.label
+                                            kind = if (mm.group) AvatarKind.GROUP else AvatarKind.USER
+                                            cls = "mention-avatar"
+                                        }
+                                        span {
+                                            className = ClassName("mention-name")
+                                            +(if (mm.group) "%${mm.label}" else "@${mm.label}")
                                         }
                                     }
                                 }
