@@ -2164,6 +2164,38 @@ body {
     background: #000;
 }
 
+.msg-event-ref {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    margin: 2px 0;
+    padding: 3px 8px;
+    vertical-align: middle;
+    background: var(--color-input);
+    border-left: 3px solid var(--color-primary);
+    border-radius: 4px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.msg-event-ref:hover {
+    background: var(--color-surface-variant);
+}
+.msg-event-ref-ico {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--color-primary);
+}
+.msg-event-ref-author {
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
 .msg-mention {
     color: var(--color-primary);
     cursor: pointer;

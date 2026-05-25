@@ -373,6 +373,8 @@ val ChatScreen =
                                         reactions = reactionsByMsg[message.id].orEmpty()
                                         this.myPubkey = myPubkey
                                         this.userMetadata = userMetadata
+                                        this.messagesById = messagesById
+                                        onEventRef = { id -> scrollToMessage(id) }
                                         canZap =
                                             message.pubkey != myPubkey &&
                                             (!authorMeta?.lud16.isNullOrBlank() || !authorMeta?.lud06.isNullOrBlank())
@@ -627,6 +629,8 @@ external interface MessageRowProps : Props {
     var reactions: Map<String, GroupManager.ReactionInfo>
     var myPubkey: String?
     var userMetadata: Map<String, UserMetadata>
+    var messagesById: Map<String, NostrGroupClient.NostrMessage>
+    var onEventRef: (String) -> Unit
     var replyTo: Pair<String, String>?
     var onReplyClick: () -> Unit
     var canDelete: Boolean
@@ -720,7 +724,7 @@ private val MessageRow =
                 }
                 div {
                     className = ClassName("msg-text")
-                    renderMessageContent(props.content, props.userMetadata, props.onUser)
+                    renderMessageContent(props.content, props.userMetadata, props.messagesById, props.onUser, props.onEventRef)
                 }
                 if (props.reactions.isNotEmpty()) {
                     div {
@@ -946,17 +950,19 @@ private val URL_REGEX =
     Regex(
         "(data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)" +
             "|(https?://[^\\s]+)" +
-            "|(nostr:(?:npub1|nprofile1)[0-9a-z]+)" +
-            "|\\b((?:npub1|nprofile1)[0-9a-z]{20,})",
+            "|(nostr:(?:npub1|nprofile1|nevent1|note1)[0-9a-z]+)" +
+            "|\\b((?:npub1|nprofile1|nevent1|note1)[0-9a-z]{20,})",
     )
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
 private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", RegexOption.IGNORE_CASE)
 
-/** Render message text with clickable links, inline images and NIP-27 mentions. */
+/** Render message text with clickable links, inline images, NIP-27 mentions and event refs. */
 private fun ChildrenBuilder.renderMessageContent(
     content: String,
     userMetadata: Map<String, UserMetadata>,
+    messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
+    onEventRef: (String) -> Unit,
 ) {
     var last = 0
     for (match in URL_REGEX.findAll(content)) {
@@ -986,25 +992,49 @@ private fun ChildrenBuilder.renderMessageContent(
             }
             if (url.length < token.length) +token.substring(url.length)
         } else {
-            val pubkey =
-                when (val entity = Nip19.decode(token.removePrefix("nostr:"))) {
-                    is Nip19.Entity.Npub -> entity.pubkey
-                    is Nip19.Entity.Nprofile -> entity.pubkey
-                    else -> null
-                }
-            if (pubkey != null) {
-                span {
-                    className = ClassName("msg-mention")
-                    onClick = { onUser(pubkey) }
-                    +"@${displayName(pubkey, userMetadata[pubkey])}"
-                }
-            } else {
-                +token
+            when (val entity = Nip19.decode(token.removePrefix("nostr:"))) {
+                is Nip19.Entity.Npub -> mentionSpan(entity.pubkey, userMetadata, onUser)
+                is Nip19.Entity.Nprofile -> mentionSpan(entity.pubkey, userMetadata, onUser)
+                is Nip19.Entity.Nevent -> eventRefChip(entity.eventId, messagesById, userMetadata, onEventRef)
+                is Nip19.Entity.Note -> eventRefChip(entity.eventId, messagesById, userMetadata, onEventRef)
+                else -> +token
             }
         }
         last = match.range.last + 1
     }
     if (last < content.length) +content.substring(last)
+}
+
+private fun ChildrenBuilder.mentionSpan(pubkey: String, userMetadata: Map<String, UserMetadata>, onUser: (String) -> Unit) {
+    span {
+        className = ClassName("msg-mention")
+        onClick = { onUser(pubkey) }
+        +"@${displayName(pubkey, userMetadata[pubkey])}"
+    }
+}
+
+/** A decoded nevent/note reference — clickable chip that scrolls to the quoted message. */
+private fun ChildrenBuilder.eventRefChip(
+    eventId: String,
+    messagesById: Map<String, NostrGroupClient.NostrMessage>,
+    userMetadata: Map<String, UserMetadata>,
+    onEventRef: (String) -> Unit,
+) {
+    val ref = messagesById[eventId]
+    span {
+        className = ClassName("msg-event-ref")
+        onClick = { onEventRef(eventId) }
+        icon(Ic.Reply, "ico msg-event-ref-ico")
+        if (ref != null) {
+            span {
+                className = ClassName("msg-event-ref-author")
+                +displayName(ref.pubkey, userMetadata[ref.pubkey])
+            }
+            +" ${ref.content.replace('\n', ' ').trim().take(80)}"
+        } else {
+            +"Quoted message"
+        }
+    }
 }
 
 private fun ChildrenBuilder.memberSection(title: String, count: Int) {
