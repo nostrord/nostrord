@@ -3,6 +3,7 @@ package org.nostr.nostrord.web.modals
 import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
@@ -27,9 +28,12 @@ val ShareGroupModal =
     FC<ShareGroupModalProps> { props ->
         val group = props.group
         val relayUrl = useStateFlow(AppModule.nostrRepository.currentRelayUrl)
+        val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
         val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
         val link = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}"
-        val naddr = "nostr:naddr — relay $relayHost · group ${group.id}"
+        // Author = the relay's own pubkey (NIP-11), like native; falls back to zero bytes inside encodeNaddr.
+        val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
+        val naddr = "nostr:" + Nip19.encodeNaddr(identifier = group.id, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey)
 
         div {
             className = ClassName("modal-overlay")
