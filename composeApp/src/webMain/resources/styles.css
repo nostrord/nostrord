@@ -2248,6 +2248,38 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Profile zap pill (UserProfileModal) */
+.profile-name-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+.profile-name-col {
+    min-width: 0;
+}
+.profile-zap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    padding: 5px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-warning-orange);
+    background: rgba(255, 165, 0, 0.15);
+    border: 1px solid rgba(255, 165, 0, 0.4);
+    border-radius: 16px;
+    cursor: pointer;
+}
+.profile-zap:hover {
+    background: rgba(255, 165, 0, 0.25);
+}
+.profile-zap .ico {
+    width: 16px;
+    height: 16px;
+}
+
 .msg-mention {
     color: var(--color-primary);
     cursor: pointer;

@@ -6,6 +6,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.icon
 import react.FC
 import react.Props
@@ -36,6 +37,7 @@ val UserProfileModal =
                 ?: meta?.name?.takeIf { it.isNotBlank() }
                 ?: (npub.take(12) + "…")
         val handle = meta?.name?.takeIf { it.isNotBlank() }
+        val canZap = !meta?.lud16.isNullOrBlank() || !meta?.lud06.isNullOrBlank()
 
         useEffect(pubkey) {
             launchApp { AppModule.nostrRepository.requestUserMetadata(setOf(pubkey)) }
@@ -73,13 +75,30 @@ val UserProfileModal =
                 div {
                     className = ClassName("info-content profile-content")
                     div {
-                        className = ClassName("info-name")
-                        +name
-                    }
-                    if (handle != null && handle != name) {
+                        className = ClassName("profile-name-row")
                         div {
-                            className = ClassName("profile-handle")
-                            +"@$handle"
+                            className = ClassName("profile-name-col")
+                            div {
+                                className = ClassName("info-name")
+                                +name
+                            }
+                            if (handle != null && handle != name) {
+                                div {
+                                    className = ClassName("profile-handle")
+                                    +"@$handle"
+                                }
+                            }
+                        }
+                        if (canZap) {
+                            button {
+                                className = ClassName("profile-zap")
+                                onClick = {
+                                    WebZapController.request(pubkey)
+                                    props.onClose()
+                                }
+                                icon(Ic.Bolt)
+                                +"Zap"
+                            }
                         }
                     }
 
