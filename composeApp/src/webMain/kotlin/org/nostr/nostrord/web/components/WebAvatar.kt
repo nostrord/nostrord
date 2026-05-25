@@ -6,8 +6,10 @@ import react.Props
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.useEffect
+import react.useRef
 import react.useState
 import web.cssom.ClassName
+import web.html.HTMLImageElement
 import kotlin.math.abs
 
 /** What the avatar represents — drives the fallback style and shape (mirrors native). */
@@ -45,9 +47,17 @@ val WebAvatar =
     FC<WebAvatarProps> { props ->
         val (loaded, setLoaded) = useState { false }
         val (failed, setFailed) = useState { false }
+        val imgRef = useRef<HTMLImageElement>(null)
         useEffect(props.url) {
-            setLoaded(false)
+            // A browser-cached image can already be `complete` before React attaches onLoad —
+            // common when a second component mounts with a URL an earlier avatar already fetched.
+            // onLoad then never fires, leaving the photo at opacity:0 with only the fallback
+            // visible (the "shows here but not there" inconsistency). Detect the cached hit
+            // synchronously so the photo is shown immediately.
+            val el = imgRef.current
+            val cached = el != null && el.complete && el.naturalWidth > 0
             setFailed(false)
+            setLoaded(cached)
         }
 
         val url = props.url
@@ -68,6 +78,7 @@ val WebAvatar =
             // Real picture on top: hidden until it loads, removed on error so the fallback shows.
             if (!url.isNullOrBlank() && !failed) {
                 img {
+                    ref = imgRef
                     className = ClassName(if (loaded) "avatar-photo loaded" else "avatar-photo")
                     src = url
                     alt = props.name
