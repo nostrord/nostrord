@@ -5,6 +5,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.notifications.NotificationPermission
+import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
@@ -331,6 +332,13 @@ private val NotificationsPanel =
             className = ClassName("settings-card")
             settingsToggle("Notification sound", "Play a sound when a new message arrives.", soundEnabled) {
                 settings.setSoundEnabled(!soundEnabled)
+            }
+            if (soundEnabled) {
+                button {
+                    className = ClassName("settings-test-sound")
+                    onClick = { playNotificationSound() }
+                    +"Test sound"
+                }
             }
         }
         div {

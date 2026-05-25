@@ -2295,6 +2295,21 @@ body {
     text-overflow: ellipsis;
 }
 
+/* "Test sound" link in notification settings */
+.settings-test-sound {
+    margin-top: 8px;
+    padding: 4px 0;
+    background: transparent;
+    border: none;
+    color: var(--color-primary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.settings-test-sound:hover {
+    text-decoration: underline;
+}
+
 /* Profile zap pill (UserProfileModal) */
 .profile-name-row {
     display: flex;
