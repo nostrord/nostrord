@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.auth.AuthMethod
+import org.nostr.nostrord.auth.logoutConfirmBody
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
@@ -53,6 +54,16 @@ private val sections =
 val SettingsScreen =
     FC<SettingsScreenProps> { props ->
         val (active, setActive) = useState { "Profile" }
+        // Confirm dialog state for the Log Out item — mirrors native
+        // showLogoutConfirm in SettingsScreen.kt:492. Tap "Log Out" opens it
+        // before delegating to props.onLogoutWithChoice, so the user has a
+        // pause + method-tailored body before the account chooser / logout
+        // path runs.
+        val (logoutConfirmOpen, setLogoutConfirmOpen) = useState { false }
+        val accounts = useStateFlow(AppModule.accountStore.accounts)
+        val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
+        val activeAuthMethod =
+            accounts.firstOrNull { it.id == activeAccountId }?.authMethod ?: AuthMethod.LOCAL
         // Mobile: false = section list, true = selected panel (with a back button). Ignored on desktop.
         val (mobilePanel, setMobilePanel) = useState { false }
 
@@ -97,7 +108,7 @@ val SettingsScreen =
                 div { className = ClassName("settings-nav-divider") }
                 div {
                     className = ClassName("settings-nav-item danger")
-                    onClick = { props.onLogoutWithChoice() }
+                    onClick = { setLogoutConfirmOpen(true) }
                     span {
                         className = ClassName("settings-nav-label")
                         +"Log Out"
@@ -146,6 +157,44 @@ val SettingsScreen =
             }
 
             div { className = ClassName("settings-fill light") }
+
+            // Log-out confirmation. Mirrors native AlertDialog (SettingsScreen.kt:494),
+            // body string comes from the shared logoutConfirmBody helper so the
+            // wording adapts to the user's auth method consistently across platforms.
+            if (logoutConfirmOpen) {
+                div {
+                    className = ClassName("modal-overlay")
+                    onClick = { setLogoutConfirmOpen(false) }
+                    div {
+                        className = ClassName("modal-card sm")
+                        onClick = { it.stopPropagation() }
+                        div {
+                            className = ClassName("modal-title")
+                            +"Log out?"
+                        }
+                        div {
+                            className = ClassName("modal-subtitle tight")
+                            +logoutConfirmBody(activeAuthMethod)
+                        }
+                        div {
+                            className = ClassName("modal-footer")
+                            button {
+                                className = ClassName("btn-text")
+                                onClick = { setLogoutConfirmOpen(false) }
+                                +"Cancel"
+                            }
+                            button {
+                                className = ClassName("btn-danger")
+                                onClick = {
+                                    setLogoutConfirmOpen(false)
+                                    props.onLogoutWithChoice()
+                                }
+                                +"Log Out"
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -354,7 +403,7 @@ private val RelaysPanel =
                 +(
                     "NIP-65 relay list (kind 10002) is where other clients find your profile and your joined " +
                         "groups list (kind 10009). Write relays are where you publish; read relays are for " +
-                        "cross-network discoverability. Group messages are separate — they live on each group's relay."
+                        "cross-network discoverability. Group messages are separate. They live on each group's relay."
                     )
             }
         }
@@ -409,13 +458,13 @@ private val RelaysPanel =
             if (relays.none { it.read }) {
                 div {
                     className = ClassName("relay-warn")
-                    +"No read relay — cross-network discoverability will be limited."
+                    +"No read relay. Cross-network discoverability will be limited."
                 }
             }
             if (relays.none { it.write }) {
                 div {
                     className = ClassName("relay-warn")
-                    +"No write relay — your profile and joined groups list won't be discoverable."
+                    +"No write relay. Your profile and joined groups list won't be discoverable."
                 }
             }
 
@@ -586,7 +635,7 @@ private val SecurityPanel =
             }
             div {
                 className = ClassName("settings-status-line")
-                +"No app passphrase on the web — your key is managed by the browser. Use Backup Keys to save it."
+                +"No app passphrase on the web. Your key is managed by the browser. Use Backup Keys to save it."
             }
         }
     }

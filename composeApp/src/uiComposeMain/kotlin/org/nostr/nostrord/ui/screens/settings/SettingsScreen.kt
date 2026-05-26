@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
+import org.nostr.nostrord.auth.AuthMethod
+import org.nostr.nostrord.auth.logoutConfirmBody
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
@@ -492,13 +494,19 @@ private fun SettingsSidebar(
     var showLogoutConfirm by remember { mutableStateOf(false) }
 
     if (showLogoutConfirm) {
+        // Tailor the body to the active account's auth method so NIP-07 users
+        // aren't told they need a "private key", and Bunker users aren't told
+        // to dig out a private key either.
+        val activeId = AppModule.accountStore.activeId.collectAsState().value
+        val accounts = AppModule.accountStore.accounts.collectAsState().value
+        val activeMethod = accounts.firstOrNull { it.id == activeId }?.authMethod ?: AuthMethod.LOCAL
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showLogoutConfirm = false },
             containerColor = NostrordColors.Surface,
             titleContentColor = NostrordColors.TextPrimary,
             textContentColor = NostrordColors.TextSecondary,
             title = { Text("Log out?") },
-            text = { Text("You will need your private key or bunker URL to log back in.") },
+            text = { Text(logoutConfirmBody(activeMethod)) },
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
                     showLogoutConfirm = false

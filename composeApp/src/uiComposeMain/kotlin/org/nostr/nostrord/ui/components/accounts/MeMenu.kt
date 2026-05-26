@@ -230,6 +230,7 @@ fun MeMenu(
                 ?: target.label
         RemoveAccountDialog(
             accountLabel = targetLabel,
+            method = target.authMethod,
             isActive = isActiveTarget,
             fallbackLabel = fallbackLabel,
             isBusy = isBusy,
@@ -469,29 +470,20 @@ private fun ActionRow(
 @Composable
 private fun RemoveAccountDialog(
     accountLabel: String,
+    method: AuthMethod,
     isActive: Boolean,
     fallbackLabel: String?,
     isBusy: Boolean,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    // Body varies by whether this is the active account and whether a fallback
-    // identity exists.
-    val body =
-        when {
-            isActive && fallbackLabel != null ->
-                "Credentials and local data for \"$accountLabel\" will be erased on " +
-                    "this device. You'll switch to \"$fallbackLabel\"."
-            isActive ->
-                "Credentials and local data for \"$accountLabel\" will be erased on " +
-                    "this device. You'll need to sign in again to continue."
-            else ->
-                "Credentials and local data for \"$accountLabel\" will be erased on " +
-                    "this device."
-        }
-    val title = if (isActive) "Sign out of \"$accountLabel\"?" else "Remove account?"
-    val confirmLabel = if (isActive) "Sign out" else "Remove"
-    val busyLabel = if (isActive) "Signing out…" else "Removing…"
+    // Strings live in commonMain so web and native share the exact copy. The
+    // body branches on `method` so Bunker / NIP-07 users see accurate wording —
+    // the LOCAL "Credentials and local data" line was misleading for them.
+    val title = org.nostr.nostrord.auth.removeAccountDialogTitle(isActive, accountLabel)
+    val body = org.nostr.nostrord.auth.removeAccountDialogBody(isActive, accountLabel, fallbackLabel, method)
+    val confirmLabel = org.nostr.nostrord.auth.removeAccountConfirmLabel(isActive)
+    val busyLabel = org.nostr.nostrord.auth.removeAccountBusyLabel(isActive)
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = NostrordColors.Surface,

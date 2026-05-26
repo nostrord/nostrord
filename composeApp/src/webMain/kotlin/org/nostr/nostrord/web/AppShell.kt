@@ -1,7 +1,12 @@
 package org.nostr.nostrord.web
 
 import kotlinx.browser.window
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.auth.AuthMethod
+import org.nostr.nostrord.auth.removeAccountBusyLabel
+import org.nostr.nostrord.auth.removeAccountConfirmLabel
+import org.nostr.nostrord.auth.removeAccountDialogBody
+import org.nostr.nostrord.auth.removeAccountDialogTitle
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
@@ -140,6 +145,11 @@ val AppShell =
         // observing the store size grow past this baseline, then wipe the deferred
         // account (mirrors native's `onAdded` deferred-wipe in App.kt:1027-1038).
         val (accountsCountAtAdd, setAccountsCountAtAdd) = useState<Int?> { null }
+        // Per-account confirmation dialog (mirrors native RemoveAccountDialog in
+        // MeMenu.kt). Active+multi accounts go through the chooser; everything
+        // else surfaces this dialog before AccountManager.removeAccount runs.
+        val (removeTarget, setRemoveTarget) = useState<Account?> { null }
+        val (removeTargetBusy, setRemoveTargetBusy) = useState { false }
         val (myExpanded, setMyExpanded) = useState { true }
         val (otherExpanded, setOtherExpanded) = useState { true }
         // Groups sidebar search query (filters My Groups + Other Groups by name/id, like native).
@@ -640,16 +650,15 @@ val AppShell =
                                         className = ClassName("me-delete")
                                         onClick = {
                                             it.stopPropagation()
-                                            if (isActiveAccount) {
-                                                // Active account: route through the
-                                                // chooser so the user picks where to
-                                                // land (mirrors signing out — both
-                                                // wipe the active account, both need
-                                                // validate-before-teardown).
+                                            // Native `requestRemove` (MeMenu.kt:135):
+                                            // active+multi → chooser, else → confirm
+                                            // dialog. Same gate, both surfaces.
+                                            if (isActiveAccount && accounts.size > 1) {
                                                 setMenuOpen(false)
                                                 setSignOutChooserId(account.pubkey)
                                             } else {
-                                                launchApp { AppModule.accountManager.removeAccount(account.pubkey) }
+                                                setMenuOpen(false)
+                                                setRemoveTarget(account)
                                             }
                                         }
                                         icon(Ic.Delete)
@@ -688,15 +697,22 @@ val AppShell =
                         div {
                             className = ClassName("me-action danger")
                             onClick = {
-                                setMenuOpen(false)
-                                val activeId = activeAccountId
-                                if (activeId != null && accounts.size > 1) {
-                                    // Other accounts are signed in — let the user
-                                    // pick instead of silently switching to one of
-                                    // them (mirrors native App.kt:963-980).
-                                    setSignOutChooserId(activeId)
-                                } else {
+                                // Same gate as the trash icon (and native MeMenu's
+                                // `requestRemove`): active+multi opens the chooser,
+                                // single-account / non-active routes through the
+                                // RemoveAccountDialog so the user gets the per-account
+                                // erase-warning copy before AccountManager runs.
+                                val active =
+                                    accounts.firstOrNull { it.id == activeAccountId }
+                                if (active == null) {
+                                    setMenuOpen(false)
                                     launchApp { WebAuth.logout() }
+                                } else if (accounts.size > 1) {
+                                    setMenuOpen(false)
+                                    setSignOutChooserId(active.id)
+                                } else {
+                                    setMenuOpen(false)
+                                    setRemoveTarget(active)
                                 }
                             }
                             span {
@@ -759,6 +775,79 @@ val AppShell =
                         // onClose can tell a successful add from a cancel.
                         setAccountsCountAtAdd(accounts.size)
                         setAddAccountOpen(true)
+                    }
+                }
+            }
+
+            // Per-account confirmation dialog (the screenshot the user asked us
+            // to add). Mirrors native RemoveAccountDialog: shows for the trash
+            // icon AND the bottom Sign out when the chooser path is *not* the
+            // right one (active+single, or non-active row). Strings come from
+            // commonMain helpers so the wording matches native exactly.
+            removeTarget?.let { target ->
+                val isActiveTarget = target.id == activeAccountId
+                // Same fallback the AccountManager will silently land on, so we
+                // surface its label in the body (matches MeMenu.kt:212-223).
+                val fallback =
+                    if (isActiveTarget) accounts.filter { it.id != target.id }.maxByOrNull { it.addedAt } else null
+                val fallbackMeta = fallback?.let { userMetadata[it.pubkey] }
+                val fallbackLabel =
+                    fallback?.let { fb ->
+                        fallbackMeta?.displayName?.takeIf { it.isNotBlank() }
+                            ?: fallbackMeta?.name?.takeIf { it.isNotBlank() }
+                            ?: fb.label
+                    }
+                val targetMeta = userMetadata[target.pubkey]
+                val targetLabel =
+                    targetMeta?.displayName?.takeIf { it.isNotBlank() }
+                        ?: targetMeta?.name?.takeIf { it.isNotBlank() }
+                        ?: target.label
+                div {
+                    className = ClassName("modal-overlay")
+                    onClick = { if (!removeTargetBusy) setRemoveTarget(null) }
+                    div {
+                        className = ClassName("modal-card sm")
+                        onClick = { it.stopPropagation() }
+                        div {
+                            className = ClassName("modal-title")
+                            +removeAccountDialogTitle(isActiveTarget, targetLabel)
+                        }
+                        div {
+                            className = ClassName("modal-subtitle tight")
+                            // The body branches on the target's auth method so
+                            // bunker / NIP-07 users get accurate wording
+                            // (no "credentials erased" lie for NIP-07; bunker
+                            // users get the URL reminder instead).
+                            +removeAccountDialogBody(isActiveTarget, targetLabel, fallbackLabel, target.authMethod)
+                        }
+                        div {
+                            className = ClassName("modal-footer")
+                            button {
+                                className = ClassName("btn-text")
+                                disabled = removeTargetBusy
+                                onClick = { setRemoveTarget(null) }
+                                +"Cancel"
+                            }
+                            button {
+                                className = ClassName("btn-danger")
+                                disabled = removeTargetBusy
+                                onClick = {
+                                    setRemoveTargetBusy(true)
+                                    launchApp {
+                                        AppModule.accountManager.removeAccount(target.id)
+                                        setRemoveTargetBusy(false)
+                                        setRemoveTarget(null)
+                                    }
+                                }
+                                +(
+                                    if (removeTargetBusy) {
+                                        removeAccountBusyLabel(isActiveTarget)
+                                    } else {
+                                        removeAccountConfirmLabel(isActiveTarget)
+                                    }
+                                    )
+                            }
+                        }
                     }
                 }
             }
