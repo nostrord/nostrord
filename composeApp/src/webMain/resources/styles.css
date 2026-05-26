@@ -1596,39 +1596,21 @@ body {
     text-overflow: ellipsis;
 }
 
-/* Mirrors .btn-primary's color scheme (white-on-primary, primary-variant on
-   hover, opacity 0.5 when disabled) so all "primary action" pills in the app
-   stay visually consistent. Only the geometry (padding/font-size/radius) is
-   smaller because the row layout is tighter than a modal-footer button. */
-.relay-add-btn {
-    flex-shrink: 0;
-    padding: 6px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    color: #ffffff;
-    background: var(--color-primary);
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.relay-add-btn:hover {
-    background: var(--color-primary-variant);
-}
-
-.relay-add-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-}
-
-.relay-add-btn.added {
+/* "Added" modifier for .btn-primary — used on the Suggested-relay rows in the
+   AddRelay modal to flag a relay already in the user's list. Grey pill, muted
+   label, disabled-style cursor, *no* interactive state — native draws this as
+   a flat SurfaceVariant box with no .clickable, so hover/focus/active must
+   not flip the colour or fade the button. opacity:1 cancels .btn-primary's
+   :disabled 0.5; pointer-events:none keeps the cursor reading as a no-op. */
+.btn-primary.added,
+.btn-primary.added:hover,
+.btn-primary.added:focus,
+.btn-primary.added:active {
     color: var(--color-text-muted);
     background: var(--color-surface-variant);
-    /* Cancel .btn-primary's :disabled opacity — the surface-variant/text-muted
-       pair is already the muted "Added" look; doubling it via opacity:0.5
-       makes the pill nearly invisible against the dark card. */
     opacity: 1;
     cursor: default;
+    pointer-events: none;
 }
 
 .relay-custom {

@@ -148,7 +148,7 @@ val AddRelayModal =
                                     }
                                 }
                                 button {
-                                    className = ClassName(if (isConnected) "relay-add-btn added" else "relay-add-btn")
+                                    className = ClassName(if (isConnected) "btn-primary added" else "btn-primary")
                                     disabled = isConnected
                                     onClick = {
                                         it.stopPropagation()
