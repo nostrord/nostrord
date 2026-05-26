@@ -668,12 +668,15 @@ body {
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    background: var(--color-surface);
+    /* Two-tone like native: list area sits on background-dark, only the
+       header row stays on the lighter surface slot (overridden below). */
+    background: var(--color-background-dark);
 }
 
 .sidebar-header {
     /* Matches .chat-header / .member-header so the three headers form a single
-       horizontal band at the top of the app. */
+       horizontal band at the top of the app. Lighter surface so the relay name
+       row stands apart from the dark groups list below (native two-tone). */
     height: 56px;
     flex-shrink: 0;
     display: flex;
@@ -683,6 +686,7 @@ body {
     font-weight: 700;
     text-transform: uppercase;
     color: var(--color-text-secondary);
+    background: var(--color-surface);
     border-bottom: 1px solid var(--color-background-dark);
 }
 .sidebar-header.clickable {
@@ -704,29 +708,35 @@ body {
 }
 
 .sidebar-search {
+    /* Native: Box height 28dp, padding horizontal Spacing.sm. The wrapper sits
+       on the dark sidebar bg now, so it doesn't need its own surface. */
     flex-shrink: 0;
     position: relative;
-    padding: 8px 12px 4px;
+    padding: 4px 8px 2px;
 }
 
 .sidebar-search-icon {
     position: absolute;
-    left: 21px;
-    top: calc(50% + 2px);
+    left: 14px;
+    top: calc(50% + 1px);
     transform: translateY(-50%);
-    width: 16px;
-    height: 16px;
+    width: 12px;
+    height: 12px;
     fill: var(--color-text-muted);
     pointer-events: none;
 }
 
 .sidebar-search-input {
+    /* 28px tall pill with a 12px search icon — matches native's
+       Box(height = 28.dp, padding horizontal = 6.dp) + Icon(size = 12.dp). */
     width: 100%;
-    padding: 6px 10px 6px 32px;
-    font-size: 13px;
+    height: 28px;
+    box-sizing: border-box;
+    padding: 0 6px 0 26px;
+    font-size: 12px;
     font-family: inherit;
     color: var(--color-text-primary);
-    background: var(--color-background-dark);
+    background: var(--color-surface);
     border: none;
     border-radius: 4px;
     outline: none;
@@ -737,10 +747,12 @@ body {
 }
 
 .sidebar-section-toggle {
+    /* Native: padding horizontal Spacing.sm (8dp), vertical Spacing.sm (8dp).
+       Tighter than the previous 8/4/4 the web used. */
     display: flex;
     align-items: center;
     gap: 5px;
-    padding: 8px 4px 4px;
+    padding: 8px 8px 4px;
     cursor: pointer;
 }
 
@@ -755,7 +767,8 @@ body {
 }
 
 .sidebar-section-label {
-    font-size: 12px;
+    /* Native: fontSize = 13.sp. Was 12 in web. */
+    font-size: 13px;
     font-weight: 700;
     letter-spacing: 0.02em;
     color: var(--color-text-muted);
@@ -770,10 +783,13 @@ body {
 }
 
 .sidebar-group {
+    /* Native row: padding start=10dp end=10dp top=7dp bottom=7dp, Spacer width=6dp
+       between the 22dp avatar and the 15sp label. Web was 8px gap / 7px 8px padding,
+       which made the row read taller and more spacious than the JVM build. */
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 8px;
+    gap: 6px;
+    padding: 7px 10px;
     border-radius: 6px;
     cursor: pointer;
 }
@@ -787,10 +803,11 @@ body {
 }
 
 .group-icon-sm {
-    width: 32px;
-    height: 32px;
-    border-radius: 8px;
-    font-size: 13px;
+    /* Native GroupNavIcon: size = 22.dp. Web was 32px, ~45% bigger than native. */
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 11px;
     flex-shrink: 0;
 }
 
