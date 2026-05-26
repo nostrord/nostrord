@@ -178,7 +178,11 @@ val LoginScreen =
                                             )
                                         }
                                     }
-                                    icon(Ic.Login)
+                                    if (busy) {
+                                        span { className = ClassName("btn-spinner") }
+                                    } else {
+                                        icon(Ic.Login)
+                                    }
                                     +(if (busy) "Logging in…" else "Login")
                                 }
                                 div {
@@ -239,6 +243,9 @@ val LoginScreen =
                                             className = ClassName("login-primary")
                                             disabled = bunkerUrl.isBlank() || busy
                                             onClick = { runLogin { WebAuth.loginWithBunker(bunkerUrl) } }
+                                            if (busy) {
+                                                span { className = ClassName("btn-spinner") }
+                                            }
                                             +(if (busy) "Connecting…" else "Connect to Bunker")
                                         }
                                     }
@@ -279,6 +286,13 @@ val LoginScreen =
                                         className = ClassName("login-primary")
                                         disabled = busy
                                         onClick = { runLogin { WebAuth.loginWithExtension() } }
+                                        // Native ExtensionLoginTab puts a small spinner
+                                        // before the "Connecting..." label when busy
+                                        // (BunkerLoginTab.kt:75-82). Mirror it here so
+                                        // the click reads as "working", not idle.
+                                        if (busy) {
+                                            span { className = ClassName("btn-spinner") }
+                                        }
                                         +(if (busy) "Connecting…" else "Connect Extension")
                                     }
                                 }

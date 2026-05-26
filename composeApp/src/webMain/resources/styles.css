@@ -266,6 +266,20 @@ body {
     cursor: pointer;
 }
 
+/* Inline spinner for buttons that show a working state (login Connect /
+   Login / Bunker / Extension). Reuses app-spin keyframe; matches the small
+   CircularProgressIndicator the native Material Button uses inline. */
+.btn-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
 .login-primary:disabled {
     opacity: 0.5;
     cursor: default;
@@ -600,7 +614,16 @@ body {
 }
 
 .ext-icon {
+    /* Pin to exactly 48px so the inner SVG isn't scaled by .ico's 1.2em
+       (which would make it ~58px and noticeably larger than native's 48dp). */
     font-size: 48px;
+    line-height: 1;
+    color: var(--color-primary);
+}
+
+.ext-icon .ico {
+    width: 48px;
+    height: 48px;
 }
 
 .ext-title {
