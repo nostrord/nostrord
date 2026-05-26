@@ -4249,17 +4249,25 @@ body {
     position: relative;
     flex-shrink: 0;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    padding: 32px 24px 16px;
+    gap: 12px;
+    height: 56px;
+    padding: 8px 12px;
+}
+
+/* Hamburger — mobile only (groups sidebar is always visible on desktop). */
+.home-drawer-btn {
+    display: none;
+}
+@media (max-width: 900px) {
+    .home-drawer-btn {
+        display: inline-flex;
+    }
 }
 
 .home-relay-options {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 32px;
-    height: 32px;
+    width: 36px;
+    height: 36px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -4316,24 +4324,27 @@ body {
 }
 
 .home-relay-icon {
-    width: 64px;
-    height: 64px;
-    border-radius: 16px;
-    font-size: 26px;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    font-size: 14px;
     font-weight: 700;
 }
 
 .home-title {
-    margin-top: 12px;
-    font-size: 22px;
+    flex: 1;
+    min-width: 0;
+    font-size: 16px;
     font-weight: 700;
     color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
+/* Subtitle removed — native's home header doesn't have one. */
 .home-subtitle {
-    margin-top: 4px;
-    font-size: 14px;
-    color: var(--color-text-muted);
+    display: none;
 }
 
 .home-toolbar {

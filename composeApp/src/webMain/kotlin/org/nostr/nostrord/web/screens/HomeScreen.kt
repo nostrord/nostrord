@@ -1,5 +1,6 @@
 package org.nostr.nostrord.web.screens
 
+import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.web.bridge.launchApp
@@ -21,6 +22,9 @@ import web.cssom.ClassName
 
 external interface HomeScreenProps : Props {
     var onOpenGroup: (String) -> Unit
+
+    /** Opens the groups-sidebar drawer (mobile only — the home header hamburger). */
+    var onOpenDrawer: () -> Unit
 }
 
 /**
@@ -56,6 +60,8 @@ val HomeScreen =
         val (managing, setManaging) = useState { false }
         val (confirmRemove, setConfirmRemove) = useState { false }
         val (leaveGroup, setLeaveGroup) = useState<GroupMetadata?> { null }
+        // 3-dots header menu (Copy relay URL / Share) — mirrors native HomeScreenDesktop.
+        val (relayMenuOpen, setRelayMenuOpen) = useState { false }
 
         val base = if (filter == "Mine") myGroups else otherGroups
         val shown =
@@ -153,8 +159,14 @@ val HomeScreen =
             // ── Group picker ─────────────────────────────────────────────────
             div {
                 className = ClassName("home")
+                // Native-style row header: [≡ mobile] [avatar] [name (flex)] [⚙/+] [⋮]
                 div {
                     className = ClassName("home-header")
+                    button {
+                        className = ClassName("home-relay-options home-drawer-btn")
+                        onClick = { props.onOpenDrawer() }
+                        icon(Ic.Menu)
+                    }
                     WebAvatar {
                         url = relayMeta?.icon
                         seed = currentRelay
@@ -166,18 +178,43 @@ val HomeScreen =
                         className = ClassName("home-title")
                         +relayLabel
                     }
-                    div {
-                        className = ClassName("home-subtitle")
-                        +"Choose a group to join and start chatting."
-                    }
-
-                    // Top-right: manage (cog) when the relay is saved, else add (+).
                     button {
                         className = ClassName("home-relay-options")
                         onClick = {
                             if (isRelaySaved) setManaging(true) else launchApp { repo.addRelay(currentRelay) }
                         }
                         if (isRelaySaved) icon(Ic.Settings) else icon(Ic.Add)
+                    }
+                    button {
+                        className = ClassName("home-relay-options")
+                        onClick = { setRelayMenuOpen(true) }
+                        icon(Ic.MoreVert)
+                    }
+                    if (relayMenuOpen) {
+                        div {
+                            className = ClassName("home-relay-menu-overlay")
+                            onClick = { setRelayMenuOpen(false) }
+                        }
+                        div {
+                            className = ClassName("home-relay-menu")
+                            div {
+                                className = ClassName("home-relay-menu-item")
+                                onClick = {
+                                    copyToClipboard(currentRelay)
+                                    setRelayMenuOpen(false)
+                                }
+                                +"Copy relay URL"
+                            }
+                            div {
+                                className = ClassName("home-relay-menu-item")
+                                onClick = {
+                                    val host = currentRelay.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                                    copyToClipboard("https://nostrord.com/open/?relay=$host")
+                                    setRelayMenuOpen(false)
+                                }
+                                +"Share"
+                            }
+                        }
                     }
                 }
 
@@ -285,6 +322,11 @@ private fun ChildrenBuilder.confirmDialog(
             }
         }
     }
+}
+
+private fun copyToClipboard(text: String) {
+    val clip = window.navigator.asDynamic().clipboard
+    if (clip != null) clip.writeText(text)
 }
 
 private fun ChildrenBuilder.homeFilter(label: String, count: Int, active: Boolean, onClick: () -> Unit) {
