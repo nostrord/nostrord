@@ -33,6 +33,13 @@ import web.html.checkbox
 
 external interface SettingsScreenProps : Props {
     var onClose: () -> Unit
+
+    /**
+     * Log Out clicked. The shell decides whether to show the account chooser
+     * (multi-account case) or fall through to a direct logout — Settings only
+     * has to close itself + delegate.
+     */
+    var onLogoutWithChoice: () -> Unit
 }
 
 private val sections =
@@ -90,10 +97,7 @@ val SettingsScreen =
                 div { className = ClassName("settings-nav-divider") }
                 div {
                     className = ClassName("settings-nav-item danger")
-                    onClick = {
-                        props.onClose()
-                        launchApp { AppModule.nostrRepository.logout() }
-                    }
+                    onClick = { props.onLogoutWithChoice() }
                     span {
                         className = ClassName("settings-nav-label")
                         +"Log Out"

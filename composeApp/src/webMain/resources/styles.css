@@ -1224,6 +1224,127 @@ body {
     max-width: 420px;
 }
 
+/* Account chooser: narrow, list of remaining accounts + "Add a new login" +
+   Cancel. Mirrors native AccountChooserDialog (widthIn 280–340.dp, 16dp
+   radius). The .modal-card padding (24) is overridden so rows can run
+   edge-to-edge inside the card. */
+.modal-card.chooser-card {
+    max-width: 340px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-card.chooser-card .modal-header {
+    padding: 20px;
+}
+
+.chooser-list {
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.chooser-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+}
+
+.chooser-row:hover {
+    background: var(--color-hover);
+}
+
+.chooser-row.disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.chooser-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.chooser-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.chooser-name {
+    font-size: 14px;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chooser-method {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chooser-chevron {
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+    font-size: 18px;
+    display: inline-flex;
+}
+
+.chooser-divider {
+    height: 1px;
+    background: var(--color-background-dark);
+}
+
+.chooser-action {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    color: #ffffff;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.chooser-action:hover {
+    background: var(--color-hover);
+}
+
+.chooser-action.disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.chooser-action-icon {
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+}
+
+.chooser-error {
+    margin: 0 16px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--color-error);
+    background: rgba(237, 66, 69, 0.1);
+    border-radius: 4px;
+}
+
+.modal-card.chooser-card .modal-footer {
+    padding: 4px 12px 8px;
+    justify-content: flex-end;
+}
+
 /* relay modal: header + tabs are fixed, list scrolls inside */
 .modal-card.relay-modal {
     padding: 0;

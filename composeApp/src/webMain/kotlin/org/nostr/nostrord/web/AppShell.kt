@@ -19,6 +19,7 @@ import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.ZapModalHost
 import org.nostr.nostrord.web.components.groupNavSkeleton
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.modals.AccountChooserModal
 import org.nostr.nostrord.web.modals.AddRelayModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
@@ -126,6 +127,18 @@ val AppShell =
         val (settingsOpen, setSettingsOpen) = useState { false }
         val (notificationsOpen, setNotificationsOpen) = useState { false }
         val (addAccountOpen, setAddAccountOpen) = useState { false }
+        // Account chooser shown when signing out of the active account while others
+        // remain signed in (mirrors native App.kt:381-387). signOutChooserId is the
+        // account being signed out; signOutAfterAddId carries it through the
+        // "Add a new login" path so the old account is only wiped once a new login
+        // warm-swaps in — validate-before-teardown.
+        val (signOutChooserId, setSignOutChooserId) = useState<String?> { null }
+        val (signOutAfterAddId, setSignOutAfterAddId) = useState<String?> { null }
+        // Snapshot of accounts.size taken when "Add a new login" was clicked. The
+        // AddAccountSheet has no onAdded callback — we detect a successful add by
+        // observing the store size grow past this baseline, then wipe the deferred
+        // account (mirrors native's `onAdded` deferred-wipe in App.kt:1027-1038).
+        val (accountsCountAtAdd, setAccountsCountAtAdd) = useState<Int?> { null }
         val (myExpanded, setMyExpanded) = useState { true }
         val (otherExpanded, setOtherExpanded) = useState { true }
         // Groups sidebar search query (filters My Groups + Other Groups by name/id, like native).
@@ -621,7 +634,17 @@ val AppShell =
                                         className = ClassName("me-delete")
                                         onClick = {
                                             it.stopPropagation()
-                                            launchApp { AppModule.accountManager.removeAccount(account.pubkey) }
+                                            if (isActiveAccount) {
+                                                // Active account: route through the
+                                                // chooser so the user picks where to
+                                                // land (mirrors signing out — both
+                                                // wipe the active account, both need
+                                                // validate-before-teardown).
+                                                setMenuOpen(false)
+                                                setSignOutChooserId(account.pubkey)
+                                            } else {
+                                                launchApp { AppModule.accountManager.removeAccount(account.pubkey) }
+                                            }
                                         }
                                         icon(Ic.Delete)
                                     }
@@ -660,7 +683,15 @@ val AppShell =
                             className = ClassName("me-action danger")
                             onClick = {
                                 setMenuOpen(false)
-                                launchApp { WebAuth.logout() }
+                                val activeId = activeAccountId
+                                if (activeId != null && accounts.size > 1) {
+                                    // Other accounts are signed in — let the user
+                                    // pick instead of silently switching to one of
+                                    // them (mirrors native App.kt:963-980).
+                                    setSignOutChooserId(activeId)
+                                } else {
+                                    launchApp { WebAuth.logout() }
+                                }
                             }
                             span {
                                 className = ClassName("me-action-icon")
@@ -673,11 +704,57 @@ val AppShell =
             }
 
             if (settingsOpen) {
-                SettingsScreen { onClose = { setSettingsOpen(false) } }
+                SettingsScreen {
+                    onClose = { setSettingsOpen(false) }
+                    onLogoutWithChoice = {
+                        setSettingsOpen(false)
+                        val activeId = activeAccountId
+                        if (activeId != null && accounts.size > 1) {
+                            // Multi-account: route through the chooser instead of
+                            // silently switching to the next-most-recent account.
+                            setSignOutChooserId(activeId)
+                        } else {
+                            launchApp { repo.logout() }
+                        }
+                    }
+                }
             }
 
             if (addAccountOpen) {
-                AddAccountSheet { onClose = { setAddAccountOpen(false) } }
+                AddAccountSheet {
+                    onClose = {
+                        setAddAccountOpen(false)
+                        // Deferred-wipe (mirrors native App.kt:1027-1038): a new
+                        // login completed iff accounts grew past the snapshot we
+                        // took on "Add a new login". Otherwise the user cancelled
+                        // and the deferred account stays active.
+                        val baseline = accountsCountAtAdd
+                        val toRemove = signOutAfterAddId
+                        setSignOutAfterAddId(null)
+                        setAccountsCountAtAdd(null)
+                        if (toRemove != null && baseline != null && accounts.size > baseline) {
+                            launchApp { AppModule.accountManager.removeAccount(toRemove) }
+                        }
+                    }
+                }
+            }
+
+            // Account chooser — gates sign-out from the active account when other
+            // accounts remain signed in. Mounts at the shell level so it survives
+            // navigation while the user is picking.
+            signOutChooserId?.let { idToSignOut ->
+                AccountChooserModal {
+                    signOutAccountId = idToSignOut
+                    onDismiss = { setSignOutChooserId(null) }
+                    onNewLogin = { signOutId ->
+                        setSignOutChooserId(null)
+                        setSignOutAfterAddId(signOutId)
+                        // Snapshot the account count so the AddAccountSheet's
+                        // onClose can tell a successful add from a cancel.
+                        setAccountsCountAtAdd(accounts.size)
+                        setAddAccountOpen(true)
+                    }
+                }
             }
 
             when (modal) {
