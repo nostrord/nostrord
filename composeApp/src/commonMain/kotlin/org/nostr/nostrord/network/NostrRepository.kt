@@ -1529,6 +1529,14 @@ class NostrRepository(
     }
 
     /**
+     * Fire-and-forget NIP-11 fetch for [relayUrl]. Powers the suggested-relay
+     * cards in the AddRelay modal; deduplicated inside [RelayMetadataManager].
+     */
+    override fun fetchRelayMetadata(relayUrl: String) {
+        _relayMetadataManager.fetch(relayUrl)
+    }
+
+    /**
      * Request group roles (kind 39003) for a specific group.
      */
     suspend fun requestGroupRoles(groupId: String) {

@@ -284,6 +284,13 @@ interface NostrRepositoryApi {
      */
     suspend fun requestPendingJoinRequests(groupId: String)
 
+    /**
+     * Fire-and-forget NIP-11 fetch for [relayUrl]. Used by the AddRelay modal
+     * to populate icons + names for relays the user hasn't connected to yet.
+     * Idempotent: succeeded/in-flight URLs are skipped inside the manager.
+     */
+    fun fetchRelayMetadata(relayUrl: String)
+
     suspend fun refreshGroupMetadata(groupId: String)
 
     /** Observable parent→children map derived from `parent` tags in kind:39000. */

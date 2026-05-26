@@ -1547,6 +1547,15 @@ body {
     border-radius: 8px;
 }
 
+/* Native: row bg flips to surface-variant on hover when !isConnected; added
+   rows stay flat (no pointer, no recolor). Mirrors AddRelayModal.kt:270. */
+.relay-card:not(.added) {
+    cursor: pointer;
+}
+.relay-card:not(.added):hover {
+    background: var(--color-surface-variant);
+}
+
 .relay-card-icon {
     width: 44px;
     height: 44px;
@@ -1587,6 +1596,10 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Mirrors .btn-primary's color scheme (white-on-primary, primary-variant on
+   hover, opacity 0.5 when disabled) so all "primary action" pills in the app
+   stay visually consistent. Only the geometry (padding/font-size/radius) is
+   smaller because the row layout is tighter than a modal-footer button. */
 .relay-add-btn {
     flex-shrink: 0;
     padding: 6px 16px;
@@ -1603,9 +1616,18 @@ body {
     background: var(--color-primary-variant);
 }
 
+.relay-add-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .relay-add-btn.added {
     color: var(--color-text-muted);
     background: var(--color-surface-variant);
+    /* Cancel .btn-primary's :disabled opacity — the surface-variant/text-muted
+       pair is already the muted "Added" look; doubling it via opacity:0.5
+       makes the pill nearly invisible against the dark card. */
+    opacity: 1;
     cursor: default;
 }
 

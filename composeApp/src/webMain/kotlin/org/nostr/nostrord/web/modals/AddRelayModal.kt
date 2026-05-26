@@ -3,7 +3,9 @@ package org.nostr.nostrord.web.modals
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
 import react.FC
@@ -11,6 +13,7 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
+import react.useEffectOnce
 import react.useState
 import web.cssom.ClassName
 
@@ -45,12 +48,22 @@ val AddRelayModal =
     FC<AddRelayModalProps> { props ->
         val (tab, setTab) = useState { props.initialTab ?: 0 }
         val (customUrl, setCustomUrl) = useState { "" }
-        val kind10009 = useStateFlow(AppModule.nostrRepository.kind10009Relays)
-        val groupTagRelays = useStateFlow(AppModule.nostrRepository.groupTagRelays)
+        val repo = AppModule.nostrRepository
+        val kind10009 = useStateFlow(repo.kind10009Relays)
+        val groupTagRelays = useStateFlow(repo.groupTagRelays)
+        val relayMetadata = useStateFlow(repo.relayMetadata)
         val connected = kind10009 + groupTagRelays
         val onAdded: (String) -> Unit = props.onAdded ?: { props.onClose() }
 
         useEscClose { props.onClose() }
+
+        // Pre-fetch NIP-11 for each suggested relay so the cards show real icons
+        // + names instead of just the hardcoded letter fallback. Mirrors native's
+        // `LaunchedEffect(Unit) { AppModule.relayMetadataManager.fetchAll(...) }`
+        // — RelayMetadataManager dedups in-flight + already-succeeded URLs.
+        useEffectOnce {
+            suggestedRelays.forEach { repo.fetchRelayMetadata(it.url) }
+        }
 
         div {
             className = ClassName("modal-overlay")
@@ -100,18 +113,29 @@ val AddRelayModal =
                         className = ClassName("relay-list")
                         suggestedRelays.forEach { relay ->
                             val isConnected = relay.url in connected
+                            // Prefer the live NIP-11 metadata once fetched; fall back to
+                            // the hardcoded suggestion so the card never reads empty.
+                            val meta = relayMetadata[relay.url]
+                            val name = meta?.name?.takeIf { it.isNotBlank() } ?: relay.name
+                            val desc = meta?.description?.takeIf { it.isNotBlank() } ?: relay.description
                             div {
                                 key = relay.url
-                                className = ClassName("relay-card")
-                                div {
-                                    className = ClassName("avatar-tile relay-card-icon avatar-fallback")
-                                    +relay.name.take(1).uppercase()
+                                className = ClassName(if (isConnected) "relay-card added" else "relay-card")
+                                // Whole card is clickable when not added (matches native:
+                                // both the row and the Add button trigger onAdd).
+                                if (!isConnected) onClick = { onAdded(relay.url) }
+                                WebAvatar {
+                                    url = meta?.icon
+                                    seed = relay.url
+                                    kind = AvatarKind.RELAY
+                                    this.name = name
+                                    cls = "relay-card-icon"
                                 }
                                 div {
                                     className = ClassName("relay-card-info")
                                     div {
                                         className = ClassName("relay-card-name")
-                                        +relay.name
+                                        +name
                                     }
                                     div {
                                         className = ClassName("relay-card-url")
@@ -119,13 +143,16 @@ val AddRelayModal =
                                     }
                                     div {
                                         className = ClassName("relay-card-desc")
-                                        +relay.description
+                                        +desc
                                     }
                                 }
                                 button {
                                     className = ClassName(if (isConnected) "relay-add-btn added" else "relay-add-btn")
                                     disabled = isConnected
-                                    onClick = { onAdded(relay.url) }
+                                    onClick = {
+                                        it.stopPropagation()
+                                        onAdded(relay.url)
+                                    }
                                     +(if (isConnected) "Added" else "Add")
                                 }
                             }
