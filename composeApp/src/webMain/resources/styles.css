@@ -672,7 +672,9 @@ body {
 }
 
 .sidebar-header {
-    height: 48px;
+    /* Matches .chat-header / .member-header so the three headers form a single
+       horizontal band at the top of the app. */
+    height: 56px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -2701,7 +2703,8 @@ body {
 
 .member-header {
     flex-shrink: 0;
-    height: 48px;
+    /* Matches .chat-header / .sidebar-header — keeps the top band aligned. */
+    height: 56px;
     display: flex;
     align-items: center;
     justify-content: space-between;
