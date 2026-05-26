@@ -708,11 +708,12 @@ body {
 }
 
 .sidebar-search {
-    /* Native: Box height 28dp, padding horizontal Spacing.sm. The wrapper sits
-       on the dark sidebar bg now, so it doesn't need its own surface. */
+    /* Native: search Box has `padding(vertical = 2.dp)` only — no extra top
+       breathing. Horizontal 8 keeps the pill aligned with the section
+       toggle's text (both inset 16px from the sidebar edge). */
     flex-shrink: 0;
     position: relative;
-    padding: 4px 8px 2px;
+    padding: 2px 8px;
 }
 
 .sidebar-search-icon {
