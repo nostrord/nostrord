@@ -40,7 +40,7 @@ fun GeneratedKeyCard(privateKey: String) {
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                "This is your only copy. Store it somewhere safe!",
+                "This is a copy of your key, not your only copy. Save it somewhere safe.",
                 color = NostrordColors.TextContent,
                 style = MaterialTheme.typography.bodySmall,
             )

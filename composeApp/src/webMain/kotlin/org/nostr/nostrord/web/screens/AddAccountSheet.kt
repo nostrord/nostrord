@@ -291,7 +291,7 @@ private fun ChildrenBuilder.generatedKeyCard(privateKey: String) {
         }
         p {
             className = ClassName("genkey-sub")
-            +"This is your only copy. Store it somewhere safe!"
+            +"This is a copy of your key, not your only copy. Save it somewhere safe."
         }
         code {
             className = ClassName("genkey-value")
