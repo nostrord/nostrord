@@ -1066,6 +1066,10 @@ body {
     cursor: pointer;
 }
 
+.me-account-row:hover {
+    background: var(--color-hover);
+}
+
 .me-avatar-sm {
     width: 36px;
     height: 36px;

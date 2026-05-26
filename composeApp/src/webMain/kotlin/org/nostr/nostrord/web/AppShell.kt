@@ -270,9 +270,12 @@ val AppShell =
                         relayList.forEach { relay ->
                             val isActive = relay == activeRelay && !notificationsOpen
                             val unread = unreadByRelay[relay] ?: 0
+                            val relayLabel = relayDisplayName(relay, relayNames)
                             div {
                                 key = relay
                                 className = ClassName(if (isActive) "rail-item active" else "rail-item")
+                                // Native tooltip on hover — name when known, host otherwise.
+                                title = relayLabel
                                 onClick = {
                                     setNotificationsOpen(false)
                                     setSelectedGroupId(null)
@@ -282,7 +285,7 @@ val AppShell =
                                     url = relayMetadata[relay]?.icon
                                     seed = relay
                                     kind = AvatarKind.RELAY
-                                    name = relayDisplayName(relay, relayNames)
+                                    name = relayLabel
                                     cls = "rail-icon"
                                 }
                                 if (unread > 0) {
@@ -295,6 +298,7 @@ val AppShell =
                         }
                         div {
                             className = ClassName("rail-item")
+                            title = "Add relay"
                             onClick = { openRelay(0) }
                             div {
                                 className = ClassName("avatar-tile rail-icon rail-add")
@@ -304,6 +308,7 @@ val AppShell =
                     }
                     div {
                         className = ClassName(if (notificationsOpen) "rail-item active" else "rail-item")
+                        title = "Notifications"
                         onClick = { setNotificationsOpen(true) }
                         div {
                             className = ClassName("avatar-tile rail-icon rail-bell")
