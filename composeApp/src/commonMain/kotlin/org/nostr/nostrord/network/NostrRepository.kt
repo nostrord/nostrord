@@ -211,6 +211,7 @@ class NostrRepository(
     override val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
     override val isBunkerConnected: StateFlow<Boolean> = sessionManager.isBunkerConnected
     override val isBunkerVerifying: StateFlow<Boolean> = sessionManager.isBunkerVerifying
+    override val bunkerState: StateFlow<BunkerState> = sessionManager.bunkerState
     override val authUrl: StateFlow<String?> = sessionManager.authUrl
 
     // Expose metadata state

@@ -1,5 +1,7 @@
 package org.nostr.nostrord.auth
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.nostr.KeyPair
@@ -13,11 +15,18 @@ import org.nostr.nostrord.utils.epochMillis
  *
  * The switch sequence is implemented (and documented inline) in [switchAccount];
  * a failed credential load leaves the current session intact.
+ *
+ * [scope] must outlive any Composable that triggers a switch — UI scopes from
+ * `rememberCoroutineScope()` get cancelled when the host Composable leaves
+ * composition (e.g. the account menu auto-dismissing after a successful swap),
+ * which kills [switchAccount]'s reloadForActiveAccount mid-flight and leaves
+ * the new account's joined-groups map unpopulated.
  */
 class AccountManager(
     private val accountStore: AccountStore,
     private val authManager: AuthManager,
     private val sessionFactory: AccountSessionFactory,
+    private val scope: CoroutineScope,
 ) {
     /**
      * Add a new local-key account WITHOUT switching to it.
@@ -96,6 +105,27 @@ class AccountManager(
     }
 
     /**
+     * Fire [switchAccount] on the manager's long-lived [scope] so the swap
+     * completes even if the caller's Composable (e.g. an account menu) leaves
+     * composition mid-flight. UI callers MUST use this instead of launching
+     * [switchAccount] on a `rememberCoroutineScope` — that scope is cancelled
+     * on dismissal and the cancellation aborts [reloadForActiveAccount] in
+     * the middle of `liveCursorStore.loadAll`, leaving the new account's
+     * joined-groups map unpopulated. [onResult] runs on the manager's scope
+     * (not the UI thread), so state writes inside it must be thread-safe
+     * (MutableState / MutableStateFlow are fine).
+     */
+    fun switchAccountAsync(
+        accountId: String,
+        onResult: (Result<Unit>) -> Unit = {},
+    ) {
+        scope.launch {
+            val r = switchAccount(accountId)
+            onResult(r)
+        }
+    }
+
+    /**
      * Wipe credentials and per-account caches for [accountId].
      *
      * When the removed account was active:
@@ -144,5 +174,32 @@ class AccountManager(
         authManager.logout()
         AppModule.applyActiveAccountChange(null)
         return null
+    }
+
+    /**
+     * Remove [accountId] but switch to a user-chosen [switchToId] instead of
+     * auto-picking a fallback. Backs the account chooser the UI shows on
+     * sign-out so the user controls which identity they land on rather than
+     * being silently dropped onto the most-recently-added one.
+     *
+     * Switches first (validate-before-teardown): if the chosen identity can't
+     * load, removal is aborted and the failure is returned, so the user is
+     * never left signed out when their pick is unusable. Once the switch
+     * succeeds, [accountId] is no longer active and its secrets are wiped the
+     * same way [removeAccount] handles a non-active account.
+     */
+    suspend fun removeAndSwitch(
+        accountId: String,
+        switchToId: String,
+    ): Result<Unit> {
+        val account = accountStore.get(accountId) ?: return Result.success(Unit)
+
+        val switchResult = switchAccount(switchToId)
+        if (switchResult.isFailure) return switchResult
+
+        SecureStorage.clearAllCredentialsForAccount(account.pubkey)
+        SecureStorage.clearPendingEvents(account.pubkey)
+        accountStore.remove(accountId)
+        return Result.success(Unit)
     }
 }

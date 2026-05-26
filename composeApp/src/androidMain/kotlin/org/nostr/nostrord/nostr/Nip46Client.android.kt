@@ -52,9 +52,15 @@ actual class Nip46Client actual constructor(
                         val cleanUrl = relayUrl.trimEnd('/')
                         val client = NostrGroupClient(cleanUrl)
                         client.connect { msg -> handleMessage(msg, client) }
-                        client.waitForConnection()
-                        openResponseSubscription(client)
-                        client
+                        if (!client.waitForConnection()) {
+                            // WS never opened (timeout) — drop it so callers don't
+                            // treat a dead socket as a live relay connection.
+                            client.disconnect()
+                            null
+                        } else {
+                            openResponseSubscription(client)
+                            client
+                        }
                     } catch (e: Exception) {
                         null
                     }

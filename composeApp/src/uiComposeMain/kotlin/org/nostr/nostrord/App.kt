@@ -378,6 +378,13 @@ private fun AuthenticatedApp(
     var showSettings by remember { mutableStateOf(false) }
     var showMeMenu by remember { mutableStateOf(false) }
     var showAddAccount by remember { mutableStateOf(false) }
+    // Account chooser shown when signing out of the active account while others
+    // remain signed in. signOutChooserId is the account being signed out;
+    // signOutAfterAddId carries that account through the "add a new login" path
+    // so it is wiped only once the new account is active.
+    var showAccountChooser by remember { mutableStateOf(false) }
+    var signOutChooserId by remember { mutableStateOf<String?>(null) }
+    var signOutAfterAddId by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
     // Bunker revoke / NIP-07 disconnect / other involuntary deauth events.
@@ -731,7 +738,7 @@ private fun AuthenticatedApp(
                         hideGroupsSidebar = currentScreen is Screen.Notifications,
                         modifier = Modifier.weight(1f),
                     ) {
-                        val hideAnimatedImages = showSettings || showCreateGroupModal || showAddRelayModal || showMeMenu || showAddAccount
+                        val hideAnimatedImages = showSettings || showCreateGroupModal || showAddRelayModal || showMeMenu || showAddAccount || showAccountChooser
                         CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
                             DesktopContent(
                                 currentScreen = currentScreen,
@@ -847,7 +854,8 @@ private fun AuthenticatedApp(
                             showAddRelayModal ||
                             showSettings ||
                             showMeMenu ||
-                            showAddAccount
+                            showAddAccount ||
+                            showAccountChooser
                     CompositionLocalProvider(LocalAnimatedImageHidden provides hideAnimatedImages) {
                         // Left-edge swipe opens the drawer (issue #77). Detected on the Initial
                         // pass from an ancestor of the screen content so it pre-empts inner
@@ -953,12 +961,21 @@ private fun AuthenticatedApp(
                 onClose = { showSettings = false },
                 onNavigate = onNavigate,
                 onLogout = {
-                    scope.launch {
-                        val activeId = AppModule.accountStore.activeId.value
-                        if (activeId != null) {
-                            AppModule.accountManager.removeAccount(activeId)
-                        } else {
-                            AppModule.nostrRepository.logout()
+                    val activeId = AppModule.accountStore.activeId.value
+                    val hasOthers = AppModule.accountStore.accounts.value.size > 1
+                    if (activeId != null && hasOthers) {
+                        // Other accounts are signed in — let the user pick who to
+                        // continue as instead of silently switching.
+                        showSettings = false
+                        signOutChooserId = activeId
+                        showAccountChooser = true
+                    } else {
+                        scope.launch {
+                            if (activeId != null) {
+                                AppModule.accountManager.removeAccount(activeId)
+                            } else {
+                                AppModule.nostrRepository.logout()
+                            }
                         }
                     }
                 },
@@ -978,14 +995,44 @@ private fun AuthenticatedApp(
                 showMeMenu = false
                 showSettings = true
             },
+            onSignOutWithChoice = {
+                signOutChooserId = AppModule.accountStore.activeId.value
+                showAccountChooser = true
+            },
+        )
+
+        org.nostr.nostrord.ui.components.accounts.AccountChooserDialog(
+            visible = showAccountChooser,
+            signOutAccountId = signOutChooserId,
+            onDismiss = {
+                showAccountChooser = false
+                signOutChooserId = null
+            },
+            onNewLogin = { signOutId ->
+                showAccountChooser = false
+                signOutChooserId = null
+                // Defer wiping the old account until the new login is active.
+                signOutAfterAddId = signOutId
+                showAddAccount = true
+            },
         )
 
         org.nostr.nostrord.ui.components.accounts.AddAccountSheet(
             visible = showAddAccount,
-            onDismiss = { showAddAccount = false },
+            onDismiss = {
+                showAddAccount = false
+                // Cancelled before completing a login: keep the old account.
+                signOutAfterAddId = null
+            },
             onAdded = { displayLabel ->
                 showAddAccount = false
+                val toRemove = signOutAfterAddId
+                signOutAfterAddId = null
                 scope.launch {
+                    // The new account is now active; wipe the one being signed out.
+                    if (toRemove != null) {
+                        AppModule.accountManager.removeAccount(toRemove)
+                    }
                     snackbarHostState.showSnackbar("Switched to $displayLabel")
                 }
             },

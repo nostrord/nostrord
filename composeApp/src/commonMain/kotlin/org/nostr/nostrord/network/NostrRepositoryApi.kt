@@ -19,6 +19,7 @@ interface NostrRepositoryApi {
     val isLoggedIn: StateFlow<Boolean>
     val isBunkerVerifying: StateFlow<Boolean>
     val isBunkerConnected: StateFlow<Boolean>
+    val bunkerState: StateFlow<BunkerState>
     val authUrl: StateFlow<String?>
 
     // --- Connection state ---
