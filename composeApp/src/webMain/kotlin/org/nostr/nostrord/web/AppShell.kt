@@ -132,7 +132,23 @@ val AppShell =
         val (groupQuery, setGroupQuery) = useState { "" }
         val firstNav = useRef(true)
 
-        val selectedGroup: GroupMetadata? = groups.firstOrNull { it.id == selectedGroupId }
+        // Deep-link parity with native: render ChatScreen as soon as we know the target group
+        // id, not only after kind:39000 arrives. The full metadata flows into `groups` async-
+        // ously (after switchRelay + the on-demand REQ in setActiveGroupId); until then the
+        // chat shows its loading skeletons against a placeholder with defaults. Without this,
+        // visiting ?relay=...&group=... briefly flashed HomeScreen because `selectedGroup`
+        // was null while the metadata was in-flight.
+        val selectedGroup: GroupMetadata? = selectedGroupId?.let { id ->
+            groups.firstOrNull { it.id == id }
+                ?: GroupMetadata(
+                    id = id,
+                    name = null,
+                    about = null,
+                    picture = null,
+                    isPublic = true,
+                    isOpen = true,
+                )
+        }
 
         // Open the Add-relay modal on a given tab (0 = Suggested, 1 = Custom URL).
         val openRelay: (Int) -> Unit = { tab ->
