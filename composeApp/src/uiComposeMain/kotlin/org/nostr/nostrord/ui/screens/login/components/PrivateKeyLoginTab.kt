@@ -35,7 +35,12 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
 
     var privateKey by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var showGeneratedKey by remember { mutableStateOf(false) }
+    // Hex of the most recently generated key. Drives both the GeneratedKeyCard
+    // visibility (so the warning + key value stay on screen until the user
+    // explicitly clicks Login) and the isNewIdentity flag forwarded to the
+    // repository — matches the web flow where the user has time to copy the
+    // key before signing in.
+    var generatedKey by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var showKey by remember { mutableStateOf(false) }
 
@@ -69,7 +74,10 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                 isLoading = false
                 return
             }
-        vm.loginWithPrivateKey(hex, keyPair.publicKeyHex) { result ->
+        // Only flag isNewIdentity when the input is exactly the just-generated
+        // key — typing/pasting an existing nsec is never a "new" identity.
+        val isNewIdentity = generatedKey != null && hex == generatedKey
+        vm.loginWithPrivateKey(hex, keyPair.publicKeyHex, isNewIdentity = isNewIdentity) { result ->
             isLoading = false
             if (result.isSuccess) {
                 onLoginSuccess()
@@ -191,27 +199,17 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             )
         }
 
-        // Generate new key button
+        // Generate new key button — only generates + populates + shows the
+        // warning card. Login is deferred to the Login button so the user has
+        // time to copy/save the key. (Previously this auto-logged in and the
+        // GeneratedKeyCard flashed for a frame before onLoginSuccess routed
+        // the user away.)
         OutlinedButton(
             onClick = {
-                isLoading = true
                 errorMessage = null
                 val newPrivateKey = generatePrivateKey()
                 privateKey = newPrivateKey
-                showGeneratedKey = true
-                val keyPair = KeyPair.fromPrivateKeyHex(newPrivateKey)
-                vm.loginWithPrivateKey(
-                    newPrivateKey,
-                    keyPair.publicKeyHex,
-                    isNewIdentity = true,
-                ) { result ->
-                    isLoading = false
-                    if (result.isSuccess) {
-                        onLoginSuccess()
-                    } else {
-                        errorMessage = "Failed to generate key"
-                    }
-                }
+                generatedKey = newPrivateKey
             },
             modifier =
             Modifier
@@ -239,9 +237,13 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             Text("Generate New Identity", fontWeight = FontWeight.SemiBold)
         }
 
-        if (showGeneratedKey && privateKey.isNotEmpty()) {
+        // GeneratedKeyCard sticks around once the user pressed Generate (no
+        // auto-login any more). They can clear it by editing the input — if
+        // it diverges from `generatedKey`, the Login button just signs in as
+        // an existing identity (isNewIdentity flips to false).
+        generatedKey?.takeIf { it.isNotEmpty() }?.let { key ->
             Spacer(modifier = Modifier.height(16.dp))
-            GeneratedKeyCard(privateKey)
+            GeneratedKeyCard(key)
         }
 
         errorMessage?.let {
