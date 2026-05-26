@@ -501,7 +501,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
 }
 
 .rail-item {
@@ -712,7 +712,6 @@ body {
 .sidebar-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: 8px;
 }
 
 .sidebar-search {
@@ -721,7 +720,7 @@ body {
        toggle's text (both inset 16px from the sidebar edge). */
     flex-shrink: 0;
     position: relative;
-    padding: 2px 8px;
+    padding: 2px 8px 6px;
 }
 
 .sidebar-search-icon {
@@ -801,6 +800,7 @@ body {
     align-items: center;
     gap: 6px;
     padding: 7px 10px;
+    margin: 0 8px;
     border-radius: 6px;
     cursor: pointer;
 }
@@ -4485,7 +4485,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    gap: 6px;
+    gap: 12px;
     padding: 8px 24px;
 }
 
@@ -4496,9 +4496,11 @@ body {
 
 .home-filter {
     /* Match native FilterChip (HomeScreenDesktop.kt:312): RoundedCornerShape(4.dp),
-       padding horizontal 12 / vertical 5, fontSize 12.sp / FontWeight.SemiBold. */
-    padding: 5px 12px;
-    font-size: 12px;
+       fontWeight SemiBold. Padding/font kept slightly larger (8/12, 13px) per
+       manual tuning — native's 5/12 + 12sp read too small on the web's denser
+       grid. */
+    padding: 8px 12px;
+    font-size: 13px;
     font-weight: 600;
     line-height: 1.2;
     color: var(--color-text-muted);
@@ -4568,7 +4570,7 @@ body {
     padding: 14px 16px;
     background: var(--color-background-dark);
     border: 1px solid transparent;
-    border-radius: 8px;
+    border-radius: 4px;
     cursor: pointer;
 }
 
