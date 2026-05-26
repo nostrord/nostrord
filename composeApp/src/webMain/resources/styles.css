@@ -4253,6 +4253,9 @@ body {
     gap: 12px;
     height: 56px;
     padding: 8px 12px;
+    /* Darker strip than the body, matching native's two-tone home (header on top,
+       cards area below). Without this the header blended into the chips area. */
+    background: var(--color-background-dark);
 }
 
 /* Hamburger — mobile only (groups sidebar is always visible on desktop). */
@@ -4363,18 +4366,23 @@ body {
 }
 
 .home-filter {
-    padding: 5px 12px;
-    font-size: 12px;
+    /* Same box for active + inactive — only the colors change. line-height is
+       explicit so a browser's default button line-height can't make the active
+       (bolder) chip render slightly taller than the inactive one. */
+    padding: 8px 14px;
+    font-size: 13px;
     font-weight: 600;
+    line-height: 1.2;
     color: var(--color-text-muted);
-    background: var(--color-background-dark);
+    background: var(--color-surface-variant);
     border: none;
-    border-radius: 4px;
+    border-radius: 8px;
+    box-sizing: border-box;
     cursor: pointer;
 }
 
 .home-filter:hover {
-    background: var(--color-surface-variant);
+    background: var(--color-surface);
     color: var(--color-text-secondary);
 }
 
@@ -4387,14 +4395,23 @@ body {
     flex: 1;
     min-width: 160px;
     max-width: 280px;
-    padding: 7px 12px;
+    padding: 8px 12px;
     font-size: 13px;
     font-family: inherit;
     color: var(--color-text-primary);
-    background: var(--color-background-dark);
+    background: var(--color-surface-variant);
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     outline: none;
+}
+
+/* Mobile: search spans the full width of its row (the toolbar wraps with the
+   chips on a separate line above, just like the native screenshot). */
+@media (max-width: 600px) {
+    .home-search {
+        max-width: none;
+        width: 100%;
+    }
 }
 
 .home-search::placeholder {
