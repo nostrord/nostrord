@@ -4239,13 +4239,21 @@ body {
 
 /* ---------- Home / group picker ---------- */
 .home {
+    /* position:relative so the 3-dots dropdown (sibling of both headers) can
+       anchor absolute top/right within the home pane, not the document. */
+    position: relative;
     height: 100%;
     display: flex;
     flex-direction: column;
     background: var(--color-background);
 }
 
-.home-header {
+/* Two header variants: a native-style row for narrow viewports (mobile) and
+   the pre-77c17f7 centered-column layout for wide ones (desktop). Both are
+   rendered unconditionally from Kotlin; CSS toggles which is visible at the
+   600px breakpoint. */
+
+.home-header-mobile {
     position: relative;
     flex-shrink: 0;
     display: flex;
@@ -4253,18 +4261,28 @@ body {
     gap: 12px;
     height: 56px;
     padding: 8px 12px;
-    /* Darker strip than the body, matching native's two-tone home (header on top,
-       cards area below). Without this the header blended into the chips area. */
+    margin-bottom: 8px;
     background: var(--color-background-dark);
 }
 
-/* Hamburger — mobile only (groups sidebar is always visible on desktop). */
-.home-drawer-btn {
+.home-header-desktop {
+    position: relative;
+    flex-shrink: 0;
     display: none;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 24px 16px;
 }
-@media (max-width: 900px) {
-    .home-drawer-btn {
-        display: inline-flex;
+
+/* Switch at 900px — matches where the groups sidebar becomes always-visible,
+   so the desktop column header (no hamburger) only appears when the user no
+   longer needs the drawer button. */
+@media (min-width: 900px) {
+    .home-header-mobile {
+        display: none;
+    }
+    .home-header-desktop {
+        display: flex;
     }
 }
 
@@ -4280,6 +4298,21 @@ body {
     border: none;
     border-radius: 8px;
     cursor: pointer;
+}
+
+/* Desktop header pins its cog/+ and 3-dots buttons to the top-right corner
+   of the *content area* (inside the header's 32/24 padding, not floating in
+   the padding band). The 3-dots sits flush at the content's right edge; the
+   cog sits to its left with a small gap. */
+.home-header-desktop > .home-relay-options {
+    position: absolute;
+    top: 24px;
+}
+.home-header-desktop > .home-relay-options-more {
+    right: 24px;
+}
+.home-header-desktop > .home-relay-options-cog {
+    right: 64px;
 }
 
 .home-relay-options:hover {
@@ -4326,7 +4359,8 @@ body {
     background: rgba(237, 66, 69, 0.15);
 }
 
-.home-relay-icon {
+/* Mobile-header inline avatar (36px) and ellipsised title (flex-grow row). */
+.home-header-mobile .home-relay-icon {
     width: 36px;
     height: 36px;
     border-radius: 10px;
@@ -4334,7 +4368,7 @@ body {
     font-weight: 700;
 }
 
-.home-title {
+.home-header-mobile .home-title {
     flex: 1;
     min-width: 0;
     font-size: 16px;
@@ -4345,9 +4379,31 @@ body {
     text-overflow: ellipsis;
 }
 
-/* Subtitle removed — native's home header doesn't have one. */
-.home-subtitle {
+.home-header-mobile .home-subtitle {
     display: none;
+}
+
+/* Desktop header — the OLD layout: big centered avatar + large title +
+   "Choose a group…" subtitle below. */
+.home-header-desktop .home-relay-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    font-size: 26px;
+    font-weight: 700;
+}
+
+.home-header-desktop .home-title {
+    margin-top: 12px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.home-header-desktop .home-subtitle {
+    margin-top: 4px;
+    font-size: 14px;
+    color: var(--color-text-muted);
 }
 
 .home-toolbar {

@@ -159,9 +159,10 @@ val HomeScreen =
             // ── Group picker ─────────────────────────────────────────────────
             div {
                 className = ClassName("home")
-                // Native-style row header: [≡ mobile] [avatar] [name (flex)] [⚙/+] [⋮]
+                // Mobile header (≥600px hides this): native-style row
+                // [≡] [avatar] [name (flex)] [⚙/+] [⋮]
                 div {
-                    className = ClassName("home-header")
+                    className = ClassName("home-header home-header-mobile")
                     button {
                         className = ClassName("home-relay-options home-drawer-btn")
                         onClick = { props.onOpenDrawer() }
@@ -190,30 +191,71 @@ val HomeScreen =
                         onClick = { setRelayMenuOpen(true) }
                         icon(Ic.MoreVert)
                     }
-                    if (relayMenuOpen) {
+                }
+
+                // Desktop header (≥600px shows this): centered column with a
+                // big 64px relay avatar, title, "Choose a group…" subtitle, and
+                // the cog (or +) absolute top-right. This is the pre-77c17f7
+                // desktop layout the user wants preserved on wider screens.
+                div {
+                    className = ClassName("home-header home-header-desktop")
+                    WebAvatar {
+                        url = relayMeta?.icon
+                        seed = currentRelay
+                        kind = AvatarKind.RELAY
+                        name = relayLabel
+                        cls = "home-relay-icon"
+                    }
+                    div {
+                        className = ClassName("home-title")
+                        +relayLabel
+                    }
+                    div {
+                        className = ClassName("home-subtitle")
+                        +"Choose a group to join and start chatting."
+                    }
+                    // Top-right: manage (cog) when the relay is saved, else add (+).
+                    button {
+                        className = ClassName("home-relay-options home-relay-options-cog")
+                        onClick = {
+                            if (isRelaySaved) setManaging(true) else launchApp { repo.addRelay(currentRelay) }
+                        }
+                        if (isRelaySaved) icon(Ic.Settings) else icon(Ic.Add)
+                    }
+                    // 3-dots menu (Copy relay URL / Share) — same as mobile.
+                    button {
+                        className = ClassName("home-relay-options home-relay-options-more")
+                        onClick = { setRelayMenuOpen(true) }
+                        icon(Ic.MoreVert)
+                    }
+                }
+
+                // Single 3-dots dropdown shared by both headers. Lives outside
+                // either header div so it isn't hidden by display:none on the
+                // inactive variant.
+                if (relayMenuOpen) {
+                    div {
+                        className = ClassName("home-relay-menu-overlay")
+                        onClick = { setRelayMenuOpen(false) }
+                    }
+                    div {
+                        className = ClassName("home-relay-menu")
                         div {
-                            className = ClassName("home-relay-menu-overlay")
-                            onClick = { setRelayMenuOpen(false) }
+                            className = ClassName("home-relay-menu-item")
+                            onClick = {
+                                copyToClipboard(currentRelay)
+                                setRelayMenuOpen(false)
+                            }
+                            +"Copy relay URL"
                         }
                         div {
-                            className = ClassName("home-relay-menu")
-                            div {
-                                className = ClassName("home-relay-menu-item")
-                                onClick = {
-                                    copyToClipboard(currentRelay)
-                                    setRelayMenuOpen(false)
-                                }
-                                +"Copy relay URL"
+                            className = ClassName("home-relay-menu-item")
+                            onClick = {
+                                val host = currentRelay.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                                copyToClipboard("https://nostrord.com/open/?relay=$host")
+                                setRelayMenuOpen(false)
                             }
-                            div {
-                                className = ClassName("home-relay-menu-item")
-                                onClick = {
-                                    val host = currentRelay.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
-                                    copyToClipboard("https://nostrord.com/open/?relay=$host")
-                                    setRelayMenuOpen(false)
-                                }
-                                +"Share"
-                            }
+                            +"Share"
                         }
                     }
                 }
