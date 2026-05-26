@@ -9,6 +9,7 @@ import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -326,10 +327,18 @@ private val RelaysPanel =
         val (busy, setBusy) = useState { false }
         val (status, setStatus) = useState<String?> { null }
 
+        // Same canAdd contract as native RelayNip65PanelContent: valid URL,
+        // at least one of R/W marked, and not already in the list. Drives both
+        // the Enter-key shortcut and the Add button's disabled state below.
+        val normalizedNewUrl = newUrl.trim().toRelayUrl()
+        val canAddRelay =
+            isValidRelayUrl(normalizedNewUrl) &&
+                (newRead || newWrite) &&
+                relays.none { it.url == normalizedNewUrl }
+
         fun addRelay() {
-            val url = newUrl.trim().toRelayUrl()
-            if (url.isBlank() || relays.any { it.url == url }) return
-            setRelays(relays + Nip65Relay(url, newRead, newWrite))
+            if (!canAddRelay) return
+            setRelays(relays + Nip65Relay(normalizedNewUrl, newRead, newWrite))
             setNewUrl("")
         }
 
@@ -444,7 +453,7 @@ private val RelaysPanel =
                 }
                 button {
                     className = ClassName("relay-add-btn")
-                    disabled = newUrl.isBlank()
+                    disabled = !canAddRelay
                     onClick = { addRelay() }
                     icon(Ic.Add)
                     +"Add"

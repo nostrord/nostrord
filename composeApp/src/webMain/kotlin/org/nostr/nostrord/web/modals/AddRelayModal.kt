@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
@@ -179,10 +180,15 @@ val AddRelayModal =
                             onClick = { props.onClose() }
                             +"Cancel"
                         }
+                        // Mirror native CustomUrlTab: enable only when the
+                        // normalized URL passes isValidRelayUrl. Stops "asdf"
+                        // (and any other non-host string) from being accepted.
+                        val normalized = customUrl.trim().toRelayUrl()
+                        val canAdd = isValidRelayUrl(normalized)
                         button {
                             className = ClassName("btn-primary")
-                            disabled = customUrl.isBlank()
-                            onClick = { onAdded(customUrl.trim().toRelayUrl()) }
+                            disabled = !canAdd
+                            onClick = { onAdded(normalized) }
                             +"Add Relay"
                         }
                     }
