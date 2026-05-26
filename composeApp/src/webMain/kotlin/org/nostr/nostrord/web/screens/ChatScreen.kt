@@ -487,7 +487,13 @@ val ChatScreen =
                             +"Loading earlier messages…"
                         }
                     }
-                    if (isLoadingMore && messages.isEmpty()) {
+                    // Empty-state gating: "No messages yet" is the *confirmed* empty signal,
+                    // and we only know the group is empty after the historical REQ EOSE'd with
+                    // nothing — that's when GroupManager flips `hasMore` to false. Until then
+                    // (initial mount, awaiting AUTH/connection, REQ in flight) render skeletons
+                    // so the user never sees the friendly empty-state flicker before the load
+                    // has even started.
+                    if (messages.isEmpty() && (isLoadingMore || hasMore)) {
                         repeat(8) { messageSkeleton() }
                     } else if (messages.isEmpty()) {
                         div {
