@@ -5,6 +5,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.notifications.installPlatformFocusListeners
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.installGlobalModalFocusTrap
 import org.nostr.nostrord.web.screens.LoginScreen
 import react.FC
 import react.Props
@@ -33,6 +34,10 @@ val WebApp =
             // Track tab focus so notifications/unread are suppressed while the app is visible
             // (mirrors native App.kt; without this the focus-gated dispatch never updates).
             installPlatformFocusListeners(AppModule.focusTracker)
+            // Watch the DOM for .modal-card add/remove and trap keyboard focus inside the open
+            // modal so Tab / Shift+Tab cycle through its controls instead of leaking back to the
+            // page behind the backdrop. One install covers every current and future modal.
+            installGlobalModalFocusTrap()
             // Drive the repository lifecycle from page visibility, mirroring native App.kt's
             // ON_PAUSE → onBackground / ON_RESUME → onForeground. The Compose web got this for
             // free via the shared Lifecycle observer; the React shell must wire it explicitly.
