@@ -612,6 +612,9 @@ body {
 
 /* The account avatar at the bottom of the rail is a user — keep it circular
    (relays are rounded squares; native shows the account as a circle). */
+.rail-account {
+    cursor: pointer;
+}
 .rail-account .rail-icon {
     border-radius: 50%;
 }
@@ -1060,6 +1063,7 @@ body {
     align-items: center;
     gap: 12px;
     padding: 10px 16px;
+    cursor: pointer;
 }
 
 .me-avatar-sm {
@@ -1411,6 +1415,7 @@ body {
     padding: 2px;
     background: var(--color-input);
     border-radius: 11px;
+    cursor: pointer;
     transition: background 0.15s ease;
 }
 
@@ -3366,6 +3371,7 @@ body {
     align-items: flex-start;
     gap: 12px;
     padding: 8px 0;
+    cursor: pointer;
 }
 
 .settings-radio {
@@ -3722,6 +3728,9 @@ body {
     cursor: pointer;
 }
 
+.msg-author.clickable {
+    cursor: pointer;
+}
 .msg-author.clickable:hover {
     text-decoration: underline;
 }
