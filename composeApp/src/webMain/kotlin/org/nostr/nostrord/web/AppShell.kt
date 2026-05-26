@@ -13,6 +13,7 @@ import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
+import org.nostr.nostrord.web.components.BunkerStatusBanner
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.ImageViewerHost
 import org.nostr.nostrord.web.components.WebAvatar
@@ -274,6 +275,11 @@ val AppShell =
 
         // Fullscreen image viewer — opened by tapping a chat image.
         ImageViewerHost {}
+
+        // Bunker-unreachable banner — floats at the top while a NIP-46 signer
+        // is offline or actively reconnecting; self-hides otherwise. Mounted
+        // at the shell level so it persists across navigation (issue #85).
+        BunkerStatusBanner {}
 
         div {
             className = ClassName(if (drawerOpen) "layout drawer-open" else "layout")

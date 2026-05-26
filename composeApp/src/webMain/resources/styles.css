@@ -1224,6 +1224,117 @@ body {
     max-width: 420px;
 }
 
+/* Floating bunker-unreachable banner — top-center, dismisses itself when the
+   bunker state leaves Unreachable / Reconnecting. Mirrors native
+   BunkerStatusBanner (issue #85): Warning icon + title/body, "Log out" text
+   button + "Reconnect" primary button with an inline spinner when the
+   AuthManager.attemptReconnect is in flight. */
+.bunker-banner {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    width: calc(100% - 32px);
+    max-width: 520px;
+    padding: 14px;
+    background: var(--color-surface-variant);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    color: var(--color-text-content);
+    font-size: 12px;
+}
+
+.bunker-banner-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.bunker-banner-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    color: var(--color-warning-orange);
+}
+
+.bunker-banner-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.bunker-banner-title {
+    font-weight: 600;
+    color: var(--color-warning-orange);
+}
+
+.bunker-banner-body {
+    margin-top: 6px;
+    color: var(--color-text-content);
+    line-height: 1.4;
+}
+
+.bunker-banner-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.bunker-banner-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.bunker-banner-btn.text {
+    color: var(--color-text-content);
+}
+.bunker-banner-btn.text:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.bunker-banner-btn.primary {
+    color: var(--color-warning-orange);
+}
+.bunker-banner-btn.primary:hover {
+    background: rgba(255, 165, 0, 0.12);
+}
+.bunker-banner-btn.primary:disabled {
+    cursor: default;
+    opacity: 0.8;
+}
+
+.bunker-banner-action-icon {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+}
+
+/* Inline spinner that replaces the Refresh icon while reconnecting. Same
+   warning-orange ring + transparent gap so it reads as "working on it". */
+.bunker-banner-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--color-warning-orange);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: bunker-banner-spin 0.9s linear infinite;
+}
+@keyframes bunker-banner-spin {
+    to { transform: rotate(360deg); }
+}
+
 /* Account chooser: narrow, list of remaining accounts + "Add a new login" +
    Cancel. Mirrors native AccountChooserDialog (widthIn 280–340.dp, 16dp
    radius). The .modal-card padding (24) is overridden so rows can run
