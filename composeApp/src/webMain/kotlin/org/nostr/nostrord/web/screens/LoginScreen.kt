@@ -178,6 +178,7 @@ val LoginScreen =
                                             )
                                         }
                                     }
+                                    icon(Ic.Login)
                                     +(if (busy) "Logging in…" else "Login")
                                 }
                                 div {
