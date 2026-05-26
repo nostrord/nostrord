@@ -350,16 +350,6 @@ val AppShell =
                     }
                     if (hasRelays) {
                         div {
-                            className = ClassName("sidebar-search")
-                            icon(Ic.Search, "sidebar-search-icon")
-                            input {
-                                className = ClassName("sidebar-search-input")
-                                placeholder = "Search groups"
-                                value = groupQuery
-                                onChange = { event -> setGroupQuery(event.currentTarget.value) }
-                            }
-                        }
-                        div {
                             className = ClassName("sidebar-scroll")
 
                             val openGroup: (String) -> Unit = { id ->
@@ -368,36 +358,52 @@ val AppShell =
                                 setDrawerOpen(false)
                             }
 
+                            // Native scopes the filter to Other Groups only; My Groups always
+                            // shows the full joined list.
                             val groupQ = groupQuery.trim().lowercase()
-                            fun matchesQuery(g: org.nostr.nostrord.network.GroupMetadata): Boolean = groupQ.isEmpty() ||
-                                (g.name ?: "").lowercase().contains(groupQ) ||
-                                g.id.lowercase().contains(groupQ)
-                            val shownMy = myGroups.filter(::matchesQuery)
-                            val shownOther = otherGroups.filter(::matchesQuery)
+                            val shownOther = if (groupQ.isEmpty()) {
+                                otherGroups
+                            } else {
+                                otherGroups.filter {
+                                    (it.name ?: "").lowercase().contains(groupQ) ||
+                                        it.id.lowercase().contains(groupQ)
+                                }
+                            }
 
                             if (groupsLoading && groups.isEmpty()) {
                                 repeat(6) { groupNavSkeleton() }
                             } else {
                                 sectionToggle("My Groups", myExpanded) { setMyExpanded(!myExpanded) }
                                 if (myExpanded) {
-                                    shownMy.forEach { group ->
+                                    myGroups.forEach { group ->
                                         sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
                                     }
                                 }
 
-                                if (shownOther.isNotEmpty()) {
+                                // Show the section if there are Other Groups OR a query is active
+                                // (so an empty-result search keeps the input visible to clear/edit).
+                                if (otherGroups.isNotEmpty() || groupQ.isNotEmpty()) {
                                     sectionToggle("Other Groups", otherExpanded) { setOtherExpanded(!otherExpanded) }
                                     if (otherExpanded) {
+                                        div {
+                                            className = ClassName("sidebar-search")
+                                            icon(Ic.Search, "sidebar-search-icon")
+                                            input {
+                                                className = ClassName("sidebar-search-input")
+                                                placeholder = "Filter…"
+                                                value = groupQuery
+                                                onChange = { event -> setGroupQuery(event.currentTarget.value) }
+                                            }
+                                        }
                                         shownOther.forEach { group ->
                                             sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
                                         }
-                                    }
-                                }
-
-                                if (groupQ.isNotEmpty() && shownMy.isEmpty() && shownOther.isEmpty()) {
-                                    div {
-                                        className = ClassName("sidebar-section-label")
-                                        +"No groups found"
+                                        if (groupQ.isNotEmpty() && shownOther.isEmpty()) {
+                                            div {
+                                                className = ClassName("sidebar-section-label")
+                                                +"No groups found"
+                                            }
+                                        }
                                     }
                                 }
                             }
