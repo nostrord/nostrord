@@ -13,6 +13,7 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.web.bridge.launchApp
@@ -153,6 +154,15 @@ val ChatScreen =
         val isAdmin = myPubkey != null && myPubkey in admins
         val adminMembers = members.filter { it in admins }
         val plainMembers = members.filter { it !in admins }
+        // Online = posted at least one event in the last 10 minutes. Same heuristic as the
+        // native GroupScreen.kt:295 — no presence protocol, just "recently active". Drives the
+        // green/grey dot on member avatars in the sidebar.
+        val tenMinutesAgo = epochSeconds() - (10 * 60)
+        val recentlyActiveMembers =
+            messages.asSequence()
+                .filter { it.createdAt >= tenMinutesAgo }
+                .map { it.pubkey }
+                .toSet()
         // Can post = an actual member (kind:39002), or in our list for an open group.
         val isMember = myPubkey != null && myPubkey in members
         val inMyList = group.id in joinedByRelay[relayUrl].orEmpty()
@@ -761,13 +771,25 @@ val ChatScreen =
                         if (shownAdmins.isNotEmpty()) {
                             memberSection("Admins", shownAdmins.size)
                             shownAdmins.forEach { pubkey ->
-                                memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = true) { setProfilePubkey(it) }
+                                memberRow(
+                                    pubkey,
+                                    displayName(pubkey, userMetadata[pubkey]),
+                                    userMetadata[pubkey]?.picture,
+                                    isAdmin = true,
+                                    isOnline = pubkey in recentlyActiveMembers,
+                                ) { setProfilePubkey(it) }
                             }
                         }
                         if (shownPlain.isNotEmpty()) {
                             memberSection("Members", shownPlain.size)
                             shownPlain.forEach { pubkey ->
-                                memberRow(pubkey, displayName(pubkey, userMetadata[pubkey]), userMetadata[pubkey]?.picture, isAdmin = false) { setProfilePubkey(it) }
+                                memberRow(
+                                    pubkey,
+                                    displayName(pubkey, userMetadata[pubkey]),
+                                    userMetadata[pubkey]?.picture,
+                                    isAdmin = false,
+                                    isOnline = pubkey in recentlyActiveMembers,
+                                ) { setProfilePubkey(it) }
                             }
                         }
                         if (shownAdmins.isEmpty() && shownPlain.isEmpty()) {
@@ -1558,7 +1580,14 @@ private fun ChildrenBuilder.memberSection(title: String, count: Int) {
     }
 }
 
-private fun ChildrenBuilder.memberRow(pubkey: String, name: String, avatarUrl: String?, isAdmin: Boolean, onUser: (String) -> Unit) {
+private fun ChildrenBuilder.memberRow(
+    pubkey: String,
+    name: String,
+    avatarUrl: String?,
+    isAdmin: Boolean,
+    isOnline: Boolean,
+    onUser: (String) -> Unit,
+) {
     div {
         className = ClassName("member-row")
         onClick = { onUser(pubkey) }
@@ -1568,11 +1597,24 @@ private fun ChildrenBuilder.memberRow(pubkey: String, name: String, avatarUrl: S
                 url = avatarUrl
                 seed = pubkey
                 this.name = name
-                cls = "member-avatar"
+                // Offline avatars fade (`.member-avatar.dimmed`) — mirrors native's
+                // MemberAvatar(dimmed = isOnline == false) in MemberSidebar.kt:388.
+                cls = if (isOnline) "member-avatar" else "member-avatar dimmed"
+            }
+            // Status sticker on the bottom-right of the avatar: Success green when
+            // online (a member who posted in the last 10 min), TextMuted grey
+            // otherwise. The 2px Surface-coloured ring around the dot mirrors
+            // MemberSidebar.kt:391's `.background(Surface, CircleShape).padding(2.dp)`
+            // and reads as a sticker, not as a pixel glued to the avatar edge.
+            span {
+                className = ClassName(if (isOnline) "member-dot online" else "member-dot")
             }
         }
         span {
-            className = ClassName("member-name")
+            // Native dims the name to TextMuted when the member is offline
+            // (MemberSidebar.kt:415). The `.dimmed` modifier already maps to
+            // `color: var(--color-text-muted)` in the CSS.
+            className = ClassName(if (isOnline) "member-name" else "member-name dimmed")
             +name
         }
         if (isAdmin) {
