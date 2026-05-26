@@ -29,10 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +39,8 @@ import kotlinx.coroutines.launch
 import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.auth.NostrSigner
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.BunkerState
+import org.nostr.nostrord.network.BunkerUnreachableReason
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 
@@ -58,21 +57,44 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 fun BunkerStatusBanner(modifier: Modifier = Modifier) {
     val repo = AppModule.nostrRepository
     val loggedIn by repo.isLoggedIn.collectAsState()
-    val connected by repo.isBunkerConnected.collectAsState()
+    val state by repo.bunkerState.collectAsState()
+    // Cold-boot restore reuses the verifying flag + full-screen loader
+    // ("Reconnecting to signer..."), so suppress the banner then to avoid double UI.
     val verifying by repo.isBunkerVerifying.collectAsState()
-    // Follow the ACTIVE session's signer, not the inline auth flag: after "Log
-    // out" removes the bunker account and switches to another account, an active
-    // non-bunker signer hides the banner. Using isUsingBunker() (a stale inline
-    // flag) kept the banner up over the switched-in account.
+    // Follow the ACTIVE session's signer, not an inline auth flag: after "Log out"
+    // removes the bunker account and switches to another, an active non-bunker
+    // signer hides the banner.
     val session by ActiveAccountManager.session.collectAsState()
     val activeIsBunker = session?.signer is NostrSigner.Bunker
 
-    // Only when the active account signs through a bunker that's currently
-    // unreachable. While verifying, the startup loading screen already shows
-    // "Reconnecting to signer...", so suppress the banner to avoid double UI.
-    val show = loggedIn && !verifying && !connected && activeIsBunker
+    // Show for an active bunker account that is unreachable or actively
+    // reconnecting. The spinner is bound to the Reconnecting state, which
+    // AuthManager always resolves (mutex + short deadlines), so it can never get
+    // stuck on "Reconnecting…". (issue #85)
+    val reconnecting = state is BunkerState.Reconnecting
+    val show =
+        loggedIn &&
+            activeIsBunker &&
+            !verifying &&
+            (state is BunkerState.Unreachable || reconnecting)
 
-    var reconnecting by remember { mutableStateOf(false) }
+    val reason = (state as? BunkerState.Unreachable)?.reason
+    val title =
+        when {
+            reconnecting -> "Reconnecting to your signer…"
+            reason == BunkerUnreachableReason.RelaysUnreachable -> "Can't reach the bunker relays"
+            else -> "Can't reach your signer"
+        }
+    val body =
+        when {
+            reconnecting -> "Trying to restore the connection to your bunker…"
+            reason == BunkerUnreachableReason.RelaysUnreachable ->
+                "Your bunker's relays didn't respond. Check your internet or VPN, then reconnect."
+            else ->
+                "Your bunker didn't respond. It may be offline, or its connection was " +
+                    "removed. Reconnect to try again."
+        }
+
     val scope = rememberCoroutineScope()
 
     AnimatedVisibility(
@@ -104,16 +126,14 @@ fun BunkerStatusBanner(modifier: Modifier = Modifier) {
                     Spacer(Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "Can't reach your signer",
+                            text = title,
                             style = NostrordTypography.Caption,
                             color = NostrordColors.Warning,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text =
-                            "Your bunker didn't respond. It may be offline, or its " +
-                                "connection was removed. Reconnect to try again.",
+                            text = body,
                             style = NostrordTypography.Caption,
                             color = NostrordColors.TextContent,
                         )
@@ -157,16 +177,9 @@ fun BunkerStatusBanner(modifier: Modifier = Modifier) {
                         }
                         Spacer(Modifier.width(4.dp))
                         TextButton(
+                            enabled = !reconnecting,
                             onClick = {
-                                if (reconnecting) return@TextButton
-                                reconnecting = true
-                                scope.launch {
-                                    try {
-                                        repo.ensureBunkerConnected()
-                                    } finally {
-                                        reconnecting = false
-                                    }
-                                }
+                                scope.launch { repo.ensureBunkerConnected() }
                             },
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         ) {
