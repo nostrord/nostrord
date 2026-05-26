@@ -3941,7 +3941,8 @@ body {
     background: var(--color-primary-variant);
 }
 
-.chat-icon-btn:hover {
+.chat-icon-btn:hover,
+.chat-members-btn:hover {
     background: var(--color-hover);
     color: var(--color-text-primary);
 }
