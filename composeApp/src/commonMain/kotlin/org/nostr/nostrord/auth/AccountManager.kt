@@ -1,5 +1,7 @@
 package org.nostr.nostrord.auth
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.nostr.KeyPair
@@ -13,11 +15,18 @@ import org.nostr.nostrord.utils.epochMillis
  *
  * The switch sequence is implemented (and documented inline) in [switchAccount];
  * a failed credential load leaves the current session intact.
+ *
+ * [scope] must outlive any Composable that triggers a switch — UI scopes from
+ * `rememberCoroutineScope()` get cancelled when the host Composable leaves
+ * composition (e.g. the account menu auto-dismissing after a successful swap),
+ * which kills [switchAccount]'s reloadForActiveAccount mid-flight and leaves
+ * the new account's joined-groups map unpopulated.
  */
 class AccountManager(
     private val accountStore: AccountStore,
     private val authManager: AuthManager,
     private val sessionFactory: AccountSessionFactory,
+    private val scope: CoroutineScope,
 ) {
     /**
      * Add a new local-key account WITHOUT switching to it.
@@ -93,6 +102,27 @@ class AccountManager(
         AppModule.nostrRepository.reloadForActiveAccount()
 
         return Result.success(Unit)
+    }
+
+    /**
+     * Fire [switchAccount] on the manager's long-lived [scope] so the swap
+     * completes even if the caller's Composable (e.g. an account menu) leaves
+     * composition mid-flight. UI callers MUST use this instead of launching
+     * [switchAccount] on a `rememberCoroutineScope` — that scope is cancelled
+     * on dismissal and the cancellation aborts [reloadForActiveAccount] in
+     * the middle of `liveCursorStore.loadAll`, leaving the new account's
+     * joined-groups map unpopulated. [onResult] runs on the manager's scope
+     * (not the UI thread), so state writes inside it must be thread-safe
+     * (MutableState / MutableStateFlow are fine).
+     */
+    fun switchAccountAsync(
+        accountId: String,
+        onResult: (Result<Unit>) -> Unit = {},
+    ) {
+        scope.launch {
+            val r = switchAccount(accountId)
+            onResult(r)
+        }
     }
 
     /**
