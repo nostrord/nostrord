@@ -22,7 +22,12 @@ fun GeneratedKeyCard(privateKey: String) {
         shape = NostrordShapes.shapeMedium,
         color = NostrordColors.WarningOrange.copy(alpha = 0.1f),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        // Center every child horizontally so the warning panel reads as a
+        // single coherent block (matches the web's .genkey-card layout).
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Warning,
@@ -43,6 +48,8 @@ fun GeneratedKeyCard(privateKey: String) {
                 "This is a copy of your key, not your only copy. Save it somewhere safe.",
                 color = NostrordColors.TextContent,
                 style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
             Spacer(modifier = Modifier.height(12.dp))
             Surface(
