@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.AuthManager
+import org.nostr.nostrord.network.BunkerState
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.Nip46Client
@@ -26,6 +27,7 @@ class SessionManager(
     val isLoggedIn: StateFlow<Boolean> = authManager.isLoggedIn
     val isBunkerConnected: StateFlow<Boolean> = authManager.isBunkerConnected
     val isBunkerVerifying: StateFlow<Boolean> = authManager.isBunkerVerifying
+    val bunkerState: StateFlow<BunkerState> = authManager.bunkerState
     val authUrl: StateFlow<String?> = authManager.authUrl
 
     /**
@@ -131,7 +133,10 @@ class SessionManager(
     /**
      * Sign an event
      */
-    suspend fun signEvent(event: Event): Event = authManager.signEvent(event)
+    suspend fun signEvent(
+        event: Event,
+        interactive: Boolean = true,
+    ): Event = authManager.signEvent(event, interactive)
 
     /**
      * Handle NIP-42 AUTH challenge from relay.
@@ -170,7 +175,9 @@ class SessionManager(
                 content = "",
             )
 
-            val signedEvent = signEvent(authEvent)
+            // interactive=false: a failed background AUTH sign must not flip the
+            // bunker banner to "can't reach your signer". (banner-flicker fix)
+            val signedEvent = signEvent(authEvent, interactive = false)
 
             val message = buildJsonArray {
                 add("AUTH")

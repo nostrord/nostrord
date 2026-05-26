@@ -112,8 +112,12 @@ fun MeMenu(
         if (account.id != activeId && !isBusy) {
             isBusy = true
             pendingError = null
-            scope.launch {
-                val r = AppModule.accountManager.switchAccount(account.id)
+            // switchAccountAsync runs on the manager's long-lived scope, so
+            // onDismiss()-then-leave-composition can't cancel the in-flight
+            // reloadForActiveAccount mid-step. Using a rememberCoroutineScope
+            // here was killing the new account's MY GROUPS load with
+            // ForgottenCoroutineScopeException on JVM (account-switch fix).
+            AppModule.accountManager.switchAccountAsync(account.id) { r ->
                 isBusy = false
                 if (r.isFailure) {
                     pendingError = r.exceptionOrNull()?.message ?: "Switch failed"

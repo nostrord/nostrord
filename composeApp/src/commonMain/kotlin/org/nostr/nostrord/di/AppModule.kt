@@ -92,7 +92,11 @@ object AppModule {
     }
 
     val accountManager: AccountManager by lazy {
-        AccountManager(accountStore, authManager, accountSessionFactory)
+        // appScope (long-lived) so a switchAccountAsync() survives the caller
+        // Composable being dismissed mid-swap — a rememberCoroutineScope would
+        // cancel reloadForActiveAccount in the middle and leave the new
+        // account's MY GROUPS empty.
+        AccountManager(accountStore, authManager, accountSessionFactory, appScope)
     }
 
     /**

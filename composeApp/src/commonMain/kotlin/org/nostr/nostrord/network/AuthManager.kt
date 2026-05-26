@@ -1,13 +1,21 @@
 package org.nostr.nostrord.network
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.auth.AccountStore
@@ -28,6 +36,18 @@ import org.nostr.nostrord.storage.saveBunkerClientPrivateKeyFor
 import org.nostr.nostrord.storage.saveBunkerUrlFor
 import org.nostr.nostrord.storage.savePrivateKeyFor
 import org.nostr.nostrord.utils.epochMillis
+
+// Interactive reconnect deadlines. Kept short so the banner's "Reconnect" button
+// fails fast with a precise reason instead of freezing on the old 120s RPC wait.
+// connectRelaysOnly's internal waitForConnection caps at 7s; backgroundConnect at
+// 10s — these are the safety nets just above those.
+private const val RELAY_CONNECT_TIMEOUT_MS = 8_000L
+private const val SIGNER_CONNECT_TIMEOUT_MS = 12_000L
+
+// Background auto-reconnect: capped exponential backoff, bounded attempts.
+private const val AUTO_RECONNECT_BASE_MS = 3_000L
+private const val AUTO_RECONNECT_MAX_MS = 60_000L
+private const val AUTO_RECONNECT_MAX_ATTEMPTS = 5
 
 /**
  * Manages authentication state and signing operations.
@@ -61,11 +81,27 @@ class AuthManager(
      */
     internal var onSessionInvalidated: (suspend (invalidatedPubkey: String?) -> Unit)? = null
 
-    private val _isBunkerConnected = MutableStateFlow(false)
-    val isBunkerConnected: StateFlow<Boolean> = _isBunkerConnected.asStateFlow()
+    // Single source of truth for the bunker connection lifecycle. The legacy
+    // isBunkerConnected boolean is derived from it so existing consumers keep
+    // working unchanged. isBunkerVerifying stays an independent flag because the
+    // App reuses it as a generic "show loading overlay" signal during cold-boot
+    // restore and logout — folding it in here would change those screens.
+    private val _bunkerState = MutableStateFlow<BunkerState>(BunkerState.Inactive)
+    val bunkerState: StateFlow<BunkerState> = _bunkerState.asStateFlow()
+
+    val isBunkerConnected: StateFlow<Boolean> =
+        _bunkerState
+            .map { it is BunkerState.Connected }
+            .stateIn(authScope, SharingStarted.Eagerly, false)
 
     private val _isBunkerVerifying = MutableStateFlow(false)
     val isBunkerVerifying: StateFlow<Boolean> = _isBunkerVerifying.asStateFlow()
+
+    // Capped-backoff background reconnect, started on entering Unreachable and
+    // cancelled once reconnected or the session ends. Serialized via the mutex
+    // so the banner button and the auto loop never reconnect concurrently.
+    private val reconnectMutex = Mutex()
+    private var autoReconnectJob: Job? = null
 
     private val _authUrl = MutableStateFlow<String?>(null)
     val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
@@ -178,7 +214,8 @@ class AuthManager(
         SecureStorage.clearPrivateKey()
         registerAccountAfterLogin(userPubkey, AuthMethod.BUNKER)
 
-        _isBunkerConnected.value = true
+        _bunkerState.value = BunkerState.Connected
+        stopAutoReconnect()
         _authUrl.value = null
 
         return userPubkey
@@ -255,7 +292,8 @@ class AuthManager(
         SecureStorage.clearPrivateKey()
         registerAccountAfterLogin(userPubkey, AuthMethod.BUNKER)
 
-        _isBunkerConnected.value = true
+        _bunkerState.value = BunkerState.Connected
+        stopAutoReconnect()
         _authUrl.value = null
 
         return userPubkey
@@ -411,7 +449,8 @@ class AuthManager(
         isNip07Login = false
         nip07UserPubkey = null
         zeroAndClearKeyPair()
-        _isBunkerConnected.value = false
+        stopAutoReconnect()
+        _bunkerState.value = BunkerState.Inactive
 
         when (prepared) {
             is PreparedAccount.Local -> {
@@ -486,7 +525,7 @@ class AuthManager(
         _isLoggedIn.value = true
         // Optimistic: assume reachable. The async block below flips this to
         // false if the WebSocket open fails so the UI can show "Disconnected".
-        _isBunkerConnected.value = true
+        _bunkerState.value = BunkerState.Connected
         _isBunkerVerifying.value = true
 
         val savedClientPrivateKey =
@@ -500,7 +539,8 @@ class AuthManager(
                 } catch (_: Exception) {
                     if (nip46Client === client) {
                         _isBunkerVerifying.value = false
-                        _isBunkerConnected.value = false
+                        _bunkerState.value =
+                            BunkerState.Unreachable(BunkerUnreachableReason.Unknown)
                     }
                     return@launch
                 }
@@ -511,8 +551,8 @@ class AuthManager(
                 // surface the disconnected state. They can retry later;
                 // backgroundConnect below would just time out without sockets.
                 if (nip46Client === client) {
-                    _isBunkerConnected.value = false
                     _isBunkerVerifying.value = false
+                    enterUnreachable(BunkerUnreachableReason.RelaysUnreachable)
                 }
                 return@launch
             }
@@ -612,7 +652,7 @@ class AuthManager(
         // re-paste the bunker URI (issue #85).
         _isLoggedIn.value = true
         _isBunkerVerifying.value = true
-        _isBunkerConnected.value = true
+        _bunkerState.value = BunkerState.Connected
 
         if (savedClientPrivateKey == null) {
             SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
@@ -632,8 +672,8 @@ class AuthManager(
                 // Relay unreachable — keep the user signed in and surface the
                 // disconnected state so the UI can offer a one-tap reconnect.
                 if (nip46Client === newNip46Client) {
-                    _isBunkerConnected.value = false
                     _isBunkerVerifying.value = false
+                    enterUnreachable(BunkerUnreachableReason.RelaysUnreachable)
                 }
                 return@launch
             }
@@ -667,69 +707,147 @@ class AuthManager(
     }
 
     /**
-     * Reconnect bunker if disconnected
+     * Bring the bunker back online on demand (banner "Reconnect" button, or any
+     * caller that needs a live signer). Runs a single bounded attempt; if it
+     * fails, leaves background auto-reconnect running so recovery continues
+     * without further user action.
      */
     suspend fun ensureBunkerConnected(): Boolean {
         if (!isBunkerLogin) return true
-        if (nip46Client != null && _isBunkerConnected.value) return true
-
-        return reconnectBunker()
+        if (nip46Client != null && _bunkerState.value is BunkerState.Connected) return true
+        val ok = attemptReconnect()
+        if (!ok) startAutoReconnect()
+        return ok
     }
 
-    private suspend fun reconnectBunker(): Boolean {
+    /**
+     * One mutex-guarded reconnect attempt. Holds [BunkerState.Reconnecting] for
+     * the whole attempt so the banner spinner can never outlive it, then settles
+     * on [BunkerState.Connected] or [BunkerState.Unreachable] with a precise
+     * reason. Concurrent callers (button + auto loop) serialize here.
+     */
+    private suspend fun attemptReconnect(): Boolean = reconnectMutex.withLock {
+        if (!isBunkerLogin) return@withLock false
+        if (nip46Client != null && _bunkerState.value is BunkerState.Connected) {
+            return@withLock true
+        }
+
+        _bunkerState.value = BunkerState.Reconnecting
+        val reason = doReconnect()
+        if (reason == null) {
+            stopAutoReconnect()
+            _bunkerState.value = BunkerState.Connected
+            true
+        } else {
+            // Settle directly (not via enterUnreachable) so an attempt made
+            // from inside the auto loop doesn't restart the loop; the caller
+            // decides whether to keep retrying.
+            _bunkerState.value = BunkerState.Unreachable(reason)
+            false
+        }
+    }
+
+    /**
+     * Build a fresh client from the saved bunker URL and connect it in two
+     * bounded phases so a hang in either is short and distinguishable:
+     *  1. relays — [Nip46Client.connectRelaysOnly], capped at
+     *     [RELAY_CONNECT_TIMEOUT_MS]; failure ⇒ [BunkerUnreachableReason.RelaysUnreachable].
+     *  2. signer — [Nip46Client.backgroundConnect], capped at
+     *     [SIGNER_CONNECT_TIMEOUT_MS]; no ack ⇒ [BunkerUnreachableReason.SignerNotResponding].
+     * Returns null on success, otherwise the failure reason.
+     */
+    private suspend fun doReconnect(): BunkerUnreachableReason? {
         val activePubkey = bunkerUserPubkey
         val savedBunkerUrl =
             activePubkey?.let { SecureStorage.getBunkerUrlFor(it) }
                 ?: SecureStorage.getBunkerUrl()
-                ?: return false
+                ?: return BunkerUnreachableReason.Unknown
         val savedClientPrivateKey =
             activePubkey?.let { SecureStorage.getBunkerClientPrivateKeyFor(it) }
                 ?: SecureStorage.getBunkerClientPrivateKey()
-
-        try {
-            val bunkerInfo = parseBunkerUrl(savedBunkerUrl)
-
-            val newNip46Client =
-                if (savedClientPrivateKey != null) {
-                    Nip46Client(savedClientPrivateKey)
-                } else {
-                    Nip46Client()
-                }
-
-            newNip46Client.onAuthUrl = { url ->
-                _authUrl.value = url
-            }
-
+        val info =
             try {
-                newNip46Client.connect(
-                    remoteSignerPubkey = bunkerInfo.pubkey,
-                    relays = bunkerInfo.relays,
-                    secret = bunkerInfo.secret,
-                )
-            } catch (e: Exception) {
-                if (e.message?.contains("already connected", ignoreCase = true) == true) {
-                } else {
-                    throw e
-                }
+                parseBunkerUrl(savedBunkerUrl)
+            } catch (_: Exception) {
+                return BunkerUnreachableReason.Unknown
             }
 
-            nip46Client = newNip46Client
-            _isBunkerConnected.value = true
-
-            if (savedClientPrivateKey == null) {
-                SecureStorage.saveBunkerClientPrivateKey(newNip46Client.clientPrivateKey)
-                activePubkey?.let {
-                    SecureStorage.saveBunkerClientPrivateKeyFor(
-                        it,
-                        newNip46Client.clientPrivateKey,
-                    )
-                }
+        val client =
+            if (savedClientPrivateKey != null) {
+                Nip46Client(savedClientPrivateKey)
+            } else {
+                Nip46Client()
             }
+        client.onAuthUrl = { url -> _authUrl.value = url }
 
-            return true
-        } catch (e: Exception) {
-            return false
+        val relaysOk =
+            withTimeoutOrNull(RELAY_CONNECT_TIMEOUT_MS) {
+                try {
+                    client.connectRelaysOnly(info.pubkey, info.relays)
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+            } ?: false
+        if (!relaysOk) {
+            client.disconnect()
+            return BunkerUnreachableReason.RelaysUnreachable
         }
+
+        val authorized = awaitSignerAuthorize(client, info.secret)
+        if (!authorized) {
+            client.disconnect()
+            return BunkerUnreachableReason.SignerNotResponding
+        }
+
+        nip46Client = client
+        if (savedClientPrivateKey == null) {
+            SecureStorage.saveBunkerClientPrivateKey(client.clientPrivateKey)
+            activePubkey?.let {
+                SecureStorage.saveBunkerClientPrivateKeyFor(it, client.clientPrivateKey)
+            }
+        }
+        return null
+    }
+
+    /**
+     * Fire the NIP-46 "connect" RPC and wait (bounded) for the signer to
+     * re-authorize. [Nip46Client.backgroundConnect] already self-times-out and
+     * reports back via callbacks; the outer deadline is a safety net.
+     */
+    private suspend fun awaitSignerAuthorize(
+        client: Nip46Client,
+        secret: String?,
+    ): Boolean {
+        val authorized = CompletableDeferred<Boolean>()
+        client.backgroundConnect(
+            secret = secret,
+            onSuccess = { authorized.complete(true) },
+            onRevoked = { authorized.complete(false) },
+        )
+        return withTimeoutOrNull(SIGNER_CONNECT_TIMEOUT_MS) { authorized.await() } ?: false
+    }
+
+    /** Start capped-backoff background reconnect (idempotent while already running). */
+    private fun startAutoReconnect() {
+        if (autoReconnectJob?.isActive == true) return
+        autoReconnectJob =
+            authScope.launch {
+                var delayMs = AUTO_RECONNECT_BASE_MS
+                repeat(AUTO_RECONNECT_MAX_ATTEMPTS) {
+                    delay(delayMs)
+                    if (!isBunkerLogin || _bunkerState.value is BunkerState.Connected) {
+                        return@launch
+                    }
+                    if (attemptReconnect()) return@launch
+                    delayMs = (delayMs * 2).coerceAtMost(AUTO_RECONNECT_MAX_MS)
+                }
+            }
+    }
+
+    private fun stopAutoReconnect() {
+        autoReconnectJob?.cancel()
+        autoReconnectJob = null
     }
 
     /**
@@ -740,7 +858,10 @@ class AuthManager(
      * inline auth state for the initial login flow, before the session is
      * activated.
      */
-    suspend fun signEvent(event: Event): Event {
+    suspend fun signEvent(
+        event: Event,
+        interactive: Boolean = true,
+    ): Event {
         val sessionSigner = ActiveAccountManager.session.value?.signer
         if (sessionSigner != null) {
             return try {
@@ -750,7 +871,11 @@ class AuthManager(
                     if (sessionSigner is NostrSigner.Bunker) {
                         // Can't tell an offline signer from a deleted connection
                         // apart — surface a reconnectable error, never log out.
-                        markSignerUnreachable()
+                        // Only a user-initiated sign raises the banner: background
+                        // NIP-42 AUTH (kind 22242) signs pass interactive=false, so a
+                        // transient relay/AUTH hiccup never flips the UI to "can't
+                        // reach your signer". (banner-flicker fix)
+                        if (interactive) markSignerUnreachable()
                         throw Exception("Couldn't reach your signer. Please reconnect.")
                     }
                     handlePermissionDenied()
@@ -762,7 +887,7 @@ class AuthManager(
         // Fallback: session not yet activated (e.g. initial login in progress).
         return when {
             isNip07Login -> signWithNip07(event)
-            isBunkerLogin -> signWithBunker(event)
+            isBunkerLogin -> signWithBunker(event, interactive)
             else -> signWithKeyPair(event)
         }
     }
@@ -773,16 +898,19 @@ class AuthManager(
         return parseSignedEvent(signedJson)
     }
 
-    private suspend fun signWithBunker(event: Event): Event {
+    private suspend fun signWithBunker(
+        event: Event,
+        interactive: Boolean = true,
+    ): Event {
         // Fast-fail when the bunker is known disconnected. Otherwise every
         // NIP-42 AUTH challenge from a NIP-29 relay piles up a 120s sign
         // attempt: N relays = N concurrent hung coroutines doing crypto on
         // the JS main thread, which freezes the browser tab.
-        if (!_isBunkerConnected.value) {
+        if (_bunkerState.value !is BunkerState.Connected) {
             throw Exception("Bunker not connected")
         }
         if (nip46Client == null) {
-            val reconnected = reconnectBunker()
+            val reconnected = attemptReconnect()
             if (!reconnected) {
                 throw Exception("Bunker not connected and reconnection failed")
             }
@@ -798,7 +926,7 @@ class AuthManager(
             if (isPermissionError(e)) {
                 // Can't tell an offline signer from a deleted connection apart —
                 // surface a reconnectable error, never log out (issue #85).
-                markSignerUnreachable()
+                if (interactive) markSignerUnreachable()
                 throw Exception("Couldn't reach your signer. Please reconnect.")
             }
             throw e
@@ -825,13 +953,21 @@ class AuthManager(
      * then explains the situation and lets the user choose to reconnect or log
      * out. (issue #85)
      */
-    private fun markSignerUnreachable() {
+    private fun markSignerUnreachable(
+        reason: BunkerUnreachableReason = BunkerUnreachableReason.SignerNotResponding,
+    ) {
         nip46Client?.disconnect()
         nip46Client = null
-        _isBunkerConnected.value = false
         _isBunkerVerifying.value = false
+        enterUnreachable(reason)
         // isBunkerLogin, bunkerUserPubkey, the stored bunker URL and isLoggedIn
-        // are left intact so reconnectBunker() can re-read the saved URL on retry.
+        // are left intact so the reconnect path can re-read the saved URL on retry.
+    }
+
+    /** Enter the Unreachable state and start capped-backoff background reconnect. */
+    private fun enterUnreachable(reason: BunkerUnreachableReason) {
+        _bunkerState.value = BunkerState.Unreachable(reason)
+        startAutoReconnect()
     }
 
     private fun handlePermissionDenied() {
@@ -841,7 +977,8 @@ class AuthManager(
 
         nip46Client?.disconnect()
         nip46Client = null
-        _isBunkerConnected.value = false
+        stopAutoReconnect()
+        _bunkerState.value = BunkerState.Inactive
         clearBunkerCredentials()
         isBunkerLogin = false
         bunkerUserPubkey = null
@@ -899,7 +1036,8 @@ class AuthManager(
         zeroAndClearKeyPair()
 
         _isLoggedIn.value = false
-        _isBunkerConnected.value = false
+        stopAutoReconnect()
+        _bunkerState.value = BunkerState.Inactive
         // Reset the verifying flag so a hung backgroundConnect does not keep
         // the UI stuck on "Reconnecting to signer..." after logout completes.
         _isBunkerVerifying.value = false
@@ -925,7 +1063,8 @@ class AuthManager(
         isBunkerLogin = false
         bunkerUserPubkey = null
         zeroAndClearKeyPair()
-        _isBunkerConnected.value = false
+        stopAutoReconnect()
+        _bunkerState.value = BunkerState.Inactive
         clearBunkerCredentials()
         SecureStorage.clearBunkerClientPrivateKey()
     }
