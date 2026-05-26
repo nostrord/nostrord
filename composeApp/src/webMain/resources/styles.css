@@ -171,7 +171,11 @@ body {
 }
 
 .bunker-toggle {
+    /* Symmetric vertical breathing: above the toggle separates it from the
+       Shield/intro row, below it separates it from the QR canvas or the
+       Bunker URL `.field-with-icon` input. */
     margin-top: 16px;
+    margin-bottom: 16px;
 }
 
 .login-tab {
@@ -406,6 +410,18 @@ body {
     font-size: 28px;
 }
 
+/* Spinner shown while the nostrconnect session is being created — sits on the
+   white QR placeholder, so the ring colour is a light grey with the primary
+   blue cap (reuses app-spin from the boot spinner). */
+.qr-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid #e4e4e7;
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+}
+
 .qr-img {
     width: 220px;
     height: 220px;
@@ -427,8 +443,134 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+    /* Space below the "Why use a Bunker?" title so the first .benefit row
+       isn't flush against the heading. */
+    margin-bottom: 10px;
     color: #fff;
     font-weight: 600;
+}
+
+/* nostrconnect:// URI + copy button below the QR. Mirrors the native
+   OutlinedTextField with a trailing CopyIcon button (BunkerLoginTab.kt:269). */
+.bunker-uri {
+    width: 100%;
+    margin-top: 16px;
+}
+
+.bunker-uri .login-input {
+    color: var(--color-text-muted);
+    font-size: 13px;
+}
+
+/* Trailing-icon button slot used by the URI copy, the add-relay +, and any
+   other small affordance inside a .field-with-icon. */
+.field-action {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: var(--color-primary);
+    cursor: pointer;
+}
+
+.field-action:hover:not(:disabled) {
+    background: rgba(88, 101, 242, 0.12);
+}
+
+.field-action:disabled {
+    color: var(--color-text-muted);
+    cursor: default;
+}
+
+.field-action.copied {
+    color: var(--color-success);
+}
+
+/* Advanced signer relays. Collapsed by default; expands into a relay list
+   with X buttons + an add input + Apply & regenerate QR. Mirrors
+   NostrConnectRelaysSection. */
+.advanced-section {
+    width: 100%;
+    margin-top: 12px;
+}
+
+.advanced-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.advanced-chevron {
+    display: inline-flex;
+    color: var(--color-text-secondary);
+    transition: transform 0.15s ease;
+}
+
+.advanced-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
+.advanced-title {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.advanced-desc {
+    margin: 0 0 8px;
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+.advanced-relay-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.advanced-relay-url {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.advanced-relay-remove {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.advanced-relay-remove:hover {
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
+}
+
+.advanced-add {
+    margin-top: 4px;
+}
+
+.advanced-apply {
+    margin-top: 12px;
 }
 
 .benefits-title {
