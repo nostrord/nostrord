@@ -4368,13 +4368,15 @@ body {
 .home-filter {
     /* Same box for active + inactive — only the colors change. line-height is
        explicit so a browser's default button line-height can't make the active
-       (bolder) chip render slightly taller than the inactive one. */
+       (bolder) chip render slightly taller than the inactive one. The inactive
+       background uses the same dark slot as the cards/header so the chip reads
+       as a darker pill on the body bg — matches 0xchat's reference exactly. */
     padding: 8px 14px;
     font-size: 13px;
     font-weight: 600;
     line-height: 1.2;
     color: var(--color-text-muted);
-    background: var(--color-surface-variant);
+    background: var(--color-background-dark);
     border: none;
     border-radius: 8px;
     box-sizing: border-box;
@@ -4399,7 +4401,8 @@ body {
     font-size: 13px;
     font-family: inherit;
     color: var(--color-text-primary);
-    background: var(--color-surface-variant);
+    /* Dark pill, same slot as the cards — matches 0xchat reference. */
+    background: var(--color-background-dark);
     border: none;
     border-radius: 8px;
     outline: none;
@@ -4532,7 +4535,8 @@ body {
 
 .pick-btn.joined {
     background: var(--color-success);
-    color: var(--color-background-dark);
+    /* White label on the solid green pill — matches 0xchat reference. */
+    color: #ffffff;
     cursor: default;
 }
 
