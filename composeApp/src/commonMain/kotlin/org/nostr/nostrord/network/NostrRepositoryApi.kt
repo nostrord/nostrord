@@ -278,6 +278,12 @@ interface NostrRepositoryApi {
 
     suspend fun requestGroupAdmins(groupId: String)
 
+    /**
+     * Request pending join requests (kind 9021 + 9022) for a group. Admin-only;
+     * supplements the standard chat REQ, which buries old 9021s under recent chat.
+     */
+    suspend fun requestPendingJoinRequests(groupId: String)
+
     suspend fun refreshGroupMetadata(groupId: String)
 
     /** Observable parent→children map derived from `parent` tags in kind:39000. */

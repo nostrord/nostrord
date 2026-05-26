@@ -2600,6 +2600,18 @@ class GroupManager(
     }
 
     /**
+     * Request pending join requests (kind 9021 + 9022) for a group.
+     * Use when an admin opens a closed group — the standard chat REQ caps at 50
+     * events and buries 9021s under recent chat. Debounced by [shouldRequest].
+     */
+    suspend fun requestPendingJoinRequests(groupId: String): Boolean {
+        if (!shouldRequest(groupId, "joinreq")) return true
+        val currentClient = clientForGroup(groupId) ?: return false
+        currentClient.requestPendingJoinRequests(groupId)
+        return true
+    }
+
+    /**
      * Handle incoming group roles (kind 39003)
      */
     fun handleGroupRoles(roles: GroupRoles, createdAt: Long = 0L) {

@@ -1250,6 +1250,35 @@ class NostrGroupClient(
     }
 
     /**
+     * Request pending join-request events (kind 9021 + 9022 leaves) for a specific group.
+     *
+     * The standard chat REQ (limit=50, all kinds) buries old 9021 events under recent
+     * kind:9 chat in active groups, so admins of closed groups miss pending requests
+     * until something else refreshes the mux. This dedicated REQ pulls them directly.
+     * Includes 9022 so the UI's "ignore requests followed by a leave" rule still applies.
+     */
+    suspend fun requestPendingJoinRequests(groupId: String): String {
+        val subId = "joinreq_${groupId.take(8)}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") {
+                        add(9021)
+                        add(9022)
+                    }
+                    putJsonArray("#h") { add(groupId) }
+                    put("limit", 500)
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
+    /**
      * Request group members (kind 39002) for a specific group.
      *
      * Same deterministic ID rationale as requestGroupAdmins.

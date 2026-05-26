@@ -265,6 +265,8 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun requestGroupAdmins(groupId: String) {}
 
+    override suspend fun requestPendingJoinRequests(groupId: String) {}
+
     override suspend fun refreshGroupMetadata(groupId: String) {}
 
     override val childrenByParent: StateFlow<Map<String, Set<String>>> = MutableStateFlow(emptyMap())

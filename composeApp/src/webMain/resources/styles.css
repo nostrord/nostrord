@@ -3890,6 +3890,33 @@ body {
     cursor: pointer;
 }
 
+/* Join-requests indicator in the chat header (admin/closed-group only). The
+   button is a normal chat-icon-btn; the badge is an absolutely-positioned
+   counter pip in the top-right corner — matches the native screenshot. */
+.chat-requests-btn {
+    position: relative;
+}
+
+.chat-requests-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    color: #ffffff;
+    background: var(--color-error);
+    border-radius: 999px;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
 /* Hamburger in the chat header — only visible on mobile, where the groups sidebar
    is a drawer. Hidden on desktop where the sidebar is always present (mirrors
    native's mobile-only navigationIcon slot in GroupHeader). */

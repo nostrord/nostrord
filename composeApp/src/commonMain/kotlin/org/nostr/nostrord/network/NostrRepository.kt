@@ -1518,6 +1518,17 @@ class NostrRepository(
     }
 
     /**
+     * Request pending join requests (kind 9021 + 9022) for a group. Admin-only
+     * use case — the standard chat REQ misses old 9021s in active groups.
+     */
+    override suspend fun requestPendingJoinRequests(groupId: String) {
+        if (connectionManager.getPrimaryClient() == null) {
+            connect()
+        }
+        groupManager.requestPendingJoinRequests(groupId)
+    }
+
+    /**
      * Request group roles (kind 39003) for a specific group.
      */
     suspend fun requestGroupRoles(groupId: String) {

@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.screens
 
 import kotlinx.browser.window
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -158,6 +159,21 @@ val ChatScreen =
         val canPost = isMember || (group.isOpen && inMyList)
         // Pending = we sent a join request (kind 9021) but aren't a member yet.
         val isPending = !canPost && myPubkey != null && messages.any { it.kind == 9021 && it.pubkey == myPubkey }
+        // Pending join-request count — admin/closed-group only, drives the header badge.
+        // Same logic as JoinRequestsModal: latest 9021 per pubkey, minus current members
+        // and anyone whose most-recent event is a 9022 leave.
+        val pendingJoinRequests = if (isAdmin && !group.isOpen) {
+            val lastLeave =
+                messages.filter { it.kind == 9022 }
+                    .groupBy { it.pubkey }
+                    .mapValues { (_, evs) -> evs.maxOf { it.createdAt } }
+            messages.filter { it.kind == 9021 && it.pubkey !in members }
+                .filter { req -> lastLeave[req.pubkey].let { it == null || req.createdAt > it } }
+                .distinctBy { it.pubkey }
+                .size
+        } else {
+            0
+        }
 
         val (draft, setDraft) = useState { "" }
         val (membersOpen, setMembersOpen) = useState { false }
@@ -216,6 +232,22 @@ val ChatScreen =
         // Load messages + author/member metadata when the group (or its rosters) change.
         useEffect(group.id) {
             launchApp { repo.requestGroupMessages(group.id) }
+        }
+        // Admin in a closed group: pull pending join requests explicitly + poll.
+        // The standard chat REQ caps at 50 events and buries old 9021s under recent
+        // chat, so the badge wouldn't appear on a fresh page load until navigating
+        // away and back triggered a mux refresh. The poll also covers relays that
+        // don't push 9021s on open subscriptions after EOSE, keeping the badge live.
+        // The useEffect block is suspend (this wrappers version — same pattern as
+        // useEscClose / useStateFlow); `delay` propagates CancellationException when
+        // deps change, so leaving the group / losing admin tears down the loop.
+        useEffect(group.id, isAdmin, group.isOpen) {
+            if (!(isAdmin && !group.isOpen)) return@useEffect
+            repo.requestPendingJoinRequests(group.id)
+            while (true) {
+                delay(15_000)
+                repo.requestPendingJoinRequests(group.id)
+            }
         }
         useEffect(group.id, members.size, messages.size) {
             val pubkeys = (members + messages.map { it.pubkey }).toSet()
@@ -335,6 +367,20 @@ val ChatScreen =
                                     className = ClassName("chat-header-about")
                                     +group.about
                                 }
+                            }
+                        }
+                    }
+                    // Pending join-requests indicator (admin + closed group, count > 0).
+                    // Opens the JoinRequestsModal directly so admins don't need to dig into
+                    // the 3-dots menu when the badge is calling for attention.
+                    if (pendingJoinRequests > 0) {
+                        button {
+                            className = ClassName("chat-icon-btn chat-requests-btn")
+                            onClick = { setModal("requests") }
+                            icon(Ic.PersonAdd)
+                            span {
+                                className = ClassName("chat-requests-badge")
+                                +pendingJoinRequests.toString()
                             }
                         }
                     }
