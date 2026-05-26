@@ -329,6 +329,7 @@ body {
     padding: 16px;
     background: rgba(255, 165, 0, 0.1);
     border-radius: 12px;
+    text-align: center;
 }
 
 .genkey-head {
@@ -336,6 +337,7 @@ body {
     align-items: center;
     gap: 8px;
     color: var(--color-warning-orange);
+    justify-content: center;
 }
 
 .genkey-title {
@@ -357,7 +359,6 @@ body {
     color: var(--color-success);
     font-family: monospace;
     font-size: 11px;
-    text-align: center;
     word-break: break-all;
 }
 
@@ -492,7 +493,7 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
     padding: 8px 0;
     background: var(--color-background-dark);
 }
