@@ -175,4 +175,31 @@ class AccountManager(
         AppModule.applyActiveAccountChange(null)
         return null
     }
+
+    /**
+     * Remove [accountId] but switch to a user-chosen [switchToId] instead of
+     * auto-picking a fallback. Backs the account chooser the UI shows on
+     * sign-out so the user controls which identity they land on rather than
+     * being silently dropped onto the most-recently-added one.
+     *
+     * Switches first (validate-before-teardown): if the chosen identity can't
+     * load, removal is aborted and the failure is returned, so the user is
+     * never left signed out when their pick is unusable. Once the switch
+     * succeeds, [accountId] is no longer active and its secrets are wiped the
+     * same way [removeAccount] handles a non-active account.
+     */
+    suspend fun removeAndSwitch(
+        accountId: String,
+        switchToId: String,
+    ): Result<Unit> {
+        val account = accountStore.get(accountId) ?: return Result.success(Unit)
+
+        val switchResult = switchAccount(switchToId)
+        if (switchResult.isFailure) return switchResult
+
+        SecureStorage.clearAllCredentialsForAccount(account.pubkey)
+        SecureStorage.clearPendingEvents(account.pubkey)
+        accountStore.remove(accountId)
+        return Result.success(Unit)
+    }
 }
