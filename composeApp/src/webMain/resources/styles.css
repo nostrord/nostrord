@@ -671,15 +671,18 @@ body {
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    /* Two-tone like native: list area sits on background-dark, only the
-       header row stays on the lighter surface slot (overridden below). */
-    background: var(--color-background-dark);
+    /* Native (GroupsNavSidebar.kt:189) paints the whole Column with
+       NostrordColors.Surface; the only BackgroundDark inside the sidebar is
+       the 1dp divider between the header and the list (handled by the
+       border-bottom on .sidebar-header below). */
+    background: var(--color-surface);
 }
 
 .sidebar-header {
     /* Matches .chat-header / .member-header so the three headers form a single
-       horizontal band at the top of the app. Lighter surface so the relay name
-       row stands apart from the dark groups list below (native two-tone). */
+       horizontal band at the top of the app. Same Surface as the sidebar
+       (GroupsNavSidebar.kt:189-203) — only the 1px border-bottom uses
+       BackgroundDark, which is native's divider Box (line 234). */
     height: 56px;
     flex-shrink: 0;
     display: flex;
@@ -697,8 +700,10 @@ body {
     transition: color 0.12s ease, background 0.12s ease;
 }
 .sidebar-header.clickable:hover {
+    /* Native HoverBackground (#34373c) — `--color-hover`, not the slightly
+       different `--color-message-hover` (#32353b). */
     color: var(--color-text-primary);
-    background: var(--color-message-hover);
+    background: var(--color-hover);
 }
 .sidebar-header.active {
     color: var(--color-text-primary);
@@ -732,7 +737,9 @@ body {
 
 .sidebar-search-input {
     /* 28px tall pill with a 12px search icon — matches native's
-       Box(height = 28.dp, padding horizontal = 6.dp) + Icon(size = 12.dp). */
+       Box(height = 28.dp, padding horizontal = 6.dp) + Icon(size = 12.dp).
+       BackgroundDark on the pill so it contrasts with the Surface-painted
+       sidebar around it (GroupsNavSidebar.kt:393). */
     width: 100%;
     height: 28px;
     box-sizing: border-box;
@@ -740,7 +747,7 @@ body {
     font-size: 12px;
     font-family: inherit;
     color: var(--color-text-primary);
-    background: var(--color-surface);
+    background: var(--color-background-dark);
     border: none;
     border-radius: 4px;
     outline: none;
