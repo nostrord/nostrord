@@ -60,9 +60,12 @@ val WebAvatar =
             setLoaded(cached)
         }
 
-        val url = props.url
         val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
         val kind = props.kind ?: AvatarKind.USER
+        // RELAY: when NIP-11 didn't publish an icon, fall back to a bundled brand asset for
+        // the relays the native UI ships (mirrors ui/util/RelayFallbacks.kt). Other kinds use
+        // the letter/identicon fallback below — only relays have a brand image worth seeding.
+        val url = props.url ?: if (kind == AvatarKind.RELAY) bundledRelayFallback(seed) else null
 
         div {
             className = ClassName("avatar-tile ${props.cls} avatar-stack" + if (kind == AvatarKind.GROUP) " group" else "")
@@ -95,6 +98,18 @@ val WebAvatar =
 
 // Number of colours in the native NostrordColors.AvatarColors palette (see .avatar-color-N CSS).
 private const val AVATAR_COLOR_COUNT = 8
+
+/**
+ * Bundled icon for the well-known NIP-29 relays that publish no NIP-11 icon. Mirrors
+ * native's `ui/util/RelayFallbacks.kt` — same PNGs (copied to webMain/resources/), same
+ * substring rules. Returns null for any unrecognised relay; the regular letter fallback
+ * runs in that case.
+ */
+private fun bundledRelayFallback(relayUrl: String): String? = when {
+    relayUrl.contains("0xchat.com") -> "relay_0xchat.png"
+    relayUrl.contains("nip29.com") -> "relay_nip29.png"
+    else -> null
+}
 
 /** Initial-letter fallback on a deterministic colour — matches the native group avatar. */
 private fun ChildrenBuilder.letterAvatar(seed: String, name: String) {
