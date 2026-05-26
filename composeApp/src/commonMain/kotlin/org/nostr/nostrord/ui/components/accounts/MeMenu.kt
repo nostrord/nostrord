@@ -81,6 +81,7 @@ fun MeMenu(
     onDismiss: () -> Unit,
     onAddAccount: () -> Unit,
     onSettings: () -> Unit,
+    onSignOutWithChoice: () -> Unit,
 ) {
     if (!visible) return
 
@@ -128,6 +129,18 @@ fun MeMenu(
         }
     }
 
+    // Signing out of the active account while others are signed in routes to
+    // the account chooser instead of auto-switching. Removing a non-active
+    // account (or the last one) keeps the plain confirmation dialog.
+    val requestRemove: (Account) -> Unit = { account ->
+        if (account.id == activeId && accounts.size > 1) {
+            onDismiss()
+            onSignOutWithChoice()
+        } else {
+            removeTarget = account
+        }
+    }
+
     val content: @Composable ColumnScope.() -> Unit = {
         if (activeAccount != null) {
             MeHeader(account = activeAccount, metadata = userMetadata[activeAccount.pubkey])
@@ -154,7 +167,7 @@ fun MeMenu(
                     isBusy = isBusy,
                     unreadCount = unread,
                     onClick = { onSwitchAccount(account) },
-                    onRemove = { removeTarget = account },
+                    onRemove = { requestRemove(account) },
                 )
             }
         }
@@ -181,7 +194,7 @@ fun MeMenu(
             icon = Icons.AutoMirrored.Filled.Logout,
             label = "Sign out",
             tint = NostrordColors.Error,
-            onClick = { activeAccount?.let { removeTarget = it } },
+            onClick = { activeAccount?.let { requestRemove(it) } },
         )
         Spacer(Modifier.height(8.dp))
     }
