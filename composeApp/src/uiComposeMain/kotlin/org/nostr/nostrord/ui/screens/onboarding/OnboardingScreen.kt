@@ -83,7 +83,7 @@ fun OnboardingScreen(onAddRelay: () -> Unit, onAddRelayCustomUrl: () -> Unit = o
                 Spacer(Modifier.height(8.dp))
 
                 Text(
-                    text = "Group messaging on Nostr. Connect to relays, join communities, and chat — open, decentralized, and without any central server.",
+                    text = "Group messaging on Nostr. Connect to relays, join communities, and chat. Open, decentralized, and without any central server.",
                     color = NostrordColors.TextMuted,
                     fontSize = descSize,
                     lineHeight = descSize * 1.55,

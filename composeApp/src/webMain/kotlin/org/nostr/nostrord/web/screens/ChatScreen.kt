@@ -729,7 +729,7 @@ val ChatScreen =
                 className = ClassName("member-sidebar")
                 div {
                     className = ClassName("member-header")
-                    span { +"Members — ${members.size}" }
+                    span { +"Members (${members.size})" }
                     // Only admins can add members — kind:9000 (put-user) is admin-only and the
                     // relay rejects it from non-admins. Mirrors native MemberSidebar.
                     if (isAdmin) {
@@ -1576,7 +1576,7 @@ private val GroupLinkCard =
 private fun ChildrenBuilder.memberSection(title: String, count: Int) {
     div {
         className = ClassName("member-section")
-        +"$title — $count"
+        +"$title ($count)"
     }
 }
 

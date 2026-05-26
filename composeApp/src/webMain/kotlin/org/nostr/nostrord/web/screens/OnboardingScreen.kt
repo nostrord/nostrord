@@ -62,8 +62,8 @@ val OnboardingScreen =
                 p {
                     className = ClassName("onboarding-desc")
                     +(
-                        "Group messaging on Nostr. Connect to relays, join communities, and chat — " +
-                            "open, decentralized, and without any central server."
+                        "Group messaging on Nostr. Connect to relays, join communities, and chat. " +
+                            "Open, decentralized, and without any central server."
                         )
                 }
 

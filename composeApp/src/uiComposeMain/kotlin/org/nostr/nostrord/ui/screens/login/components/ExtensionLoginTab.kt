@@ -41,7 +41,7 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
         )
 
         Text(
-            text = "Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostore.",
+            text = "Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostrame.",
             style = MaterialTheme.typography.bodySmall,
             color = NostrordColors.TextMuted,
             textAlign = TextAlign.Center,

@@ -163,9 +163,9 @@ fun ManageChildrenModal(
                     Spacer(modifier = Modifier.height(Spacing.md))
                     EditFieldLabel(
                         if (acceptedChildren.isEmpty()) {
-                            "Approved children — bilateral (none)"
+                            "Approved children, bilateral (none)"
                         } else {
-                            "Approved children — bilateral (${acceptedChildren.size})"
+                            "Approved children, bilateral (${acceptedChildren.size})"
                         },
                     )
                     Spacer(modifier = Modifier.height(Spacing.xs))
@@ -187,7 +187,7 @@ fun ManageChildrenModal(
                         EditFieldLabel("Confirmed via admin attestation (${attestedClaims.size})")
                         Spacer(modifier = Modifier.height(Spacing.xs))
                         Text(
-                            text = "Signed by an admin of this group — already valid. Pin to the bilateral list to make the relationship explicit.",
+                            text = "Signed by an admin of this group, already valid. Pin to the bilateral list to make the relationship explicit.",
                             style = NostrordTypography.Caption,
                             color = NostrordColors.TextMuted,
                         )
@@ -211,7 +211,7 @@ fun ManageChildrenModal(
                         EditFieldLabel("Pending claims (${pendingClaims.size})")
                         Spacer(modifier = Modifier.height(Spacing.xs))
                         Text(
-                            text = "Unilateral claims — not signed by any current admin. Approve to list bilaterally.",
+                            text = "Unilateral claims, not signed by any current admin. Approve to list bilaterally.",
                             style = NostrordTypography.Caption,
                             color = NostrordColors.TextMuted,
                         )

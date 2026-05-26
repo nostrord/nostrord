@@ -87,7 +87,7 @@ val ManageChildrenModal =
 
                 div {
                     className = ClassName("access-section-title")
-                    +"APPROVED CHILDREN — BILATERAL (${approvedChildren.size})"
+                    +"APPROVED CHILDREN, BILATERAL (${approvedChildren.size})"
                 }
                 div {
                     className = ClassName("mod-list")

@@ -273,7 +273,7 @@ val LoginScreen =
                                     }
                                     p {
                                         className = ClassName("ext-desc")
-                                        +"Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostore."
+                                        +"Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostrame."
                                     }
                                     button {
                                         className = ClassName("login-primary")

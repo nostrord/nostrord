@@ -76,7 +76,7 @@ fun RelayNip65PanelContent(
                 text = "NIP-65 relay list (kind 10002) is where other clients find your profile " +
                     "and your joined groups list (kind 10009). " +
                     "Write relays are where you publish; read relays are for cross-network discoverability. " +
-                    "Group messages are separate — they live on each group's relay.",
+                    "Group messages are separate. They live on each group's relay.",
                 color = NostrordColors.TextSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(Spacing.lg),
@@ -269,8 +269,8 @@ fun RelayNip65PanelContent(
                 colors = CardDefaults.cardColors(containerColor = NostrordColors.WarningOrange.copy(alpha = 0.15f)),
             ) {
                 Column(modifier = Modifier.padding(Spacing.lg), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (hasNoRead) Text("⚠ No read relay — cross-network discoverability will be limited.", color = NostrordColors.WarningOrange, fontSize = 13.sp)
-                    if (hasNoWrite) Text("⚠ No write relay — your profile and joined groups list won't be discoverable.", color = NostrordColors.WarningOrange, fontSize = 13.sp)
+                    if (hasNoRead) Text("⚠ No read relay. Cross-network discoverability will be limited.", color = NostrordColors.WarningOrange, fontSize = 13.sp)
+                    if (hasNoWrite) Text("⚠ No write relay. Your profile and joined groups list won't be discoverable.", color = NostrordColors.WarningOrange, fontSize = 13.sp)
                 }
             }
         }

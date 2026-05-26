@@ -779,7 +779,7 @@ private fun GroupItem(
                         containerColor = NostrordColors.Surface,
                         contentColor = NostrordColors.TextPrimary,
                     ) {
-                        Text("Unverified subgroup — this group claims a parent that hasn't listed it back.")
+                        Text("Unverified subgroup. This group claims a parent that hasn't listed it back.")
                     }
                 },
                 state = rememberTooltipState(),

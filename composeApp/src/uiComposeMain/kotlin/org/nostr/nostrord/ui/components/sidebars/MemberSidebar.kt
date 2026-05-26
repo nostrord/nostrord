@@ -137,7 +137,7 @@ fun MemberSidebar(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Members — ${visibleMembers.size}",
+                text = "Members (${visibleMembers.size})",
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
@@ -353,7 +353,7 @@ private fun MemberSectionHeader(
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = "$title — $count",
+            text = "$title ($count)",
             color = NostrordColors.TextMuted,
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.labelSmall,

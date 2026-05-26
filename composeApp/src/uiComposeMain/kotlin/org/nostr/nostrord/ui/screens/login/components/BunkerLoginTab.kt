@@ -423,7 +423,7 @@ private fun NostrConnectRelaysSection(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text(
-                "Advanced — signer relays",
+                "Advanced signer relays",
                 color = NostrordColors.TextSecondary,
                 style = MaterialTheme.typography.bodySmall,
             )

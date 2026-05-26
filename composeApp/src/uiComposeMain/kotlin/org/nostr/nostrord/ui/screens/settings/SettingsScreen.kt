@@ -1207,7 +1207,7 @@ private fun ExperimentalPanelContent(
             titleColor = NostrordColors.Warning,
             icon = Icons.Default.Lightbulb,
             content = "Features here rely on NIP drafts that haven't been accepted " +
-                "upstream yet. Behavior, event kinds, and tags may change — use " +
+                "upstream yet. Behavior, event kinds, and tags may change. Use " +
                 "at your own risk.",
             isCompact = false,
         )
