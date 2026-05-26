@@ -658,10 +658,14 @@ val ChatScreen =
                 div {
                     className = ClassName("member-header")
                     span { +"Members — ${members.size}" }
-                    button {
-                        className = ClassName("member-add-btn")
-                        onClick = { setModal("addmember") }
-                        icon(Ic.PersonAdd)
+                    // Only admins can add members — kind:9000 (put-user) is admin-only and the
+                    // relay rejects it from non-admins. Mirrors native MemberSidebar.
+                    if (isAdmin) {
+                        button {
+                            className = ClassName("member-add-btn")
+                            onClick = { setModal("addmember") }
+                            icon(Ic.PersonAdd)
+                        }
                     }
                 }
                 div {
