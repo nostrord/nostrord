@@ -99,8 +99,16 @@ private const val AVATAR_COLOR_COUNT = 8
 /** Initial-letter fallback on a deterministic colour — matches the native group avatar. */
 private fun ChildrenBuilder.letterAvatar(seed: String, name: String) {
     val index = abs(seed.hashCode()) % AVATAR_COLOR_COUNT
+    // Skip whitespace / invisible chars (some NIP-29 groups have a leading space or
+    // zero-width char in `name`, which made `.take(1)` produce an empty pill); fall
+    // through to seed if `name` carries no printable char, then a `?` as last resort.
+    val letter = (
+        name.firstOrNull { !it.isWhitespace() }
+            ?: seed.firstOrNull { !it.isWhitespace() }
+            ?: '?'
+        ).uppercaseChar().toString()
     div {
         className = ClassName("avatar-letter avatar-color-$index")
-        +name.take(1).uppercase()
+        +letter
     }
 }
