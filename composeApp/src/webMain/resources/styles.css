@@ -5092,7 +5092,10 @@ body {
 .emoji-section-title {
     position: sticky;
     top: 0;
-    padding: 8px 4px 4px;
+    /* 4px top+bottom matches native's `Spacing.xs` vertical padding on
+       EmojiPickerGrid section headers — keeps the gap between sections tight
+       rather than the doubled 8/4 padding we had before. */
+    padding: 4px 4px;
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
