@@ -4468,13 +4468,17 @@ body {
     color: var(--color-text-muted);
 }
 
+/* Native HomeScreenDesktop renders FilterBar and PickGroupSearch as two
+   GridItemSpan(maxLineSpan) rows above the cards — each on its own line,
+   each spanning the full grid width. Web mirrors that with a column-flex
+   toolbar so the search input always reaches 100% (not just on mobile)
+   and the filter chips sit on the row above it. */
 .home-toolbar {
     flex-shrink: 0;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
     padding: 8px 24px;
 }
 
@@ -4484,25 +4488,23 @@ body {
 }
 
 .home-filter {
-    /* Same box for active + inactive — only the colors change. line-height is
-       explicit so a browser's default button line-height can't make the active
-       (bolder) chip render slightly taller than the inactive one. The inactive
-       background uses the same dark slot as the cards/header so the chip reads
-       as a darker pill on the body bg — matches 0xchat's reference exactly. */
-    padding: 8px 14px;
-    font-size: 13px;
+    /* Match native FilterChip (HomeScreenDesktop.kt:312): RoundedCornerShape(4.dp),
+       padding horizontal 12 / vertical 5, fontSize 12.sp / FontWeight.SemiBold. */
+    padding: 5px 12px;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1.2;
     color: var(--color-text-muted);
     background: var(--color-background-dark);
     border: none;
-    border-radius: 8px;
+    border-radius: 4px;
     box-sizing: border-box;
     cursor: pointer;
 }
 
 .home-filter:hover {
-    background: var(--color-surface);
+    /* Native hover bg is SurfaceVariant (#40444b), not Surface. */
+    background: var(--color-surface-variant);
     color: var(--color-text-secondary);
 }
 
@@ -4512,27 +4514,21 @@ body {
 }
 
 .home-search {
-    flex: 1;
-    min-width: 160px;
-    max-width: 280px;
-    padding: 8px 12px;
+    /* Native PickGroupSearch (HomeScreenDesktop.kt:353): fillMaxWidth(),
+       height 40.dp, RoundedCornerShape(4.dp), horizontal padding 12.dp.
+       The filter pill above used to share this row with width:280px — now
+       both sit on their own row, the search always spans 100%. */
+    width: 100%;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 0 12px;
     font-size: 13px;
     font-family: inherit;
     color: var(--color-text-primary);
-    /* Dark pill, same slot as the cards — matches 0xchat reference. */
     background: var(--color-background-dark);
     border: none;
-    border-radius: 8px;
+    border-radius: 4px;
     outline: none;
-}
-
-/* Mobile: search spans the full width of its row (the toolbar wraps with the
-   chips on a separate line above, just like the native screenshot). */
-@media (max-width: 600px) {
-    .home-search {
-        max-width: none;
-        width: 100%;
-    }
 }
 
 .home-search::placeholder {
