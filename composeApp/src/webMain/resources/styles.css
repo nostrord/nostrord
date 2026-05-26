@@ -3873,6 +3873,18 @@ body {
     cursor: pointer;
 }
 
+/* Hamburger in the chat header — only visible on mobile, where the groups sidebar
+   is a drawer. Hidden on desktop where the sidebar is always present (mirrors
+   native's mobile-only navigationIcon slot in GroupHeader). */
+.chat-drawer-btn {
+    display: none;
+}
+@media (max-width: 900px) {
+    .chat-drawer-btn {
+        display: inline-flex;
+    }
+}
+
 .chat-join-btn {
     flex-shrink: 0;
     padding: 8px 18px;

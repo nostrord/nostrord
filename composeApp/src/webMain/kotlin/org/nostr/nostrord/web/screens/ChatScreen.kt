@@ -72,6 +72,9 @@ external interface ChatScreenProps : Props {
 
     /** Open another group (from a decoded naddr reference): (groupId, relayUrl?). */
     var onNavigateGroup: (String, String?) -> Unit
+
+    /** Opens the groups-sidebar drawer (mobile only — the chat header hamburger). */
+    var onOpenDrawer: () -> Unit
 }
 
 // Window (seconds) for grouping consecutive messages from the same author.
@@ -304,6 +307,13 @@ val ChatScreen =
                 // Header
                 div {
                     className = ClassName("chat-header")
+                    // Mobile-only: opens the groups-sidebar drawer (the `≡` in native's header).
+                    // CSS hides it on desktop where the sidebar is always visible.
+                    button {
+                        className = ClassName("chat-icon-btn chat-drawer-btn")
+                        onClick = { props.onOpenDrawer() }
+                        icon(Ic.Menu)
+                    }
                     div {
                         className = ClassName("chat-header-title")
                         onClick = { setInfoOpen(true) }

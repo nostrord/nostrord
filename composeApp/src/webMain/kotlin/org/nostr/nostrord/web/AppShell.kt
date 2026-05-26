@@ -500,6 +500,7 @@ val AppShell =
                                     }
                                     setSelectedGroupId(gid)
                                 }
+                                onOpenDrawer = { setDrawerOpen(true) }
                             }
                         else ->
                             HomeScreen {
