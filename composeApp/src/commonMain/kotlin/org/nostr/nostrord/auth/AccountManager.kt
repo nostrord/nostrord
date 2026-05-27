@@ -22,6 +22,13 @@ import org.nostr.nostrord.utils.epochMillis
  * which kills [switchAccount]'s reloadForActiveAccount mid-flight and leaves
  * the new account's joined-groups map unpopulated.
  */
+/** Most-recently-added accounts first. Top-level so the class is stable across
+ *  partial recompiles (the inline `sortedByDescending` form generated a
+ *  `$$inlined$sortedByDescending$1` synthetic that didn't survive hot reload).
+ */
+private val ACCOUNT_RECENT_FIRST: Comparator<Account> =
+    Comparator { a, b -> b.addedAt.compareTo(a.addedAt) }
+
 class AccountManager(
     private val accountStore: AccountStore,
     private val authManager: AuthManager,
@@ -143,11 +150,17 @@ class AccountManager(
         // added first. Iterate so a single broken fallback (bunker offline,
         // credentials wiped) does not drop the user to the login screen when
         // other valid accounts still exist.
+        //
+        // Uses a file-level Comparator instead of the inline sortedByDescending
+        // to avoid the `$$inlined$sortedByDescending$1` synthetic class — the
+        // Compose Hot Reload plugin in this project (composeApp/build.gradle.kts)
+        // sometimes fails to swap those between partial rebuilds, surfacing as a
+        // native error dialog showing just the missing class name.
         val candidates =
             if (wasActive) {
                 accountStore.accounts.value
                     .filter { it.id != accountId }
-                    .sortedByDescending { it.addedAt }
+                    .sortedWith(ACCOUNT_RECENT_FIRST)
             } else {
                 emptyList()
             }
