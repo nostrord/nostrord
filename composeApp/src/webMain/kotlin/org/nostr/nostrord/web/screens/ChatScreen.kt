@@ -97,6 +97,48 @@ private fun parentMessageOf(message: org.nostr.nostrord.network.NostrGroupClient
         ?.get(1)
 }
 
+/** Reply-preview payload: author name, plain-text body, and the parent event's tags for emoji resolution. */
+data class ReplyPreviewData(
+    val author: String,
+    val content: String,
+    val tags: List<List<String>>,
+)
+
+private val NOSTR_URI_REGEX =
+    Regex(
+        """nostr:(npub1[a-z0-9]+|nprofile1[a-z0-9]+|note1[a-z0-9]+|nevent1[a-z0-9]+|naddr1[a-z0-9]+)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+/**
+ * Replace `nostr:` mentions with their @name, [note], [event], [article] or
+ * `%groupId` short form. Used in plain-text spans (reply previews, search
+ * snippets) where the full pill rendering would be visual overkill.
+ *
+ * Web counterpart of `processMentionsInContent` in commonMain (which lives
+ * inside the uiComposeMain source set and isn't visible from webMain).
+ */
+private fun processMentions(content: String, userMetadata: Map<String, UserMetadata>): String =
+    NOSTR_URI_REGEX.replace(content) { match ->
+        val bech32 = match.groupValues[1]
+        runCatching {
+            when (val entity = Nip19.decode(bech32)) {
+                is Nip19.Entity.Npub -> {
+                    val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
+                    if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
+                }
+                is Nip19.Entity.Nprofile -> {
+                    val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
+                    if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
+                }
+                is Nip19.Entity.Note -> "[note]"
+                is Nip19.Entity.Nevent -> "[event]"
+                is Nip19.Entity.Naddr -> if (entity.kind == 39000) "%${entity.identifier}" else "[article]"
+                else -> match.value
+            }
+        }.getOrDefault(match.value)
+    }
+
 private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.displayName?.takeIf { it.isNotBlank() }
     ?: meta?.name?.takeIf { it.isNotBlank() }
     ?: (pubkey.take(8) + "…")
@@ -1074,8 +1116,14 @@ val ChatScreen =
                                     val parent = parentMessageOf(message)?.let { messagesById[it] }
                                     val replyPreview =
                                         parent?.let {
-                                            displayName(it.pubkey, userMetadata[it.pubkey]) to
-                                                it.content.replace('\n', ' ').trim().take(120)
+                                            ReplyPreviewData(
+                                                author = displayName(it.pubkey, userMetadata[it.pubkey]),
+                                                content = processMentions(it.content, userMetadata)
+                                                    .replace('\n', ' ')
+                                                    .trim()
+                                                    .take(120),
+                                                tags = it.tags,
+                                            )
                                         }
                                     val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
                                     val authorMeta = userMetadata[message.pubkey]
@@ -1607,7 +1655,7 @@ external interface MessageRowProps : Props {
     var messagesById: Map<String, NostrGroupClient.NostrMessage>
     var onEventRef: (String) -> Unit
     var onGroupRef: (String, String?) -> Unit
-    var replyTo: Pair<String, String>?
+    var replyTo: ReplyPreviewData?
     var onReplyClick: () -> Unit
     var canDelete: Boolean
     var canZap: Boolean
@@ -1772,11 +1820,14 @@ private val MessageRow =
                             className = ClassName("msg-reply-content")
                             div {
                                 className = ClassName("msg-reply-author")
-                                +reply.first
+                                +reply.author
                             }
                             div {
                                 className = ClassName("msg-reply-text")
-                                +reply.second
+                                // Mentions were already resolved to @name in the parent
+                                // build step (so we don't need userMetadata here); this
+                                // pass swaps :shortcode: tokens for inline <img>.
+                                renderTextWithEmojis(reply.content, extractEmojiMap(reply.tags))
                             }
                         }
                     }
