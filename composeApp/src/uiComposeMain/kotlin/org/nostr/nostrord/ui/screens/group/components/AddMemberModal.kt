@@ -52,25 +52,20 @@ fun AddMemberModal(
     }
 
     fun submit() {
-        val trimmed = input.trim()
-        if (trimmed.isBlank()) {
-            error = "Enter an npub or hex pubkey"
-            return
-        }
-        val pubkey =
-            when {
-                trimmed.startsWith("npub") -> {
-                    val entity = Nip19.decode(trimmed)
-                    (entity as? Nip19.Entity.Npub)?.pubkey
-                }
-                trimmed.length == 64 && trimmed.all { c -> c in '0'..'9' || c in 'a'..'f' } -> trimmed
-                else -> null
+        // Validation lives in commonMain (Nip19.parsePubkeyInput) so this and the
+        // web modal stay in sync — they both accept npub / nprofile / hex (any
+        // case) and reject nsec with a specific warning.
+        when (val parsed = Nip19.parsePubkeyInput(input)) {
+            is Nip19.PubkeyParse.Ok -> {
+                onAddMember(parsed.hex)
+                onDismiss()
             }
-        if (pubkey != null) {
-            onAddMember(pubkey)
-            onDismiss()
-        } else {
-            error = "Invalid npub or hex pubkey"
+            Nip19.PubkeyParse.Empty -> error = "Enter an npub or hex pubkey."
+            Nip19.PubkeyParse.IsPrivateKey ->
+                error = "That looks like a private key (nsec). Use the user's npub instead."
+            Nip19.PubkeyParse.NotAPubkey ->
+                error = "That's not a user identity. Paste an npub, nprofile, or hex pubkey."
+            Nip19.PubkeyParse.Malformed -> error = "Invalid npub or hex pubkey."
         }
     }
 

@@ -20,21 +20,10 @@ external interface AddMemberModalProps : Props {
     var onClose: () -> Unit
 }
 
-private const val HEX_CHARS = "0123456789abcdefABCDEF"
-
-/** Accepts an npub or 64-char hex pubkey; returns the hex pubkey, or null if invalid. */
-private fun parsePubkeyHex(input: String): String? {
-    val s = input.trim()
-    return when {
-        s.startsWith("npub1") -> (Nip19.decode(s) as? Nip19.Entity.Npub)?.pubkey
-        s.length == 64 && s.all { it in HEX_CHARS } -> s.lowercase()
-        else -> null
-    }
-}
-
 /**
  * Add-member modal — real port of the Compose AddMemberModal: an npub / hex pubkey field
- * that calls `addUser(groupId, pubkey)`. Closes on success.
+ * that calls `addUser(groupId, pubkey)`. Closes on success. Validation lives in commonMain
+ * (Nip19.parsePubkeyInput) so this and the native modal stay in sync.
  */
 val AddMemberModal =
     FC<AddMemberModalProps> { props ->
@@ -43,11 +32,26 @@ val AddMemberModal =
         val (error, setError) = useState<String?> { null }
 
         fun submit() {
-            val pubkey = parsePubkeyHex(value)
-            if (pubkey == null) {
-                setError("Invalid npub or hex pubkey")
-                return
-            }
+            val pubkey =
+                when (val parsed = Nip19.parsePubkeyInput(value)) {
+                    is Nip19.PubkeyParse.Ok -> parsed.hex
+                    Nip19.PubkeyParse.Empty -> {
+                        setError("Enter an npub or hex pubkey.")
+                        return
+                    }
+                    Nip19.PubkeyParse.IsPrivateKey -> {
+                        setError("That looks like a private key (nsec). Use the user's npub instead.")
+                        return
+                    }
+                    Nip19.PubkeyParse.NotAPubkey -> {
+                        setError("That's not a user identity. Paste an npub, nprofile, or hex pubkey.")
+                        return
+                    }
+                    Nip19.PubkeyParse.Malformed -> {
+                        setError("Invalid npub or hex pubkey.")
+                        return
+                    }
+                }
             setError(null)
             setBusy(true)
             launchApp {
