@@ -385,44 +385,22 @@ val ChatScreen =
         // (otherwise reactions appearing under the user's viewport on a near-
         // bottom feed would not re-pin to bottom). Cheap: O(messages).
         val reactionCount = reactionsByMsg.values.sumOf { it.size }
-        // Pagination restore — SYNC after the DOM commits, before the browser
-        // paints, so the user never sees the feed mid-shift.
-        //
-        // Anchor-based: find the element captured when the prepend was triggered
-        // (recorded in anchorElementId / anchorOffsetFromTop in onScroll) and
-        // adjust scrollTop so that element ends up at the same offset from the
-        // viewport top it had before. Robust against any parallel DOM change
-        // because the anchor's offsetTop reflects current reality — we don't
-        // care WHY it moved, only that it gets restored to its previous
-        // viewport position. Matches the spirit of native's LazyColumn anchoring
-        // by item key (firstVisibleItemIndex + firstVisibleItemScrollOffset).
+        // Pagination scroll preservation is now handled entirely by the
+        // browser's overflow-anchor: auto on .chat-messages. When messages
+        // prepend above the viewport, the browser picks the topmost-visible
+        // element as the anchor and adjusts scrollTop so it stays put while
+        // the new content fits in above. Previous iterations had explicit
+        // anchor-based scrollTop math here, but with the React-key fix for
+        // SystemEvent rows + the chat-loading-more pill made absolute (so it
+        // stops shifting layout on toggle), the browser's mechanism is enough
+        // — and the manual math was racing the browser's adjustment and
+        // landing the user past the correct position. We only need to settle
+        // the latch so the next pagination cycle can fire.
         useLayoutEffect(messages.size) {
-            if (loadingOlder.current != true) return@useLayoutEffect
-            if (props.scrollToMessageId != null) return@useLayoutEffect
-            val el = document.getElementById(ElementId("chat-messages")) ?: return@useLayoutEffect
-            val anchorId = anchorElementId.current
-            if (anchorId == null) {
-                loadingOlder.current = false
-                return@useLayoutEffect
-            }
-            val anchorEl = document.getElementById(ElementId(anchorId))
-            if (anchorEl == null) {
-                // Anchor unmounted between save and restore (rare — e.g., the
-                // original row was a message that got deleted mid-pagination).
-                // Bail without yanking the scroll.
+            if (loadingOlder.current == true) {
                 loadingOlder.current = false
                 anchorElementId.current = null
-                return@useLayoutEffect
             }
-            val containerTop = el.getBoundingClientRect().top
-            val currentOffset = (anchorEl.getBoundingClientRect().top as Number).toDouble() - containerTop
-            val correction = currentOffset - (anchorOffsetFromTop.current ?: 0.0)
-            // Positive correction means the anchor moved DOWN (prepend pushed
-            // it); we add to scrollTop to scroll the viewport down by the same
-            // amount, putting the anchor back exactly where it was.
-            el.scrollTop = el.scrollTop + correction
-            loadingOlder.current = false
-            anchorElementId.current = null
         }
         // Pin to bottom when the user was already there. useLayoutEffect (pre-
         // paint) so the user sees the scrolled-to-bottom state directly on first
