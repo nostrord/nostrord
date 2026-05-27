@@ -434,23 +434,65 @@ val ChatScreen =
             setAtBottomState(false)
             wasNotAtBottom.current = true
         }
-        // Async media (images / videos) resolves dimensions AFTER the initial
-        // pin-to-bottom fires, which makes the feed grow underneath the user and
-        // leaves them mid-scroll on group entry. Listen for the chat-content-loaded
-        // CustomEvent fired by ChatImage onLoad / video onLoadedMetadata and
-        // re-pin to bottom whenever the user was still anchored there. (issue #74)
+        // Keep the feed pinned to the bottom while async media settles. Async
+        // images / videos resolve their final dimensions AFTER the initial pin
+        // fires; the feed grows under the user and leaves them mid-scroll.
+        //
+        // The chat-content-loaded CustomEvent (from ChatImage.onLoad /
+        // ChatVideo.onLoadedMetadata) was the first attempt at this but it
+        // loses cached-image loads that fire synchronously before this effect
+        // attaches. The ResizeObserver below catches every media element's
+        // intrinsic-size change regardless of cache state, and a
+        // MutationObserver attaches it to media added later (pagination, new
+        // arrivals) so a single setup covers the whole session. (issue #74)
         useEffect(group.id) {
-            val handler: (dynamic) -> Unit = {
+            val pinIfAtBottom = {
                 if (atBottom.current == true && props.scrollToMessageId == null) {
                     val el = document.getElementById(ElementId("chat-messages"))
                     if (el != null) el.scrollTop = el.scrollHeight.toDouble()
                 }
+                Unit
             }
-            document.asDynamic().addEventListener("chat-content-loaded", handler)
+            document.asDynamic().addEventListener("chat-content-loaded", { _: dynamic -> pinIfAtBottom() })
+            // Inline JS: kotlin-react has no first-class ResizeObserver /
+            // MutationObserver bindings and writing it this way matches the
+            // pattern already used by installGlobalModalFocusTrap.
+            val cleanup =
+                js(
+                    """
+                    (function(onResize) {
+                        var container = document.getElementById('chat-messages');
+                        if (!container) return function() {};
+                        var ro = new ResizeObserver(function() { onResize(); });
+                        function observeIn(node) {
+                            if (!node || node.nodeType !== 1) return;
+                            if (node.tagName === 'IMG' || node.tagName === 'VIDEO') {
+                                ro.observe(node);
+                            }
+                            if (node.querySelectorAll) {
+                                var media = node.querySelectorAll('img, video');
+                                for (var i = 0; i < media.length; i++) ro.observe(media[i]);
+                            }
+                        }
+                        // Seed with what's already mounted (covers cached images
+                        // whose load event already fired before this ran).
+                        observeIn(container);
+                        var mo = new MutationObserver(function(records) {
+                            for (var i = 0; i < records.length; i++) {
+                                var added = records[i].addedNodes;
+                                for (var j = 0; j < added.length; j++) observeIn(added[j]);
+                            }
+                        });
+                        mo.observe(container, { childList: true, subtree: true });
+                        return function() { ro.disconnect(); mo.disconnect(); };
+                    })
+                """,
+                )
+            val disconnect = cleanup(pinIfAtBottom)
             try {
                 kotlinx.coroutines.awaitCancellation()
             } finally {
-                document.asDynamic().removeEventListener("chat-content-loaded", handler)
+                disconnect()
             }
         }
         // Deep-link target (?e=<id>): fetch the exact event by id once. This is the fast path —
