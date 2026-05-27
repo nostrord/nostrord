@@ -104,6 +104,9 @@ fun MessagesList(
     onScrollToMessage: (String) -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     onReachedBottom: () -> Unit = {},
+    // Fired when the user scrolls up away from the bottom. Used by the
+    // "New messages" divider dismissal (issue #83).
+    onLeftBottom: () -> Unit = {},
     targetMessageId: String? = null,
     onTargetConsumed: () -> Unit = {},
     onFetchTargetById: (String) -> Unit = {},
@@ -113,6 +116,7 @@ fun MessagesList(
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
     val currentOnReachedBottom by rememberUpdatedState(onReachedBottom)
+    val currentOnLeftBottom by rememberUpdatedState(onLeftBottom)
     val currentOnFetchTargetById by rememberUpdatedState(onFetchTargetById)
     val currentChatItems by rememberUpdatedState(chatItems)
 
@@ -306,7 +310,9 @@ fun MessagesList(
     }
 
     // Mark as read when the user has scrolled to (or is pinned at) the bottom.
-    // Debounced so rapid scrolls don't hammer storage.
+    // Debounced so rapid scrolls don't hammer storage. Also fires onLeftBottom on
+    // the opposite transition so callers can detect a round-trip (used by the
+    // "New messages" divider dismissal — issue #83).
     @OptIn(kotlinx.coroutines.FlowPreview::class)
     LaunchedEffect(listState) {
         snapshotFlow {
@@ -316,8 +322,9 @@ fun MessagesList(
             lastVisible >= 0 && total > 0 && lastVisible >= total - 2
         }.distinctUntilChanged()
             .debounce(500)
-            .filter { it }
-            .collect { currentOnReachedBottom() }
+            .collect { atBottom ->
+                if (atBottom) currentOnReachedBottom() else currentOnLeftBottom()
+            }
     }
 
     // Compensate the LazyColumn's scroll as the IME animates so visible content rides

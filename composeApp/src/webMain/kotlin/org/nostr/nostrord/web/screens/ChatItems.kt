@@ -15,6 +15,9 @@ enum class SystemEventType { JOINED, ROLE_CHANGED, REMOVED, LEFT }
 sealed class WebChatItem {
     data class DateSeparator(val date: String) : WebChatItem()
 
+    /** Divider shown to indicate where new (unread) messages begin. Mirrors native. */
+    data object NewMessagesDivider : WebChatItem()
+
     data class SystemEvent(
         val pubkey: String,
         val action: String,
@@ -40,7 +43,11 @@ sealed class WebChatItem {
  * 9000 (ambiguous add vs. role removal) and a 9001 that just confirms a recent 9022 leave are
  * suppressed, exactly like native.
  */
-fun buildWebChatItems(messages: List<NostrGroupClient.NostrMessage>): List<WebChatItem> {
+fun buildWebChatItems(
+    messages: List<NostrGroupClient.NostrMessage>,
+    lastReadTimestamp: Long? = null,
+    currentUserPubkey: String? = null,
+): List<WebChatItem> {
     val items = mutableListOf<WebChatItem>()
     val sorted = messages.sortedBy { it.createdAt }
 
@@ -52,6 +59,11 @@ fun buildWebChatItems(messages: List<NostrGroupClient.NostrMessage>): List<WebCh
     var lastMessageTime: Long? = null
     var pending: WebChatItem.SystemEvent? = null
     val pendingUsers = mutableListOf<String>()
+    // Insert the "New messages" divider exactly once, before the first message
+    // from someone else that's newer than the last-read snapshot. Skipping our
+    // own messages avoids the obvious bug where the divider sits above what we
+    // just wrote (issue #83).
+    var dividerInserted = false
 
     fun flush() {
         pending?.let { items.add(it.copy(additionalUsers = pendingUsers.toList())) }
@@ -80,6 +92,17 @@ fun buildWebChatItems(messages: List<NostrGroupClient.NostrMessage>): List<WebCh
             lastDate = date
             lastMessagePubkey = null
             lastMessageTime = null
+        }
+
+        // Insert the divider before the first unread message from another user.
+        if (!dividerInserted &&
+            lastReadTimestamp != null &&
+            message.createdAt > lastReadTimestamp &&
+            message.pubkey != currentUserPubkey
+        ) {
+            flush()
+            items.add(WebChatItem.NewMessagesDivider)
+            dividerInserted = true
         }
 
         when (message.kind) {

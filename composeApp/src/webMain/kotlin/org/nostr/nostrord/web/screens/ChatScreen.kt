@@ -251,6 +251,13 @@ val ChatScreen =
         val prevScrollHeight = useRef(0.0)
         val prevScrollTop = useRef(0.0)
         val atBottom = useRef(true)
+        // "New messages" divider snapshot. Captured once on group entry, then
+        // cleared the first time the user scrolls up and back down to the bottom
+        // (issue #83 — divider sticks around after the user has clearly read them).
+        // Tracked together with `wasNotAtBottom` so the initial auto-pin-to-bottom
+        // doesn't clear it immediately on entry.
+        val (lastReadSnapshot, setLastReadSnapshot) = useState<Long?> { null }
+        val wasNotAtBottom = useRef(false)
 
         // Composer textarea ref. Two effects ride on it: (1) auto-focus when the
         // user stages a reply (matches native's keyboard-up behaviour), and (2)
@@ -273,6 +280,11 @@ val ChatScreen =
         // Load messages + author/member metadata when the group (or its rosters) change.
         useEffect(group.id) {
             launchApp { repo.requestGroupMessages(group.id) }
+            // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
+            // so the divider can anchor on the user's actual last-read message
+            // through the session. Native does the same with remember(groupId).
+            setLastReadSnapshot(repo.getLastReadTimestamp(group.id))
+            wasNotAtBottom.current = false
         }
         // Admin in a closed group: pull pending join requests explicitly + poll.
         // The standard chat REQ caps at 50 events and buries old 9021s under recent
@@ -564,7 +576,18 @@ val ChatScreen =
                     onScroll = { event ->
                         val el = event.currentTarget
                         val sh = el.scrollHeight.toDouble()
-                        atBottom.current = (sh - el.scrollTop - el.clientHeight.toDouble()) < 120.0
+                        val isAtBottom = (sh - el.scrollTop - el.clientHeight.toDouble()) < 120.0
+                        atBottom.current = isAtBottom
+                        // "New messages" divider: gate dismissal on a round-trip — only
+                        // clear once the user has scrolled away from the bottom AND back.
+                        // Without the round-trip check, the entry auto-pin-to-bottom would
+                        // wipe the divider on first paint and the user would never see it.
+                        // (issue #83)
+                        if (!isAtBottom) {
+                            wasNotAtBottom.current = true
+                        } else if (wasNotAtBottom.current == true && lastReadSnapshot != null) {
+                            setLastReadSnapshot(null)
+                        }
                         if (el.scrollTop < 80.0 && hasMore && !isLoadingMore && loadingOlder.current != true) {
                             loadingOlder.current = true
                             prevScrollHeight.current = sh
@@ -594,7 +617,7 @@ val ChatScreen =
                             +"No messages yet. Say hello 👋"
                         }
                     } else {
-                        buildWebChatItems(messages).forEach { item ->
+                        buildWebChatItems(messages, lastReadSnapshot, myPubkey).forEach { item ->
                             when (item) {
                                 is WebChatItem.DateSeparator ->
                                     div {
@@ -603,6 +626,16 @@ val ChatScreen =
                                         span {
                                             className = ClassName("date-sep-label")
                                             +item.date
+                                        }
+                                    }
+
+                                is WebChatItem.NewMessagesDivider ->
+                                    div {
+                                        key = "new-messages-divider"
+                                        className = ClassName("new-msg-divider")
+                                        span {
+                                            className = ClassName("new-msg-divider-label")
+                                            +"New Messages"
                                         }
                                     }
 

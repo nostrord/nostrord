@@ -2315,6 +2315,30 @@ body {
     font-weight: 600;
     color: var(--color-text-secondary);
 }
+/* "New messages" divider — red lines + bold label, mirrors native NewMessagesDivider.
+   Lives between the last-read message and the first unread from another user, and is
+   dismissed once the user has scrolled away from the bottom and back (issue #83). */
+.new-msg-divider {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+}
+.new-msg-divider::before,
+.new-msg-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-error);
+}
+.new-msg-divider-label {
+    flex-shrink: 0;
+    padding: 0 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-error);
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
 /* Moderation / system event rows (join / role change / removed / left) — mirrors native. */
 .sys-event {
     display: flex;
