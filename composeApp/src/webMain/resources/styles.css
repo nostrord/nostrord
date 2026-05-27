@@ -1004,6 +1004,40 @@ body {
     background: var(--color-surface-variant);
 }
 
+/* Orphaned joined group — kind:10009 pin with no matching kind:39000 on the
+   relay. Muted text + no hover affordance on the row body so the user can't
+   accidentally try to open a dead group; only the trailing trash button is
+   actionable. */
+.sidebar-group.orphan {
+    opacity: 0.5;
+    cursor: default;
+}
+.sidebar-group.orphan:hover {
+    background: transparent;
+}
+.sidebar-group-forget {
+    margin-left: auto;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.sidebar-group-forget:hover {
+    background: var(--color-error);
+    color: #fff;
+}
+.sidebar-group-forget > svg {
+    width: 14px;
+    height: 14px;
+}
+
 .group-icon-sm {
     /* Native GroupNavIcon: size = 22.dp. Web was 32px, ~45% bigger than native. */
     width: 22px;

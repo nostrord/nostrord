@@ -113,9 +113,26 @@ val AppShell =
 
         val groups = groupsByRelay[activeRelay].orEmpty()
         val joinedIds = joinedByRelay[activeRelay].orEmpty()
-        val myGroups = groups.filter { it.id in joinedIds }
+        // Sort MY GROUPS by most-recent activity (matches GroupsNavSidebar.kt:148-154).
+        // Groups with no known timestamp sink to the bottom in stable input order.
+        val latestMessageTimestamps = useStateFlow(repo.latestMessageTimestamps)
+        val myGroups =
+            groups
+                .filter { it.id in joinedIds }
+                .sortedByDescending { latestMessageTimestamps[it.id] ?: Long.MIN_VALUE }
         val otherGroups = groups.filter { it.id !in joinedIds }
         val groupsLoading = activeRelay in loadingRelays
+        // Joined IDs that have no kind:39000 on this relay — stale kind:10009 pins
+        // (the group was deleted while we were offline, or the relay forgot it).
+        // We surface them with a 'forget' action so the user can clean up their
+        // pin list without trying to enter a dead group.
+        val orphanedByRelay = useStateFlow(repo.orphanedJoinedByRelay)
+        val orphanedIds = orphanedByRelay[activeRelay].orEmpty()
+        // Lazy relays only fetch their joined groups up front; the full kind:39000
+        // catalogue is loaded on demand. We trigger it when OTHER GROUPS is
+        // expanded (see useEffect below). Matches GroupsNavSidebar.kt:176-183.
+        val isRelayLazy = repo.isGroupFetchLazy(activeRelay)
+        val hasFullList = activeRelay in fullListFetched
 
         val activePubkey = repo.getPublicKey()
         val meMetadata = activePubkey?.let { userMetadata[it] }
@@ -155,7 +172,28 @@ val AppShell =
         val (removeTarget, setRemoveTarget) = useState<Account?> { null }
         val (removeTargetBusy, setRemoveTargetBusy) = useState { false }
         val (myExpanded, setMyExpanded) = useState { true }
+        // OTHER GROUPS expansion is persisted per relay so a deliberately
+        // collapsed sidebar stays collapsed on next session. Matches native
+        // GroupsNavSidebar.kt:167-169.
         val (otherExpanded, setOtherExpanded) = useState { true }
+        useEffect(activeRelay) {
+            if (activeRelay.isBlank()) return@useEffect
+            setOtherExpanded(SecureStorage.getBooleanPref("sidebar_other_expanded_$activeRelay", default = true))
+        }
+        useEffect(activeRelay, otherExpanded) {
+            if (activeRelay.isNotBlank()) {
+                SecureStorage.saveBooleanPref("sidebar_other_expanded_$activeRelay", otherExpanded)
+            }
+        }
+        // Lazy relays only fetch joined groups up front; the OTHER GROUPS list
+        // arrives only when the user opens that section. Same trigger native
+        // uses (GroupsNavSidebar.kt:179-183).
+        val isConnected = connState is ConnectionManager.ConnectionState.Connected
+        useEffect(activeRelay, otherExpanded, isRelayLazy, hasFullList, isConnected) {
+            if (otherExpanded && isRelayLazy && !hasFullList && isConnected && activeRelay.isNotBlank()) {
+                launchApp { repo.requestFullGroupListForRelay(activeRelay) }
+            }
+        }
         // Groups sidebar search query (filters My Groups + Other Groups by name/id, like native).
         val (groupQuery, setGroupQuery) = useState { "" }
         val firstNav = useRef(true)
@@ -508,12 +546,23 @@ val AppShell =
                                     myGroups.forEach { group ->
                                         sidebarGroupRow(group, selectedGroupId == group.id, unreadCounts[group.id] ?: 0, openGroup)
                                     }
+                                    // Joined IDs without a matching kind:39000 on this relay
+                                    // — stale kind:10009 pins. Render them at the bottom of
+                                    // MY GROUPS as muted rows with a 'forget' action that
+                                    // removes them from the user's pin list. Matches the
+                                    // native MY GROUPS treatment (GroupsNavSidebar.kt) where
+                                    // these rows are visually demoted with a forget IconButton.
+                                    orphanedIds.forEach { id ->
+                                        orphanedGroupRow(id) {
+                                            launchApp { repo.forgetGroup(id, activeRelay) }
+                                        }
+                                    }
                                 }
 
                                 // Show the section if there are Other Groups OR a query is active
                                 // (so an empty-result search keeps the input visible to clear/edit).
                                 if (otherGroups.isNotEmpty() || groupQ.isNotEmpty()) {
-                                    sectionToggle("Other Groups", otherExpanded) { setOtherExpanded(!otherExpanded) }
+                                    sectionToggle("Other Groups", otherExpanded, otherGroups.size) { setOtherExpanded(!otherExpanded) }
                                     if (otherExpanded) {
                                         div {
                                             className = ClassName("sidebar-search")
@@ -952,7 +1001,7 @@ val AppShell =
         }
     }
 
-private fun ChildrenBuilder.sectionToggle(label: String, expanded: Boolean, onToggle: () -> Unit) {
+private fun ChildrenBuilder.sectionToggle(label: String, expanded: Boolean, count: Int? = null, onToggle: () -> Unit) {
     div {
         className = ClassName("sidebar-section-toggle")
         onClick = { onToggle() }
@@ -964,7 +1013,39 @@ private fun ChildrenBuilder.sectionToggle(label: String, expanded: Boolean, onTo
         }
         span {
             className = ClassName("sidebar-section-label")
-            +label
+            +(if (count != null) "$label ($count)" else label)
+        }
+    }
+}
+
+/** Row for a joined group with no kind:39000 on the relay (stale kind:10009
+ *  pin). Visually muted, click-disabled — only the trailing 'forget' button
+ *  is interactive. Removes the pin so the relay's catalogue stops shadowing
+ *  it on the user's other devices too (forgetGroup republishes kind:10009). */
+private fun ChildrenBuilder.orphanedGroupRow(groupId: String, onForget: () -> Unit) {
+    div {
+        key = "orphan-$groupId"
+        className = ClassName("sidebar-group orphan")
+        title = "This group is no longer on the relay. Click the trash to remove it from your pins."
+        WebAvatar {
+            seed = groupId
+            kind = AvatarKind.GROUP
+            name = groupId
+            cls = "group-icon-sm"
+        }
+        span {
+            className = ClassName("sidebar-group-name")
+            // Show a shortened hex id — there's no name (no kind:39000).
+            +(groupId.take(12) + "…")
+        }
+        button {
+            className = ClassName("sidebar-group-forget")
+            title = "Forget this group"
+            onClick = { event ->
+                event.stopPropagation()
+                onForget()
+            }
+            icon(Ic.Delete)
         }
     }
 }
