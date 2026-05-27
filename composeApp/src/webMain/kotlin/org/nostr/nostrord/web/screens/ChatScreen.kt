@@ -240,6 +240,24 @@ val ChatScreen =
             setDraft(draft.take(m.start) + ref + " " + draft.substring(cursorEnd))
             setMention(null)
         }
+        // Mirrors native's isSupportedMediaMime: image / video / audio go to
+        // nostr.build. Anything else is dropped — copying a .zip or .pdf from the
+        // file manager would otherwise upload bytes the relay can't render.
+        fun isMediaMime(type: String?): Boolean =
+            type != null &&
+                (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/"))
+
+        // Shared between Ctrl/Cmd+V paste and drag-and-drop: upload the file to
+        // nostr.build, append the returned URL to the composer draft (matches
+        // the native ClipboardImageReader path — see ClipboardImage.jvm.kt).
+        fun handleMediaFile(file: dynamic) {
+            launchApp {
+                val url = uploadBlob(file)
+                if (url != null) {
+                    setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                }
+            }
+        }
         // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
 
@@ -881,25 +899,39 @@ val ChatScreen =
                                 }
                             }
                             onBlur = { window.setTimeout({ setMention(null) }, 150) }
-                            // Ctrl/Cmd+V of an image: upload it and append the URL to the draft.
+                            // Ctrl/Cmd+V of any image/video/audio file: upload to
+                            // nostr.build and append the URL to the draft. Matches
+                            // native ClipboardImageReader, which handles both raw
+                            // image bytes AND file references from the file manager.
                             onPaste = { event ->
                                 val items = event.asDynamic().clipboardData?.items
                                 val count = (items?.length as? Int) ?: 0
                                 for (i in 0 until count) {
                                     val item = items[i]
                                     val type = item.type.unsafeCast<String?>()
-                                    if (item.kind == "file" && type != null && type.startsWith("image/")) {
+                                    if (item.kind == "file" && isMediaMime(type)) {
                                         val file = item.getAsFile()
                                         if (file != null) {
                                             event.preventDefault()
-                                            launchApp {
-                                                val url = uploadBlob(file)
-                                                if (url != null) {
-                                                    setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
-                                                }
-                                            }
+                                            handleMediaFile(file)
                                         }
                                     }
+                                }
+                            }
+                            // Drag a file from the OS file manager onto the composer:
+                            // same upload path as paste. dragover.preventDefault is
+                            // required to make the textarea a valid drop target —
+                            // browsers reject the drop otherwise. (Native gets this
+                            // via the OS clipboard; web needs the explicit gesture.)
+                            onDragOver = { it.preventDefault() }
+                            onDrop = { event ->
+                                val files = event.asDynamic().dataTransfer?.files
+                                val count = (files?.length as? Int) ?: 0
+                                if (count > 0) event.preventDefault()
+                                for (i in 0 until count) {
+                                    val file = files[i]
+                                    val type = file.type.unsafeCast<String?>()
+                                    if (isMediaMime(type)) handleMediaFile(file)
                                 }
                             }
                         }
