@@ -511,6 +511,15 @@ val ChatScreen =
                                 entryState is GroupLoadingState.Error
                             )
                     )
+            console.log(
+                "[pag] entry:",
+                group.id.take(8),
+                "entryState=", entryState?.let { it::class.simpleName } ?: "null",
+                "msgsAtEntry=", haveMsgsAtEntry,
+                "needsForceRefresh=", needsForceRefresh,
+                "isMember=", isMember,
+                "relayUrl=", relayUrl,
+            )
             if (needsForceRefresh) {
                 repo.resetGroupLoadingState(group.id)
             }
@@ -523,7 +532,14 @@ val ChatScreen =
                 if (stateBefore is GroupLoadingState.InitialLoading && attempts > 0) {
                     repo.resetGroupLoadingState(group.id)
                 }
-                repo.requestGroupMessages(group.id)
+                val reqOk = repo.requestGroupMessages(group.id)
+                console.log(
+                    "[pag] entry retry:",
+                    group.id.take(8),
+                    "attempt=", attempts,
+                    "stateBefore=", stateBefore?.let { it::class.simpleName } ?: "null",
+                    "requestGroupMessages=", reqOk,
+                )
                 delay(2_000)
                 val msgsAfter = repo.messages.value[group.id].orEmpty().size
                 val state = repo.groupStates.value[group.id]
@@ -532,6 +548,14 @@ val ChatScreen =
                     state is GroupLoadingState.Paginating ||
                     state is GroupLoadingState.Exhausted ||
                     state is GroupLoadingState.Error
+                console.log(
+                    "[pag] entry retry result:",
+                    group.id.take(8),
+                    "attempt=", attempts,
+                    "msgsAfter=", msgsAfter,
+                    "state=", state?.let { it::class.simpleName } ?: "null",
+                    "settled=", settled,
+                )
                 if (settled) break
                 attempts++
             }
@@ -588,19 +612,47 @@ val ChatScreen =
         // latch forever. Native's snapshotFlow side-steps this by reading
         // `hasMore && !isLoadingMore` continuously — we approximate that
         // by clearing the latch here.
-        useEffect(hasMore, isLoadingMore) {
-            if (isLoadingMore) return@useEffect
+        useEffect(hasMore, isLoadingMore, messages.size) {
+            if (isLoadingMore) {
+                console.log("[pag] settle: isLoadingMore=true, skip", group.id.take(8))
+                return@useEffect
+            }
             loadingOlder.current = false
             anchorElementId.current = null
-            if (!hasMore) return@useEffect
+            // Match native's `totalItems > 0` precondition: on cold-boot the
+            // controller is Idle so hasMore/isLoadingMore both fall back to
+            // `?: true` / `?: false`. Without this guard the very first
+            // render would fire a phantom loadMoreMessages on an empty list,
+            // which no-ops at the controller (state=Idle, startPagination
+            // returns null) but can mask later real triggers if anything in
+            // the chain ever races.
+            if (messages.isEmpty()) {
+                console.log("[pag] settle: messages empty, skip", group.id.take(8))
+                return@useEffect
+            }
+            if (!hasMore) {
+                console.log("[pag] settle: hasMore=false, skip", group.id.take(8))
+                return@useEffect
+            }
             val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
             val prefetchTrigger = el.clientHeight.toDouble() * 2.0
+            console.log(
+                "[pag] settle:",
+                group.id.take(8),
+                "scrollTop=", el.scrollTop,
+                "prefetchTrigger=", prefetchTrigger,
+                "msgs=", messages.size,
+            )
             if (el.scrollTop < prefetchTrigger) {
                 loadingOlder.current = true
+                console.log("[pag] settle: firing loadMoreMessages", group.id.take(8))
                 // Skip the anchor capture path: the user is not actively
                 // scrolling here, so the browser's overflow-anchor: auto
                 // handles the prepend on its own.
-                launchApp { repo.loadMoreMessages(group.id) }
+                launchApp {
+                    val ok = repo.loadMoreMessages(group.id)
+                    console.log("[pag] settle: loadMoreMessages returned", ok, group.id.take(8))
+                }
             }
         }
         // Pin to bottom when the user was already there. useLayoutEffect (pre-
@@ -1002,8 +1054,22 @@ val ChatScreen =
                         // arrive and the scroll position is restored before the
                         // user's reading area is visibly affected.
                         val prefetchTrigger = el.clientHeight.toDouble() * 2.0
+                        // Log every scroll-near-top event so we can see when the guard
+                        // would fire and why it doesn't (hasMore false, isLoadingMore
+                        // true, latch held).
+                        if (el.scrollTop < prefetchTrigger) {
+                            console.log(
+                                "[pag] scroll near top:",
+                                group.id.take(8),
+                                "scrollTop=", el.scrollTop,
+                                "hasMore=", hasMore,
+                                "isLoadingMore=", isLoadingMore,
+                                "loadingOlder=", loadingOlder.current,
+                            )
+                        }
                         if (el.scrollTop < prefetchTrigger && hasMore && !isLoadingMore && loadingOlder.current != true) {
                             loadingOlder.current = true
+                            console.log("[pag] scroll: firing loadMoreMessages", group.id.take(8))
                             // Pick the first child whose top is at or below the
                             // container's top — that's the row anchored to the
                             // viewport's top edge. Record its id and the offset
@@ -1028,7 +1094,10 @@ val ChatScreen =
                                 }
                             }
                             if (!foundAnchor) anchorElementId.current = null
-                            launchApp { repo.loadMoreMessages(group.id) }
+                            launchApp {
+                                val ok = repo.loadMoreMessages(group.id)
+                                console.log("[pag] scroll: loadMoreMessages returned", ok, group.id.take(8))
+                            }
                         }
                     }
                     if (isLoadingMore && messages.isNotEmpty()) {
