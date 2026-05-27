@@ -2330,6 +2330,8 @@ body {
        don't lose it to a future cascade override. (issue #74) */
     overflow-anchor: auto;
     padding: 16px 0;
+    /* Anchor for the absolutely-positioned .chat-loading-more pill. */
+    position: relative;
 }
 /* Date separator: a centered label flanked by divider lines (mirrors the native DateSeparator). */
 .date-sep {
@@ -2472,10 +2474,23 @@ body {
 }
 
 .chat-loading-more {
-    padding: 10px;
+    /* Float over the top of the chat instead of taking layout space — its
+       ~30px height was inserting / removing on every pagination cycle,
+       shifting every message below it and racing with the scroll-anchor
+       restore. position: absolute keeps it visible while in flight without
+       affecting the flow of the messages around it. */
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    padding: 6px 14px;
     text-align: center;
     font-size: 12px;
     color: var(--color-text-muted);
+    background: var(--color-background-dark);
+    border-radius: 12px;
+    pointer-events: none;
 }
 
 .chat-date {
