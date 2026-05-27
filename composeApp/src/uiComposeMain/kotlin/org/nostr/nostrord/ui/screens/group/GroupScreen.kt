@@ -492,19 +492,30 @@ fun GroupScreen(
                     onClick = {
                         deleteInProgress = true
                         deleteErrorMessage = null
-                        vm.deleteGroup { result ->
-                            deleteInProgress = false
-                            when (result) {
-                                is Result.Success -> {
-                                    showDeleteGroupDialog = false
-                                    onNavigateHome()
-                                }
-                                is Result.Error -> {
-                                    deleteErrorMessage = result.error.cause?.message
-                                        ?: result.error.message
-                                        ?: "Failed to delete group."
+                        // Catch everything (incl. LinkageError / NoClassDefFoundError
+                        // which composeHotReload can synthesize during a partial
+                        // recompile that renumbers anonymous Compose lambdas) so a
+                        // stale-bytecode bug surfaces as an inline error message
+                        // instead of the bare native error dialog the EDT shows
+                        // when a Throwable escapes a click callback.
+                        try {
+                            vm.deleteGroup { result ->
+                                deleteInProgress = false
+                                when (result) {
+                                    is Result.Success -> {
+                                        showDeleteGroupDialog = false
+                                        onNavigateHome()
+                                    }
+                                    is Result.Error -> {
+                                        deleteErrorMessage = result.error.cause?.message
+                                            ?: result.error.message
+                                            ?: "Failed to delete group."
+                                    }
                                 }
                             }
+                        } catch (t: Throwable) {
+                            deleteInProgress = false
+                            deleteErrorMessage = "Could not delete group: ${t.message ?: t::class.simpleName}"
                         }
                     },
                 ) {
