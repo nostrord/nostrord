@@ -9,17 +9,22 @@ import org.nostr.nostrord.web.components.installGlobalModalFocusTrap
 import org.nostr.nostrord.web.screens.LoginScreen
 import react.FC
 import react.Props
-import react.dom.html.ReactHTML.div
+import react.useEffect
 import react.useEffectOnce
-import web.cssom.ClassName
 import web.dom.ElementId
 import web.dom.document
 
 /**
  * Root React component. On mount it runs the real cold-start sequence — same as the Compose
  * AppViewModel: `nostrRepository.initialize()` (restores any persisted session and starts
- * relay/group discovery), with a 30s `forceInitialized()` fallback. The gate then mirrors
- * the app: loading until initialized, then shell (logged in) or login.
+ * relay/group discovery), with a 30s `forceInitialized()` fallback.
+ *
+ * The HTML `#loading-shell` (index.html) stays visible until `data-app-ready` is set on
+ * `#composeApplication`. We set that only AFTER `repo.isInitialized` flips true — that way
+ * the shell bridges the whole cold-start (HTML parse → bundle load → repo.initialize) and
+ * hands off directly to Login / AppShell, instead of the canvas-era pattern of two spinners
+ * in a row (HTML shell removed on React mount, then a separate `.app-loading` rendered while
+ * the repo finished initializing).
  */
 val WebApp =
     FC<Props> {
@@ -28,9 +33,6 @@ val WebApp =
         val loggedIn = useStateFlow(repo.isLoggedIn)
 
         useEffectOnce {
-            document
-                .getElementById(ElementId("composeApplication"))
-                ?.setAttribute("data-app-ready", "true")
             // Track tab focus so notifications/unread are suppressed while the app is visible
             // (mirrors native App.kt; without this the focus-gated dispatch never updates).
             installPlatformFocusListeners(AppModule.focusTracker)
@@ -52,12 +54,21 @@ val WebApp =
             }
         }
 
+        // Hand off the HTML loading shell to the React app once initialization
+        // completes. Setting this earlier (on mount) would expose the user to a
+        // visible second spinner while the repo finishes booting.
+        useEffect(initialized) {
+            if (initialized) {
+                document
+                    .getElementById(ElementId("composeApplication"))
+                    ?.setAttribute("data-app-ready", "true")
+            }
+        }
+
         when {
-            !initialized ->
-                div {
-                    className = ClassName("app-loading")
-                    div { className = ClassName("app-spinner") }
-                }
+            // Render nothing until initialized; the HTML shell holds the screen
+            // and only fades out once data-app-ready is set above.
+            !initialized -> null
             loggedIn -> AppShell()
             else -> LoginScreen()
         }

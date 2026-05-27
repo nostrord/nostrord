@@ -70,7 +70,9 @@
             .catch(err => console.warn('[SW] Registration failed:', err));
     }
 </script>
-<!-- Loading shell — visible until app canvas is painted -->
+<!-- Loading shell — visible from HTML parse until WebApp signals
+     data-app-ready (after repo.isInitialized flips true). Bridges the full
+     cold-start so the user sees one spinner, not the canvas-era pair. -->
 <div id="loading-shell" style="
     position:fixed; inset:0; z-index:9999;
     display:flex; flex-direction:column;
