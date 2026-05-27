@@ -730,8 +730,23 @@ val AppShell =
                             div {
                                 className = ClassName("me-header-meta")
                                 div {
-                                    className = ClassName("me-name")
-                                    +meName
+                                    className = ClassName("me-name-row")
+                                    div {
+                                        className = ClassName("me-name")
+                                        +meName
+                                    }
+                                    button {
+                                        className = ClassName("me-edit-btn")
+                                        title = "Edit profile"
+                                        onClick = {
+                                            // Open Settings — it defaults to the
+                                            // Profile section, which already has
+                                            // the full kind:0 edit form.
+                                            setMenuOpen(false)
+                                            setSettingsOpen(true)
+                                        }
+                                        icon(Ic.Edit)
+                                    }
                                 }
                                 div {
                                     className = ClassName("me-npub")

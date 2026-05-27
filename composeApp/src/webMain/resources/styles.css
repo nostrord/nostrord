@@ -1252,13 +1252,46 @@ body {
     min-width: 0;
 }
 
+.me-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
 .me-name {
+    flex: 1;
+    min-width: 0;
     font-size: 16px;
     font-weight: 600;
     color: #fff;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+/* Pencil button next to the user's display name in the account menu —
+   opens the EditProfileModal. Sized like .me-npub-copy so the two
+   inline-action affordances visually rhyme. */
+.me-edit-btn {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+.me-edit-btn:hover {
+    background: var(--color-surface-variant);
+    color: var(--color-text-primary);
+}
+.me-edit-btn > svg {
+    width: 14px;
+    height: 14px;
 }
 
 .me-npub {
