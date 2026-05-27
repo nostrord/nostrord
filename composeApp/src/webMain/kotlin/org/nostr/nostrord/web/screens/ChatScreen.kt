@@ -56,6 +56,7 @@ import react.dom.html.ReactHTML.textarea
 import react.dom.html.ReactHTML.video
 import react.useEffect
 import react.useEffectOnce
+import react.useLayoutEffect
 import react.useRef
 import react.useState
 import web.cssom.ClassName
@@ -243,8 +244,12 @@ val ChatScreen =
         val (modal, setModal) = useState<String?> { null }
 
         // Scroll/pagination bookkeeping (refs so they don't trigger re-render).
+        // prevScrollTop + prevScrollHeight together let us restore the user's
+        // *exact* reading position after an older page prepends, instead of
+        // assuming they were at scrollTop=0 (issue #74).
         val loadingOlder = useRef(false)
         val prevScrollHeight = useRef(0.0)
+        val prevScrollTop = useRef(0.0)
         val atBottom = useRef(true)
 
         // Composer textarea ref. Two effects ride on it: (1) auto-focus when the
@@ -289,25 +294,65 @@ val ChatScreen =
             val pubkeys = (members + messages.map { it.pubkey }).toSet()
             if (pubkeys.isNotEmpty()) launchApp { repo.requestUserMetadata(pubkeys) }
         }
-        // After messages change: restore position when older messages were prepended,
-        // otherwise pin to the bottom only if the user was already near it.
-        useEffect(messages.size) {
+        // Sum of all reactions across all messages — used as a stable scalar
+        // dependency so the auto-scroll effect re-fires when a reaction lands
+        // (otherwise reactions appearing under the user's viewport on a near-
+        // bottom feed would not re-pin to bottom). Cheap: O(messages).
+        val reactionCount = reactionsByMsg.values.sumOf { it.size }
+        // Pagination restore — runs SYNC after the DOM commits, before the browser
+        // paints, so the user never sees the feed in the "scrolled to wrong place"
+        // state. Restoring inside a regular useEffect (post-paint) leaks one frame
+        // of visible jump because the user's old scrollTop now points to different
+        // content after the prepend.
+        //
+        // The restore formula keeps the message the user was reading at the same
+        // visual position: newScrollTop = oldScrollTop + heightAdded. The previous
+        // implementation used `newScrollHeight - prevScrollHeight` (equivalent to
+        // assuming oldScrollTop=0), which yanked the view up by `oldScrollTop`
+        // pixels — up to ~80px because that's the threshold the pagination fires
+        // at. Now the user sees zero movement.
+        useLayoutEffect(messages.size) {
+            if (loadingOlder.current != true) return@useLayoutEffect
+            if (props.scrollToMessageId != null) return@useLayoutEffect
+            val el = document.getElementById(ElementId("chat-messages")) ?: return@useLayoutEffect
+            val heightAdded = el.scrollHeight.toDouble() - (prevScrollHeight.current ?: 0.0)
+            el.scrollTop = (prevScrollTop.current ?: 0.0) + heightAdded
+            loadingOlder.current = false
+        }
+        // Pin to bottom when the user was already there. Stays in useEffect (post-
+        // paint is fine — the user wants to see the new message land) and excludes
+        // the pagination branch (already handled by the layout effect above).
+        useEffect(messages.size, reactionCount) {
             // While a deep-link target (?e=) is pending, the seek effect owns scrolling. atBottom
             // is true on entry, so without this the auto-scroll would pin the view to the bottom on
             // every page the seek loads — the target would load but never come into view (mirrors
             // native's AutoScrollEffect `enabled = !isSeekingTarget`).
             if (props.scrollToMessageId != null) return@useEffect
+            if (loadingOlder.current == true) return@useEffect
             val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
-            when {
-                loadingOlder.current == true -> {
-                    el.scrollTop = el.scrollHeight.toDouble() - (prevScrollHeight.current ?: 0.0)
-                    loadingOlder.current = false
+            if (atBottom.current == true) {
+                el.scrollTop = el.scrollHeight.toDouble()
+                // Messages seen at the bottom are read — clear their unread + notification entries.
+                repo.markGroupAsRead(group.id)
+            }
+        }
+        // Async media (images / videos) resolves dimensions AFTER the initial
+        // pin-to-bottom fires, which makes the feed grow underneath the user and
+        // leaves them mid-scroll on group entry. Listen for the chat-content-loaded
+        // CustomEvent fired by ChatImage onLoad / video onLoadedMetadata and
+        // re-pin to bottom whenever the user was still anchored there. (issue #74)
+        useEffect(group.id) {
+            val handler: (dynamic) -> Unit = {
+                if (atBottom.current == true && props.scrollToMessageId == null) {
+                    val el = document.getElementById(ElementId("chat-messages"))
+                    if (el != null) el.scrollTop = el.scrollHeight.toDouble()
                 }
-                atBottom.current == true -> {
-                    el.scrollTop = el.scrollHeight.toDouble()
-                    // Messages seen at the bottom are read — clear their unread + notification entries.
-                    repo.markGroupAsRead(group.id)
-                }
+            }
+            document.asDynamic().addEventListener("chat-content-loaded", handler)
+            try {
+                kotlinx.coroutines.awaitCancellation()
+            } finally {
+                document.asDynamic().removeEventListener("chat-content-loaded", handler)
             }
         }
         // Deep-link target (?e=<id>): fetch the exact event by id once. This is the fast path —
@@ -523,6 +568,9 @@ val ChatScreen =
                         if (el.scrollTop < 80.0 && hasMore && !isLoadingMore && loadingOlder.current != true) {
                             loadingOlder.current = true
                             prevScrollHeight.current = sh
+                            // Capture scrollTop too so the restore can preserve the
+                            // user's exact reading position, not snap to the new top.
+                            prevScrollTop.current = el.scrollTop
                             launchApp { repo.loadMoreMessages(group.id) }
                         }
                     }
@@ -768,7 +816,15 @@ val ChatScreen =
                 className = ClassName("member-sidebar")
                 div {
                     className = ClassName("member-header")
-                    span { +"Members (${members.size})" }
+                    span {
+                        className = ClassName("member-header-title")
+                        // Person icon next to "Members (N)" — same layout as
+                        // native MemberSidebar.kt:130-145. Both icon and label
+                        // stay in white (the muted-grey was easy to miss on the
+                        // BackgroundDark band).
+                        icon(Ic.Person)
+                        span { +"Members (${members.size})" }
+                    }
                     // Only admins can add members — kind:9000 (put-user) is admin-only and the
                     // relay rejects it from non-admins. Mirrors native MemberSidebar.
                     if (isAdmin) {
@@ -1467,6 +1523,16 @@ private fun ChildrenBuilder.renderEntities(
                     // Show a preview frame without downloading/playing the whole file (no autoplay).
                     preload = "metadata"
                     playsInline = true
+                    // Notify the feed when the video's intrinsic dimensions arrive
+                    // (preload="metadata" fires loadedmetadata, not load) so the
+                    // scroll can re-pin to bottom for any user still anchored
+                    // there. Same mechanic as ChatImage's onLoad. (issue #74)
+                    onLoadedMetadata = {
+                        document.asDynamic().dispatchEvent(
+                            js("new CustomEvent('chat-content-loaded')"),
+                        )
+                        Unit
+                    }
                 }
             } else {
                 a {

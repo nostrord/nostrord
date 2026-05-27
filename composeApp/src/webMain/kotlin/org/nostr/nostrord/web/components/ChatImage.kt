@@ -47,6 +47,16 @@ val ChatImage =
             src = props.imageUrl
             alt = ""
             onClick = { ImageViewer.show(props.imageUrl, backdrop) }
+            // Dispatch when the image resolves dimensions so the chat feed can
+            // re-pin to bottom if the user was already there — otherwise media
+            // arriving after the initial scroll-to-bottom pushes the user
+            // mid-feed. (issue #74)
+            onLoad = {
+                document.asDynamic().dispatchEvent(
+                    js("new CustomEvent('chat-content-loaded')"),
+                )
+                Unit
+            }
         }
     }
 

@@ -2287,6 +2287,12 @@ body {
     /* Clip horizontal overflow at the feed level — the swipe-to-reply gesture
        translateX's the row left, which otherwise leaks scroll onto the page. */
     overflow-x: hidden;
+    /* Browser scroll-anchoring: when content above the viewport mutates
+       (reactions land on older messages, an image two pages up resolves its
+       size), keep the user's visible message in place instead of letting the
+       feed jump. Default in modern browsers but pinned explicitly so we
+       don't lose it to a future cascade override. (issue #74) */
+    overflow-anchor: auto;
     padding: 16px 0;
 }
 /* Date separator: a centered label flanked by divider lines (mirrors the native DateSeparator). */
@@ -2673,6 +2679,12 @@ body {
        <360px bubble overflows and leaks horizontal scroll onto the page. */
     max-width: min(360px, 100%);
     max-height: 300px;
+    /* Reserve vertical space before the image resolves its intrinsic size, so
+       the message row doesn't jump from ~0px to ~300px when the load
+       completes. The dark background reads as a placeholder. (issue #74) */
+    min-height: 120px;
+    min-width: 120px;
+    background: var(--color-input);
     margin-top: 4px;
     border-radius: 8px;
     object-fit: cover;
@@ -2681,6 +2693,11 @@ body {
     display: block;
     max-width: min(360px, 100%);
     max-height: 300px;
+    /* Same reserved slot as .msg-image — preload="metadata" still has a
+       small window where the <video>'s dimensions aren't known. */
+    min-height: 120px;
+    min-width: 120px;
+    background: var(--color-input);
     margin-top: 4px;
     border-radius: 8px;
     background: #000;
@@ -3192,8 +3209,24 @@ body {
     padding: 0 16px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--color-text-secondary);
+    /* White (was text-secondary grey) so the title reads cleanly on the
+       BackgroundDark band — matches the native MemberSidebar header. */
+    color: #ffffff;
     background: var(--color-background-dark);
+}
+
+.member-header-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #ffffff;
+}
+
+/* The Person icon inherits color via fill: currentColor (.ico rule), so the
+   white from .member-header-title applies automatically. */
+.member-header-title .ico {
+    width: 18px;
+    height: 18px;
 }
 
 .member-add-btn {
