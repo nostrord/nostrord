@@ -946,7 +946,12 @@ private val MessageRow =
         val menuRef = useRef<HTMLDivElement>(null)
 
         // Swipe-to-reply (touch): drag the row left past a threshold to reply (mirrors native).
+        // The .msg-swipe-icon sits absolutely-positioned on the right edge under the row; its
+        // opacity + color rise with the swipe distance, snapping to the primary blue once the
+        // threshold is crossed. .chat-messages has `overflow-x: hidden` so the translateX
+        // can't leak horizontal scroll onto the page.
         val rowRef = useRef<HTMLDivElement>(null)
+        val swipeIconRef = useRef<HTMLDivElement>(null)
         val touchStartX = useRef(0.0)
         val touchStartY = useRef(0.0)
         val swiping = useRef(false)
@@ -1000,8 +1005,25 @@ private val MessageRow =
                 }
                 if (swiping.current == true && dx < 0) {
                     val off = dx.coerceAtLeast(-80.0)
+                    val armed = off <= -56.0
+                    swipeArmed.current = armed
                     rowRef.current?.asDynamic()?.style?.transform = "translateX(${off}px)"
-                    swipeArmed.current = off <= -56.0
+                    // Drive the reply icon's opacity (0→1 as the row slides 0→56px)
+                    // and flip to the primary blue once the threshold is crossed —
+                    // same affordance as the native gesture's reveal layer.
+                    val iconStyle = swipeIconRef.current?.asDynamic()?.style
+                    if (iconStyle != null) {
+                        val progress = (-off / 56.0).coerceIn(0.0, 1.0)
+                        iconStyle.opacity = progress.toString()
+                        iconStyle.color =
+                            if (armed) "var(--color-primary)" else "var(--color-text-muted)"
+                        // A tiny scale bump on cross helps the discrete "armed" moment
+                        // read as a snap rather than a colour change in isolation.
+                        // Keep the translateY(-50%) from the base CSS or the icon
+                        // jumps off vertical center when the JS overrides transform.
+                        iconStyle.transform =
+                            if (armed) "translateY(-50%) scale(1.15)" else "translateY(-50%) scale(1.0)"
+                    }
                 }
             }
             onTouchEnd = {
@@ -1014,9 +1036,26 @@ private val MessageRow =
                         el.style.transform = ""
                     }, 180)
                 }
+                val iconStyle = swipeIconRef.current?.asDynamic()?.style
+                if (iconStyle != null) {
+                    iconStyle.transition = "opacity 0.15s ease, transform 0.15s ease"
+                    iconStyle.opacity = "0"
+                    iconStyle.transform = "translateY(-50%) scale(1.0)"
+                    window.setTimeout({
+                        iconStyle.transition = ""
+                    }, 180)
+                }
                 if (swipeArmed.current == true) props.onReply()
                 swiping.current = false
                 swipeArmed.current = false
+            }
+
+            // Swipe-to-reply icon (revealed under the row as it slides left). Sits
+            // behind everything via z-index so the row scrolls over it.
+            div {
+                ref = swipeIconRef
+                className = ClassName("msg-swipe-icon")
+                icon(Ic.Reply)
             }
 
             div {

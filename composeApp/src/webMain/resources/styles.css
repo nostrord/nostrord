@@ -2284,6 +2284,9 @@ body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    /* Clip horizontal overflow at the feed level — the swipe-to-reply gesture
+       translateX's the row left, which otherwise leaks scroll onto the page. */
+    overflow-x: hidden;
     padding: 16px 0;
 }
 /* Date separator: a centered label flanked by divider lines (mirrors the native DateSeparator). */
@@ -2457,6 +2460,30 @@ body {
 .msg.menu-open {
     z-index: 60;
     background: var(--color-message-hover);
+}
+
+/* Reply icon revealed under the row during swipe-to-reply. Sits absolutely on
+   the right edge; the .msg's flex children render *on top* of it because they
+   come later in the DOM, so the row slides left over the icon as in native. */
+.msg-swipe-icon {
+    position: absolute;
+    top: 50%;
+    right: 16px;
+    transform: translateY(-50%) scale(1);
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    opacity: 0;
+    pointer-events: none;
+    /* No transition by default — the swipe drives opacity per frame.
+       onTouchEnd adds a brief transition before fading back to 0. */
+}
+.msg-swipe-icon .ico {
+    width: 18px;
+    height: 18px;
 }
 
 /* Hover action toolbar (top-right of a message) */
