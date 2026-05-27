@@ -432,6 +432,17 @@ val ChatScreen =
             setLastReadSnapshot(repo.getLastReadTimestamp(group.id))
             wasNotAtBottom.current = false
             openedAtDivider.current = false
+            // Reset atBottom to true on group entry. Without this, the ref
+            // carries the PREVIOUS group's value across the ChatScreen re-
+            // render: if the user was reading mid-feed in group A (atBottom
+            // = false) and opens group B, the pin-to-bottom useLayoutEffect
+            // sees atBottom=false and skips, leaving B at scrollTop=0 or
+            // wherever onScroll's first calculation lands. Forcing true at
+            // entry lets the next pin-to-bottom commit fire as the natural
+            // 'just opened, go to latest' behaviour. Subsequent user scroll
+            // flips it via the onScroll handler as normal.
+            atBottom.current = true
+            setAtBottomState(true)
             // Preemptive reset: if the controller was already in InitialLoading
             // when we entered, it's almost certainly the stale REQ that
             // resubscribePoolRelay (NostrRepository.kt:2628) fired during the
