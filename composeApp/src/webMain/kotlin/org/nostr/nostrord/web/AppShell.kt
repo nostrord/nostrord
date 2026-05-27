@@ -231,16 +231,25 @@ val AppShell =
             setSelectedGroupId(last.first)
         }
 
-        // Persist the user's last-active group per relay so the next cold boot can
-        // land them right back in it. Clear when they navigate to Home (null id).
+        // Persist the user's last-active group per relay so the next cold boot
+        // (and same-session relay round-trips) can land them right back in it.
+        // Clear when they navigate to Home (null id).
+        //
+        // Guard against the cross-relay transition window: while switchRelay
+        // is in flight, activeRelay may have already flipped to the new relay
+        // but selectedGroupId is still pointing at the previous relay's group.
+        // Saving (newRelay, oldGroupId) would corrupt the new relay's record
+        // with a group that doesn't live there. Skip when the id isn't in the
+        // current relay's groups — once setSelectedGroupId for the new relay
+        // fires, the effect re-runs with a consistent pair.
         useEffect(activeRelay, selectedGroupId, activePubkey) {
             val pk = activePubkey ?: return@useEffect
             if (activeRelay.isBlank()) return@useEffect
             if (selectedGroupId.isNullOrBlank()) {
                 SecureStorage.clearLastGroupForRelay(pk, activeRelay)
             } else {
-                val name = groups.firstOrNull { it.id == selectedGroupId }?.name
-                SecureStorage.saveLastGroupForRelay(pk, activeRelay, selectedGroupId, name)
+                val group = groups.firstOrNull { it.id == selectedGroupId } ?: return@useEffect
+                SecureStorage.saveLastGroupForRelay(pk, activeRelay, selectedGroupId, group.name)
             }
         }
 
@@ -362,9 +371,40 @@ val AppShell =
                                 // Native tooltip on hover — name when known, host otherwise.
                                 title = relayLabel
                                 onClick = {
+                                    // Mirrors native's resolveScreenForRelay (App.kt:279-293):
+                                    //  - same-relay click while NOT in Notifications  → toggle Home
+                                    //  - any other case (different relay, or coming
+                                    //    out of Notifications)                        → restore
+                                    //                                                   that relay's
+                                    //                                                   last group
+                                    //
+                                    // Order matters when crossing relays: if we set selectedGroupId
+                                    // BEFORE switchRelay completes, the save useEffect fires with
+                                    // (oldRelay, newGroupId) and overwrites the previous relay's
+                                    // last-group with the incoming one — clicking back never finds
+                                    // the original. Switch the relay first, then set the group
+                                    // (and the save effect's groups-membership guard catches the
+                                    // remaining single-render window between switchRelay landing
+                                    // and setSelectedGroupId firing).
+                                    val wasNotifications = notificationsOpen
                                     setNotificationsOpen(false)
-                                    setSelectedGroupId(null)
-                                    if (relay != currentRelayUrl) launchApp { repo.switchRelay(relay) }
+                                    val sameRelay = relay == currentRelayUrl
+                                    if (sameRelay && !wasNotifications) {
+                                        setSelectedGroupId(null)
+                                    } else {
+                                        val target =
+                                            activePubkey?.let { pk ->
+                                                SecureStorage.getLastGroupForRelay(pk, relay)?.first
+                                            }
+                                        if (sameRelay) {
+                                            setSelectedGroupId(target)
+                                        } else {
+                                            launchApp {
+                                                repo.switchRelay(relay)
+                                                setSelectedGroupId(target)
+                                            }
+                                        }
+                                    }
                                 }
                                 WebAvatar {
                                     url = relayMetadata[relay]?.icon
