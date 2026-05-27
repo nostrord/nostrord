@@ -302,5 +302,9 @@ class GroupViewModel(
         repo.markGroupAsRead(groupId)
     }
 
+    fun markAsReadUpTo(timestamp: Long) {
+        repo.markGroupAsReadUpTo(groupId, timestamp)
+    }
+
     fun getLastReadTimestamp(): Long? = repo.getLastReadTimestamp(groupId)
 }

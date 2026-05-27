@@ -845,6 +845,7 @@ fun GroupScreen(
                         }
                     },
                     onLeftBottom = { wasNotAtBottom = true },
+                    onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,
@@ -964,6 +965,7 @@ fun GroupScreen(
                         }
                     },
                     onLeftBottom = { wasNotAtBottom = true },
+                    onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,

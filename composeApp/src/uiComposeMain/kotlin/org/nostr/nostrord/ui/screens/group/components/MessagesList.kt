@@ -108,6 +108,11 @@ fun MessagesList(
     // Fired when the user scrolls up away from the bottom. Used by the
     // "New messages" divider dismissal (issue #83).
     onLeftBottom: () -> Unit = {},
+    // Fired with the createdAt of the latest fully-visible message — drives
+    // partial-read tracking (mark-as-read up to the message the user has
+    // actually reached, instead of the binary "all or nothing" of
+    // onReachedBottom).
+    onSeenUpTo: (Long) -> Unit = {},
     // Count of unread messages from other users — drives the FAB badge
     // (Telegram pattern: when there are unread messages and the user has
     // scrolled away, the jump-to-bottom button shows a count badge).
@@ -122,6 +127,7 @@ fun MessagesList(
     val currentOnLoadMore by rememberUpdatedState(onLoadMore)
     val currentOnReachedBottom by rememberUpdatedState(onReachedBottom)
     val currentOnLeftBottom by rememberUpdatedState(onLeftBottom)
+    val currentOnSeenUpTo by rememberUpdatedState(onSeenUpTo)
     val currentOnFetchTargetById by rememberUpdatedState(onFetchTargetById)
     val currentChatItems by rememberUpdatedState(chatItems)
 
@@ -346,6 +352,28 @@ fun MessagesList(
             .collect { atBottom ->
                 if (atBottom) currentOnReachedBottom() else currentOnLeftBottom()
             }
+    }
+
+    // Partial-read tracking: emit the createdAt of the latest *fully-visible*
+    // message message so the screen can advance lastReadTimestamp incrementally.
+    // Fixes the Telegram bug where scrolling one of ten unread messages marked
+    // all ten as read — the user only gets credit for what they actually saw.
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val viewportEnd = layoutInfo.viewportEndOffset
+            layoutInfo.visibleItemsInfo
+                .filter { it.offset + it.size <= viewportEnd }
+                .mapNotNull { info ->
+                    (currentChatItems.getOrNull(info.index) as? ChatItem.Message)
+                        ?.message?.createdAt
+                }
+                .maxOrNull() ?: 0L
+        }.debounce(500)
+            .filter { it > 0L }
+            .distinctUntilChanged()
+            .collect { currentOnSeenUpTo(it) }
     }
 
     // Compensate the LazyColumn's scroll as the IME animates so visible content rides

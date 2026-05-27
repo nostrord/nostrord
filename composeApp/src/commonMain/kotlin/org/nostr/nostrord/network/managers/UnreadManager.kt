@@ -108,6 +108,27 @@ class UnreadManager(
         onGroupRead?.invoke(groupId)
     }
 
+    /**
+     * Advance the last-read timestamp to [timestamp] for partial-read tracking.
+     * Used when the chat scroll passes individual messages — fixes the Telegram
+     * "scrolled 1 of 10 unread → marked all 10 as read" class of bug by only
+     * persisting how far the user actually got. The counter is cleared only when
+     * [timestamp] catches up to the high-water mark (everything seen); otherwise
+     * the counter is left alone and the next markAsRead clears it.
+     */
+    fun markAsReadUpTo(groupId: String, timestamp: Long) {
+        val pubkey = currentPubkey ?: return
+        val stored = SecureStorage.getLastReadTimestamp(pubkey, groupId) ?: 0L
+        if (timestamp <= stored) return
+        SecureStorage.saveLastReadTimestamp(pubkey, groupId, timestamp)
+        val highWater = _latestMessageTimestamps.value[groupId] ?: 0L
+        if (timestamp >= highWater) {
+            _unreadCounts.update { it + (groupId to 0) }
+            onGroupRead?.invoke(groupId)
+        }
+        persistEntries()
+    }
+
     fun getLastReadTimestamp(groupId: String): Long? = currentPubkey?.let { SecureStorage.getLastReadTimestamp(it, groupId) }
 
     fun getUnreadCount(groupId: String): Int = _unreadCounts.value[groupId] ?: 0

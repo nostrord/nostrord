@@ -298,6 +298,8 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override fun markGroupAsRead(groupId: String) {}
 
+    override fun markGroupAsReadUpTo(groupId: String, timestamp: Long) {}
+
     override fun getUnreadCount(groupId: String): Int = unreadCounts.value[groupId] ?: 0
 
     override fun getLastReadTimestamp(groupId: String): Long? = null

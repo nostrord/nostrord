@@ -1820,6 +1820,10 @@ class NostrRepository(
         unreadManager.markAsRead(groupId)
     }
 
+    override fun markGroupAsReadUpTo(groupId: String, timestamp: Long) {
+        unreadManager.markAsReadUpTo(groupId, timestamp)
+    }
+
     override fun getUnreadCount(groupId: String): Int = unreadManager.getUnreadCount(groupId)
 
     override fun getLastReadTimestamp(groupId: String): Long? = unreadManager.getLastReadTimestamp(groupId)

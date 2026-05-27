@@ -284,6 +284,10 @@ val ChatScreen =
         // <input> just clipped long messages to the visible width with no signal
         // that the rest of the text was still there.
         val composerInputRef = useRef<HTMLTextAreaElement>(null)
+        // Debounce handle for the per-visible mark-as-read pass (Gap 3). Cleared
+        // on every scroll tick so we only commit after the scroll settles for
+        // 500ms — same cadence the native MessagesList snapshotFlow uses.
+        val markReadDebounce = useRef<Int>(null)
         useEffect(replyingToId) {
             if (replyingToId != null) composerInputRef.current?.focus()
         }
@@ -639,6 +643,35 @@ val ChatScreen =
                         } else if (wasNotAtBottom.current == true && lastReadSnapshot != null) {
                             setLastReadSnapshot(null)
                         }
+                        // Partial-read tracking (Gap 3): on scroll settle, find the
+                        // largest createdAt among messages whose bottom is at or
+                        // above the viewport bottom (i.e., fully read) and advance
+                        // lastReadTimestamp to that. Mirrors native's per-visible
+                        // snapshotFlow — fixes "scroll one, mark all read".
+                        markReadDebounce.current?.let { window.clearTimeout(it) }
+                        markReadDebounce.current =
+                            window.setTimeout(
+                                {
+                                    val viewportBottom = el.scrollTop + el.clientHeight.toDouble()
+                                    val msgEls = el.asDynamic().querySelectorAll("[id^='msg-']")
+                                    val len = (msgEls.length as Int)
+                                    var maxSeen = 0L
+                                    for (i in 0 until len) {
+                                        val m = msgEls.item(i).asDynamic()
+                                        val msgBottom =
+                                            (m.offsetTop as Number).toDouble() +
+                                                (m.offsetHeight as Number).toDouble()
+                                        if (msgBottom > viewportBottom) continue
+                                        val msgId = (m.id as String).removePrefix("msg-")
+                                        val msg = messagesById[msgId] ?: continue
+                                        if (msg.createdAt > maxSeen) maxSeen = msg.createdAt
+                                    }
+                                    if (maxSeen > 0L) {
+                                        repo.markGroupAsReadUpTo(group.id, maxSeen)
+                                    }
+                                },
+                                500,
+                            )
                         if (el.scrollTop < 80.0 && hasMore && !isLoadingMore && loadingOlder.current != true) {
                             loadingOlder.current = true
                             prevScrollHeight.current = sh

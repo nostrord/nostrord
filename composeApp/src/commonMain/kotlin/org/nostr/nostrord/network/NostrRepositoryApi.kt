@@ -392,6 +392,9 @@ interface NostrRepositoryApi {
 
     fun markGroupAsRead(groupId: String)
 
+    /** Advance the last-read timestamp for partial-read tracking. See UnreadManager.markAsReadUpTo. */
+    fun markGroupAsReadUpTo(groupId: String, timestamp: Long)
+
     fun getUnreadCount(groupId: String): Int
 
     fun getLastReadTimestamp(groupId: String): Long?
