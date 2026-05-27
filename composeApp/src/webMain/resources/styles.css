@@ -2563,7 +2563,7 @@ body {
 .chat-restricted-icon {
     width: 40px;
     height: 40px;
-    color: var(--color-text-muted);
+    fill: var(--color-text-muted);
     margin-bottom: 12px;
 }
 .chat-restricted-title {
@@ -4719,7 +4719,7 @@ body {
 .member-private-icon {
     width: 28px;
     height: 28px;
-    color: var(--color-text-muted);
+    fill: var(--color-text-muted);
     margin-bottom: 10px;
 }
 .member-private-label {

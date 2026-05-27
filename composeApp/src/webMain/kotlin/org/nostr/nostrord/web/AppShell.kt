@@ -210,9 +210,23 @@ val AppShell =
         // chat shows its loading skeletons against a placeholder with defaults. Without this,
         // visiting ?relay=...&group=... briefly flashed HomeScreen because `selectedGroup`
         // was null while the metadata was in-flight.
+        //
+        // We also cache the last-known metadata in a ref to ride out the
+        // intermediate window during account swap, when groupManager.clear()
+        // wipes _groupsByRelay before restoreGroupsForRelay refills it. Without
+        // this the header flashed from "Private Group X" (real) → "Group"
+        // (placeholder defaulting to isPublic/isOpen=true, so the "Invite
+        // Code" + "Request to Join" buttons disappeared and morphed into a
+        // plain "Join"). Cache is keyed on the group id — reset on change.
+        val lastGroupRef = useRef<GroupMetadata>(null)
+        if (lastGroupRef.current?.id != selectedGroupId) lastGroupRef.current = null
         val selectedGroup: GroupMetadata? = selectedGroupId?.let { id ->
-            groups.firstOrNull { it.id == id }
-                ?: GroupMetadata(
+            val real = groups.firstOrNull { it.id == id }
+            if (real != null) {
+                lastGroupRef.current = real
+                real
+            } else {
+                lastGroupRef.current ?: GroupMetadata(
                     id = id,
                     name = null,
                     about = null,
@@ -220,6 +234,7 @@ val AppShell =
                     isPublic = true,
                     isOpen = true,
                 )
+            }
         }
 
         // Open the Add-relay modal on a given tab (0 = Suggested, 1 = Custom URL).
