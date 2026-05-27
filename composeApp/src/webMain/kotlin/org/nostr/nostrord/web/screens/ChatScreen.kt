@@ -537,6 +537,28 @@ val ChatScreen =
                 anchorElementId.current = null
             }
         }
+        // When the controller settles (initial REQ ends with HasMore, or a
+        // pagination round-trips), re-check whether the user is still parked
+        // near the top. The scroll handler is the only other place that fires
+        // loadMoreMessages, and `hasMore && !isLoadingMore` must be true at
+        // the moment the scroll event happens — but if the user scrolled to
+        // the top DURING the initial REQ (hasMore=false), the handler bailed
+        // out and there's no further scroll event to retry it. Without this
+        // effect, pagination silently dies until the user wiggles the
+        // scroll again.
+        useEffect(hasMore, isLoadingMore) {
+            if (!hasMore || isLoadingMore) return@useEffect
+            if (loadingOlder.current == true) return@useEffect
+            val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
+            val prefetchTrigger = el.clientHeight.toDouble() * 2.0
+            if (el.scrollTop < prefetchTrigger) {
+                loadingOlder.current = true
+                // Skip the anchor capture path: the user is not actively
+                // scrolling here, so the browser's overflow-anchor: auto
+                // handles the prepend on its own.
+                launchApp { repo.loadMoreMessages(group.id) }
+            }
+        }
         // Pin to bottom when the user was already there. useLayoutEffect (pre-
         // paint) so the user sees the scrolled-to-bottom state directly on first
         // paint instead of briefly seeing the unscrolled feed for one frame.
