@@ -332,6 +332,14 @@ fun GroupScreen(
             buildChatItems(messages, lastReadSnapshot, currentUserPubkey)
         }
 
+    // Unread-from-others count for the FAB badge (Telegram pattern). Mirrors
+    // the divider's filter — own messages don't count as unread.
+    val unreadFromOthersCount =
+        remember(messages, lastReadSnapshot, currentUserPubkey) {
+            val snapshot = lastReadSnapshot ?: return@remember 0
+            messages.count { it.createdAt > snapshot && it.pubkey != currentUserPubkey }
+        }
+
     val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
     // Pending/restricted relays never deliver the member list, so the skeleton
     // would spin forever — force-off so the sidebar can render its empty state.
@@ -837,6 +845,7 @@ fun GroupScreen(
                         }
                     },
                     onLeftBottom = { wasNotAtBottom = true },
+                    unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,
                     onFetchTargetById = { id -> vm.fetchMessageById(id) },
@@ -955,6 +964,7 @@ fun GroupScreen(
                         }
                     },
                     onLeftBottom = { wasNotAtBottom = true },
+                    unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetMessageConsumed,
                     onFetchTargetById = { id -> vm.fetchMessageById(id) },

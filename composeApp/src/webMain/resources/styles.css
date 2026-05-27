@@ -2212,6 +2212,54 @@ body {
     display: flex;
     flex-direction: column;
     background: var(--color-background);
+    /* Anchor for the jump-to-bottom FAB (.chat-jump-bottom). */
+    position: relative;
+}
+
+/* Jump-to-bottom FAB — Telegram pattern. Floats above the composer when the
+   user has scrolled up from the bottom; the badge shows unread count from
+   other users so the user can either skip or keep reading from the divider. */
+.chat-jump-bottom {
+    position: absolute;
+    right: 16px;
+    bottom: 80px;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: var(--color-background-dark);
+    color: var(--color-text-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    transition: background 0.15s;
+}
+.chat-jump-bottom:hover {
+    background: var(--color-surface);
+}
+.chat-jump-bottom > svg {
+    width: 22px;
+    height: 22px;
+}
+.chat-jump-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
 }
 
 .chat-header {

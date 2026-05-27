@@ -62,6 +62,7 @@ import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
 import org.nostr.nostrord.ui.components.chat.LocalImageViewerUrl
 import org.nostr.nostrord.ui.components.chat.MessageItem
 import org.nostr.nostrord.ui.components.chat.MessageSelectionContainer
+import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.components.chat.NewMessagesDivider
 import org.nostr.nostrord.ui.components.chat.SystemEventItem
 import org.nostr.nostrord.ui.components.chat.ZapEventItem
@@ -107,6 +108,10 @@ fun MessagesList(
     // Fired when the user scrolls up away from the bottom. Used by the
     // "New messages" divider dismissal (issue #83).
     onLeftBottom: () -> Unit = {},
+    // Count of unread messages from other users — drives the FAB badge
+    // (Telegram pattern: when there are unread messages and the user has
+    // scrolled away, the jump-to-bottom button shows a count badge).
+    unreadFromOthersCount: Int = 0,
     targetMessageId: String? = null,
     onTargetConsumed: () -> Unit = {},
     onFetchTargetById: (String) -> Unit = {},
@@ -143,7 +148,11 @@ fun MessagesList(
     // Hide ALL animated HTML overlays when the image viewer modal is open
     val parentHidden = LocalAnimatedImageHidden.current
 
-    // Initialize at the bottom so the chat opens at the newest messages.
+    // Initialize at the bottom so the chat opens at the newest messages. The
+    // entry-time alignment to the "New messages" divider (Telegram pattern)
+    // happens via a one-shot LaunchedEffect below — keying that off the divider
+    // index here would re-anchor every time pagination prepended older messages
+    // and pushed the index forward.
     val hasItems = chatItems.isNotEmpty()
     val listState =
         remember(groupId, hasItems) {
@@ -153,6 +162,18 @@ fun MessagesList(
                 LazyListState()
             }
         }
+    // One-shot anchor to the divider on group entry: fires the first time
+    // chatItems contains a NewMessagesDivider after entering the group, then
+    // sets the latch so later pagination / new messages don't re-anchor.
+    val alignedToDivider = remember(groupId) { mutableStateOf(false) }
+    LaunchedEffect(groupId, chatItems) {
+        if (alignedToDivider.value) return@LaunchedEffect
+        val idx = chatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
+        if (idx >= 0) {
+            listState.scrollToItem(idx)
+            alignedToDivider.value = true
+        }
+    }
 
     val scrollStateHolder = rememberScrollStateHolder(groupId)
 
@@ -609,25 +630,37 @@ fun MessagesList(
                             exit = fadeOut(),
                             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
                         ) {
-                            SmallFloatingActionButton(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        val lastIndex = chatItems.lastIndex
-                                        val distance = lastIndex - listState.firstVisibleItemIndex
-                                        if (distance <= 30) {
-                                            listState.animateScrollToItem(lastIndex)
-                                        } else {
-                                            listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+                            // FAB + badge overlay (Telegram pattern). The badge sits
+                            // at the top-right corner of the FAB and only renders when
+                            // there's at least one unread message from someone else.
+                            Box(contentAlignment = Alignment.TopEnd) {
+                                SmallFloatingActionButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            val lastIndex = chatItems.lastIndex
+                                            val distance = lastIndex - listState.firstVisibleItemIndex
+                                            if (distance <= 30) {
+                                                listState.animateScrollToItem(lastIndex)
+                                            } else {
+                                                listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+                                            }
                                         }
-                                    }
-                                },
-                                containerColor = NostrordColors.Primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary,
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Jump to latest message",
-                                )
+                                    },
+                                    containerColor = NostrordColors.Primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                        contentDescription = "Jump to latest message",
+                                    )
+                                }
+                                if (unreadFromOthersCount > 0) {
+                                    UnreadBadge(
+                                        count = unreadFromOthersCount,
+                                        size = 18.dp,
+                                        modifier = Modifier.offset(x = 6.dp, y = (-4).dp),
+                                    )
+                                }
                             }
                         }
 

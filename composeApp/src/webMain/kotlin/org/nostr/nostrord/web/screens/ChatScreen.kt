@@ -258,6 +258,24 @@ val ChatScreen =
         // doesn't clear it immediately on entry.
         val (lastReadSnapshot, setLastReadSnapshot) = useState<Long?> { null }
         val wasNotAtBottom = useRef(false)
+        // True once we've performed the entry alignment to the divider (Telegram
+        // behaviour — open the chat at the top of the new messages, not at the
+        // bottom). Gates both the alignment effect itself (one-shot per group
+        // entry) and the entry-time auto-pin-to-bottom in the auto-scroll effect.
+        val openedAtDivider = useRef(false)
+        // Mirror of atBottom for re-renders the FAB needs. The ref stays as the
+        // hot-path source of truth for the scroll handler; setAtBottomState is
+        // only invoked on the transition so we don't re-render every scroll tick.
+        val (atBottomState, setAtBottomState) = useState { true }
+        // Unread count for the FAB badge — only counts unread messages from
+        // *other* users, mirroring the divider's own filter. Updates whenever
+        // messages or the snapshot change.
+        val unreadCount =
+            if (lastReadSnapshot == null) {
+                0
+            } else {
+                messages.count { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey }
+            }
 
         // Composer textarea ref. Two effects ride on it: (1) auto-focus when the
         // user stages a reply (matches native's keyboard-up behaviour), and (2)
@@ -285,6 +303,7 @@ val ChatScreen =
             // through the session. Native does the same with remember(groupId).
             setLastReadSnapshot(repo.getLastReadTimestamp(group.id))
             wasNotAtBottom.current = false
+            openedAtDivider.current = false
         }
         // Admin in a closed group: pull pending join requests explicitly + poll.
         // The standard chat REQ caps at 50 events and buries old 9021s under recent
@@ -347,6 +366,33 @@ val ChatScreen =
                 // Messages seen at the bottom are read — clear their unread + notification entries.
                 repo.markGroupAsRead(group.id)
             }
+        }
+        // Entry alignment to the "New messages" divider — the Telegram pattern.
+        // On the first batch of messages after entering the group, if there are
+        // unread messages from other users, scroll to align the divider with the
+        // top of the viewport instead of pinning to the bottom. Lets the user
+        // resume exactly where they left off; the FAB lets them skip to latest.
+        // One-shot per group entry (gated by openedAtDivider).
+        useEffect(messages.size, lastReadSnapshot) {
+            if (openedAtDivider.current == true) return@useEffect
+            if (messages.isEmpty()) return@useEffect
+            if (props.scrollToMessageId != null) return@useEffect
+            if (lastReadSnapshot == null) return@useEffect
+            val firstUnread =
+                messages.sortedBy { it.createdAt }
+                    .firstOrNull { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey }
+                    ?: return@useEffect
+            val targetEl = document.getElementById(ElementId("msg-${firstUnread.id}")) ?: return@useEffect
+            // block: 'start' puts the first unread (preceded by the divider) at
+            // the top of the viewport — same framing Telegram uses on entry.
+            targetEl.asDynamic().scrollIntoView(js("({ behavior: 'auto', block: 'start' })"))
+            openedAtDivider.current = true
+            // Mark not-at-bottom so subsequent auto-scrolls don't yank the view
+            // down, and prime the round-trip gate so the divider dismissal still
+            // works once the user reaches the bottom.
+            atBottom.current = false
+            setAtBottomState(false)
+            wasNotAtBottom.current = true
         }
         // Async media (images / videos) resolves dimensions AFTER the initial
         // pin-to-bottom fires, which makes the feed grow underneath the user and
@@ -577,7 +623,12 @@ val ChatScreen =
                         val el = event.currentTarget
                         val sh = el.scrollHeight.toDouble()
                         val isAtBottom = (sh - el.scrollTop - el.clientHeight.toDouble()) < 120.0
-                        atBottom.current = isAtBottom
+                        // Only push to React state on the transition so the FAB
+                        // doesn't trigger a re-render on every scroll tick.
+                        if (atBottom.current != isAtBottom) {
+                            atBottom.current = isAtBottom
+                            setAtBottomState(isAtBottom)
+                        }
                         // "New messages" divider: gate dismissal on a round-trip — only
                         // clear once the user has scrolled away from the bottom AND back.
                         // Without the round-trip check, the entry auto-pin-to-bottom would
@@ -689,6 +740,33 @@ val ChatScreen =
                                         onDelete = { launchApp { repo.deleteMessage(group.id, message.id) } }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Jump-to-bottom FAB with unread badge — Telegram pattern. Visible
+                // when the user has scrolled up from the bottom; the badge shows
+                // the count of unread messages from others so the user can either
+                // skip them (click) or keep reading from the divider.
+                if (!atBottomState) {
+                    button {
+                        className = ClassName("chat-jump-bottom")
+                        title = "Jump to latest message"
+                        onClick = {
+                            val el = document.getElementById(ElementId("chat-messages"))
+                            if (el != null) {
+                                el.scrollTop = el.scrollHeight.toDouble()
+                                // Tapping the FAB is an explicit "I've seen everything"
+                                // intent — dismiss the divider for this session.
+                                if (lastReadSnapshot != null) setLastReadSnapshot(null)
+                            }
+                        }
+                        icon(Ic.ArrowDownward)
+                        if (unreadCount > 0) {
+                            span {
+                                className = ClassName("chat-jump-badge")
+                                +unreadCount.toString()
                             }
                         }
                     }
