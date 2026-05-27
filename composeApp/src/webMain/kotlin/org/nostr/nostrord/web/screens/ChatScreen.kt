@@ -278,6 +278,13 @@ val ChatScreen =
         // straight from the onDelete callback — one stray click on the
         // overflow menu would wipe the message with no undo.
         val (messageToDelete, setMessageToDelete) = useState<String?> { null }
+        // Surface relay-side rejects of the kind:5 (e.g., "blocked: only
+        // admins can delete this", "not a member"). Mirrors native's
+        // deleteMessageError flow at GroupViewModel.kt:260-275 +
+        // GroupScreen.kt:548-562 — the web used to swallow the failure
+        // silently so the user thought the message was deleted when it
+        // wasn't.
+        val (deleteError, setDeleteError) = useState<String?> { null }
 
         // Scroll/pagination bookkeeping (refs so they don't trigger re-render).
         // prevScrollTop + prevScrollHeight together let us restore the user's
@@ -1206,13 +1213,66 @@ val ChatScreen =
                 deleteMessageConfirm(
                     onCancel = { setMessageToDelete(null) },
                     onConfirm = {
-                        launchApp { repo.deleteMessage(group.id, msgId) }
                         setMessageToDelete(null)
+                        launchApp {
+                            // Mirrors GroupViewModel.kt:260-275: keep the
+                            // relay's reason for refusing the kind:5 and
+                            // surface it. The 'blocked:' / 'error:' prefix
+                            // the NIP-29 relay tacks on is stripped so the
+                            // user sees the bare reason capitalised.
+                            when (val result = repo.deleteMessage(group.id, msgId)) {
+                                is Result.Error -> {
+                                    val raw = result.error.cause?.message ?: result.error.toString()
+                                    val friendly =
+                                        raw
+                                            .removePrefix("blocked: ")
+                                            .removePrefix("error: ")
+                                            .replaceFirstChar { it.uppercaseChar() }
+                                    setDeleteError(friendly)
+                                }
+                                is Result.Success -> Unit
+                            }
+                        }
                     },
                 )
             }
+            // Relay rejected the kind:5 (e.g., not an admin, message
+            // gone, group restricted) — show the reason instead of
+            // silently swallowing.
+            deleteError?.let { error ->
+                deleteMessageErrorDialog(error) { setDeleteError(null) }
+            }
         }
     }
+
+/** Error dialog shown when the relay rejects a kind:5. Single OK button —
+ *  matches the native AlertDialog at GroupScreen.kt:548-562. */
+private fun ChildrenBuilder.deleteMessageErrorDialog(message: String, onDismiss: () -> Unit) {
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onDismiss() }
+        div {
+            className = ClassName("modal-card sm")
+            onClick = { it.stopPropagation() }
+            div {
+                className = ClassName("modal-title")
+                +"Could Not Delete Message"
+            }
+            div {
+                className = ClassName("modal-subtitle tight")
+                +message
+            }
+            div {
+                className = ClassName("modal-footer")
+                button {
+                    className = ClassName("btn-primary")
+                    onClick = { onDismiss() }
+                    +"OK"
+                }
+            }
+        }
+    }
+}
 
 /** Confirm dialog for the destructive "delete this message" action. Uses the
  *  same modal-card + title/subtitle/footer pattern as RemoveAccountDialog so
