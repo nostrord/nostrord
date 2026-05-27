@@ -3030,7 +3030,9 @@ body {
     position: relative;
     flex-shrink: 0;
     display: flex;
-    align-items: center;
+    /* flex-end so the upload / emoji / send buttons stay pinned to the bottom
+       row of the composer when the textarea grows past one line. */
+    align-items: flex-end;
     gap: 8px;
     padding: 8px 12px;
     margin: 0 16px 16px;
@@ -3098,11 +3100,21 @@ body {
 }
 
 .composer-input {
+    /* Auto-growing textarea (was an <input>): starts at one line and the JS
+       useEffect(draft) bumps height to scrollHeight on each change. CSS caps
+       it at ~5 lines, after which it scrolls internally. resize:none hides
+       the browser's drag handle since growth is controlled by content. */
     flex: 1;
     min-width: 0;
+    min-height: 22px;
+    max-height: 140px;
+    padding: 4px 0;
+    line-height: 1.4;
     background: transparent;
     border: none;
     outline: none;
+    resize: none;
+    overflow-y: auto;
     color: var(--color-text-primary);
     font-size: 15px;
     font-family: inherit;

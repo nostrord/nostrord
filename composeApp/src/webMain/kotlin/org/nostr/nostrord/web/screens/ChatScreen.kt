@@ -52,6 +52,7 @@ import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.pre
 import react.dom.html.ReactHTML.span
+import react.dom.html.ReactHTML.textarea
 import react.dom.html.ReactHTML.video
 import react.useEffect
 import react.useEffectOnce
@@ -61,7 +62,7 @@ import web.cssom.ClassName
 import web.dom.ElementId
 import web.dom.document
 import web.html.HTMLDivElement
-import web.html.HTMLInputElement
+import web.html.HTMLTextAreaElement
 import kotlin.math.abs
 
 external interface ChatScreenProps : Props {
@@ -246,12 +247,22 @@ val ChatScreen =
         val prevScrollHeight = useRef(0.0)
         val atBottom = useRef(true)
 
-        // Composer input ref + auto-focus when a reply is staged. Clicking Reply on a
-        // message sets replyingToId; the useEffect snaps focus to the input so the
-        // user can start typing immediately (matches native's keyboard-up behaviour).
-        val composerInputRef = useRef<HTMLInputElement>(null)
+        // Composer textarea ref. Two effects ride on it: (1) auto-focus when the
+        // user stages a reply (matches native's keyboard-up behaviour), and (2)
+        // auto-grow with the content — the field starts at one line and expands up
+        // to the CSS `max-height` cap before scrolling. Required because the old
+        // <input> just clipped long messages to the visible width with no signal
+        // that the rest of the text was still there.
+        val composerInputRef = useRef<HTMLTextAreaElement>(null)
         useEffect(replyingToId) {
             if (replyingToId != null) composerInputRef.current?.focus()
+        }
+        useEffect(draft) {
+            val el = composerInputRef.current ?: return@useEffect
+            // Reset before reading scrollHeight so the field can shrink when text
+            // is deleted — otherwise scrollHeight only grows.
+            el.style.height = "auto"
+            el.style.height = "${el.scrollHeight}px"
         }
 
         // Load messages + author/member metadata when the group (or its rosters) change.
@@ -647,11 +658,12 @@ val ChatScreen =
                             icon = Ic.AttachFile
                             onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
                         }
-                        input {
+                        textarea {
                             ref = composerInputRef
                             className = ClassName("composer-input")
                             placeholder = "Message $groupName"
                             value = draft
+                            rows = 1
                             onChange = { event ->
                                 val v = event.currentTarget.value
                                 setDraft(v)
@@ -665,6 +677,8 @@ val ChatScreen =
                                         insertMention(mentionMatches.first().ref)
                                     }
                                     mention != null && event.key == "Escape" -> setMention(null)
+                                    // Plain Enter sends; Shift+Enter inserts a newline
+                                    // (default textarea behaviour, no preventDefault).
                                     event.key == "Enter" && !event.shiftKey -> {
                                         event.preventDefault()
                                         send()
