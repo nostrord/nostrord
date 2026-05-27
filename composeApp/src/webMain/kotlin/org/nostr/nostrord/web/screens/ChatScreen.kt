@@ -13,6 +13,7 @@ import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.formatTimestamp
@@ -186,6 +187,11 @@ val ChatScreen =
         }
 
         val (draft, setDraft) = useState { "" }
+        // Tracks an in-flight sendMessage so we (a) don't double-send if the user
+        // mashes Enter, and (b) keep the draft visible until the signer + relay
+        // come back — clearing optimistically erased the message when a NIP-07
+        // cancel or relay reject killed the publish.
+        val (sending, setSending) = useState { false }
         val (membersOpen, setMembersOpen) = useState { false }
         val (infoOpen, setInfoOpen) = useState { false }
         val (profilePubkey, setProfilePubkey) = useState<String?> { null }
@@ -320,11 +326,20 @@ val ChatScreen =
 
         fun send() {
             val text = draft.trim()
-            if (text.isEmpty()) return
+            if (text.isEmpty() || sending) return
             val replyId = replyingToId
-            setDraft("")
-            setReplyingToId(null)
-            launchApp { repo.sendMessage(group.id, text, replyToMessageId = replyId) }
+            setSending(true)
+            launchApp {
+                val result = repo.sendMessage(group.id, text, replyToMessageId = replyId)
+                setSending(false)
+                if (result is Result.Success) {
+                    // Clear only after publish succeeded. NIP-07 cancel / signer
+                    // failure / relay reject all return Result.Error and the draft
+                    // stays so the user can retry without retyping.
+                    setDraft("")
+                    setReplyingToId(null)
+                }
+            }
         }
 
         fun join() {
@@ -703,7 +718,7 @@ val ChatScreen =
                         }
                         button {
                             className = ClassName(if (draft.isNotBlank()) "composer-send active" else "composer-send")
-                            disabled = draft.isBlank()
+                            disabled = draft.isBlank() || sending
                             onClick = { send() }
                             icon(Ic.Send)
                         }
