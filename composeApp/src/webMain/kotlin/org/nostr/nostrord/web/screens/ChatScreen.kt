@@ -61,6 +61,7 @@ import web.cssom.ClassName
 import web.dom.ElementId
 import web.dom.document
 import web.html.HTMLDivElement
+import web.html.HTMLInputElement
 import kotlin.math.abs
 
 external interface ChatScreenProps : Props {
@@ -244,6 +245,14 @@ val ChatScreen =
         val loadingOlder = useRef(false)
         val prevScrollHeight = useRef(0.0)
         val atBottom = useRef(true)
+
+        // Composer input ref + auto-focus when a reply is staged. Clicking Reply on a
+        // message sets replyingToId; the useEffect snaps focus to the input so the
+        // user can start typing immediately (matches native's keyboard-up behaviour).
+        val composerInputRef = useRef<HTMLInputElement>(null)
+        useEffect(replyingToId) {
+            if (replyingToId != null) composerInputRef.current?.focus()
+        }
 
         // Load messages + author/member metadata when the group (or its rosters) change.
         useEffect(group.id) {
@@ -639,6 +648,7 @@ val ChatScreen =
                             onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
                         }
                         input {
+                            ref = composerInputRef
                             className = ClassName("composer-input")
                             placeholder = "Message $groupName"
                             value = draft
