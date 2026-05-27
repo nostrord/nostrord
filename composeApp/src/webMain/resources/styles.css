@@ -3241,6 +3241,18 @@ body {
     vertical-align: middle;
 }
 
+/* NIP-30 custom emoji rendered inline inside message text. Scales with the
+   surrounding font like a glyph instead of pushing the line height. */
+.msg-emoji {
+    display: inline-block;
+    height: 1.4em;
+    width: auto;
+    max-width: 4em;
+    object-fit: contain;
+    vertical-align: -0.35em;
+    margin: 0 1px;
+}
+
 .reaction-badge.mine {
     color: var(--color-primary);
     background: rgba(88, 101, 242, 0.15);

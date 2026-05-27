@@ -206,8 +206,11 @@ val ChatScreen =
         // state until we know than to assert pending and persist that UI
         // through every transient empty.
         val isPendingApproval =
-            inMyList && myPubkey != null && !membersLoading &&
-                members.isNotEmpty() && myPubkey !in members
+            inMyList &&
+                myPubkey != null &&
+                !membersLoading &&
+                members.isNotEmpty() &&
+                myPubkey !in members
         // Pending join-request count — admin/closed-group only, drives the header badge.
         // Same logic as JoinRequestsModal: latest 9021 per pubkey, minus current members
         // and anyone whose most-recent event is a 9022 leave.
@@ -1068,6 +1071,7 @@ val ChatScreen =
                                         avatarUrl = userMetadata[message.pubkey]?.picture
                                         time = formatTime(message.createdAt)
                                         content = message.content
+                                        this.tags = message.tags
                                         this.firstInGroup = item.firstInGroup
                                         isAuthorAdmin = message.pubkey in admins
                                         reactions = reactionsByMsg[message.id].orEmpty()
@@ -1576,6 +1580,7 @@ external interface MessageRowProps : Props {
     var avatarUrl: String?
     var time: String
     var content: String
+    var tags: List<List<String>>
     var firstInGroup: Boolean
     var isAuthorAdmin: Boolean
     var reactions: Map<String, GroupManager.ReactionInfo>
@@ -1782,6 +1787,7 @@ private val MessageRow =
                     className = ClassName("msg-text")
                     renderMessageContent(
                         props.content,
+                        props.tags,
                         props.userMetadata,
                         props.messagesById,
                         props.onUser,
@@ -2052,22 +2058,60 @@ private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", Rege
 private val CODE_BLOCK_REGEX = Regex("```(?:([A-Za-z0-9_+-]*)\n)?([\\s\\S]*?)```")
 private val INLINE_CODE_REGEX = Regex("`([^`\n]+)`")
 
+// NIP-30 custom emoji. Mirrors MessageContentParser in commonMain: tag = ["emoji",
+// shortcode, url]; the body uses :shortcode: which renders as an inline image.
+private val EMOJI_SHORTCODE_REGEX = Regex(""":([a-zA-Z0-9_-]+):""")
+
+private fun extractEmojiMap(tags: List<List<String>>): Map<String, String> =
+    tags.asSequence()
+        .filter { it.size >= 3 && it[0] == "emoji" }
+        .mapNotNull { tag ->
+            val shortcode = tag[1]
+            val url = tag[2]
+            if (shortcode.isBlank()) return@mapNotNull null
+            if (!shortcode.all { c -> c.isLetterOrDigit() || c == '_' || c == '-' }) return@mapNotNull null
+            if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return@mapNotNull null
+            shortcode to url
+        }.toMap()
+
+/** Emit [text] verbatim, replacing :shortcode: tokens with `<img>` when in [emojiMap]. */
+private fun ChildrenBuilder.renderTextWithEmojis(text: String, emojiMap: Map<String, String>) {
+    if (emojiMap.isEmpty() || ':' !in text) {
+        +text
+        return
+    }
+    var last = 0
+    for (m in EMOJI_SHORTCODE_REGEX.findAll(text)) {
+        val url = emojiMap[m.groupValues[1]] ?: continue
+        if (m.range.first > last) +text.substring(last, m.range.first)
+        img {
+            className = ClassName("msg-emoji")
+            src = url
+            alt = m.value
+        }
+        last = m.range.last + 1
+    }
+    if (last < text.length) +text.substring(last)
+}
+
 /**
  * Render message text: fenced code blocks (```), then inline `code`, then links / images /
  * videos / NIP-27 mentions / event & group refs in the remaining text — mirroring native.
  */
 private fun ChildrenBuilder.renderMessageContent(
     content: String,
+    tags: List<List<String>>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
     onEventRef: (String) -> Unit,
     onGroupRef: (String, String?) -> Unit,
 ) {
+    val emojiMap = extractEmojiMap(tags)
     var last = 0
     for (block in CODE_BLOCK_REGEX.findAll(content)) {
         if (block.range.first > last) {
-            renderInline(content.substring(last, block.range.first), userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+            renderInline(content.substring(last, block.range.first), emojiMap, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
         }
         val lang = block.groupValues[1].takeIf { it.isNotBlank() }
         div {
@@ -2086,13 +2130,14 @@ private fun ChildrenBuilder.renderMessageContent(
         last = block.range.last + 1
     }
     if (last < content.length) {
-        renderInline(content.substring(last), userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        renderInline(content.substring(last), emojiMap, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
     }
 }
 
 /** Render a non-code text span: inline `code` as monospace, the rest through [renderEntities]. */
 private fun ChildrenBuilder.renderInline(
     text: String,
+    emojiMap: Map<String, String>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
@@ -2102,7 +2147,7 @@ private fun ChildrenBuilder.renderInline(
     var last = 0
     for (m in INLINE_CODE_REGEX.findAll(text)) {
         if (m.range.first > last) {
-            renderEntities(text.substring(last, m.range.first), userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+            renderEntities(text.substring(last, m.range.first), emojiMap, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
         }
         code {
             className = ClassName("msg-code")
@@ -2111,12 +2156,13 @@ private fun ChildrenBuilder.renderInline(
         last = m.range.last + 1
     }
     if (last < text.length) {
-        renderEntities(text.substring(last), userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        renderEntities(text.substring(last), emojiMap, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
     }
 }
 
 private fun ChildrenBuilder.renderEntities(
     content: String,
+    emojiMap: Map<String, String>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
@@ -2125,7 +2171,9 @@ private fun ChildrenBuilder.renderEntities(
 ) {
     var last = 0
     for (match in URL_REGEX.findAll(content)) {
-        if (match.range.first > last) +content.substring(last, match.range.first)
+        if (match.range.first > last) {
+            renderTextWithEmojis(content.substring(last, match.range.first), emojiMap)
+        }
         val token = match.value
         if (token.startsWith("data:image/")) {
             ChatImage { imageUrl = token }
@@ -2182,7 +2230,7 @@ private fun ChildrenBuilder.renderEntities(
         }
         last = match.range.last + 1
     }
-    if (last < content.length) +content.substring(last)
+    if (last < content.length) renderTextWithEmojis(content.substring(last), emojiMap)
 }
 
 private fun ChildrenBuilder.mentionSpan(pubkey: String, userMetadata: Map<String, UserMetadata>, onUser: (String) -> Unit) {
