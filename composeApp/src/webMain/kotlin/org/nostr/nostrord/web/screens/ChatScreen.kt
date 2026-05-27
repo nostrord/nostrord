@@ -1156,46 +1156,46 @@ val ChatScreen =
                 div {
                     className = ClassName("member-scroll")
                     val memberQ = memberQuery.trim().lowercase()
-                    val shownAdmins =
+                    val filtered =
                         if (memberQ.isEmpty()) {
-                            adminMembers
+                            members.toList()
                         } else {
-                            adminMembers.filter { displayName(it, userMetadata[it]).lowercase().contains(memberQ) }
+                            members.filter { displayName(it, userMetadata[it]).lowercase().contains(memberQ) }
                         }
-                    val shownPlain =
-                        if (memberQ.isEmpty()) {
-                            plainMembers
-                        } else {
-                            plainMembers.filter { displayName(it, userMetadata[it]).lowercase().contains(memberQ) }
-                        }
+                    // Mirrors native MemberSidebar.kt:100-101 — chat apps surface
+                    // who can reply NOW (online) above static role hierarchy.
+                    // The ADMIN badge still appears inline on each row, in either
+                    // section, so the role info isn't lost.
+                    val online = filtered.filter { it in recentlyActiveMembers }
+                    val offline = filtered.filter { it !in recentlyActiveMembers }
                     if (membersLoading && members.isEmpty()) {
                         repeat(6) { memberSkeleton() }
                     } else {
-                        if (shownAdmins.isNotEmpty()) {
-                            memberSection("Admins", shownAdmins.size)
-                            shownAdmins.forEach { pubkey ->
+                        if (online.isNotEmpty()) {
+                            memberSection("ONLINE", online.size)
+                            online.forEach { pubkey ->
                                 memberRow(
                                     pubkey,
                                     displayName(pubkey, userMetadata[pubkey]),
                                     userMetadata[pubkey]?.picture,
-                                    isAdmin = true,
-                                    isOnline = pubkey in recentlyActiveMembers,
+                                    isAdmin = pubkey in admins,
+                                    isOnline = true,
                                 ) { setProfilePubkey(it) }
                             }
                         }
-                        if (shownPlain.isNotEmpty()) {
-                            memberSection("Members", shownPlain.size)
-                            shownPlain.forEach { pubkey ->
+                        if (offline.isNotEmpty()) {
+                            memberSection("OFFLINE", offline.size)
+                            offline.forEach { pubkey ->
                                 memberRow(
                                     pubkey,
                                     displayName(pubkey, userMetadata[pubkey]),
                                     userMetadata[pubkey]?.picture,
-                                    isAdmin = false,
-                                    isOnline = pubkey in recentlyActiveMembers,
+                                    isAdmin = pubkey in admins,
+                                    isOnline = false,
                                 ) { setProfilePubkey(it) }
                             }
                         }
-                        if (shownAdmins.isEmpty() && shownPlain.isEmpty()) {
+                        if (online.isEmpty() && offline.isEmpty()) {
                             div {
                                 className = ClassName("member-section")
                                 +(if (members.isEmpty()) "No members yet" else "No members found")
