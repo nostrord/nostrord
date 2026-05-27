@@ -21,6 +21,9 @@
     --color-success: #57f287;
     --color-warning-orange: #ffa500;
     --color-message-hover: #32353b;
+    /* @mention accent — matches NostrordColors.MentionText in Colors.kt:137
+       (the warm gold the native chat uses for user mentions). */
+    --color-mention: #deb655;
 }
 
 * {
@@ -3061,7 +3064,8 @@ body {
 }
 
 .msg-mention {
-    color: var(--color-primary);
+    color: var(--color-mention);
+    font-weight: 500;
     cursor: pointer;
 }
 
