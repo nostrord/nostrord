@@ -17,6 +17,7 @@ import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import react.useState
 import web.cssom.ClassName
 
@@ -55,7 +56,18 @@ val HomeScreen =
         val myGroups = groups.filter { it.id in joined }
         val otherGroups = groups.filter { it.id !in joined }
 
-        val (filter, setFilter) = useState { "Mine" }
+        // Default to "Mine" only when the relay actually has joined groups —
+        // mirrors native HomeScreen.kt:75-78. Without this, switching to a
+        // relay where the user hasn't joined anything shows an empty "My Groups"
+        // pane that requires a manual click on "Other Groups" to discover
+        // anything. The useEffect below re-applies the rule when the joined
+        // set flips empty <-> non-empty, but NOT on every count change — so a
+        // deliberate switch to Other isn't undone on a routine join / leave.
+        val hasJoinedHere = myGroups.isNotEmpty()
+        val (filter, setFilter) = useState { if (hasJoinedHere) "Mine" else "Other" }
+        useEffect(currentRelay, hasJoinedHere) {
+            setFilter(if (hasJoinedHere) "Mine" else "Other")
+        }
         val (search, setSearch) = useState { "" }
         val (managing, setManaging) = useState { false }
         val (confirmRemove, setConfirmRemove) = useState { false }
