@@ -94,8 +94,14 @@ fun buildWebChatItems(
             lastMessageTime = null
         }
 
-        // Insert the divider before the first unread message from another user.
+        // Insert the divider before the first unread chat message from another
+        // user. Restricted to kind:9 because the divider is a "new chat
+        // messages" marker — placing it above a 9021 join or 9022 leave would
+        // both look wrong and (worse) make the entry-alignment effect anchor
+        // the viewport to a moderation row in the middle of the feed when the
+        // socket streamed joins / leaves before any new chat.
         if (!dividerInserted &&
+            message.kind == 9 &&
             lastReadTimestamp != null &&
             message.createdAt > lastReadTimestamp &&
             message.pubkey != currentUserPubkey

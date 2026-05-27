@@ -415,24 +415,29 @@ val ChatScreen =
             }
         }
         // Entry alignment to the "New messages" divider — the Telegram pattern.
-        // On the first batch of messages after entering the group, if there are
-        // unread messages from other users, scroll to align the divider with the
-        // top of the viewport instead of pinning to the bottom. Lets the user
-        // resume exactly where they left off; the FAB lets them skip to latest.
-        // One-shot per group entry (gated by openedAtDivider).
+        // On the first batch of messages after entering the group, if there's a
+        // divider rendered (= there are unread chat messages from others), scroll
+        // to align it with the top of the viewport. One-shot per group entry.
+        //
+        // We scroll to the divider DOM element itself (not to the first unread
+        // message). The earlier "look up msg-${firstUnread.id}" approach broke
+        // on socket-heavy streams of joins / leaves: messages.firstOrNull picked
+        // up a 9021 / 9022 event (no msg-${id} element exists for those — they
+        // render as system rows), the lookup silently returned null, the latch
+        // never flipped, and the effect re-fired on every new socket frame until
+        // a kind:9 happened to satisfy the filter and pulled the viewport into
+        // the middle of the feed. Anchoring to the divider element bypasses the
+        // whole id-lookup race; the divider is computed by buildWebChatItems
+        // with a kind:9 filter so it only appears where it should.
         useEffect(messages.size, lastReadSnapshot) {
             if (openedAtDivider.current == true) return@useEffect
             if (messages.isEmpty()) return@useEffect
             if (props.scrollToMessageId != null) return@useEffect
             if (lastReadSnapshot == null) return@useEffect
-            val firstUnread =
-                messages.sortedBy { it.createdAt }
-                    .firstOrNull { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey }
-                    ?: return@useEffect
-            val targetEl = document.getElementById(ElementId("msg-${firstUnread.id}")) ?: return@useEffect
-            // block: 'start' puts the first unread (preceded by the divider) at
-            // the top of the viewport — same framing Telegram uses on entry.
-            targetEl.asDynamic().scrollIntoView(js("({ behavior: 'auto', block: 'start' })"))
+            val dividerEl = document.getElementById(ElementId("new-msg-divider")) ?: return@useEffect
+            // block: 'start' puts the divider line at the top of the viewport —
+            // same framing Telegram uses on entry.
+            dividerEl.asDynamic().scrollIntoView(js("({ behavior: 'auto', block: 'start' })"))
             openedAtDivider.current = true
             // Mark not-at-bottom so subsequent auto-scrolls don't yank the view
             // down, and prime the round-trip gate so the divider dismissal still
@@ -804,6 +809,11 @@ val ChatScreen =
                                 is WebChatItem.NewMessagesDivider ->
                                     div {
                                         key = "new-messages-divider"
+                                        // Stable DOM id so the entry-alignment effect can
+                                        // scrollIntoView the divider itself rather than the
+                                        // adjacent message (which fails for moderation rows
+                                        // that have no msg-${id} element).
+                                        id = ElementId("new-msg-divider")
                                         className = ClassName("new-msg-divider")
                                         span {
                                             className = ClassName("new-msg-divider-label")
