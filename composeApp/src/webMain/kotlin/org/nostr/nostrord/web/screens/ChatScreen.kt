@@ -367,15 +367,58 @@ val ChatScreen =
             el.style.height = "${el.scrollHeight}px"
         }
 
-        // Load messages + author/member metadata when the group (or its rosters) change.
-        useEffect(group.id, activeAccountId) {
-            launchApp { repo.requestGroupMessages(group.id) }
+        // Load messages + author/member metadata when the group (or its rosters)
+        // change. Re-firing covers three race windows during account swap:
+        //
+        //  - activeAccountId flips: applyActiveAccountChange wiped messages,
+        //    groupStates, joinedGroups — the new session needs its own REQ.
+        //  - isConnected goes false→true: the connectionState transition is the
+        //    cleanest "client healthy again" signal. But the state can briefly
+        //    stay Connected while reconnect() has already nulled primaryClient
+        //    (state is updated by connectPrimary, not by disconnect).
+        //  - relayUrl flips empty → non-empty: clearCurrentRelay sets the URL
+        //    to '' under the swap, then loadSavedRelay restores it. The empty
+        //    interval is observable through useStateFlow and is the safest
+        //    gate — if relayUrl is blank, there's literally no relay to fetch
+        //    from yet, regardless of what connectionState says.
+        //
+        // Without all three checks the REQ would silently drop into
+        // clientForGroup -> null and groupStates stays Idle -> skeleton forever.
+        //
+        // For OTHER GROUPS specifically (non-joined): G isn't in
+        // joinedGroupsByRelay so the mux doesn't auto-subscribe, AND it isn't
+        // restored to groupsByRelay from storage on swap, so clientForGroup
+        // falls back to the primary client. If that primary's session is mid-
+        // settle (post-reconnect AUTH still pending), the REQ may silently
+        // no-op (send() on a half-open socket doesn't throw) and the
+        // controller is stuck in InitialLoading until the long network
+        // timeout. To cover that, retry up to 5x with a 2s gap while the
+        // group is still unsettled. CancellationException from the next
+        // effect run / unmount tears the loop down.
+        val isConnected = connState is ConnectionManager.ConnectionState.Connected
+        useEffect(group.id, activeAccountId, isConnected, relayUrl) {
+            if (!isConnected) return@useEffect
+            if (relayUrl.isBlank()) return@useEffect
             // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
             // so the divider can anchor on the user's actual last-read message
             // through the session. Native does the same with remember(groupId).
             setLastReadSnapshot(repo.getLastReadTimestamp(group.id))
             wasNotAtBottom.current = false
             openedAtDivider.current = false
+            var attempts = 0
+            while (attempts < 5) {
+                repo.requestGroupMessages(group.id)
+                delay(2_000)
+                val haveMsgs = repo.messages.value[group.id].orEmpty().isNotEmpty()
+                val state = repo.groupStates.value[group.id]
+                val settled = haveMsgs ||
+                    state is GroupLoadingState.HasMore ||
+                    state is GroupLoadingState.Paginating ||
+                    state is GroupLoadingState.Exhausted ||
+                    state is GroupLoadingState.Error
+                if (settled) break
+                attempts++
+            }
         }
         // Admin in a closed group: pull pending join requests explicitly + poll.
         // The standard chat REQ caps at 50 events and buries old 9021s under recent
@@ -846,7 +889,6 @@ val ChatScreen =
                     // flashed "No messages yet" before any kind:9 had a chance
                     // to stream.
                     val historyConfirmed = groupLoadingState is GroupLoadingState.Exhausted
-                    val isConnected = connState is ConnectionManager.ConnectionState.Connected
                     if (messages.isEmpty() && (!isConnected || !historyConfirmed)) {
                         repeat(8) { messageSkeleton() }
                     } else if (messages.isEmpty()) {
