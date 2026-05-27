@@ -118,26 +118,25 @@ private val NOSTR_URI_REGEX =
  * Web counterpart of `processMentionsInContent` in commonMain (which lives
  * inside the uiComposeMain source set and isn't visible from webMain).
  */
-private fun processMentions(content: String, userMetadata: Map<String, UserMetadata>): String =
-    NOSTR_URI_REGEX.replace(content) { match ->
-        val bech32 = match.groupValues[1]
-        runCatching {
-            when (val entity = Nip19.decode(bech32)) {
-                is Nip19.Entity.Npub -> {
-                    val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
-                    if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
-                }
-                is Nip19.Entity.Nprofile -> {
-                    val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
-                    if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
-                }
-                is Nip19.Entity.Note -> "[note]"
-                is Nip19.Entity.Nevent -> "[event]"
-                is Nip19.Entity.Naddr -> if (entity.kind == 39000) "%${entity.identifier}" else "[article]"
-                else -> match.value
+private fun processMentions(content: String, userMetadata: Map<String, UserMetadata>): String = NOSTR_URI_REGEX.replace(content) { match ->
+    val bech32 = match.groupValues[1]
+    runCatching {
+        when (val entity = Nip19.decode(bech32)) {
+            is Nip19.Entity.Npub -> {
+                val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
+                if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
             }
-        }.getOrDefault(match.value)
-    }
+            is Nip19.Entity.Nprofile -> {
+                val name = userMetadata[entity.pubkey]?.let { it.displayName ?: it.name }
+                if (!name.isNullOrBlank()) "@$name" else "@${entity.pubkey.take(8)}…"
+            }
+            is Nip19.Entity.Note -> "[note]"
+            is Nip19.Entity.Nevent -> "[event]"
+            is Nip19.Entity.Naddr -> if (entity.kind == 39000) "%${entity.identifier}" else "[article]"
+            else -> match.value
+        }
+    }.getOrDefault(match.value)
+}
 
 private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.displayName?.takeIf { it.isNotBlank() }
     ?: meta?.name?.takeIf { it.isNotBlank() }
@@ -579,18 +578,21 @@ val ChatScreen =
                 anchorElementId.current = null
             }
         }
-        // When the controller settles (initial REQ ends with HasMore, or a
-        // pagination round-trips), re-check whether the user is still parked
-        // near the top. The scroll handler is the only other place that fires
-        // loadMoreMessages, and `hasMore && !isLoadingMore` must be true at
-        // the moment the scroll event happens — but if the user scrolled to
-        // the top DURING the initial REQ (hasMore=false), the handler bailed
-        // out and there's no further scroll event to retry it. Without this
-        // effect, pagination silently dies until the user wiggles the
-        // scroll again.
+        // When the controller settles (initial REQ ends, or a pagination
+        // round-trips — success, failure, or "all-duplicates no-op"), release
+        // the latch and re-check whether the user is still parked near the
+        // top. The latch was set when we (or the scroll handler) kicked
+        // loadMoreMessages; it MUST be released on every transition out of
+        // loading, not only on messages.size growing, because a failed /
+        // empty page never grows the list and would otherwise wedge the
+        // latch forever. Native's snapshotFlow side-steps this by reading
+        // `hasMore && !isLoadingMore` continuously — we approximate that
+        // by clearing the latch here.
         useEffect(hasMore, isLoadingMore) {
-            if (!hasMore || isLoadingMore) return@useEffect
-            if (loadingOlder.current == true) return@useEffect
+            if (isLoadingMore) return@useEffect
+            loadingOlder.current = false
+            anchorElementId.current = null
+            if (!hasMore) return@useEffect
             val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
             val prefetchTrigger = el.clientHeight.toDouble() * 2.0
             if (el.scrollTop < prefetchTrigger) {
