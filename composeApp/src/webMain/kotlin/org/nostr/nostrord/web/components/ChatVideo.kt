@@ -1,13 +1,17 @@
 package org.nostr.nostrord.web.components
 
 import kotlinx.browser.document
+import kotlinx.coroutines.awaitCancellation
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.video
+import react.useEffect
+import react.useRef
 import react.useState
 import web.cssom.ClassName
+import web.html.HTMLVideoElement
 
 external interface ChatVideoProps : Props {
     var videoUrl: String
@@ -30,6 +34,28 @@ val ChatVideo =
         // Bumped on retry: React key on the <video> tag, forcing a full re-mount so the
         // browser re-fetches and re-decodes from zero instead of holding the broken state.
         val (attempt, setAttempt) = useState { 0 }
+        val videoRef = useRef<HTMLVideoElement>(null)
+
+        // Release the underlying media resource on unmount. Without this, switching
+        // between groups / relays piles up <video> elements that React has dropped
+        // from the tree but the browser still holds open (decoder + network buffer +
+        // connection). Browsers cap simultaneous media elements (~75 Chrome / fewer
+        // Firefox); once the cap is hit, freshly-mounted videos render as a black
+        // box that "comes back after a while" — exactly when the engine GC's the
+        // stale resources. pause() + removeAttribute("src") + load() is the
+        // canonical incantation to release them eagerly.
+        useEffect(props.videoUrl) {
+            try {
+                awaitCancellation()
+            } finally {
+                val node = videoRef.current ?: return@useEffect
+                runCatching {
+                    node.asDynamic().pause()
+                    node.removeAttribute("src")
+                    node.asDynamic().load()
+                }
+            }
+        }
 
         if (failed) {
             div {
@@ -50,6 +76,7 @@ val ChatVideo =
         } else {
             video {
                 key = "${props.videoUrl}#$attempt"
+                ref = videoRef
                 className = ClassName("msg-video")
                 src = props.videoUrl
                 controls = true
