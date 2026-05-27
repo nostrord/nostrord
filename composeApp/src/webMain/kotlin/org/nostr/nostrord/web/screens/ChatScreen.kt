@@ -287,12 +287,20 @@ val ChatScreen =
         val (deleteError, setDeleteError) = useState<String?> { null }
 
         // Scroll/pagination bookkeeping (refs so they don't trigger re-render).
-        // prevScrollTop + prevScrollHeight together let us restore the user's
-        // *exact* reading position after an older page prepends, instead of
-        // assuming they were at scrollTop=0 (issue #74).
+        //
+        // Pagination restore anchors to a SPECIFIC DOM ELEMENT (the one at the
+        // top of the viewport when the prepend was triggered), then after the
+        // prepend lands we adjust scrollTop so that exact element ends up at
+        // the same offset from the viewport top it had before. This replaces
+        // the earlier `prevScrollTop + heightAdded` math, which broke whenever
+        // anything OTHER than the prepend changed scrollHeight between save and
+        // restore — new socket messages arriving in parallel, async images /
+        // videos resolving dimensions, reactions / replies adding height to
+        // existing rows. The anchor approach is robust to all of those because
+        // the element's offsetTop reflects whatever the DOM ended up as.
         val loadingOlder = useRef(false)
-        val prevScrollHeight = useRef(0.0)
-        val prevScrollTop = useRef(0.0)
+        val anchorElementId = useRef<String>(null)
+        val anchorOffsetFromTop = useRef(0.0)
         val atBottom = useRef(true)
         // "New messages" divider snapshot. Captured once on group entry, then
         // cleared the first time the user scrolls up and back down to the bottom
@@ -377,25 +385,44 @@ val ChatScreen =
         // (otherwise reactions appearing under the user's viewport on a near-
         // bottom feed would not re-pin to bottom). Cheap: O(messages).
         val reactionCount = reactionsByMsg.values.sumOf { it.size }
-        // Pagination restore — runs SYNC after the DOM commits, before the browser
-        // paints, so the user never sees the feed in the "scrolled to wrong place"
-        // state. Restoring inside a regular useEffect (post-paint) leaks one frame
-        // of visible jump because the user's old scrollTop now points to different
-        // content after the prepend.
+        // Pagination restore — SYNC after the DOM commits, before the browser
+        // paints, so the user never sees the feed mid-shift.
         //
-        // The restore formula keeps the message the user was reading at the same
-        // visual position: newScrollTop = oldScrollTop + heightAdded. The previous
-        // implementation used `newScrollHeight - prevScrollHeight` (equivalent to
-        // assuming oldScrollTop=0), which yanked the view up by `oldScrollTop`
-        // pixels — up to ~80px because that's the threshold the pagination fires
-        // at. Now the user sees zero movement.
+        // Anchor-based: find the element captured when the prepend was triggered
+        // (recorded in anchorElementId / anchorOffsetFromTop in onScroll) and
+        // adjust scrollTop so that element ends up at the same offset from the
+        // viewport top it had before. Robust against any parallel DOM change
+        // because the anchor's offsetTop reflects current reality — we don't
+        // care WHY it moved, only that it gets restored to its previous
+        // viewport position. Matches the spirit of native's LazyColumn anchoring
+        // by item key (firstVisibleItemIndex + firstVisibleItemScrollOffset).
         useLayoutEffect(messages.size) {
             if (loadingOlder.current != true) return@useLayoutEffect
             if (props.scrollToMessageId != null) return@useLayoutEffect
             val el = document.getElementById(ElementId("chat-messages")) ?: return@useLayoutEffect
-            val heightAdded = el.scrollHeight.toDouble() - (prevScrollHeight.current ?: 0.0)
-            el.scrollTop = (prevScrollTop.current ?: 0.0) + heightAdded
+            val anchorId = anchorElementId.current
+            if (anchorId == null) {
+                loadingOlder.current = false
+                return@useLayoutEffect
+            }
+            val anchorEl = document.getElementById(ElementId(anchorId))
+            if (anchorEl == null) {
+                // Anchor unmounted between save and restore (rare — e.g., the
+                // original row was a message that got deleted mid-pagination).
+                // Bail without yanking the scroll.
+                loadingOlder.current = false
+                anchorElementId.current = null
+                return@useLayoutEffect
+            }
+            val containerTop = el.getBoundingClientRect().top
+            val currentOffset = (anchorEl.getBoundingClientRect().top as Number).toDouble() - containerTop
+            val correction = currentOffset - (anchorOffsetFromTop.current ?: 0.0)
+            // Positive correction means the anchor moved DOWN (prepend pushed
+            // it); we add to scrollTop to scroll the viewport down by the same
+            // amount, putting the anchor back exactly where it was.
+            el.scrollTop = el.scrollTop + correction
             loadingOlder.current = false
+            anchorElementId.current = null
         }
         // Pin to bottom when the user was already there. useLayoutEffect (pre-
         // paint) so the user sees the scrolled-to-bottom state directly on first
@@ -775,20 +802,36 @@ val ChatScreen =
                                 500,
                             )
                         // Trigger pagination well BEFORE the user reaches the top
-                        // (~3 screens worth of headroom) so the older messages
+                        // (~2 screens worth of headroom) so the older messages
                         // arrive and the scroll position is restored before the
-                        // user's reading area is visibly affected. The previous
-                        // 80px threshold meant the user had to be already at the
-                        // top — they'd see the visible "jump" when the prepend
-                        // landed even with the exact-restore math, because the
-                        // pre-prepend frame paints at scrollTop=0 briefly.
+                        // user's reading area is visibly affected.
                         val prefetchTrigger = el.clientHeight.toDouble() * 2.0
                         if (el.scrollTop < prefetchTrigger && hasMore && !isLoadingMore && loadingOlder.current != true) {
                             loadingOlder.current = true
-                            prevScrollHeight.current = sh
-                            // Capture scrollTop too so the restore can preserve the
-                            // user's exact reading position, not snap to the new top.
-                            prevScrollTop.current = el.scrollTop
+                            // Pick the first child whose top is at or below the
+                            // container's top — that's the row anchored to the
+                            // viewport's top edge. Record its id and the offset
+                            // from the container top; the layout effect re-finds
+                            // it post-prepend and aligns scrollTop accordingly.
+                            // Falls back to math if no suitable anchor is found
+                            // (e.g., only skeletons in the DOM, no message id'd).
+                            val containerTop = el.getBoundingClientRect().top
+                            val children = el.asDynamic().children
+                            val childCount = (children.length as Int)
+                            var foundAnchor = false
+                            for (i in 0 until childCount) {
+                                val child = children[i]
+                                val childId = (child.id as? String) ?: continue
+                                if (childId.isBlank()) continue
+                                val childTop = (child.getBoundingClientRect().top as Number).toDouble()
+                                if (childTop >= containerTop - 1.0) {
+                                    anchorElementId.current = childId
+                                    anchorOffsetFromTop.current = childTop - containerTop
+                                    foundAnchor = true
+                                    break
+                                }
+                            }
+                            if (!foundAnchor) anchorElementId.current = null
                             launchApp { repo.loadMoreMessages(group.id) }
                         }
                     }
@@ -817,6 +860,8 @@ val ChatScreen =
                                 is WebChatItem.DateSeparator ->
                                     div {
                                         key = "date-${item.date}"
+                                        // Stable DOM id for the pagination scroll-anchor restore.
+                                        id = ElementId("date-${item.date}")
                                         className = ClassName("date-sep")
                                         span {
                                             className = ClassName("date-sep-label")
@@ -1747,6 +1792,10 @@ private fun ChildrenBuilder.systemEventRow(
             SystemEventType.LEFT -> Ic.Logout
         }
     div {
+        // Stable DOM id so the pagination scroll restore can anchor to a
+        // system event row (the only thing visible in some join/leave-heavy
+        // groups when the user paginates up).
+        id = ElementId("sys-${event.id}")
         className = ClassName("sys-event")
         div {
             className = ClassName("sys-event-icon $typeClass")
