@@ -941,11 +941,10 @@ private val MessageRow =
                         (if (props.highlighted) " highlight" else ""),
                 )
             ref = rowRef
-            onContextMenu = { event ->
-                event.preventDefault()
-                setMenuAt(event.clientX.toInt() to event.clientY.toInt())
-                setMenuOpen(true)
-            }
+            // Right-click is left to the browser's default menu (copy / inspect /
+            // etc.) — feels foreign to override it on a web page. The .msg-actions
+            // toolbar's ⋯ More button still opens the same .ctx-menu, so the
+            // moderation actions stay reachable from the hover toolbar.
             onTouchStart = { event ->
                 val t = event.asDynamic().touches[0]
                 touchStartX.current = t.clientX as Double
