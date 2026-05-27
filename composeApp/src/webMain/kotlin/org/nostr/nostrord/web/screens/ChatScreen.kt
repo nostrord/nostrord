@@ -397,17 +397,20 @@ val ChatScreen =
             el.scrollTop = (prevScrollTop.current ?: 0.0) + heightAdded
             loadingOlder.current = false
         }
-        // Pin to bottom when the user was already there. Stays in useEffect (post-
-        // paint is fine — the user wants to see the new message land) and excludes
-        // the pagination branch (already handled by the layout effect above).
-        useEffect(messages.size, reactionCount) {
+        // Pin to bottom when the user was already there. useLayoutEffect (pre-
+        // paint) so the user sees the scrolled-to-bottom state directly on first
+        // paint instead of briefly seeing the unscrolled feed for one frame.
+        // Also runs before the entry-alignment layout effect below — without the
+        // pre-paint scheduling, the user would see a bottom-flash followed by a
+        // divider-flash on entry (the "pisca sobe-desce" the user reported).
+        useLayoutEffect(messages.size, reactionCount) {
             // While a deep-link target (?e=) is pending, the seek effect owns scrolling. atBottom
             // is true on entry, so without this the auto-scroll would pin the view to the bottom on
             // every page the seek loads — the target would load but never come into view (mirrors
             // native's AutoScrollEffect `enabled = !isSeekingTarget`).
-            if (props.scrollToMessageId != null) return@useEffect
-            if (loadingOlder.current == true) return@useEffect
-            val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
+            if (props.scrollToMessageId != null) return@useLayoutEffect
+            if (loadingOlder.current == true) return@useLayoutEffect
+            val el = document.getElementById(ElementId("chat-messages")) ?: return@useLayoutEffect
             if (atBottom.current == true) {
                 el.scrollTop = el.scrollHeight.toDouble()
                 // Messages seen at the bottom are read — clear their unread + notification entries.
@@ -415,9 +418,8 @@ val ChatScreen =
             }
         }
         // Entry alignment to the "New messages" divider — the Telegram pattern.
-        // On the first batch of messages after entering the group, if there's a
-        // divider rendered (= there are unread chat messages from others), scroll
-        // to align it with the top of the viewport. One-shot per group entry.
+        // useLayoutEffect (pre-paint) so the user lands directly on the divider
+        // without flashing through the pinned-to-bottom state above first.
         //
         // We scroll to the divider DOM element itself (not to the first unread
         // message). The earlier "look up msg-${firstUnread.id}" approach broke
@@ -429,12 +431,12 @@ val ChatScreen =
         // the middle of the feed. Anchoring to the divider element bypasses the
         // whole id-lookup race; the divider is computed by buildWebChatItems
         // with a kind:9 filter so it only appears where it should.
-        useEffect(messages.size, lastReadSnapshot) {
-            if (openedAtDivider.current == true) return@useEffect
-            if (messages.isEmpty()) return@useEffect
-            if (props.scrollToMessageId != null) return@useEffect
-            if (lastReadSnapshot == null) return@useEffect
-            val dividerEl = document.getElementById(ElementId("new-msg-divider")) ?: return@useEffect
+        useLayoutEffect(messages.size, lastReadSnapshot) {
+            if (openedAtDivider.current == true) return@useLayoutEffect
+            if (messages.isEmpty()) return@useLayoutEffect
+            if (props.scrollToMessageId != null) return@useLayoutEffect
+            if (lastReadSnapshot == null) return@useLayoutEffect
+            val dividerEl = document.getElementById(ElementId("new-msg-divider")) ?: return@useLayoutEffect
             // block: 'start' puts the divider line at the top of the viewport —
             // same framing Telegram uses on entry.
             dividerEl.asDynamic().scrollIntoView(js("({ behavior: 'auto', block: 'start' })"))
@@ -459,7 +461,14 @@ val ChatScreen =
         // arrivals) so a single setup covers the whole session. (issue #74)
         useEffect(group.id) {
             val pinIfAtBottom = {
-                if (atBottom.current == true && props.scrollToMessageId == null) {
+                // Don't pin while the pagination restore is mid-flight — the
+                // ResizeObserver fires for images loading inside freshly-prepended
+                // messages (above the viewport), and we'd otherwise yank the
+                // user from their read position down to the bottom.
+                if (atBottom.current == true &&
+                    props.scrollToMessageId == null &&
+                    loadingOlder.current != true
+                ) {
                     val el = document.getElementById(ElementId("chat-messages"))
                     if (el != null) el.scrollTop = el.scrollHeight.toDouble()
                 }
@@ -765,7 +774,16 @@ val ChatScreen =
                                 },
                                 500,
                             )
-                        if (el.scrollTop < 80.0 && hasMore && !isLoadingMore && loadingOlder.current != true) {
+                        // Trigger pagination well BEFORE the user reaches the top
+                        // (~3 screens worth of headroom) so the older messages
+                        // arrive and the scroll position is restored before the
+                        // user's reading area is visibly affected. The previous
+                        // 80px threshold meant the user had to be already at the
+                        // top — they'd see the visible "jump" when the prepend
+                        // landed even with the exact-restore math, because the
+                        // pre-prepend frame paints at scrollTop=0 briefly.
+                        val prefetchTrigger = el.clientHeight.toDouble() * 2.0
+                        if (el.scrollTop < prefetchTrigger && hasMore && !isLoadingMore && loadingOlder.current != true) {
                             loadingOlder.current = true
                             prevScrollHeight.current = sh
                             // Capture scrollTop too so the restore can preserve the
