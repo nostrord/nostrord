@@ -2,7 +2,9 @@ package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -43,6 +45,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.settings.NotificationLevel
+import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -194,21 +197,18 @@ fun GroupInfoModal(
                         Spacer(modifier = Modifier.height(Spacing.sm))
 
                         NotificationLevelOption(
-                            icon = Icons.Default.Notifications,
                             label = "All messages",
                             description = "Notify for every message in this group.",
                             selected = effectiveLevel == NotificationLevel.ALL,
                             onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.ALL) },
                         )
                         NotificationLevelOption(
-                            icon = Icons.Default.Notifications,
                             label = "Mentions & replies only",
                             description = "Notify on replies, @mentions, and reactions to your messages.",
                             selected = effectiveLevel == NotificationLevel.MENTIONS_REPLIES,
                             onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.MENTIONS_REPLIES) },
                         )
                         NotificationLevelOption(
-                            icon = Icons.Default.NotificationsOff,
                             label = "Muted",
                             description = "Silence everything, including replies, mentions and reactions.",
                             selected = effectiveLevel == NotificationLevel.MUTED,
@@ -438,28 +438,33 @@ private fun StatusBadge(
  */
 @Composable
 private fun NotificationLevelOption(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     description: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
     Row(
         modifier =
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isHovered) NostrordColors.SurfaceVariant else Color.Transparent)
+            .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(vertical = Spacing.sm, horizontal = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(vertical = Spacing.sm, horizontal = Spacing.sm),
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (selected) NostrordColors.Primary else NostrordColors.TextSecondary,
-            modifier = Modifier.size(20.dp),
+        // Web-parity radio circle (matches .settings-radio in styles.css) so the
+        // notification picker reads the same on both platforms. The bell / Check
+        // icons that used to occupy the corners are dropped — the radio is the
+        // selection signal now.
+        RadioCircle(
+            selected = selected,
+            modifier = Modifier.padding(top = 2.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -472,14 +477,6 @@ private fun NotificationLevelOption(
                 text = description,
                 style = NostrordTypography.Caption,
                 color = NostrordColors.TextMuted,
-            )
-        }
-        if (selected) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Selected",
-                tint = NostrordColors.Primary,
-                modifier = Modifier.size(18.dp),
             )
         }
     }

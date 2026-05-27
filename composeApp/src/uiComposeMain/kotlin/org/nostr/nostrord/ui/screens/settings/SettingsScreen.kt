@@ -57,6 +57,7 @@ import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.storage.PassphraseSettings
 import org.nostr.nostrord.ui.Screen
+import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.cards.InfoCard
 import org.nostr.nostrord.ui.components.cards.KeyCard
@@ -1140,15 +1141,26 @@ private fun NotificationLevelRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isHovered) NostrordColors.SurfaceVariant else Color.Transparent)
+            .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
+        // Web-parity radio circle (matches .settings-radio in styles.css) so the
+        // option group reads the same on both platforms.
+        RadioCircle(
+            selected = selected,
+            modifier = Modifier.padding(top = 2.dp),
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
@@ -1160,14 +1172,6 @@ private fun NotificationLevelRow(
                 text = description,
                 style = NostrordTypography.Caption,
                 color = NostrordColors.TextMuted,
-            )
-        }
-        if (selected) {
-            Icon(
-                imageVector = Icons.Default.Check,
-                contentDescription = "Selected",
-                tint = NostrordColors.Primary,
-                modifier = Modifier.size(18.dp),
             )
         }
     }

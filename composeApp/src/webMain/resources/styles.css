@@ -3921,8 +3921,14 @@ body {
     display: flex;
     align-items: flex-start;
     gap: 12px;
-    padding: 8px 0;
+    padding: 8px 12px;
+    margin: 0 -12px;
+    border-radius: 6px;
     cursor: pointer;
+    transition: background 0.12s;
+}
+.settings-radio-row:hover {
+    background: var(--color-surface-variant);
 }
 
 .settings-radio {
