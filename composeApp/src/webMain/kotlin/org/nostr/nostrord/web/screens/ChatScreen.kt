@@ -653,11 +653,14 @@ val ChatScreen =
                             window.setTimeout(
                                 {
                                     val viewportBottom = el.scrollTop + el.clientHeight.toDouble()
+                                    // .asDynamic() makes the chain dynamic — calling
+                                    // .asDynamic() again on item(i) compiles into a JS
+                                    // method invocation and blows up at runtime.
                                     val msgEls = el.asDynamic().querySelectorAll("[id^='msg-']")
                                     val len = (msgEls.length as Int)
                                     var maxSeen = 0L
                                     for (i in 0 until len) {
-                                        val m = msgEls.item(i).asDynamic()
+                                        val m = msgEls.item(i)
                                         val msgBottom =
                                             (m.offsetTop as Number).toDouble() +
                                                 (m.offsetHeight as Number).toDouble()
