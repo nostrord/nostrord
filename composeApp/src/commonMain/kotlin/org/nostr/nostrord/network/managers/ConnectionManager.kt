@@ -51,6 +51,14 @@ class ConnectionManager(
     // Shared relay pool for all auxiliary connections (outbox, metadata, NIP-65)
     private val poolMutex = Mutex()
     private val relayPool = mutableMapOf<String, NostrGroupClient>()
+    // Singleflight: in-flight connection attempts per URL. Without this,
+    // concurrent callers of getOrConnectRelay for the same URL each create
+    // their own NostrGroupClient (the existing double-check pattern released
+    // the lock during the actual WebSocket handshake), opening N parallel
+    // sockets and then closing all-but-one as they each lose the race-to-
+    // insert. The browser network panel shows the full N sockets and the
+    // relay sees N connects/disconnects in quick succession.
+    private val pendingConnects = mutableMapOf<String, kotlinx.coroutines.CompletableDeferred<NostrGroupClient?>>()
 
     /**
      * Called when the primary connection drops unexpectedly.
@@ -458,16 +466,39 @@ class ConnectionManager(
         onMessage: (String, NostrGroupClient) -> Unit,
     ): NostrGroupClient? {
         val normalized = relayUrl.normalizeRelayUrl()
-        // Check if we already have a connection
+        // Fast-path: already pooled.
         poolMutex.withLock {
             relayPool[normalized]?.let { return it }
         }
 
-        // Create new connection outside the lock to avoid blocking other operations
+        // Singleflight gate: at most one in-flight connect per URL. Concurrent
+        // callers attach to the same CompletableDeferred and share its result
+        // instead of each opening their own socket.
+        val deferred: kotlinx.coroutines.CompletableDeferred<NostrGroupClient?>
+        val isLeader: Boolean
+        poolMutex.withLock {
+            // Re-check the pool under the lock — a sibling caller may have
+            // resolved during our handoff between mutex acquisitions.
+            relayPool[normalized]?.let { return it }
+            val existing = pendingConnects[normalized]
+            if (existing != null) {
+                deferred = existing
+                isLeader = false
+            } else {
+                deferred = kotlinx.coroutines.CompletableDeferred()
+                pendingConnects[normalized] = deferred
+                isLeader = true
+            }
+        }
+        if (!isLeader) {
+            return deferred.await()
+        }
+
+        // We're the leader. Open the socket, then publish the result.
         connStats?.onConnecting(normalized)
-        return try {
+        var result: NostrGroupClient? = null
+        try {
             val newClient = NostrGroupClient(normalized)
-            // Wire up pool-relay drop detection so we can attempt reconnection.
             newClient.onConnectionLost = {
                 scope.launch {
                     connStats?.onDisconnected(normalized)
@@ -475,34 +506,28 @@ class ConnectionManager(
                     onPoolRelayLost?.invoke(normalized)
                 }
             }
-            newClient.connect { msg ->
-                onMessage(msg, newClient)
-            }
+            newClient.connect { msg -> onMessage(msg, newClient) }
             val connected = newClient.waitForConnection()
             if (!connected) {
                 newClient.disconnect()
                 connStats?.onConnectFailed(normalized)
-                return null
-            }
-
-            // Add to pool with lock, but check again in case another coroutine added it
-            poolMutex.withLock {
-                relayPool[normalized]?.let {
-                    // Another coroutine already added a connection, disconnect ours
-                    newClient.disconnect()
-                    return it
+                result = null
+            } else {
+                poolMutex.withLock { relayPool[normalized] = newClient }
+                connStats?.onConnected(normalized)
+                connStats?.getStats()?.get(normalized)?.lastReconnectMs?.let { latency ->
+                    adaptiveConfig?.recordRelayLatency(normalized, latency)
                 }
-                relayPool[normalized] = newClient
+                result = newClient
             }
-            connStats?.onConnected(normalized)
-            connStats?.getStats()?.get(normalized)?.lastReconnectMs?.let { latency ->
-                adaptiveConfig?.recordRelayLatency(normalized, latency)
-            }
-            newClient
         } catch (e: Exception) {
             connStats?.onConnectFailed(normalized)
-            null
+            result = null
+        } finally {
+            poolMutex.withLock { pendingConnects.remove(normalized) }
+            deferred.complete(result)
         }
+        return result
     }
 
     /**
