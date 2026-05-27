@@ -1792,6 +1792,13 @@ private fun ChildrenBuilder.systemEventRow(
             SystemEventType.LEFT -> Ic.Logout
         }
     div {
+        // Stable React key — without it React reconciles SystemEvent rows by
+        // position. When pagination prepends older system events at the top,
+        // positional reconciliation re-renders existing rows in place with the
+        // older data and appends fresh rows at the bottom, scrambling the DOM
+        // order and breaking the scroll anchor. All other row types (Message,
+        // DateSeparator, NewMessagesDivider) already key correctly.
+        key = "sys-${event.id}"
         // Stable DOM id so the pagination scroll restore can anchor to a
         // system event row (the only thing visible in some join/leave-heavy
         // groups when the user paginates up).
