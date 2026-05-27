@@ -273,6 +273,11 @@ val ChatScreen =
         }
         // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
+        // Message id pending delete confirmation. Native pops an AlertDialog
+        // first (GroupScreen.kt:523); the web used to call repo.deleteMessage
+        // straight from the onDelete callback — one stray click on the
+        // overflow menu would wipe the message with no undo.
+        val (messageToDelete, setMessageToDelete) = useState<String?> { null }
 
         // Scroll/pagination bookkeeping (refs so they don't trigger re-render).
         // prevScrollTop + prevScrollHeight together let us restore the user's
@@ -804,7 +809,7 @@ val ChatScreen =
                                         onReact = { emoji ->
                                             launchApp { repo.sendReaction(group.id, message.id, message.pubkey, emoji) }
                                         }
-                                        onDelete = { launchApp { repo.deleteMessage(group.id, message.id) } }
+                                        onDelete = { setMessageToDelete(message.id) }
                                     }
                                 }
                             }
@@ -1151,8 +1156,57 @@ val ChatScreen =
                     }
                 "children" -> ManageChildrenModal { onClose = { setModal(null) } }
             }
+            // Delete-message confirm. Mirrors the native AlertDialog
+            // (GroupScreen.kt:523-545): destructive action, red confirm,
+            // explicit "cannot be undone" copy. Esc closes via useEscClose,
+            // backdrop click cancels.
+            messageToDelete?.let { msgId ->
+                deleteMessageConfirm(
+                    onCancel = { setMessageToDelete(null) },
+                    onConfirm = {
+                        launchApp { repo.deleteMessage(group.id, msgId) }
+                        setMessageToDelete(null)
+                    },
+                )
+            }
         }
     }
+
+/** Confirm dialog for the destructive "delete this message" action. Uses the
+ *  same modal-card + title/subtitle/footer pattern as RemoveAccountDialog so
+ *  the destructive confirms across the app read the same. */
+private fun ChildrenBuilder.deleteMessageConfirm(onCancel: () -> Unit, onConfirm: () -> Unit) {
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onCancel() }
+        div {
+            className = ClassName("modal-card sm")
+            onClick = { it.stopPropagation() }
+
+            div {
+                className = ClassName("modal-title")
+                +"Delete Message"
+            }
+            div {
+                className = ClassName("modal-subtitle tight")
+                +"Are you sure you want to delete this message? This action cannot be undone."
+            }
+            div {
+                className = ClassName("modal-footer")
+                button {
+                    className = ClassName("btn-text")
+                    onClick = { onCancel() }
+                    +"Cancel"
+                }
+                button {
+                    className = ClassName("btn-danger")
+                    onClick = { onConfirm() }
+                    +"Delete"
+                }
+            }
+        }
+    }
+}
 
 private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false, onSelect: () -> Unit) {
     div {
