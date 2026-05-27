@@ -195,17 +195,19 @@ val ChatScreen =
         // account has no read access (NIP-29 private+closed group).
         val restrictedGroups = useStateFlow(repo.restrictedGroups)
         val isGroupRestricted = group.id in restrictedGroups
-        // Mirror native GroupScreen.kt:237 isPendingApproval: joined but the
-        // member list (kind:39002) didn't include us, OR closed group with no
-        // list yet. Differs from isPending above (which gates the composer) —
-        // this drives the chat-body empty state.
+        // Pending approval: joined a closed group, kind:39002 came back and
+        // we're not in it. Only fires when we have DATA — !membersLoading
+        // AND members.isNotEmpty(). Without those gates, an empty members
+        // list during the fetch window (or right after an account swap when
+        // _groupMembers was wiped + not yet re-loaded) made the screen
+        // wrongly assert "Awaiting" for actual members. Native's
+        // `members.isEmpty() && !group.isOpen` branch (GroupScreen.kt:237)
+        // is too optimistic — better to fall through to skeleton / empty
+        // state until we know than to assert pending and persist that UI
+        // through every transient empty.
         val isPendingApproval =
-            inMyList &&
-                myPubkey != null &&
-                (
-                    (members.isNotEmpty() && myPubkey !in members) ||
-                        (members.isEmpty() && !group.isOpen)
-                    )
+            inMyList && myPubkey != null && !membersLoading &&
+                members.isNotEmpty() && myPubkey !in members
         // Pending join-request count — admin/closed-group only, drives the header badge.
         // Same logic as JoinRequestsModal: latest 9021 per pubkey, minus current members
         // and anyone whose most-recent event is a 9022 leave.
@@ -412,7 +414,16 @@ val ChatScreen =
         // group is still unsettled. CancellationException from the next
         // effect run / unmount tears the loop down.
         val isConnected = connState is ConnectionManager.ConnectionState.Connected
-        useEffect(group.id, activeAccountId, isConnected, relayUrl) {
+        // Also re-fire on isMember change — when an admin approves a pending
+        // join request, the relay broadcasts the updated kind:39002 member
+        // list and our reactive members flow flips us to a member. The
+        // earlier REQ for this group (run while we were non-member) likely
+        // returned empty / restricted — controller is sitting in Exhausted /
+        // Error with 0 msgs and won't re-issue on its own. Re-running the
+        // effect with isMember as a dep + the force-refresh block below
+        // catches that moment and replays the fetch so messages stream in
+        // without the user having to leave / re-enter the group.
+        useEffect(group.id, activeAccountId, isConnected, relayUrl, isMember) {
             if (!isConnected) return@useEffect
             if (relayUrl.isBlank()) return@useEffect
             // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
@@ -428,10 +439,28 @@ val ChatScreen =
             // an EOSE. Resetting now lets attempt 0 actually re-issue instead
             // of being a no-op (startInitialLoad rejects when state is
             // already InitialLoading). Skip the reset for legitimate
-            // states (HasMore / Paginating / Exhausted / Error) — those mean
-            // we already have data or have already finished.
+            // states (HasMore / Paginating) — those mean we already have data.
+            //
+            // Also reset on Exhausted / Error with zero messages: covers the
+            // post-approval case where a previous non-member REQ returned
+            // empty (or was refused), and now that the user is a member the
+            // relay would serve the chat. Without this reset the controller
+            // sits in Exhausted with 0 msgs and never tries again. Safe
+            // because the retry loop below exits as soon as state settles
+            // (Exhausted with 0 msgs is still settled — we just trigger one
+            // extra fetch on relay reconnect of an empty group, which is
+            // fine).
             val entryState = repo.groupStates.value[group.id]
-            if (entryState is GroupLoadingState.InitialLoading) {
+            val haveMsgsAtEntry = repo.messages.value[group.id].orEmpty().isNotEmpty()
+            val needsForceRefresh = entryState is GroupLoadingState.InitialLoading ||
+                (
+                    !haveMsgsAtEntry &&
+                        (
+                            entryState is GroupLoadingState.Exhausted ||
+                                entryState is GroupLoadingState.Error
+                            )
+                    )
+            if (needsForceRefresh) {
                 repo.resetGroupLoadingState(group.id)
             }
             var attempts = 0
