@@ -11,6 +11,8 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.GroupLoadingState
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.utils.Result
@@ -148,6 +150,13 @@ val ChatScreen =
         val relayUrl = useStateFlow(repo.currentRelayUrl)
         val isLoadingMore = useStateFlow(repo.isLoadingMore)[group.id] ?: false
         val hasMore = useStateFlow(repo.hasMoreMessages)[group.id] ?: true
+        // Per-group GroupLoadingState. Only the Exhausted state means the relay
+        // truly confirmed "no more messages" THIS session — the cached
+        // `hasMore == false` from a prior visit doesn't. Used by the empty-
+        // state gate below to avoid showing "No messages yet" before the
+        // socket has even spoken on this open.
+        val groupLoadingState = useStateFlow(repo.groupStates)[group.id]
+        val connState = useStateFlow(repo.connectionState)
         val membersLoading = group.id in useStateFlow(repo.loadingMembers)
         val myPubkey = repo.getPublicKey()
 
@@ -819,13 +828,18 @@ val ChatScreen =
                             +"Loading earlier messages…"
                         }
                     }
-                    // Empty-state gating: "No messages yet" is the *confirmed* empty signal,
-                    // and we only know the group is empty after the historical REQ EOSE'd with
-                    // nothing — that's when GroupManager flips `hasMore` to false. Until then
-                    // (initial mount, awaiting AUTH/connection, REQ in flight) render skeletons
-                    // so the user never sees the friendly empty-state flicker before the load
-                    // has even started.
-                    if (messages.isEmpty() && (isLoadingMore || hasMore)) {
+                    // Empty-state gating. "No messages yet" is the *confirmed* empty
+                    // signal — only safe to show when the relay has acked the REQ
+                    // for THIS open with an EOSE. The state machine's Exhausted
+                    // state is that ack; Idle / InitialLoading / Retrying / null /
+                    // Error all mean the relay hasn't spoken yet. The previous
+                    // gate used the boolean `hasMore`, but that's cached across
+                    // visits — re-opening a group that was empty last session
+                    // flashed "No messages yet" before any kind:9 had a chance
+                    // to stream.
+                    val historyConfirmed = groupLoadingState is GroupLoadingState.Exhausted
+                    val isConnected = connState is ConnectionManager.ConnectionState.Connected
+                    if (messages.isEmpty() && (!isConnected || !historyConfirmed)) {
                         repeat(8) { messageSkeleton() }
                     } else if (messages.isEmpty()) {
                         div {

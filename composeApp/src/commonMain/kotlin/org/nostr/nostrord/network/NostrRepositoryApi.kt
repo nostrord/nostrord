@@ -45,6 +45,16 @@ interface NostrRepositoryApi {
     val restrictedRelays: StateFlow<Map<String, String>>
     val isLoadingMore: StateFlow<Map<String, Boolean>>
     val hasMoreMessages: StateFlow<Map<String, Boolean>>
+
+    /**
+     * Per-group GroupLoadingState. Lets the UI tell apart "Idle / InitialLoading
+     * (haven't gotten EOSE yet)" from "Exhausted (relay confirmed empty)", which
+     * the boolean [hasMoreMessages] conflates — both are `hasMore = false`. The
+     * web's "No messages yet" empty state needs the distinction so it doesn't
+     * flash before the relay has actually spoken (issue: empty state showing on
+     * group open before any kind:9 has streamed).
+     */
+    val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>>
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>
 
     /** NIP-57 zap totals keyed by zapped event id. */

@@ -197,6 +197,7 @@ class NostrRepository(
     override val restrictedRelays: StateFlow<Map<String, String>> = _restrictedRelays.asStateFlow()
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
+    override val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>> = groupManager.groupStates
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
 
     // NIP-57 zap totals per zapped event id.
