@@ -3,6 +3,7 @@ package org.nostr.nostrord.web.screens
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.components.GeneratedKeyCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
@@ -47,27 +48,8 @@ private fun ChildrenBuilder.benefit(text: String) {
     }
 }
 
-private fun ChildrenBuilder.generatedKeyCard(privateKey: String) {
-    div {
-        className = ClassName("genkey-card")
-        div {
-            className = ClassName("genkey-head")
-            icon(Ic.Warning)
-            span {
-                className = ClassName("genkey-title")
-                +"SAVE YOUR PRIVATE KEY"
-            }
-        }
-        p {
-            className = ClassName("genkey-sub")
-            +"This is a copy of your key, not your only copy. Save it somewhere safe."
-        }
-        code {
-            className = ClassName("genkey-value")
-            +privateKey
-        }
-    }
-}
+// generatedKeyCard moved to web/components/GeneratedKeyCard.kt as an FC so it
+// can hold its own copy-feedback state.
 
 /**
  * Login screen — layout-first React port of the Compose NostrLoginScreen (all modes:
@@ -195,7 +177,7 @@ val LoginScreen =
                                     icon(Ic.AutoAwesome)
                                     +"Generate New Identity"
                                 }
-                                generatedKey?.let { generatedKeyCard(it) }
+                                generatedKey?.let { hex -> GeneratedKeyCard { this.privateKey = hex } }
                             }
 
                             Tab.Bunker -> {

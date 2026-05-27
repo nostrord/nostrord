@@ -5,6 +5,7 @@ import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.GeneratedKeyCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
@@ -180,7 +181,7 @@ val AddAccountSheet =
                                 icon(Ic.AutoAwesome)
                                 +"Generate New Identity"
                             }
-                            generatedKey?.let { generatedKeyCard(it) }
+                            generatedKey?.let { hex -> GeneratedKeyCard { this.privateKey = hex } }
                         }
 
                         AddStep.Bunker -> {
@@ -278,24 +279,3 @@ private fun ChildrenBuilder.methodRow(ic: Ic, label: String, onSelect: () -> Uni
     }
 }
 
-private fun ChildrenBuilder.generatedKeyCard(privateKey: String) {
-    div {
-        className = ClassName("genkey-card")
-        div {
-            className = ClassName("genkey-head")
-            icon(Ic.Warning)
-            span {
-                className = ClassName("genkey-title")
-                +"SAVE YOUR PRIVATE KEY"
-            }
-        }
-        p {
-            className = ClassName("genkey-sub")
-            +"This is a copy of your key, not your only copy. Save it somewhere safe."
-        }
-        code {
-            className = ClassName("genkey-value")
-            +privateKey
-        }
-    }
-}

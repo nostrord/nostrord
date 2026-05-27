@@ -357,7 +357,14 @@ body {
     color: var(--color-text-content);
 }
 
+.genkey-value-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+}
 .genkey-value {
+    flex: 1;
+    min-width: 0;
     display: block;
     padding: 12px;
     background: var(--color-background-dark);
@@ -366,6 +373,30 @@ body {
     font-family: monospace;
     font-size: 11px;
     word-break: break-all;
+}
+/* Copy button sitting alongside the key. Same hover affordance as the
+   account-menu npub copy chip — passive look until hover, swap to a green
+   check for 2s after click. */
+.genkey-copy {
+    flex-shrink: 0;
+    width: 40px;
+    border: none;
+    border-radius: 8px;
+    background: var(--color-background-dark);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, color 0.12s;
+}
+.genkey-copy:hover {
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+}
+.genkey-copy > svg {
+    width: 18px;
+    height: 18px;
 }
 
 /* bunker */
