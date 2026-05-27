@@ -159,6 +159,14 @@ val ChatScreen =
         val connState = useStateFlow(repo.connectionState)
         val membersLoading = group.id in useStateFlow(repo.loadingMembers)
         val myPubkey = repo.getPublicKey()
+        // Re-key effects that fire per-session work (requestGroupMessages,
+        // metadata, polling) on activeAccountId too. Without this, switching
+        // accounts while the same group is open leaves group.id unchanged, the
+        // effects below don't re-run, and the new session never issues its own
+        // REQ — chat sits in skeletons forever because groupStates[group.id]
+        // never reaches Exhausted (the new GroupManager session has no state
+        // for it).
+        val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
 
         val messages = messagesByGroup[group.id].orEmpty().sortedBy { it.createdAt }
         val messagesById = messages.associateBy { it.id }
@@ -360,7 +368,7 @@ val ChatScreen =
         }
 
         // Load messages + author/member metadata when the group (or its rosters) change.
-        useEffect(group.id) {
+        useEffect(group.id, activeAccountId) {
             launchApp { repo.requestGroupMessages(group.id) }
             // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
             // so the divider can anchor on the user's actual last-read message
@@ -377,7 +385,7 @@ val ChatScreen =
         // The useEffect block is suspend (this wrappers version — same pattern as
         // useEscClose / useStateFlow); `delay` propagates CancellationException when
         // deps change, so leaving the group / losing admin tears down the loop.
-        useEffect(group.id, isAdmin, group.isOpen) {
+        useEffect(group.id, isAdmin, group.isOpen, activeAccountId) {
             if (!(isAdmin && !group.isOpen)) return@useEffect
             repo.requestPendingJoinRequests(group.id)
             while (true) {
@@ -385,7 +393,7 @@ val ChatScreen =
                 repo.requestPendingJoinRequests(group.id)
             }
         }
-        useEffect(group.id, members.size, messages.size) {
+        useEffect(group.id, members.size, messages.size, activeAccountId) {
             val pubkeys = (members + messages.map { it.pubkey }).toSet()
             if (pubkeys.isNotEmpty()) launchApp { repo.requestUserMetadata(pubkeys) }
         }
