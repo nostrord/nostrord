@@ -2641,7 +2641,10 @@ body {
 
 .msg-image {
     display: block;
-    max-width: 360px;
+    /* min() so the desktop 360px cap still holds, but on narrow viewports the
+       image shrinks to the bubble width — otherwise a 360px image inside a
+       <360px bubble overflows and leaks horizontal scroll onto the page. */
+    max-width: min(360px, 100%);
     max-height: 300px;
     margin-top: 4px;
     border-radius: 8px;
@@ -2649,7 +2652,7 @@ body {
 }
 .msg-video {
     display: block;
-    max-width: 360px;
+    max-width: min(360px, 100%);
     max-height: 300px;
     margin-top: 4px;
     border-radius: 8px;
