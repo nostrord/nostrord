@@ -501,6 +501,7 @@ val AppShell =
                     }
                     div {
                         className = ClassName("rail-account")
+                        title = meName
                         onClick = { setMenuOpen(!menuOpen) }
                         WebAvatar {
                             url = meMetadata?.picture
