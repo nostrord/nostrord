@@ -13,6 +13,10 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.clearLastGroupForRelay
+import org.nostr.nostrord.storage.getLastGroupForRelay
+import org.nostr.nostrord.storage.saveLastGroupForRelay
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
@@ -155,6 +159,12 @@ val AppShell =
         // Groups sidebar search query (filters My Groups + Other Groups by name/id, like native).
         val (groupQuery, setGroupQuery) = useState { "" }
         val firstNav = useRef(true)
+        // Native saves the last-active group per relay (SecureStorage.saveLastGroupForRelay)
+        // so cold-booting onto a bare URL restores the user where they left off. The web
+        // wasn't doing this — entering localhost:8080/ landed on the relay home even when
+        // the user had been deep inside a group seconds earlier. Latch flips to false once
+        // the cold-boot restore has had its chance to run.
+        val coldBootRestorePending = useRef(true)
 
         // Deep-link parity with native: render ChatScreen as soon as we know the target group
         // id, not only after kind:39000 arrives. The full metadata flows into `groups` async-
@@ -201,7 +211,37 @@ val AppShell =
                 }
                 else -> {}
             }
-            if (ctx != null) StartupResolver.clearExternalLaunchContext()
+            if (ctx != null) {
+                StartupResolver.clearExternalLaunchContext()
+                // Any deep-link context (relay/group/notifications) overrides the
+                // cold-boot restore — the user asked for a specific destination.
+                coldBootRestorePending.current = false
+            }
+        }
+
+        // Cold-boot restore: when the URL carries no deep-link, fall back to the
+        // last-viewed group on the active relay (native parity — App.kt persists
+        // saveLastGroupForRelay on group entry and uses it from resolveScreenForRelay).
+        // Runs once activeRelay is known so we look up the right slot.
+        useEffect(activeRelay, activePubkey) {
+            if (coldBootRestorePending.current != true) return@useEffect
+            if (activeRelay.isBlank() || activePubkey.isNullOrBlank()) return@useEffect
+            coldBootRestorePending.current = false
+            val last = SecureStorage.getLastGroupForRelay(activePubkey, activeRelay) ?: return@useEffect
+            setSelectedGroupId(last.first)
+        }
+
+        // Persist the user's last-active group per relay so the next cold boot can
+        // land them right back in it. Clear when they navigate to Home (null id).
+        useEffect(activeRelay, selectedGroupId, activePubkey) {
+            val pk = activePubkey ?: return@useEffect
+            if (activeRelay.isBlank()) return@useEffect
+            if (selectedGroupId.isNullOrBlank()) {
+                SecureStorage.clearLastGroupForRelay(pk, activeRelay)
+            } else {
+                val name = groups.firstOrNull { it.id == selectedGroupId }?.name
+                SecureStorage.saveLastGroupForRelay(pk, activeRelay, selectedGroupId, name)
+            }
         }
 
         // Keep the URL in sync with navigation so it's shareable and back/forward works.
