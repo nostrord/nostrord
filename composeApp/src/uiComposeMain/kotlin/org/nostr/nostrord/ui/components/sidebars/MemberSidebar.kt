@@ -11,12 +11,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -144,15 +144,19 @@ fun MemberSidebar(
                 modifier = Modifier.weight(1f),
             )
             if (isCurrentUserAdmin) {
+                // Matches the web .member-add-btn: PersonAdd silhouette (not the
+                // bare '+' Add icon) in a neutral TextSecondary tint. The
+                // IconButton's ripple covers the hover affordance the web does
+                // with a background swap.
                 IconButton(
                     onClick = { showAddMemberModal = true },
                     modifier = Modifier.size(32.dp),
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Add,
+                        imageVector = Icons.Default.PersonAdd,
                         contentDescription = "Add member",
-                        tint = NostrordColors.Primary,
-                        modifier = Modifier.size(20.dp),
+                        tint = NostrordColors.TextSecondary,
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
