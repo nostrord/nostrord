@@ -195,6 +195,11 @@ val ChatScreen =
         // come back — clearing optimistically erased the message when a NIP-07
         // cancel or relay reject killed the publish.
         val (sending, setSending) = useState { false }
+        // Active media uploads in flight (paste / drag-and-drop). The send button
+        // shows a spinner instead of the Send icon while > 0 — without it the
+        // user can't tell that a freshly-pasted file is still uploading and might
+        // click Send before the URL appears in the draft.
+        val (uploadCount, setUploadCount) = useState { 0 }
         val (membersOpen, setMembersOpen) = useState { false }
         val (infoOpen, setInfoOpen) = useState { false }
         val (profilePubkey, setProfilePubkey) = useState<String?> { null }
@@ -240,21 +245,29 @@ val ChatScreen =
             setDraft(draft.take(m.start) + ref + " " + draft.substring(cursorEnd))
             setMention(null)
         }
+
         // Mirrors native's isSupportedMediaMime: image / video / audio go to
         // nostr.build. Anything else is dropped — copying a .zip or .pdf from the
         // file manager would otherwise upload bytes the relay can't render.
-        fun isMediaMime(type: String?): Boolean =
-            type != null &&
-                (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/"))
+        fun isMediaMime(type: String?): Boolean = type != null &&
+            (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/"))
 
         // Shared between Ctrl/Cmd+V paste and drag-and-drop: upload the file to
         // nostr.build, append the returned URL to the composer draft (matches
         // the native ClipboardImageReader path — see ClipboardImage.jvm.kt).
+        // Tracks uploadCount via inc/dec so the send button can swap to a
+        // spinner while at least one upload is in flight (handles multi-file
+        // drops correctly — finishes are not necessarily in start order).
         fun handleMediaFile(file: dynamic) {
+            setUploadCount { it + 1 }
             launchApp {
-                val url = uploadBlob(file)
-                if (url != null) {
-                    setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                try {
+                    val url = uploadBlob(file)
+                    if (url != null) {
+                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                    }
+                } finally {
+                    setUploadCount { it - 1 }
                 }
             }
         }
@@ -968,10 +981,19 @@ val ChatScreen =
                             icon(Ic.EmojiEmotions)
                         }
                         button {
-                            className = ClassName(if (draft.isNotBlank()) "composer-send active" else "composer-send")
-                            disabled = draft.isBlank() || sending
+                            val uploading = uploadCount > 0
+                            // Treat the button as "ready" while uploading too — the
+                            // spinner is visible only against the active background.
+                            className = ClassName(
+                                if (draft.isNotBlank() || uploading) "composer-send active" else "composer-send",
+                            )
+                            disabled = (draft.isBlank() && !uploading) || sending || uploading
                             onClick = { send() }
-                            icon(Ic.Send)
+                            if (uploading) {
+                                span { className = ClassName("btn-spinner") }
+                            } else {
+                                icon(Ic.Send)
+                            }
                         }
                         if (emojiOpen) {
                             div {
