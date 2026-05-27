@@ -55,6 +55,15 @@ interface NostrRepositoryApi {
      * group open before any kind:9 has streamed).
      */
     val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>>
+
+    /**
+     * Force-reset the loading state of [groupId] to Idle. Used to recover from
+     * controllers stuck in InitialLoading because their underlying socket died
+     * (account swap, connection reset) but the natural onConnectionLost path
+     * didn't fire (e.g. explicit primaryClient.disconnect() during a reconnect()
+     * doesn't always trigger the WebSocket close callback in time).
+     */
+    suspend fun resetGroupLoadingState(groupId: String)
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>
 
     /** NIP-57 zap totals keyed by zapped event id. */

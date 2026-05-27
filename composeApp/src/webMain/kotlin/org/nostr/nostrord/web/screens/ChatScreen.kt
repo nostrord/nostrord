@@ -397,28 +397,73 @@ val ChatScreen =
         // effect run / unmount tears the loop down.
         val isConnected = connState is ConnectionManager.ConnectionState.Connected
         useEffect(group.id, activeAccountId, isConnected, relayUrl) {
-            if (!isConnected) return@useEffect
-            if (relayUrl.isBlank()) return@useEffect
+            // Force the JS native console.log via js("") because kotlin's
+            // `console.log` binding may not be hot-reload-visible in this
+            // dev-server setup. Concatenating message lines into single
+            // string args keeps each log on one line in DevTools.
+            val gid = group.id.take(8)
+            val acct = (activeAccountId ?: "null").take(8)
+            val relayShort = relayUrl.removePrefix("wss://").removePrefix("ws://")
+            js("""console.log("[ChatScreen]", "effect fired", "group=" + gid, "account=" + acct, "isConnected=" + isConnected, "relay=" + relayShort)""")
+            if (!isConnected) {
+                js("""console.log("[ChatScreen]", "BAIL: not connected")""")
+                return@useEffect
+            }
+            if (relayUrl.isBlank()) {
+                js("""console.log("[ChatScreen]", "BAIL: relayUrl blank")""")
+                return@useEffect
+            }
             // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
             // so the divider can anchor on the user's actual last-read message
             // through the session. Native does the same with remember(groupId).
             setLastReadSnapshot(repo.getLastReadTimestamp(group.id))
             wasNotAtBottom.current = false
             openedAtDivider.current = false
+            // Preemptive reset: if the controller was already in InitialLoading
+            // when we entered, it's almost certainly the stale REQ that
+            // resubscribePoolRelay (NostrRepository.kt:2628) fired during the
+            // reconnect — that REQ went out on the dying socket and won't get
+            // an EOSE. Resetting now lets attempt 0 actually re-issue instead
+            // of being a no-op (startInitialLoad rejects when state is
+            // already InitialLoading). Skip the reset for legitimate
+            // states (HasMore / Paginating / Exhausted / Error) — those mean
+            // we already have data or have already finished.
+            val entryState = repo.groupStates.value[group.id]
+            if (entryState is GroupLoadingState.InitialLoading) {
+                js("""console.log("[ChatScreen]", "preemptive reset of stale InitialLoading")""")
+                repo.resetGroupLoadingState(group.id)
+            }
             var attempts = 0
             while (attempts < 5) {
+                val msgsBefore = repo.messages.value[group.id].orEmpty().size
+                val stateBefore = repo.groupStates.value[group.id]
+                val stateBeforeName = stateBefore?.let { it::class.simpleName } ?: "null"
+                js("""console.log("[ChatScreen]", "attempt " + attempts + " calling requestGroupMessages", "msgs=" + msgsBefore, "state=" + stateBeforeName)""")
+                // Same defensive reset between retries: if the prior attempt's
+                // REQ is still in InitialLoading at the start of the next
+                // attempt, it's stuck — reset before re-issuing.
+                if (stateBefore is GroupLoadingState.InitialLoading && attempts > 0) {
+                    js("""console.log("[ChatScreen]", "force-reset stale InitialLoading before retry")""")
+                    repo.resetGroupLoadingState(group.id)
+                }
                 repo.requestGroupMessages(group.id)
                 delay(2_000)
-                val haveMsgs = repo.messages.value[group.id].orEmpty().isNotEmpty()
+                val msgsAfter = repo.messages.value[group.id].orEmpty().size
                 val state = repo.groupStates.value[group.id]
-                val settled = haveMsgs ||
+                val stateAfter = state?.let { it::class.simpleName } ?: "null"
+                js("""console.log("[ChatScreen]", "after 2s", "msgsAfter=" + msgsAfter, "stateAfter=" + stateAfter)""")
+                val settled = msgsAfter > 0 ||
                     state is GroupLoadingState.HasMore ||
                     state is GroupLoadingState.Paginating ||
                     state is GroupLoadingState.Exhausted ||
                     state is GroupLoadingState.Error
-                if (settled) break
+                if (settled) {
+                    js("""console.log("[ChatScreen]", "settled, exit loop")""")
+                    break
+                }
                 attempts++
             }
+            js("""console.log("[ChatScreen]", "retry loop done, attempts=" + attempts)""")
         }
         // Admin in a closed group: pull pending join requests explicitly + poll.
         // The standard chat REQ caps at 50 events and buries old 9021s under recent
@@ -888,7 +933,14 @@ val ChatScreen =
                     // visits — re-opening a group that was empty last session
                     // flashed "No messages yet" before any kind:9 had a chance
                     // to stream.
-                    val historyConfirmed = groupLoadingState is GroupLoadingState.Exhausted
+                    // Exhausted = relay confirmed empty. Error = relay didn't respond
+                    // within the controller's timeout (~10s). Both terminate the
+                    // "still loading" phase — without including Error here, a
+                    // non-member opening a closed group on a relay that silently
+                    // drops the REQ (no CLOSED, no EOSE) stays on skeletons
+                    // forever even after the timeout fires.
+                    val historyConfirmed = groupLoadingState is GroupLoadingState.Exhausted ||
+                        groupLoadingState is GroupLoadingState.Error
                     if (messages.isEmpty() && (!isConnected || !historyConfirmed)) {
                         repeat(8) { messageSkeleton() }
                     } else if (messages.isEmpty()) {

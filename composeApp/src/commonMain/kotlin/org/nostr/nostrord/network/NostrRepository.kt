@@ -198,6 +198,10 @@ class NostrRepository(
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     override val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>> = groupManager.groupStates
+
+    override suspend fun resetGroupLoadingState(groupId: String) {
+        groupManager.resetLoadingForGroups(listOf(groupId))
+    }
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
 
     // NIP-57 zap totals per zapped event id.
@@ -864,6 +868,17 @@ class NostrRepository(
     }
 
     override suspend fun reconnect(): Boolean {
+        // Explicitly notify GroupManager that all in-flight loading is dead.
+        // connectionManager.reconnect() calls primaryClient.disconnect() which
+        // closes the old socket — but the `onConnectionLost` callback that
+        // would normally cascade into GroupManager.handleConnectionLost() may
+        // not fire in time (explicit disconnect doesn't always trigger the
+        // close-event handler synchronously). Without this reset, controllers
+        // left in InitialLoading from REQs sent on the dying socket reject
+        // resubscribeAllGroups' new REQ calls (startInitialLoad only accepts
+        // Idle/Error), so the new session never gets fresh data — chat sits
+        // on skeletons until the controller's own ~10s timeout fires.
+        groupManager.handleConnectionLost()
         val connected = connectionManager.reconnect()
         if (connected) {
             val client = connectionManager.getPrimaryClient()
