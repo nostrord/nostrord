@@ -1,6 +1,5 @@
 package org.nostr.nostrord.web.screens
 
-import kotlinx.browser.window
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -10,6 +9,7 @@ import org.nostr.nostrord.storage.getNostrConnectRelays
 import org.nostr.nostrord.storage.saveNostrConnectRelays
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.qrDataUrl
 import react.FC
@@ -81,8 +81,7 @@ val BunkerQr =
         }
 
         fun copyUri(value: String) {
-            val clip = window.navigator.asDynamic().clipboard
-            if (clip != null) clip.writeText(value)
+            copyToClipboard(value)
             setCopied(true)
             launchApp {
                 delay(2_000)

@@ -1,11 +1,11 @@
 package org.nostr.nostrord.web.modals
 
-import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
 import react.ChildrenBuilder
@@ -66,11 +66,6 @@ val ShareGroupModal =
             }
         }
     }
-
-private fun copyToClipboard(text: String) {
-    val clip = window.navigator.asDynamic().clipboard
-    if (clip != null) clip.writeText(text)
-}
 
 private fun ChildrenBuilder.shareField(label: String, value: String) {
     div {

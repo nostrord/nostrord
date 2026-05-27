@@ -1,6 +1,5 @@
 package org.nostr.nostrord.web.screens
 
-import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.web.bridge.launchApp
@@ -8,6 +7,7 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.groupCardSkeleton
 import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
@@ -376,11 +376,6 @@ private fun ChildrenBuilder.confirmDialog(
             }
         }
     }
-}
-
-private fun copyToClipboard(text: String) {
-    val clip = window.navigator.asDynamic().clipboard
-    if (clip != null) clip.writeText(text)
 }
 
 private fun ChildrenBuilder.homeFilter(label: String, count: Int, active: Boolean, onClick: () -> Unit) {

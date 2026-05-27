@@ -1,6 +1,5 @@
 package org.nostr.nostrord.web.components
 
-import kotlinx.browser.window
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.web.bridge.launchApp
 import react.FC
@@ -49,8 +48,7 @@ val GeneratedKeyCard =
                     className = ClassName("genkey-copy")
                     title = if (copied) "Copied" else "Copy private key"
                     onClick = {
-                        val clip = window.navigator.asDynamic().clipboard
-                        if (clip != null && props.privateKey.isNotBlank()) clip.writeText(props.privateKey)
+                        if (props.privateKey.isNotBlank()) copyToClipboard(props.privateKey)
                         setCopied(true)
                         launchApp {
                             delay(2_000)

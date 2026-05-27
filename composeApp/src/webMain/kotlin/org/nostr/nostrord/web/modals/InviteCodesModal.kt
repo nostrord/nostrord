@@ -1,10 +1,10 @@
 package org.nostr.nostrord.web.modals
 
-import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
 import react.FC
@@ -18,11 +18,6 @@ import web.cssom.ClassName
 external interface InviteCodesModalProps : Props {
     var groupId: String
     var onClose: () -> Unit
-}
-
-private fun copyToClipboard(text: String) {
-    val clip = window.navigator.asDynamic().clipboard
-    if (clip != null) clip.writeText(text)
 }
 
 /**

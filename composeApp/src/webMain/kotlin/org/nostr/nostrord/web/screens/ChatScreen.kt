@@ -29,6 +29,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.messageSkeleton
@@ -94,11 +95,6 @@ private fun parentMessageOf(message: org.nostr.nostrord.network.NostrGroupClient
     return message.tags
         .firstOrNull { it.size >= 2 && it[0] == "q" && it[1].length == 64 && it[1].all { c -> c.isLetterOrDigit() } }
         ?.get(1)
-}
-
-private fun copyToClipboard(text: String) {
-    val clip = window.navigator.asDynamic().clipboard
-    if (clip != null) clip.writeText(text)
 }
 
 private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.displayName?.takeIf { it.isNotBlank() }
@@ -2062,17 +2058,16 @@ private val INLINE_CODE_REGEX = Regex("`([^`\n]+)`")
 // shortcode, url]; the body uses :shortcode: which renders as an inline image.
 private val EMOJI_SHORTCODE_REGEX = Regex(""":([a-zA-Z0-9_-]+):""")
 
-private fun extractEmojiMap(tags: List<List<String>>): Map<String, String> =
-    tags.asSequence()
-        .filter { it.size >= 3 && it[0] == "emoji" }
-        .mapNotNull { tag ->
-            val shortcode = tag[1]
-            val url = tag[2]
-            if (shortcode.isBlank()) return@mapNotNull null
-            if (!shortcode.all { c -> c.isLetterOrDigit() || c == '_' || c == '-' }) return@mapNotNull null
-            if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return@mapNotNull null
-            shortcode to url
-        }.toMap()
+private fun extractEmojiMap(tags: List<List<String>>): Map<String, String> = tags.asSequence()
+    .filter { it.size >= 3 && it[0] == "emoji" }
+    .mapNotNull { tag ->
+        val shortcode = tag[1]
+        val url = tag[2]
+        if (shortcode.isBlank()) return@mapNotNull null
+        if (!shortcode.all { c -> c.isLetterOrDigit() || c == '_' || c == '-' }) return@mapNotNull null
+        if (!url.startsWith("http://", ignoreCase = true) && !url.startsWith("https://", ignoreCase = true)) return@mapNotNull null
+        shortcode to url
+    }.toMap()
 
 /** Emit [text] verbatim, replacing :shortcode: tokens with `<img>` when in [emojiMap]. */
 private fun ChildrenBuilder.renderTextWithEmojis(text: String, emojiMap: Map<String, String>) {

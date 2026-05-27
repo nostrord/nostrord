@@ -27,6 +27,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.ImageViewerHost
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.ZapModalHost
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.groupNavSkeleton
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.modals.AccountChooserModal
@@ -752,8 +753,7 @@ val AppShell =
                                 div {
                                     className = ClassName("me-npub")
                                     onClick = {
-                                        val clip = window.navigator.asDynamic().clipboard
-                                        if (clip != null && meNpub.isNotBlank()) clip.writeText(meNpub)
+                                        if (meNpub.isNotBlank()) copyToClipboard(meNpub)
                                         setCopied(true)
                                     }
                                     span { +(if (meNpub.isNotBlank()) meNpub.take(16) + "…" else "") }

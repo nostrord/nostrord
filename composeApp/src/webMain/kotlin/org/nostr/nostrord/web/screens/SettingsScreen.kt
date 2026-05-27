@@ -17,6 +17,7 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import react.FC
 import react.Props
@@ -309,7 +310,7 @@ private val BackupPanel =
             }
             button {
                 className = ClassName("settings-outline-btn")
-                onClick = { copyText(npub) }
+                onClick = { copyToClipboard(npub) }
                 +"Copy Public Key"
             }
         }
@@ -330,7 +331,7 @@ private val BackupPanel =
                         if (!revealed) {
                             setRevealed(true)
                         } else {
-                            repo.getPrivateKey()?.let { copyText(Nip19.encodeNsec(it)) }
+                            repo.getPrivateKey()?.let { copyToClipboard(Nip19.encodeNsec(it)) }
                         }
                     }
                     +(if (revealed) "Copy Private Key" else "Reveal Private Key")
@@ -661,11 +662,6 @@ private val ExperimentalPanel =
     }
 
 // ── Shared bits ──────────────────────────────────────────────────────────────
-
-private fun copyText(text: String) {
-    val clip = kotlinx.browser.window.navigator.asDynamic().clipboard
-    if (clip != null) clip.writeText(text)
-}
 
 private fun react.ChildrenBuilder.settingsField(
     label: String,

@@ -270,7 +270,7 @@ private fun ChildrenBuilder.invoiceStep(
         className = ClassName("zap-invoice-actions")
         button {
             className = ClassName("btn-text")
-            onClick = { copyText(invoice.bolt11) }
+            onClick = { copyToClipboard(invoice.bolt11) }
             +"Copy invoice"
         }
         button {
@@ -311,11 +311,6 @@ fun ChildrenBuilder.zapBadge(totalMsats: Long, count: Int, zappedByMe: Boolean, 
         icon(Ic.Bolt, "ico zap-badge-bolt")
         +(if (count > 1) "${formatSatsShort(sats)} · $count" else formatSatsShort(sats))
     }
-}
-
-private fun copyText(text: String) {
-    val clip = window.navigator.asDynamic().clipboard
-    if (clip != null) clip.writeText(text)
 }
 
 private fun formatSatsShort(sats: Long): String = when {
