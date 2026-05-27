@@ -2763,6 +2763,43 @@ body {
     background: #000;
 }
 
+/* Fallback shown when a <video> fires its error event (host CDN flaky, bad
+   Content-Type, src not supported). Replaces the dead-black <video> box and
+   gives the user a single click to retry without reloading the whole site. */
+.msg-video-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    max-width: min(360px, 100%);
+    min-height: 120px;
+    min-width: 160px;
+    margin-top: 4px;
+    padding: 16px;
+    background: var(--color-input);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    color: var(--color-text-muted);
+}
+.msg-video-error-label {
+    font-size: 13px;
+}
+.msg-video-retry {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: none;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.msg-video-retry:hover {
+    filter: brightness(1.1);
+}
+
 .msg-event-ref,
 .msg-group-ref {
     display: inline-flex;

@@ -21,6 +21,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.ChatImage
+import org.nostr.nostrord.web.components.ChatVideo
 import org.nostr.nostrord.web.components.EmojiPicker
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
@@ -53,7 +54,6 @@ import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.pre
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
-import react.dom.html.ReactHTML.video
 import react.useEffect
 import react.useEffectOnce
 import react.useLayoutEffect
@@ -1717,24 +1717,7 @@ private fun ChildrenBuilder.renderEntities(
             if (IMAGE_EXT.containsMatchIn(url)) {
                 ChatImage { imageUrl = url }
             } else if (VIDEO_EXT.containsMatchIn(url)) {
-                video {
-                    className = ClassName("msg-video")
-                    src = url
-                    controls = true
-                    // Show a preview frame without downloading/playing the whole file (no autoplay).
-                    preload = "metadata"
-                    playsInline = true
-                    // Notify the feed when the video's intrinsic dimensions arrive
-                    // (preload="metadata" fires loadedmetadata, not load) so the
-                    // scroll can re-pin to bottom for any user still anchored
-                    // there. Same mechanic as ChatImage's onLoad. (issue #74)
-                    onLoadedMetadata = {
-                        document.asDynamic().dispatchEvent(
-                            js("new CustomEvent('chat-content-loaded')"),
-                        )
-                        Unit
-                    }
-                }
+                ChatVideo { videoUrl = url }
             } else {
                 a {
                     className = ClassName("msg-link")
