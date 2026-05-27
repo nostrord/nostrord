@@ -536,9 +536,12 @@ val ChatScreen =
                 console.log(
                     "[pag] entry retry:",
                     group.id.take(8),
-                    "attempt=", attempts,
-                    "stateBefore=", stateBefore?.let { it::class.simpleName } ?: "null",
-                    "requestGroupMessages=", reqOk,
+                    "attempt=",
+                    attempts,
+                    "stateBefore=",
+                    stateBefore?.let { it::class.simpleName } ?: "null",
+                    "requestGroupMessages=",
+                    reqOk,
                 )
                 delay(2_000)
                 val msgsAfter = repo.messages.value[group.id].orEmpty().size
@@ -559,6 +562,57 @@ val ChatScreen =
                 if (settled) break
                 attempts++
             }
+        }
+        // Auto-recover from controller PARTIAL_TIMEOUT / TIMEOUT (state=Error).
+        //
+        // Web cold-boot is heavier than native (SW + kotlin/js bundle + ~30
+        // simultaneous websockets for kind:0 fan-out and outbox). Messages
+        // arrive within the 10s controller timeout but the EOSE on the
+        // primary's REQ often doesn't, so the controller flips to Error
+        // with the cursor advanced. From the user's POV: 50 messages
+        // visible, scroll-up does nothing because hasMore=false.
+        //
+        // Native has the same controller but doesn't hit this case in
+        // practice because the connection settles in < 1s. Web needs an
+        // explicit recovery. Manually navigating away and back already
+        // works (the entry useEffect kicks a fresh REQ because Error →
+        // InitialLoading is allowed in startInitialLoad); we just plumb
+        // the same kick in automatically when the user is sitting on a
+        // chat the controller gave up on.
+        //
+        // Capped at 2 attempts per group entry to avoid hot-looping on a
+        // genuinely dead relay; the counter resets when the user changes
+        // groups (group.id dep on the reset effect below).
+        val errorRetryCount = useRef(0)
+        useEffect(group.id) {
+            errorRetryCount.current = 0
+        }
+        useEffect(groupLoadingState, isMember) {
+            val s = groupLoadingState
+            if (s !is GroupLoadingState.Error) return@useEffect
+            val count = errorRetryCount.current ?: 0
+            if (count >= 2) {
+                console.log("[pag] auto-recover: capped at 2 attempts, giving up", group.id.take(8))
+                return@useEffect
+            }
+            errorRetryCount.current = count + 1
+            console.log(
+                "[pag] auto-recover: Error detected (reason=${s.reason}), attempt",
+                errorRetryCount.current,
+                group.id.take(8),
+            )
+            // Brief debounce so we don't fight a relay that's mid-reconnect.
+            delay(1_500)
+            // Re-check: state might have moved on (user reset by switching
+            // groups, fresh REQ from elsewhere, etc.).
+            val stillError = repo.groupStates.value[group.id] is GroupLoadingState.Error
+            if (!stillError) {
+                console.log("[pag] auto-recover: state moved on, skipping", group.id.take(8))
+                return@useEffect
+            }
+            repo.resetGroupLoadingState(group.id)
+            repo.requestGroupMessages(group.id)
+            console.log("[pag] auto-recover: kicked fresh REQ", group.id.take(8))
         }
         // Admin in a closed group: pull pending join requests explicitly + poll.
         // The standard chat REQ caps at 50 events and buries old 9021s under recent
@@ -639,9 +693,12 @@ val ChatScreen =
             console.log(
                 "[pag] settle:",
                 group.id.take(8),
-                "scrollTop=", el.scrollTop,
-                "prefetchTrigger=", prefetchTrigger,
-                "msgs=", messages.size,
+                "scrollTop=",
+                el.scrollTop,
+                "prefetchTrigger=",
+                prefetchTrigger,
+                "msgs=",
+                messages.size,
             )
             if (el.scrollTop < prefetchTrigger) {
                 loadingOlder.current = true
