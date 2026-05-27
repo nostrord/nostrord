@@ -972,23 +972,19 @@ val ChatScreen =
                             +"Loading earlier messages…"
                         }
                     }
-                    // Empty-state gating. "No messages yet" is the *confirmed* empty
-                    // signal — only safe to show when the relay has acked the REQ
-                    // for THIS open with an EOSE. The state machine's Exhausted
-                    // state is that ack; Idle / InitialLoading / Retrying / null /
-                    // Error all mean the relay hasn't spoken yet. The previous
-                    // gate used the boolean `hasMore`, but that's cached across
-                    // visits — re-opening a group that was empty last session
-                    // flashed "No messages yet" before any kind:9 had a chance
-                    // to stream.
-                    // Exhausted = relay confirmed empty. Error = relay didn't respond
-                    // within the controller's timeout (~10s). Both terminate the
-                    // "still loading" phase — without including Error here, a
-                    // non-member opening a closed group on a relay that silently
-                    // drops the REQ (no CLOSED, no EOSE) stays on skeletons
-                    // forever even after the timeout fires.
-                    val historyConfirmed = groupLoadingState is GroupLoadingState.Exhausted ||
-                        groupLoadingState is GroupLoadingState.Error
+                    // Empty-state gating — matches native GroupScreen.kt:343:
+                    // `isInitialLoading = isLoadingMoreMap[groupId] == true && empty`.
+                    // Skeleton only while the active REQ is in flight; once
+                    // isLoadingMore flips false, fall through to "No messages
+                    // yet" regardless of which terminal state the controller
+                    // reached. Earlier the gate required Exhausted / Error
+                    // specifically, which left web stuck on skeletons in cases
+                    // where native shows the empty-state cleanly (e.g. relay
+                    // returns an empty EOSE but the controller settles into
+                    // HasMore-with-zero, or into a state web didn't whitelist).
+                    val isLoadingThis = isLoadingMore ||
+                        groupLoadingState is GroupLoadingState.InitialLoading ||
+                        groupLoadingState is GroupLoadingState.Retrying
                     // Restricted / pending-approval gate FIRST: when the relay
                     // refused the messages REQ ("restricted") or the user is
                     // joined but not yet in kind:39002, native renders a
@@ -1013,7 +1009,7 @@ val ChatScreen =
                                     )
                             }
                         }
-                    } else if (messages.isEmpty() && (!isConnected || !historyConfirmed)) {
+                    } else if (messages.isEmpty() && (!isConnected || isLoadingThis)) {
                         repeat(8) { messageSkeleton() }
                     } else if (messages.isEmpty()) {
                         div {
