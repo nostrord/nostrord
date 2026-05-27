@@ -2207,30 +2207,35 @@ body {
 /* Jump-to-bottom FAB — Telegram pattern. Floats above the composer when the
    user has scrolled up from the bottom; the badge shows unread count from
    other users so the user can either skip or keep reading from the divider. */
+/* Matches the native SmallFloatingActionButton in MessagesList.kt:612 —
+   primary-blue rounded square with a white chevron, not the round dark
+   pill the web had before. */
 .chat-jump-bottom {
     position: absolute;
     right: 16px;
     bottom: 80px;
     width: 40px;
     height: 40px;
-    border-radius: 50%;
+    border-radius: 12px;
     border: none;
-    background: var(--color-background-dark);
-    color: var(--color-text-primary);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    background: var(--color-primary);
+    color: #fff;
+    box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2),
+        0 6px 10px 0 rgba(0, 0, 0, 0.14),
+        0 1px 18px 0 rgba(0, 0, 0, 0.12);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 5;
-    transition: background 0.15s;
+    transition: filter 0.15s;
 }
 .chat-jump-bottom:hover {
-    background: var(--color-surface);
+    filter: brightness(1.08);
 }
 .chat-jump-bottom > svg {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
 }
 .chat-jump-badge {
     position: absolute;

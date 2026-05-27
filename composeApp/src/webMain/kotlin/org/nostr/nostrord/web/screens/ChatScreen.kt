@@ -934,7 +934,9 @@ val ChatScreen =
                                 if (lastReadSnapshot != null) setLastReadSnapshot(null)
                             }
                         }
-                        icon(Ic.ArrowDownward)
+                        // Chevron, not the bold arrow — matches native's
+                        // KeyboardArrowDown in MessagesList.kt:644.
+                        icon(Ic.ExpandMore)
                         if (unreadCount > 0) {
                             span {
                                 className = ClassName("chat-jump-badge")
