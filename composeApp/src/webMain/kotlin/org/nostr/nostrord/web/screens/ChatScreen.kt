@@ -190,6 +190,22 @@ val ChatScreen =
         val canPost = isMember || (group.isOpen && inMyList)
         // Pending = we sent a join request (kind 9021) but aren't a member yet.
         val isPending = !canPost && myPubkey != null && messages.any { it.kind == 9021 && it.pubkey == myPubkey }
+        // Restricted: relay returned a CLOSED "restricted" frame for this group.
+        // Used to render the "Private group" UI in place of skeletons when the
+        // account has no read access (NIP-29 private+closed group).
+        val restrictedGroups = useStateFlow(repo.restrictedGroups)
+        val isGroupRestricted = group.id in restrictedGroups
+        // Mirror native GroupScreen.kt:237 isPendingApproval: joined but the
+        // member list (kind:39002) didn't include us, OR closed group with no
+        // list yet. Differs from isPending above (which gates the composer) —
+        // this drives the chat-body empty state.
+        val isPendingApproval =
+            inMyList &&
+                myPubkey != null &&
+                (
+                    (members.isNotEmpty() && myPubkey !in members) ||
+                        (members.isEmpty() && !group.isOpen)
+                    )
         // Pending join-request count — admin/closed-group only, drives the header badge.
         // Same logic as JoinRequestsModal: latest 9021 per pubkey, minus current members
         // and anyone whose most-recent event is a 9022 leave.
@@ -397,22 +413,8 @@ val ChatScreen =
         // effect run / unmount tears the loop down.
         val isConnected = connState is ConnectionManager.ConnectionState.Connected
         useEffect(group.id, activeAccountId, isConnected, relayUrl) {
-            // Force the JS native console.log via js("") because kotlin's
-            // `console.log` binding may not be hot-reload-visible in this
-            // dev-server setup. Concatenating message lines into single
-            // string args keeps each log on one line in DevTools.
-            val gid = group.id.take(8)
-            val acct = (activeAccountId ?: "null").take(8)
-            val relayShort = relayUrl.removePrefix("wss://").removePrefix("ws://")
-            js("""console.log("[ChatScreen]", "effect fired", "group=" + gid, "account=" + acct, "isConnected=" + isConnected, "relay=" + relayShort)""")
-            if (!isConnected) {
-                js("""console.log("[ChatScreen]", "BAIL: not connected")""")
-                return@useEffect
-            }
-            if (relayUrl.isBlank()) {
-                js("""console.log("[ChatScreen]", "BAIL: relayUrl blank")""")
-                return@useEffect
-            }
+            if (!isConnected) return@useEffect
+            if (relayUrl.isBlank()) return@useEffect
             // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
             // so the divider can anchor on the user's actual last-read message
             // through the session. Native does the same with remember(groupId).
@@ -430,40 +432,29 @@ val ChatScreen =
             // we already have data or have already finished.
             val entryState = repo.groupStates.value[group.id]
             if (entryState is GroupLoadingState.InitialLoading) {
-                js("""console.log("[ChatScreen]", "preemptive reset of stale InitialLoading")""")
                 repo.resetGroupLoadingState(group.id)
             }
             var attempts = 0
             while (attempts < 5) {
-                val msgsBefore = repo.messages.value[group.id].orEmpty().size
                 val stateBefore = repo.groupStates.value[group.id]
-                val stateBeforeName = stateBefore?.let { it::class.simpleName } ?: "null"
-                js("""console.log("[ChatScreen]", "attempt " + attempts + " calling requestGroupMessages", "msgs=" + msgsBefore, "state=" + stateBeforeName)""")
                 // Same defensive reset between retries: if the prior attempt's
                 // REQ is still in InitialLoading at the start of the next
                 // attempt, it's stuck — reset before re-issuing.
                 if (stateBefore is GroupLoadingState.InitialLoading && attempts > 0) {
-                    js("""console.log("[ChatScreen]", "force-reset stale InitialLoading before retry")""")
                     repo.resetGroupLoadingState(group.id)
                 }
                 repo.requestGroupMessages(group.id)
                 delay(2_000)
                 val msgsAfter = repo.messages.value[group.id].orEmpty().size
                 val state = repo.groupStates.value[group.id]
-                val stateAfter = state?.let { it::class.simpleName } ?: "null"
-                js("""console.log("[ChatScreen]", "after 2s", "msgsAfter=" + msgsAfter, "stateAfter=" + stateAfter)""")
                 val settled = msgsAfter > 0 ||
                     state is GroupLoadingState.HasMore ||
                     state is GroupLoadingState.Paginating ||
                     state is GroupLoadingState.Exhausted ||
                     state is GroupLoadingState.Error
-                if (settled) {
-                    js("""console.log("[ChatScreen]", "settled, exit loop")""")
-                    break
-                }
+                if (settled) break
                 attempts++
             }
-            js("""console.log("[ChatScreen]", "retry loop done, attempts=" + attempts)""")
         }
         // Admin in a closed group: pull pending join requests explicitly + poll.
         // The standard chat REQ caps at 50 events and buries old 9021s under recent
@@ -757,6 +748,23 @@ val ChatScreen =
                                 +"Request pending"
                             }
                         } else {
+                            // Closed groups: surface an "Invite Code" button next to
+                            // Join (matches native GroupHeader.kt:208-232). Uses
+                            // window.prompt for the code input — quick & matches the
+                            // single-field native modal without a new component.
+                            if (!group.isOpen) {
+                                button {
+                                    className = ClassName("chat-invite-btn")
+                                    onClick = {
+                                        val code = window.prompt("Enter invite code", "")?.trim()
+                                        if (!code.isNullOrBlank()) {
+                                            launchApp { repo.joinGroup(group.id, code) }
+                                        }
+                                    }
+                                    icon(Ic.Key)
+                                    span { +"Invite Code" }
+                                }
+                            }
                             button {
                                 className = ClassName("chat-join-btn")
                                 onClick = { join() }
@@ -941,7 +949,31 @@ val ChatScreen =
                     // forever even after the timeout fires.
                     val historyConfirmed = groupLoadingState is GroupLoadingState.Exhausted ||
                         groupLoadingState is GroupLoadingState.Error
-                    if (messages.isEmpty() && (!isConnected || !historyConfirmed)) {
+                    // Restricted / pending-approval gate FIRST: when the relay
+                    // refused the messages REQ ("restricted") or the user is
+                    // joined but not yet in kind:39002, native renders a
+                    // lock-icon panel instead of skeletons or the empty state
+                    // (MessagesList.kt:412-446). Show the same on web.
+                    if (isGroupRestricted || isPendingApproval) {
+                        div {
+                            className = ClassName("chat-restricted")
+                            icon(Ic.Lock, "chat-restricted-icon")
+                            div {
+                                className = ClassName("chat-restricted-title")
+                                +(if (isPendingApproval) "Awaiting admin approval" else "Private group")
+                            }
+                            div {
+                                className = ClassName("chat-restricted-body")
+                                +(
+                                    if (isPendingApproval) {
+                                        "Messages will appear once an admin approves your request."
+                                    } else {
+                                        "You need an invite code or admin approval to see messages."
+                                    }
+                                    )
+                            }
+                        }
+                    } else if (messages.isEmpty() && (!isConnected || !historyConfirmed)) {
                         repeat(8) { messageSkeleton() }
                     } else if (messages.isEmpty()) {
                         div {
@@ -1284,7 +1316,20 @@ val ChatScreen =
                     // section, so the role info isn't lost.
                     val online = filtered.filter { it in recentlyActiveMembers }
                     val offline = filtered.filter { it !in recentlyActiveMembers }
-                    if (membersLoading && members.isEmpty()) {
+                    if (isGroupRestricted || isPendingApproval) {
+                        // Mirror native MemberSidebar.kt:296-324 — a private
+                        // group's member list is hidden until you join /
+                        // get approved, surfaced as a centered lock panel
+                        // instead of a skeleton or an empty list.
+                        div {
+                            className = ClassName("member-private")
+                            icon(Ic.Lock, "member-private-icon")
+                            div {
+                                className = ClassName("member-private-label")
+                                +(if (isPendingApproval) "Members hidden until approved" else "Members are private")
+                            }
+                        }
+                    } else if (membersLoading && members.isEmpty()) {
                         repeat(6) { memberSkeleton() }
                     } else {
                         if (online.isNotEmpty()) {

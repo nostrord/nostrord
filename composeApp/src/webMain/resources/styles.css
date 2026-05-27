@@ -2546,6 +2546,38 @@ body {
     font-size: 15px;
 }
 
+/* "Private group" / "Awaiting admin approval" panel — mirrors native
+   MessagesList.kt:412-446. Shown when the user opens a group they can't
+   read (kind:39002 doesn't include them, OR relay returned a CLOSED
+   restricted frame). Lock icon + title + supporting copy, centered. */
+.chat-restricted {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    color: var(--color-text-secondary);
+    text-align: center;
+}
+.chat-restricted-icon {
+    width: 40px;
+    height: 40px;
+    color: var(--color-text-muted);
+    margin-bottom: 12px;
+}
+.chat-restricted-title {
+    font-size: 16px;
+    color: var(--color-text-secondary);
+    margin-bottom: 8px;
+}
+.chat-restricted-body {
+    font-size: 14px;
+    color: var(--color-text-muted);
+    max-width: 360px;
+    line-height: 1.5;
+}
+
 .chat-loading-more {
     /* Float over the top of the chat instead of taking layout space — its
        ~30px height was inserting / removing on every pagination cycle,
@@ -4646,6 +4678,55 @@ body {
 
 .chat-join-btn:hover {
     background: var(--color-primary-variant);
+}
+
+/* Secondary 'Invite Code' button shown next to 'Join' for closed groups
+   (matches GroupHeader.kt:208-232 — surface-variant background, icon
+   on the left, sits flush against the primary Join button). */
+.chat-invite-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-right: 8px;
+}
+.chat-invite-btn:hover {
+    background: var(--color-hover);
+}
+.chat-invite-btn > svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* "Members are private" / "Members hidden until approved" panel in
+   the right sidebar (mirrors MemberSidebar.kt:296-324). Centered lock
+   icon + label, takes over the slot the member list usually fills. */
+.member-private {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+    text-align: center;
+}
+.member-private-icon {
+    width: 28px;
+    height: 28px;
+    color: var(--color-text-muted);
+    margin-bottom: 10px;
+}
+.member-private-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    line-height: 1.4;
 }
 
 .composer-join {
