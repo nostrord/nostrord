@@ -2438,8 +2438,8 @@ body {
 
 .chat-members-btn {
     flex-shrink: 0;
-    width: 40px;
-    height: 40px;
+    width: 34px;
+    height: 34px;
     display: none;
     align-items: center;
     justify-content: center;
@@ -4859,6 +4859,30 @@ body {
 .chat-invite-btn > svg {
     width: 14px;
     height: 14px;
+}
+
+/* Mobile: header join/invite buttons collapse to icon-only to save the
+   cramped horizontal space (the labels stay on the desktop header). Sized
+   to match the other 40x40 header buttons (chat-icon-btn/chat-members-btn). */
+@media (max-width: 900px) {
+    .chat-join-btn > span,
+    .chat-invite-btn > span {
+        display: none;
+    }
+    .chat-join-btn,
+    .chat-invite-btn {
+        gap: 0;
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        justify-content: center;
+        margin-right: 0;
+    }
+    .chat-join-btn > svg,
+    .chat-invite-btn > svg {
+        width: 20px;
+        height: 20px;
+    }
 }
 
 /* "Members are private" / "Members hidden until approved" panel in
