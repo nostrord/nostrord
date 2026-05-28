@@ -56,6 +56,16 @@ class MetadataManager(
         /** Coalesce window for metadata StateFlow emissions (ms). */
         const val METADATA_FLUSH_DELAY_MS = 100L
 
+        /**
+         * How long to accumulate pubkeys from concurrent callers before firing the
+         * outgoing REQ. Event handlers fire one [requestUserMetadata] per incoming
+         * kind:9 / kind:7 / kind:0 event; without this, 50 mux events become 50
+         * separate batches × 4 bootstrap relays = ~200 REQs in a single burst.
+         * 100 ms is large enough to catch the post-EOSE burst and small enough
+         * that interactive flows (open profile modal) don't feel laggy.
+         */
+        const val COALESCE_WINDOW_MS = 100L
+
         /** Wall-clock fallback if a relay never emits EOSE for a metadata batch. */
         const val EOSE_FALLBACK_MS = 5_000L
     }
@@ -87,6 +97,15 @@ class MetadataManager(
     private val inFlightEventsMutex = Mutex()
 
     /**
+     * Pubkeys waiting to be flushed into a single batched REQ. Populated by
+     * [requestUserMetadata] under [pendingMutex]; drained by the flush coroutine
+     * scheduled when the set transitions from empty to non-empty.
+     */
+    private val pendingPubkeys = mutableSetOf<String>()
+    private val pendingMutex = Mutex()
+    private var pendingForceStale = false
+
+    /**
      * Per-batch state for EOSE-driven completion of [batchFetch]. Each batch
      * waits on its [deferred] until every relay in [pendingRelays] has emitted
      * EOSE for the batch subscription id, or the wall-clock fallback fires.
@@ -115,7 +134,7 @@ class MetadataManager(
 
         scope.launch {
             val now = epochMillis()
-            val toFetch =
+            val toEnqueue =
                 inFlightMutex.withLock {
                     pubkeys
                         .filter { pk ->
@@ -133,25 +152,50 @@ class MetadataManager(
                             true
                         }.also { inFlightPubkeys.addAll(it) }
                 }
-            if (toFetch.isEmpty()) return@launch
+            if (toEnqueue.isEmpty()) return@launch
 
-            val fetchStartedAt = epochMillis()
-            try {
-                batchFetch(toFetch)
-            } finally {
-                val finishedAt = epochMillis()
-                inFlightMutex.withLock {
-                    inFlightPubkeys.removeAll(toFetch.toSet())
-                    // Mark pubkeys whose batch returned nothing fresh so the next
-                    // caller doesn't refetch immediately. "Nothing fresh" = no
-                    // cache entry OR an entry that predates this batch.
-                    toFetch.forEach { pk ->
-                        val fetchedAt = metadataCache.get(pk)?.fetchedAt
-                        if (fetchedAt == null || fetchedAt < fetchStartedAt) {
-                            negativeMetadataCache.put(pk, finishedAt)
-                        } else {
-                            negativeMetadataCache.remove(pk)
-                        }
+            // Enqueue and (only on empty → non-empty transition) schedule the flush.
+            // Concurrent callers within COALESCE_WINDOW_MS land in the same pending
+            // set, so a burst of N event handlers becomes one batched REQ per relay
+            // instead of N separate ones.
+            val shouldSchedule = pendingMutex.withLock {
+                val wasEmpty = pendingPubkeys.isEmpty()
+                pendingPubkeys.addAll(toEnqueue)
+                pendingForceStale = pendingForceStale || forceStale
+                wasEmpty
+            }
+            if (shouldSchedule) {
+                scope.launch { flushPending() }
+            }
+        }
+    }
+
+    private suspend fun flushPending() {
+        delay(COALESCE_WINDOW_MS)
+        val toFetch = pendingMutex.withLock {
+            val snapshot = pendingPubkeys.toList()
+            pendingPubkeys.clear()
+            pendingForceStale = false
+            snapshot
+        }
+        if (toFetch.isEmpty()) return
+
+        val fetchStartedAt = epochMillis()
+        try {
+            batchFetch(toFetch)
+        } finally {
+            val finishedAt = epochMillis()
+            inFlightMutex.withLock {
+                inFlightPubkeys.removeAll(toFetch.toSet())
+                // Mark pubkeys whose batch returned nothing fresh so the next
+                // caller doesn't refetch immediately. "Nothing fresh" = no
+                // cache entry OR an entry that predates this batch.
+                toFetch.forEach { pk ->
+                    val fetchedAt = metadataCache.get(pk)?.fetchedAt
+                    if (fetchedAt == null || fetchedAt < fetchStartedAt) {
+                        negativeMetadataCache.put(pk, finishedAt)
+                    } else {
+                        negativeMetadataCache.remove(pk)
                     }
                 }
             }
