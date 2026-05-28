@@ -3223,7 +3223,7 @@ body {
     cursor: pointer;
 }
 .msg-reply:hover {
-    background: rgba(47, 49, 54, 0.9);
+    background: linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)), rgba(47, 49, 54, 0.5);
 }
 
 .msg-reply-bar {
