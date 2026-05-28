@@ -30,5 +30,8 @@ jobs:
       - name: Compile (JVM)
         run: ./gradlew compileKotlinJvm
 
+      - name: Compile (JS / web)
+        run: ./gradlew compileKotlinJs
+
       - name: JVM tests
         run: ./gradlew :composeApp:jvmTest
