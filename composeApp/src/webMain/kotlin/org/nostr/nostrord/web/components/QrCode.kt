@@ -19,5 +19,5 @@ fun qrDataUrl(text: String): String {
     val qr = qrcode(0, "M")
     qr.addData(text)
     qr.make()
-    return qr.createDataURL(6, 24)
+    return qr.createDataURL(6, 0)
 }
