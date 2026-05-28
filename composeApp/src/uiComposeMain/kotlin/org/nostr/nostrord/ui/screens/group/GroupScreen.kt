@@ -92,6 +92,7 @@ fun GroupScreen(
     val relayMetadata by vm.relayMetadata.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
     val allReactions by vm.reactions.collectAsState()
+    val pendingReactions by vm.pendingReactions.collectAsState()
     val allGroupMembers by vm.groupMembers.collectAsState()
     val allGroupAdmins by vm.groupAdmins.collectAsState()
     val loadingMembersSet by vm.loadingMembers.collectAsState()
@@ -762,6 +763,7 @@ fun GroupScreen(
                     isAdmin = isAdmin,
                     userMetadata = userMetadata,
                     reactions = allReactions,
+                    pendingReactions = pendingReactions,
                     currentUserPubkey = currentUserPubkey,
                     messageInput = messageInput,
                     onMessageInputChange = { messageInput = it },
@@ -879,6 +881,7 @@ fun GroupScreen(
                     isAdmin = isAdmin,
                     userMetadata = userMetadata,
                     reactions = allReactions,
+                    pendingReactions = pendingReactions,
                     currentUserPubkey = currentUserPubkey,
                     messageInput = messageInput,
                     onMessageInputChange = { messageInput = it },

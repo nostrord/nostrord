@@ -90,6 +90,8 @@ fun MessagesList(
     messages: List<NostrGroupClient.NostrMessage> = emptyList(),
     userMetadata: Map<String, UserMetadata>,
     reactions: Map<String, Map<String, GroupManager.ReactionInfo>> = emptyMap(),
+    // In-flight reactions keyed "$messageId|$emoji"; rendered as spinner placeholders.
+    pendingReactions: Set<String> = emptySet(),
     currentUserPubkey: String? = null,
     isJoined: Boolean,
     isInitialLoading: Boolean = false,
@@ -532,6 +534,12 @@ fun MessagesList(
                                             isFirstInGroup = item.isFirstInGroup,
                                             isLastInGroup = item.isLastInGroup,
                                             reactions = reactions[item.message.id] ?: emptyMap(),
+                                            pendingReactionEmojis =
+                                            pendingReactions
+                                                .asSequence()
+                                                .filter { it.startsWith("${item.message.id}|") }
+                                                .map { it.substringAfter('|') }
+                                                .toSet(),
                                             isAuthor = currentUserPubkey != null && item.message.pubkey == currentUserPubkey,
                                             currentUserPubkey = currentUserPubkey,
                                             currentGroupId = groupId,

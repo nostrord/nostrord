@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -67,9 +68,16 @@ fun ReactionBadges(
     currentUserPubkey: String? = null,
     resolveMetadata: (String) -> UserMetadata? = { null },
     onReactionClick: (emoji: String) -> Unit = {},
+    pendingEmojis: Set<String> = emptySet(),
     modifier: Modifier = Modifier,
 ) {
-    if (reactions.isEmpty()) return
+    // Pending emojis still without a real reaction badge: show a spinner placeholder
+    // until the reaction lands (the optimistic update merges it into [reactions]).
+    val visiblePending =
+        remember(pendingEmojis, reactions) {
+            pendingEmojis.filter { it !in reactions }
+        }
+    if (reactions.isEmpty() && visiblePending.isEmpty()) return
 
     val context = LocalPlatformContext.current
     val emojiUrls =
@@ -119,6 +127,50 @@ fun ReactionBadges(
                 isUserReacted = hasCurrentUserReacted,
                 resolveMetadata = resolveMetadata,
                 onClick = { onReactionClick(emoji) },
+            )
+        }
+
+        // In-flight reactions: emoji with a spinner where the avatar stack would be.
+        visiblePending.forEach { emoji ->
+            PendingReactionBadge(emoji = emoji)
+        }
+    }
+}
+
+/**
+ * Placeholder badge shown while a reaction is being signed and published.
+ * Mirrors [ReactionBadge] sizing but swaps the avatar stack for a small spinner.
+ */
+@Composable
+private fun PendingReactionBadge(emoji: String) {
+    val shape = RoundedCornerShape(8.dp)
+    Box(
+        modifier =
+        Modifier
+            .clip(shape)
+            .background(NostrordColors.SurfaceVariant.copy(alpha = 0.6f))
+            .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            val displayEmoji =
+                when (emoji) {
+                    "+" -> "👍" // 👍
+                    "-" -> "👎" // 👎
+                    else -> emoji
+                }
+            Text(
+                text = displayEmoji,
+                fontSize = 16.sp,
+                fontFamily = rememberEmojiFontFamily(),
+            )
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                strokeWidth = 1.5.dp,
+                color = NostrordColors.TextSecondary,
             )
         }
     }

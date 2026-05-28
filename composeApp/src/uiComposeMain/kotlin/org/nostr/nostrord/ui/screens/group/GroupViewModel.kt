@@ -125,23 +125,37 @@ class GroupViewModel(
         }
     }
 
+    // Reactions with an in-flight send, keyed "$targetEventId|$emoji". The reaction
+    // only appears optimistically after signEvent resolves, which on NIP-46 (bunker)
+    // is a 1-2s round-trip; we surface a pending badge + spinner during that window
+    // and drop it once the real reaction lands (mirrors the web client).
+    private val _pendingReactions = MutableStateFlow<Set<String>>(emptySet())
+    val pendingReactions: StateFlow<Set<String>> = _pendingReactions
+
     fun sendReaction(
         targetEventId: String,
         targetPubkey: String,
         emoji: String,
     ) {
+        val key = "$targetEventId|$emoji"
+        if (key in _pendingReactions.value) return
+        _pendingReactions.value = _pendingReactions.value + key
         viewModelScope.launch {
-            when (val result = repo.sendReaction(groupId, targetEventId, targetPubkey, emoji)) {
-                is Result.Error -> {
-                    val raw = result.error.cause?.message ?: result.error.toString()
-                    val friendly =
-                        raw
-                            .removePrefix("blocked: ")
-                            .removePrefix("error: ")
-                            .replaceFirstChar { it.uppercaseChar() }
-                    _reactionError.value = friendly
+            try {
+                when (val result = repo.sendReaction(groupId, targetEventId, targetPubkey, emoji)) {
+                    is Result.Error -> {
+                        val raw = result.error.cause?.message ?: result.error.toString()
+                        val friendly =
+                            raw
+                                .removePrefix("blocked: ")
+                                .removePrefix("error: ")
+                                .replaceFirstChar { it.uppercaseChar() }
+                        _reactionError.value = friendly
+                    }
+                    is Result.Success -> Unit
                 }
-                is Result.Success -> Unit
+            } finally {
+                _pendingReactions.value = _pendingReactions.value - key
             }
         }
     }
