@@ -1070,7 +1070,13 @@ val ChatScreen =
                     onScroll = { event ->
                         val el = event.currentTarget
                         val sh = el.scrollHeight.toDouble()
-                        val isAtBottom = (sh - el.scrollTop - el.clientHeight.toDouble()) < 120.0
+                        // Keep this threshold BELOW a single mouse-wheel notch (~100px on most
+                        // systems; 120 happens to match the classic WHEEL_DELTA). With 120 a single
+                        // wheel-up near the bottom stayed "at bottom", so the next arriving message /
+                        // reaction re-fired the pin-to-bottom layout effect and yanked the feed back to
+                        // the latest message, eating the user's scroll. 48px absorbs sub-pixel / bottom-
+                        // padding jitter while letting one wheel notch reliably exit the at-bottom state.
+                        val isAtBottom = (sh - el.scrollTop - el.clientHeight.toDouble()) < 48.0
                         // Only push to React state on the transition so the FAB
                         // doesn't trigger a re-render on every scroll tick.
                         if (atBottom.current != isAtBottom) {
