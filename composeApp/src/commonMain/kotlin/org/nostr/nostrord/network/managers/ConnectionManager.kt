@@ -51,6 +51,7 @@ class ConnectionManager(
     // Shared relay pool for all auxiliary connections (outbox, metadata, NIP-65)
     private val poolMutex = Mutex()
     private val relayPool = mutableMapOf<String, NostrGroupClient>()
+
     // Singleflight: in-flight connection attempts per URL. Without this,
     // concurrent callers of getOrConnectRelay for the same URL each create
     // their own NostrGroupClient (the existing double-check pattern released

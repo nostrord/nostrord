@@ -205,10 +205,13 @@ object Nip19 {
     sealed class PubkeyParse {
         data class Ok(val hex: String) : PubkeyParse()
         object Empty : PubkeyParse()
+
         /** Looks like a bech32 entity but doesn't decode (bad checksum, wrong HRP, etc). */
         object Malformed : PubkeyParse()
+
         /** Decoded as something that isn't a user identity (note, nevent, naddr). */
         object NotAPubkey : PubkeyParse()
+
         /** User pasted their private key — never broadcast this. */
         object IsPrivateKey : PubkeyParse()
     }
