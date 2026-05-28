@@ -1307,7 +1307,11 @@ val ChatScreen =
                 // skip them (click) or keep reading from the divider.
                 if (!atBottomState) {
                     button {
-                        className = ClassName("chat-jump-bottom")
+                        // Lift the FAB above the reply banner so it never covers
+                        // the banner's close (X) button on the right edge.
+                        className = ClassName(
+                            if (replyingToId != null) "chat-jump-bottom replying" else "chat-jump-bottom",
+                        )
                         title = "Jump to latest message"
                         onClick = {
                             val el = document.getElementById(ElementId("chat-messages"))

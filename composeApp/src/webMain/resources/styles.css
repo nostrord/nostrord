@@ -2355,6 +2355,11 @@ body {
     z-index: 5;
     transition: filter 0.15s;
 }
+/* When a reply banner is open above the composer, raise the FAB so it never
+   overlaps the banner's close (X) button. */
+.chat-jump-bottom.replying {
+    bottom: 110px;
+}
 .chat-jump-bottom:hover {
     filter: brightness(1.08);
 }
