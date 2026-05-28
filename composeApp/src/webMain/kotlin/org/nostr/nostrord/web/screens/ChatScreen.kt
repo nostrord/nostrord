@@ -720,6 +720,12 @@ val ChatScreen =
             val prefetchTrigger = el.clientHeight.toDouble() * 0.5
             if (el.scrollTop < prefetchTrigger) {
                 loadingOlder.current = true
+                // Browsers suppress scroll-anchoring while scrollTop == 0, so a
+                // prepend at the very top leaves scrollTop pinned at 0 and this
+                // effect re-fires page after page ("stuck at the top"). Nudge 1px
+                // off the top so overflow-anchor engages for this prepend and
+                // pushes the view down past the new page, ending the loop.
+                if (el.scrollTop <= 0.0) el.scrollTop = 1.0
                 // Skip the anchor capture path: the user is not actively
                 // scrolling here, so the browser's overflow-anchor: auto
                 // handles the prepend on its own.
@@ -1141,6 +1147,12 @@ val ChatScreen =
                         val prefetchTrigger = el.clientHeight.toDouble() * 0.5
                         if (el.scrollTop < prefetchTrigger && hasMore && !isLoadingMore && loadingOlder.current != true) {
                             loadingOlder.current = true
+                            // At the very top (scrollTop == 0) browsers suppress
+                            // scroll-anchoring, so the prepend would keep us pinned
+                            // at 0 and load page after page. Nudge 1px down so
+                            // overflow-anchor engages and the next page pushes the
+                            // view past it (one page per scroll-up gesture).
+                            if (el.scrollTop <= 0.0) el.scrollTop = 1.0
                             // Pick the first child whose top is at or below the
                             // container's top — that's the row anchored to the
                             // viewport's top edge. Record its id and the offset
