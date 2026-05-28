@@ -102,8 +102,10 @@ self.addEventListener('fetch', (event) => {
         event.respondWith(cacheFirst(event.request, STATIC_CACHE));
     } else if (isFontRequest(url)) {
         event.respondWith(cacheFirst(event.request, FONT_CACHE));
-    } else if (isAppBundle(url)) {
-        // App bundle must be network-first so deploys are picked up immediately
+    } else if (isAppBundle(url) || isCss(url)) {
+        // App bundle and CSS must be network-first so a deploy's fresh JS is never
+        // paired with a stale stylesheet (stale-while-revalidate would serve the
+        // previous build's CSS, rendering the new DOM unstyled until a 2nd reload).
         event.respondWith(networkFirst(event.request, STATIC_CACHE));
     } else if (isStaticAsset(url)) {
         event.respondWith(staleWhileRevalidate(event.request, STATIC_CACHE));
@@ -132,9 +134,12 @@ function isFontRequest(url) {
            url.pathname.includes('/font/');
 }
 
+function isCss(url) {
+    return url.pathname.endsWith('.css');
+}
+
 function isStaticAsset(url) {
     return url.pathname.endsWith('.js') ||
-           url.pathname.endsWith('.css') ||
            url.pathname.endsWith('.png') ||
            url.pathname.endsWith('.svg');
 }
