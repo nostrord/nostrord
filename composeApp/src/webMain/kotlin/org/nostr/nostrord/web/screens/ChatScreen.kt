@@ -711,7 +711,13 @@ val ChatScreen =
             if (messages.isEmpty()) return@useEffect
             if (!hasMore) return@useEffect
             val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
-            val prefetchTrigger = el.clientHeight.toDouble() * 2.0
+            // Same near-top threshold as the onScroll handler below. Keep it small
+            // (~half a viewport) so a freshly prepended 50-message page — which is
+            // far taller than this — pushes scrollTop past it and this post-load
+            // re-check does NOT fire again. That confines loading to one page per
+            // scroll-up gesture (native's "firstVisible <= 5" parity); the re-check
+            // only re-fires for a degenerate no-growth page, mirroring native's snapshotFlow.
+            val prefetchTrigger = el.clientHeight.toDouble() * 0.5
             if (el.scrollTop < prefetchTrigger) {
                 loadingOlder.current = true
                 // Skip the anchor capture path: the user is not actively
@@ -1125,11 +1131,14 @@ val ChatScreen =
                                 },
                                 500,
                             )
-                        // Trigger pagination well BEFORE the user reaches the top
-                        // (~2 screens worth of headroom) so the older messages
-                        // arrive and the scroll position is restored before the
-                        // user's reading area is visibly affected.
-                        val prefetchTrigger = el.clientHeight.toDouble() * 2.0
+                        // Trigger pagination as the user nears the top — half a
+                        // viewport of headroom (native loads at "firstVisible <= 5",
+                        // i.e. close to the top, not 2 screens early). The old 2-screen
+                        // value re-armed the post-load effect because a 50-message page
+                        // rarely cleared it, loading page after page in a burst and
+                        // making the feed jump. Half a viewport guarantees one prepended
+                        // page clears the zone, so each scroll-up gesture loads one page.
+                        val prefetchTrigger = el.clientHeight.toDouble() * 0.5
                         if (el.scrollTop < prefetchTrigger && hasMore && !isLoadingMore && loadingOlder.current != true) {
                             loadingOlder.current = true
                             // Pick the first child whose top is at or below the
