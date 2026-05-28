@@ -34,6 +34,12 @@ val ChatVideo =
         // Bumped on retry: React key on the <video> tag, forcing a full re-mount so the
         // browser re-fetches and re-decodes from zero instead of holding the broken state.
         val (attempt, setAttempt) = useState { 0 }
+        // Lazy-load gate. Without this, every <video> in the loaded history opens a
+        // Range: bytes=0- request at mount just to read its MOOV atom (preload="metadata").
+        // N parallel range fetches queue behind the per-host connection cap, so videos
+        // far from the viewport "come back after a while". The observer flips this true
+        // when the element scrolls within ~one viewport of the visible area.
+        val (inView, setInView) = useState { false }
         val videoRef = useRef<HTMLVideoElement>(null)
 
         // Release the underlying media resource on unmount. Without this, switching
@@ -54,6 +60,27 @@ val ChatVideo =
                     node.removeAttribute("src")
                     node.asDynamic().load()
                 }
+            }
+        }
+
+        // IntersectionObserver — one-shot. Disconnects as soon as the element enters
+        // the viewport (rootMargin pre-loads one viewport ahead so scroll feels instant).
+        useEffect(props.videoUrl, attempt) {
+            val node = videoRef.current ?: return@useEffect
+            if (inView) return@useEffect
+            val callback: (dynamic, dynamic) -> Unit = { entries, obs ->
+                if (entries[0].isIntersecting == true) {
+                    obs.disconnect()
+                    setInView(true)
+                }
+            }
+            val observer: dynamic =
+                js("new (window.IntersectionObserver)(callback, { rootMargin: '200px 0px', threshold: 0.01 })")
+            observer.observe(node)
+            try {
+                awaitCancellation()
+            } finally {
+                runCatching { observer.disconnect() }
             }
         }
 
@@ -78,7 +105,10 @@ val ChatVideo =
                 key = "${props.videoUrl}#$attempt"
                 ref = videoRef
                 className = ClassName("msg-video")
-                src = props.videoUrl
+                // Only set src once the element is near the viewport — keeps the
+                // <video> mounted (so the observer has a target) but defers the
+                // network fetch until it actually matters.
+                if (inView) src = props.videoUrl
                 controls = true
                 // Show a preview frame without downloading/playing the whole file (no autoplay).
                 preload = "metadata"
