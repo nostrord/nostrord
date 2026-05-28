@@ -1862,6 +1862,26 @@ private val MessageRow =
             }
             div {
                 className = ClassName("msg-body")
+                if (props.firstInGroup) {
+                    div {
+                        className = ClassName("msg-meta")
+                        span {
+                            className = ClassName("msg-author clickable")
+                            onClick = { props.onUser(props.pubkey) }
+                            +props.name
+                        }
+                        if (props.isAuthorAdmin) {
+                            span {
+                                className = ClassName("msg-admin")
+                                +"ADMIN"
+                            }
+                        }
+                        span {
+                            className = ClassName("msg-time")
+                            +props.time
+                        }
+                    }
+                }
                 props.replyTo?.let { reply ->
                     div {
                         className = ClassName("msg-reply clickable")
@@ -1880,26 +1900,6 @@ private val MessageRow =
                                 // pass swaps :shortcode: tokens for inline <img>.
                                 renderTextWithEmojis(reply.content, extractEmojiMap(reply.tags))
                             }
-                        }
-                    }
-                }
-                if (props.firstInGroup) {
-                    div {
-                        className = ClassName("msg-meta")
-                        span {
-                            className = ClassName("msg-author clickable")
-                            onClick = { props.onUser(props.pubkey) }
-                            +props.name
-                        }
-                        if (props.isAuthorAdmin) {
-                            span {
-                                className = ClassName("msg-admin")
-                                +"ADMIN"
-                            }
-                        }
-                        span {
-                            className = ClassName("msg-time")
-                            +props.time
                         }
                     }
                 }
