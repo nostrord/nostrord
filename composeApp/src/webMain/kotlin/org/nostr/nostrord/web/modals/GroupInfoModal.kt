@@ -7,6 +7,7 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
 import react.ChildrenBuilder
@@ -133,6 +134,7 @@ val GroupInfoModal =
                         }
                         button {
                             className = ClassName("info-copy")
+                            onClick = { copyToClipboard(group.id) }
                             icon(Ic.ContentCopy)
                         }
                     }
