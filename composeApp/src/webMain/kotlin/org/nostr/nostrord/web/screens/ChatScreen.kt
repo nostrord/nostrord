@@ -19,6 +19,7 @@ import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.formatTimestamp
+import org.nostr.nostrord.utils.normalizeForSearch
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
@@ -292,24 +293,28 @@ val ChatScreen =
         // Autocomplete suggestions for the active mention (members for @, groups for %).
         val mentionMatches: List<MentionMatch> =
             when (mention?.trigger) {
-                '@' ->
+                '@' -> {
+                    val normalizedQuery = mention.query.normalizeForSearch()
                     members.asSequence()
                         .map { pk -> pk to displayName(pk, userMetadata[pk]) }
-                        .filter { (_, nm) -> mention.query.isBlank() || nm.contains(mention.query, ignoreCase = true) }
+                        .filter { (_, nm) -> mention.query.isBlank() || nm.normalizeForSearch().contains(normalizedQuery) }
                         .take(6)
                         .map { (pk, nm) ->
                             MentionMatch(nm, userMetadata[pk]?.picture, pk, group = false, ref = "nostr:" + Nip19.encodeNpub(pk))
                         }
                         .toList()
-                '%' ->
+                }
+                '%' -> {
+                    val normalizedQuery = mention.query.normalizeForSearch()
                     allGroups.asSequence()
-                        .filter { g -> mention.query.isBlank() || (g.name ?: g.id).contains(mention.query, ignoreCase = true) }
+                        .filter { g -> mention.query.isBlank() || (g.name ?: g.id).normalizeForSearch().contains(normalizedQuery) }
                         .take(6)
                         .map { g ->
                             val ref = "nostr:" + Nip19.encodeNaddr(g.id, relayUrl, 39000, relayMetadata[relayUrl]?.pubkey)
                             MentionMatch(g.name ?: g.id, g.picture, g.id, group = true, ref = ref)
                         }
                         .toList()
+                }
                 else -> emptyList()
             }
 
