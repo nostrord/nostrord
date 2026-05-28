@@ -176,6 +176,19 @@ kotlin {
     }
 }
 
+// Print full stack traces (incl. `Caused by:`) on test failure. The default terse
+// output hides the cause of cross-test coroutine leaks (UncaughtExceptionsBeforeTest),
+// making them impossible to diagnose from CI logs.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStackTraces = true
+        showCauses = true
+        showExceptions = true
+    }
+}
+
 val appVersion = project.property("app.version") as String
 val appVersionCode = (project.property("app.versionCode") as String).toInt()
 

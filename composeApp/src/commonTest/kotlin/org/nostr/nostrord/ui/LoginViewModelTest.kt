@@ -29,6 +29,10 @@ class LoginViewModelTest {
 
     @AfterTest
     fun tearDown() {
+        // Drain Main-dispatched viewModelScope jobs before resetMain so an un-run task
+        // doesn't race the dispatcher swap and surface as UncaughtExceptionsBeforeTest
+        // in a later test (see AppViewModelTest).
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 
