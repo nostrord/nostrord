@@ -146,8 +146,15 @@ private fun displayName(pubkey: String, meta: UserMetadata?): String = meta?.dis
 /** Active mention being typed in the composer: the trigger (@ or %), its query, and start index. */
 private data class MentionCtx(val trigger: Char, val query: String, val start: Int)
 
-/** A single autocomplete suggestion: how to show it and the `nostr:` reference to insert. */
-private data class MentionMatch(val label: String, val picture: String?, val seed: String, val group: Boolean, val ref: String)
+/** A single autocomplete suggestion: how to show it, a subtitle, and the `nostr:` ref to insert. */
+private data class MentionMatch(
+    val label: String,
+    val picture: String?,
+    val seed: String,
+    val group: Boolean,
+    val ref: String,
+    val sub: String,
+)
 
 /**
  * Find the mention being typed at [cursor]: the nearest `@`/`%` that starts a word and runs
@@ -168,16 +175,15 @@ private fun detectMention(text: String, cursor: Int): MentionCtx? {
 private data class HlSeg(val text: String, val mention: Boolean)
 
 /**
- * Split [text] into plain / mention runs for the composer's colored mirror. Only "@name"
- * substrings whose name is a resolved mention ([names]) are tinted — same rule as native's
- * MentionVisualTransformation (it colors the chosen mentions, not every "@word").
+ * Split [text] into plain / mention runs for the composer's colored mirror. Only the literal
+ * [tokens] (e.g. "@alice", "%my group") that are resolved mentions are tinted — same rule as
+ * native's MentionVisualTransformation (it colors the chosen mentions, not every "@word").
  */
-private fun highlightSegments(text: String, names: Set<String>): List<HlSeg> {
+private fun highlightSegments(text: String, tokens: Collection<String>): List<HlSeg> {
     if (text.isEmpty()) return emptyList()
     val colored = BooleanArray(text.length)
-    names.forEach { name ->
-        if (name.isEmpty()) return@forEach
-        val token = "@$name"
+    tokens.forEach { token ->
+        if (token.isEmpty()) return@forEach
         var i = text.indexOf(token)
         while (i >= 0) {
             for (j in i until i + token.length) colored[j] = true
@@ -322,8 +328,11 @@ val ChatScreen =
         val (mention, setMention) = useState<MentionCtx?> { null }
         // displayName -> pubkeyHex for @user mentions chosen from the popup. Passed to
         // repo.sendMessage, which rewrites "@name" -> "nostr:npub" and adds the p-tag,
-        // mirroring native MessageInput.mentions. (Groups insert the naddr ref directly.)
+        // mirroring native MessageInput.mentions.
         val (mentions, setMentions) = useState<Map<String, String>> { emptyMap() }
+        // groupName -> "nostr:naddr…" for %group mentions. Resolved into the content at send,
+        // mirroring native (GroupScreen replaces "%name" with the naddr before publishing).
+        val (groupMentions, setGroupMentions) = useState<Map<String, String>> { emptyMap() }
         // Highlighted row in the mention popup, driven by ArrowUp/ArrowDown and hover.
         val (mentionSelected, setMentionSelected) = useState { 0 }
 
@@ -337,33 +346,47 @@ val ChatScreen =
                         .filter { (_, nm) -> mention.query.isBlank() || nm.normalizeForSearch().contains(normalizedQuery) }
                         .take(6)
                         .map { (pk, nm) ->
-                            MentionMatch(nm, userMetadata[pk]?.picture, pk, group = false, ref = "nostr:" + Nip19.encodeNpub(pk))
+                            MentionMatch(
+                                nm,
+                                userMetadata[pk]?.picture,
+                                pk,
+                                group = false,
+                                ref = "nostr:" + Nip19.encodeNpub(pk),
+                                sub = pk.take(8) + "…" + pk.takeLast(4),
+                            )
                         }
                         .toList()
                 }
                 '%' -> {
                     val normalizedQuery = mention.query.normalizeForSearch()
+                    // All groups here live on the current relay (NIP-29 is relay-scoped), so the
+                    // subtitle is the current relay host — matching native's per-group relay line.
+                    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
                     allGroups.asSequence()
                         .filter { g -> mention.query.isBlank() || (g.name ?: g.id).normalizeForSearch().contains(normalizedQuery) }
                         .take(6)
                         .map { g ->
                             val ref = "nostr:" + Nip19.encodeNaddr(g.id, relayUrl, 39000, relayMetadata[relayUrl]?.pubkey)
-                            MentionMatch(g.name ?: g.id, g.picture, g.id, group = true, ref = ref)
+                            MentionMatch(g.name ?: g.id, g.picture, g.id, group = true, ref = ref, sub = relayHost)
                         }
                         .toList()
                 }
                 else -> emptyList()
             }
 
-        // Replace the typed "@query"/"%query" with the chosen suggestion. Users insert
-        // "@name" (resolved to nostr:npub + p-tag at send via the mentions map, like
-        // native); groups insert the nostr:naddr ref directly (no group resolver in repo).
+        // Replace the typed "@query"/"%query" with the chosen suggestion: "@name" for users,
+        // "%name" for groups (like native). Both are recorded so the composer can tint them and
+        // send() can resolve them — @name to nostr:npub via repo, %name to nostr:naddr inline.
         fun insertMention(mm: MentionMatch) {
             val m = mention ?: return
             val cursorEnd = (m.start + 1 + m.query.length).coerceAtMost(draft.length)
-            val inserted = if (mm.group) mm.ref else "@${mm.label}"
+            val inserted = if (mm.group) "%${mm.label}" else "@${mm.label}"
             setDraft(draft.take(m.start) + inserted + " " + draft.substring(cursorEnd))
-            if (!mm.group) setMentions { it + (mm.label to mm.seed) }
+            if (mm.group) {
+                setGroupMentions { it + (mm.label to mm.ref) }
+            } else {
+                setMentions { it + (mm.label to mm.seed) }
+            }
             setMention(null)
             setMentionSelected(0)
         }
@@ -851,8 +874,11 @@ val ChatScreen =
         }
 
         fun send() {
-            val text = draft.trim()
+            var text = draft.trim()
             if (text.isEmpty() || sending) return
+            // Resolve %group mentions to their nostr:naddr inline (native does this at send too);
+            // @user mentions are resolved by repo.sendMessage from the mentions map (+ p-tag).
+            groupMentions.forEach { (name, ref) -> text = text.replace("%$name", ref) }
             val replyId = replyingToId
             setSending(true)
             launchApp {
@@ -864,6 +890,7 @@ val ChatScreen =
                     // stays so the user can retry without retyping.
                     setDraft("")
                     setMentions(emptyMap())
+                    setGroupMentions(emptyMap())
                     setReplyingToId(null)
                 }
             }
@@ -1345,12 +1372,13 @@ val ChatScreen =
                         div {
                             className = ClassName("composer-input-wrap")
                             // Colored mirror painted behind the textarea: same text, but with
-                            // resolved @mentions tinted gold (native parity). pointer-events:none
-                            // in CSS keeps the textarea fully interactive.
+                            // resolved @user / %group mentions tinted gold (native parity).
+                            // pointer-events:none in CSS keeps the textarea fully interactive.
                             div {
                                 className = ClassName("composer-highlight")
                                 ref = composerHighlightRef
-                                highlightSegments(draft, mentions.keys).forEach { seg ->
+                                val tokens = mentions.keys.map { "@$it" } + groupMentions.keys.map { "%$it" }
+                                highlightSegments(draft, tokens).forEach { seg ->
                                     if (seg.mention) {
                                         span {
                                             className = ClassName("msg-mention")
@@ -1475,11 +1503,11 @@ val ChatScreen =
                                             className = ClassName("mention-text")
                                             span {
                                                 className = ClassName("mention-name")
-                                                +(if (mm.group) "%${mm.label}" else mm.label)
+                                                +mm.label
                                             }
                                             span {
                                                 className = ClassName("mention-key")
-                                                +(mm.seed.take(8) + "…" + mm.seed.takeLast(4))
+                                                +mm.sub
                                             }
                                         }
                                     }
