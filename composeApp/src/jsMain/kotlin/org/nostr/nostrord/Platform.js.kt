@@ -11,6 +11,6 @@ actual val isHandheldPlatform: Boolean = false
 actual val platformDisplayName: String = "Nostrord Web"
 
 // Desktop web (mouse) auto-focuses; mobile/touch web does not, to avoid popping
-// the on-screen keyboard on group entry. Mirrors messagesTextSelectionEnabled.
+// the on-screen keyboard on group entry. Coarse pointer = touch device.
 actual val autoFocusTextInput: Boolean =
-    !org.nostr.nostrord.ui.components.chat.isCoarsePointer()
+    !runCatching { kotlinx.browser.window.matchMedia("(pointer: coarse)").matches }.getOrDefault(false)

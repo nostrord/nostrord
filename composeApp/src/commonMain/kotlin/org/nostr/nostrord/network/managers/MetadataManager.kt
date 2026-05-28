@@ -38,6 +38,15 @@ class MetadataManager(
         /** Metadata older than this is considered stale and will be re-fetched. */
         const val STALE_THRESHOLD_MS = 30 * 60 * 1000L
 
+        /**
+         * How long to suppress retries for a pubkey whose previous batch finished
+         * without returning any kind:0 event. Without this, every UI render that
+         * triggers requestUserMetadata refires the same single-author REQ to every
+         * bootstrap relay every few seconds (observed: ~60 duplicate REQs per relay
+         * on cold start, dominating the profile-fetch fan-out).
+         */
+        const val NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000L
+
         /** Number of retry attempts before giving up on a metadata fetch. */
         const val MAX_FETCH_ATTEMPTS = 3
 
@@ -46,6 +55,16 @@ class MetadataManager(
 
         /** Coalesce window for metadata StateFlow emissions (ms). */
         const val METADATA_FLUSH_DELAY_MS = 100L
+
+        /**
+         * How long to accumulate pubkeys from concurrent callers before firing the
+         * outgoing REQ. Event handlers fire one [requestUserMetadata] per incoming
+         * kind:9 / kind:7 / kind:0 event; without this, 50 mux events become 50
+         * separate batches × 4 bootstrap relays = ~200 REQs in a single burst.
+         * 100 ms is large enough to catch the post-EOSE burst and small enough
+         * that interactive flows (open profile modal) don't feel laggy.
+         */
+        const val COALESCE_WINDOW_MS = 100L
 
         /** Wall-clock fallback if a relay never emits EOSE for a metadata batch. */
         const val EOSE_FALLBACK_MS = 5_000L
@@ -65,10 +84,26 @@ class MetadataManager(
     private val metadataCache = LruCache<String, CachedMetadata>(MAX_METADATA_CACHE_SIZE)
     private val eventsCache = LruCache<String, CachedEvent>(MAX_EVENTS_CACHE_SIZE)
 
+    /**
+     * Pubkey → wall-clock time we last finished a batch fetch that returned no
+     * kind:0 for that pubkey. Suppresses repeat fetches for [NEGATIVE_CACHE_TTL_MS]
+     * so a non-existent profile doesn't keep getting re-asked from every UI render.
+     */
+    private val negativeMetadataCache = LruCache<String, Long>(MAX_METADATA_CACHE_SIZE)
+
     private val inFlightPubkeys = mutableSetOf<String>()
     private val inFlightMutex = Mutex()
     private val inFlightEvents = mutableSetOf<String>()
     private val inFlightEventsMutex = Mutex()
+
+    /**
+     * Pubkeys waiting to be flushed into a single batched REQ. Populated by
+     * [requestUserMetadata] under [pendingMutex]; drained by the flush coroutine
+     * scheduled when the set transitions from empty to non-empty.
+     */
+    private val pendingPubkeys = mutableSetOf<String>()
+    private val pendingMutex = Mutex()
+    private var pendingForceStale = false
 
     /**
      * Per-batch state for EOSE-driven completion of [batchFetch]. Each batch
@@ -98,20 +133,71 @@ class MetadataManager(
         if (pubkeys.isEmpty()) return
 
         scope.launch {
-            val toFetch =
+            val now = epochMillis()
+            val toEnqueue =
                 inFlightMutex.withLock {
                     pubkeys
                         .filter { pk ->
-                            pk !in inFlightPubkeys &&
-                                (metadataCache.get(pk) == null || (forceStale && isStale(pk)))
+                            if (pk in inFlightPubkeys) return@filter false
+                            if (metadataCache.get(pk) != null && !(forceStale && isStale(pk))) {
+                                return@filter false
+                            }
+                            // Skip pubkeys whose previous batch returned no kind:0
+                            // within the TTL — relays don't suddenly start hosting
+                            // metadata for an unknown user inside 5 minutes.
+                            val negAt = negativeMetadataCache.get(pk)
+                            if (!forceStale && negAt != null && now - negAt < NEGATIVE_CACHE_TTL_MS) {
+                                return@filter false
+                            }
+                            true
                         }.also { inFlightPubkeys.addAll(it) }
                 }
-            if (toFetch.isEmpty()) return@launch
+            if (toEnqueue.isEmpty()) return@launch
 
-            try {
-                batchFetch(toFetch)
-            } finally {
-                inFlightMutex.withLock { inFlightPubkeys.removeAll(toFetch.toSet()) }
+            // Enqueue and (only on empty → non-empty transition) schedule the flush.
+            // Concurrent callers within COALESCE_WINDOW_MS land in the same pending
+            // set, so a burst of N event handlers becomes one batched REQ per relay
+            // instead of N separate ones.
+            val shouldSchedule = pendingMutex.withLock {
+                val wasEmpty = pendingPubkeys.isEmpty()
+                pendingPubkeys.addAll(toEnqueue)
+                pendingForceStale = pendingForceStale || forceStale
+                wasEmpty
+            }
+            if (shouldSchedule) {
+                scope.launch { flushPending() }
+            }
+        }
+    }
+
+    private suspend fun flushPending() {
+        delay(COALESCE_WINDOW_MS)
+        val toFetch = pendingMutex.withLock {
+            val snapshot = pendingPubkeys.toList()
+            pendingPubkeys.clear()
+            pendingForceStale = false
+            snapshot
+        }
+        if (toFetch.isEmpty()) return
+
+        val fetchStartedAt = epochMillis()
+        try {
+            batchFetch(toFetch)
+        } finally {
+            val finishedAt = epochMillis()
+            inFlightMutex.withLock {
+                inFlightPubkeys.removeAll(toFetch.toSet())
+                // Mark pubkeys whose batch returned nothing fresh so the next
+                // caller doesn't refetch immediately. "Nothing fresh" = no
+                // cache entry OR an entry that predates this batch.
+                toFetch.forEach { pk ->
+                    val fetchedAt = metadataCache.get(pk)?.fetchedAt
+                    if (fetchedAt == null || fetchedAt < fetchStartedAt) {
+                        negativeMetadataCache.put(pk, finishedAt)
+                    } else {
+                        negativeMetadataCache.remove(pk)
+                    }
+                }
             }
         }
     }

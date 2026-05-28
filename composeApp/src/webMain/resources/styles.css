@@ -1,29 +1,6101 @@
+/*
+ * Web (React / DOM) styles — layout-first rebuild. Palette mirrors NostrordColors.
+ */
+
+:root {
+    --color-background: #36393f;
+    --color-background-dark: #202225;
+    --color-surface: #2f3136;
+    --color-surface-variant: #40444b;
+    --color-input: #383a40;
+    --color-hover: #34373c;
+    --color-primary: #5865f2;
+    --color-primary-variant: #4752c4;
+    --color-text-primary: #ffffff;
+    --color-text-secondary: #99aab5;
+    --color-text-content: #dcddde;
+    --color-text-muted: #72767d;
+    --color-text-link: #00aff4;
+    --color-divider: #40444b;
+    --color-error: #ed4245;
+    --color-success: #57f287;
+    --color-warning-orange: #ffa500;
+    --color-message-hover: #32353b;
+    /* @mention accent — matches NostrordColors.MentionText in Colors.kt:137
+       (the warm gold the native chat uses for user mentions). */
+    --color-mention: #deb655;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+/* Scrollbars — thin, rounded, inset, matching the desktop/Compose look. */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-background-dark) transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 14px;
+    height: 14px;
+}
+
+*::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+    background-color: var(--color-background-dark);
+    border: 4px solid transparent;
+    background-clip: padding-box;
+    border-radius: 8px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+    background-color: #16171a;
+}
+
+*::-webkit-scrollbar-corner {
+    background: transparent;
+}
+
 html, body {
     width: 100%;
     height: 100%;
     margin: 0;
     padding: 0;
+}
+
+body {
+    background: var(--color-background-dark);
+    color: var(--color-text-content);
+    /* Native system-font stack: matches Compose's FontFamily.SansSerif on every
+       platform (San Francisco on macOS/iOS, Segoe UI on Windows, Roboto on
+       Android/ChromeOS). "Noto Sans" is kept only as a late fallback for Linux
+       desktops that ship it — leading with it would make Linux diverge since it
+       isn't loaded via @font-face. Emoji families are appended so color emoji
+       render consistently within text runs. */
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji",
+        "Segoe UI Emoji", "Noto Color Emoji";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+#composeApplication {
+    width: 100%;
+    height: 100%;
+}
+
+/* The pre-React HTML shell in index.html handles the cold-start visual, so the
+   old React-side .app-loading / .app-spinner rules (a second spinner that
+   bridged "shell hidden on mount" → "repo initialized") are no longer needed.
+   The app-spin keyframe is kept because the button / qr / banner spinners
+   reuse it. */
+
+@keyframes app-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ===================== Login ===================== */
+.login-page {
+    min-height: 100vh;
+    overflow-y: auto;
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+    background: linear-gradient(180deg, #202225 0%, #36393f 28%, #36393f 100%);
+}
+
+.login-inner {
+    width: 100%;
+    max-width: 500px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 40px;
+}
+
+.login-logo {
+    width: 100px;
+    height: 100px;
+    border-radius: 24px;
+    object-fit: cover;
+}
+
+.login-title {
+    margin: 16px 0 0;
+    font-size: 28px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.login-subtitle {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: var(--color-text-muted);
+}
+
+.login-card {
+    width: 100%;
+    max-width: 400px;
+    margin-top: 40px;
+    padding: 20px;
+    background: var(--color-surface);
+    border-radius: 16px;
+}
+
+.login-card.wide {
+    max-width: 500px;
+}
+
+.login-tabs,
+.bunker-toggle {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--color-surface-variant);
+    border-radius: 10px;
+}
+
+.bunker-toggle {
+    /* Symmetric vertical breathing: above the toggle separates it from the
+       Shield/intro row, below it separates it from the QR canvas or the
+       Bunker URL `.field-with-icon` input. */
+    margin-top: 16px;
+    margin-bottom: 16px;
+}
+
+.login-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--color-text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.login-tab.selected {
+    background: var(--color-primary);
+    color: #fff;
+    font-weight: 600;
+}
+
+.login-tab-content {
+    margin-top: 24px;
+}
+
+.field-with-icon {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    background: var(--color-input);
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 10px;
+}
+
+.field-with-icon:focus-within {
+    border-color: var(--color-primary);
+}
+
+.field-icon {
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+}
+
+.login-input {
+    flex: 1;
+    min-width: 0;
+    padding: 14px 0;
+    background: transparent;
+    border: 0;
+    outline: none;
+    color: #fff;
+    font-size: 14px;
+}
+
+.login-input::placeholder {
+    color: var(--color-text-muted);
+}
+
+.field-eye {
+    flex-shrink: 0;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    font-size: 16px;
+    /* The visibility toggle's SVG uses `fill: currentColor` (.ico rule), so
+       setting the button's color drives the eye colour. */
+    color: var(--color-text-muted);
+}
+
+.login-primary {
+    width: 100%;
+    height: 48px;
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--color-primary);
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* Inline spinner for buttons that show a working state (login Connect /
+   Login / Bunker / Extension). Reuses app-spin keyframe; matches the small
+   CircularProgressIndicator the native Material Button uses inline. */
+.btn-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.login-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 20px 0;
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
+.login-divider::before,
+.login-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-divider);
+}
+
+.login-outline-success {
+    width: 100%;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: transparent;
+    color: var(--color-success);
+    border: 1px solid rgba(87, 242, 135, 0.5);
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.login-hint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+.login-error {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--color-error);
+    background: rgba(237, 66, 69, 0.1);
+    border-radius: 6px;
+}
+
+.login-footer {
+    margin: 24px 0 40px;
+    max-width: 500px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
+/* generated key card */
+.genkey-card {
+    margin-top: 16px;
+    padding: 16px;
+    background: rgba(255, 165, 0, 0.1);
+    border-radius: 12px;
+    text-align: center;
+}
+
+.genkey-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-warning-orange);
+    justify-content: center;
+}
+
+.genkey-title {
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.genkey-sub {
+    margin: 8px 0 12px;
+    font-size: 13px;
+    color: var(--color-text-content);
+}
+
+.genkey-value-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+}
+.genkey-value {
+    flex: 1;
+    min-width: 0;
+    display: block;
+    padding: 12px;
+    background: var(--color-background-dark);
+    border-radius: 8px;
+    color: var(--color-success);
+    font-family: monospace;
+    font-size: 11px;
+    word-break: break-all;
+}
+/* Copy button sitting alongside the key. Same hover affordance as the
+   account-menu npub copy chip — passive look until hover, swap to a green
+   check for 2s after click. */
+.genkey-copy {
+    flex-shrink: 0;
+    width: 40px;
+    border: none;
+    border-radius: 8px;
+    background: var(--color-background-dark);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s, color 0.12s;
+}
+.genkey-copy:hover {
+    background: var(--color-surface);
+    color: var(--color-text-primary);
+}
+.genkey-copy > svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* bunker */
+.bunker-desc {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: rgba(88, 101, 242, 0.1);
+    border-radius: 8px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+}
+
+.bunker-qr {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: 16px;
+}
+
+.bunker-scan {
+    margin: 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.bunker-scan-sub {
+    margin: 2px 0 0;
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+.qr-placeholder {
+    width: 220px;
+    height: 220px;
+    margin-top: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    color: #999;
+    border-radius: 8px;
+    font-size: 28px;
+}
+
+/* Spinner shown while the nostrconnect session is being created — sits on the
+   white QR placeholder, so the ring colour is a light grey with the primary
+   blue cap (reuses app-spin from the boot spinner). */
+.qr-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid #e4e4e7;
+    border-top-color: var(--color-primary);
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+}
+
+.qr-img {
+    width: 220px;
+    height: 220px;
+    margin-top: 16px;
+    padding: 8px;
+    background: #fff;
+    border-radius: 8px;
+    image-rendering: pixelated;
+}
+
+.bunker-benefits {
+    margin-top: 20px;
+    padding: 16px;
+    background: rgba(64, 68, 75, 0.5);
+    border-radius: 12px;
+}
+
+.benefits-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* Space below the "Why use a Bunker?" title so the first .benefit row
+       isn't flush against the heading. */
+    margin-bottom: 10px;
+    color: #fff;
+    font-weight: 600;
+}
+
+/* nostrconnect:// URI + copy button below the QR. Mirrors the native
+   OutlinedTextField with a trailing CopyIcon button (BunkerLoginTab.kt:269). */
+.bunker-uri {
+    width: 100%;
+    margin-top: 16px;
+}
+
+.bunker-uri .login-input {
+    color: var(--color-text-muted);
+    font-size: 13px;
+}
+
+/* Trailing-icon button slot used by the URI copy, the add-relay +, and any
+   other small affordance inside a .field-with-icon. */
+.field-action {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: var(--color-primary);
+    cursor: pointer;
+}
+
+.field-action:hover:not(:disabled) {
+    background: rgba(88, 101, 242, 0.12);
+}
+
+.field-action:disabled {
+    color: var(--color-text-muted);
+    cursor: default;
+}
+
+.field-action.copied {
+    color: var(--color-success);
+}
+
+/* Advanced signer relays. Collapsed by default; expands into a relay list
+   with X buttons + an add input + Apply & regenerate QR. Mirrors
+   NostrConnectRelaysSection. */
+.advanced-section {
+    width: 100%;
+    margin-top: 12px;
+}
+
+.advanced-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.advanced-chevron {
+    display: inline-flex;
+    color: var(--color-text-secondary);
+    transition: transform 0.15s ease;
+}
+
+.advanced-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
+.advanced-title {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.advanced-desc {
+    margin: 0 0 8px;
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+.advanced-relay-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+}
+
+.advanced-relay-url {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.advanced-relay-remove {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.advanced-relay-remove:hover {
+    background: var(--color-hover);
+    color: var(--color-text-secondary);
+}
+
+.advanced-add {
+    margin-top: 4px;
+}
+
+.advanced-apply {
+    margin-top: 12px;
+}
+
+.benefits-title {
+    font-size: 14px;
+}
+
+.benefit {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.benefit-check {
+    color: var(--color-success);
+}
+
+/* extension */
+.ext-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    text-align: center;
+}
+
+.ext-icon {
+    /* Pin to exactly 48px so the inner SVG isn't scaled by .ico's 1.2em
+       (which would make it ~58px and noticeably larger than native's 48dp). */
+    font-size: 48px;
+    line-height: 1;
+    color: var(--color-primary);
+}
+
+.ext-icon .ico {
+    width: 48px;
+    height: 48px;
+}
+
+.ext-title {
+    font-size: 16px;
+    color: #fff;
+}
+
+.ext-desc {
+    margin: 0;
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
+.ext-content .login-primary {
+    margin-top: 0;
+}
+
+/* ===================== Shell (logged in) ===================== */
+.layout {
+    display: flex;
+    height: 100vh;
+}
+
+.nav-panels {
+    display: flex;
+    flex-shrink: 0;
+}
+
+.server-rail {
+    width: 72px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    background: var(--color-background-dark);
+}
+
+.rail-scroll {
+    flex: 1;
+    width: 100%;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.rail-item {
+    position: relative;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.avatar-tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    object-fit: cover;
+}
+
+.avatar-fallback {
+    background: var(--color-primary);
+    color: #fff;
+    font-weight: 600;
+}
+
+.avatar-img {
+    display: block;
+    object-fit: cover;
+    background: var(--color-background-dark);
+}
+
+/* Identicon-first avatar: fallback underneath, photo fades in over it once loaded. The
+   solid background is the backdrop for transparent avatars after the fallback is removed. */
+.avatar-stack {
+    position: relative;
+    overflow: hidden;
+    background: var(--color-surface-variant);
+}
+.avatar-iden {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    background: #f0f0f0;
+}
+.avatar-photo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+.avatar-photo.loaded {
+    opacity: 1;
+}
+/* Groups are rounded squares (users stay circular via their cls). */
+.avatar-stack.group {
+    border-radius: 25%;
+}
+/* Initial-letter fallback for groups/relays (matches native: white bold letter on a colour). */
+.avatar-letter {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+}
+.avatar-color-0 {
+    background: #5865f2;
+}
+.avatar-color-1 {
+    background: #57f287;
+}
+.avatar-color-2 {
+    background: #fee75c;
+}
+.avatar-color-3 {
+    background: #eb459e;
+}
+.avatar-color-4 {
+    background: #ed4245;
+}
+.avatar-color-5 {
+    background: #9b59b6;
+}
+.avatar-color-6 {
+    background: #3498db;
+}
+.avatar-color-7 {
+    background: #e67e22;
+}
+
+.rail-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+    font-size: 20px;
+    transition: border-radius 0.15s ease;
+}
+
+.rail-item:hover .rail-icon,
+.rail-item.active .rail-icon {
+    border-radius: 12px;
+}
+
+/* The account avatar at the bottom of the rail is a user — keep it circular
+   (relays are rounded squares; native shows the account as a circle). */
+.rail-account {
+    cursor: pointer;
+}
+.rail-account .rail-icon {
+    border-radius: 50%;
+}
+
+/* Left pill marker — white, grows from 0 to 20px on hover and 36px when active (mirrors native). */
+.rail-item::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 0;
+    border-radius: 0 4px 4px 0;
+    background: #fff;
+    transition: height 0.15s ease;
+}
+.rail-item:hover::before {
+    height: 20px;
+}
+.rail-item.active::before {
+    height: 36px;
+}
+
+.rail-add {
+    background: var(--color-surface-variant);
+    color: var(--color-success);
+    font-size: 26px;
+}
+
+.rail-bell {
+    background: var(--color-surface-variant);
+}
+
+.rail-badge {
+    position: absolute;
+    bottom: -2px;
+    right: 8px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-error);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 8px;
+}
+
+.groups-sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    /* Native (GroupsNavSidebar.kt:189) paints the whole Column with
+       NostrordColors.Surface; the only BackgroundDark inside the sidebar is
+       the 1dp divider between the header and the list (handled by the
+       border-bottom on .sidebar-header below). */
+    background: var(--color-surface);
+}
+
+.sidebar-header {
+    /* Matches .chat-header / .member-header so the three headers form a single
+       horizontal band at the top of the app. Same Surface as the sidebar
+       (GroupsNavSidebar.kt:189-203) — only the 1px border-bottom uses
+       BackgroundDark, which is native's divider Box (line 234). */
+    height: 56px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-background-dark);
+}
+.sidebar-header.clickable {
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease;
+}
+.sidebar-header.clickable:hover {
+    /* Native HoverBackground (#34373c) — `--color-hover`, not the slightly
+       different `--color-message-hover` (#32353b). */
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+}
+.sidebar-header.active {
+    color: var(--color-text-primary);
+}
+
+.sidebar-scroll {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.sidebar-search {
+    /* Native: search Box has `padding(vertical = 2.dp)` only — no extra top
+       breathing. Horizontal 8 keeps the pill aligned with the section
+       toggle's text (both inset 16px from the sidebar edge). */
+    flex-shrink: 0;
+    position: relative;
+    padding: 2px 8px 6px;
+}
+
+.sidebar-search-icon {
+    position: absolute;
+    left: 14px;
+    top: calc(50% + 1px);
+    transform: translateY(-50%);
+    width: 12px;
+    height: 12px;
+    fill: var(--color-text-muted);
+    pointer-events: none;
+}
+
+.sidebar-search-input {
+    /* 28px tall pill with a 12px search icon — matches native's
+       Box(height = 28.dp, padding horizontal = 6.dp) + Icon(size = 12.dp).
+       BackgroundDark on the pill so it contrasts with the Surface-painted
+       sidebar around it (GroupsNavSidebar.kt:393). */
+    width: 100%;
+    height: 28px;
+    box-sizing: border-box;
+    padding: 0 6px 0 26px;
+    font-size: 12px;
+    font-family: inherit;
+    color: var(--color-text-primary);
+    background: var(--color-background-dark);
+    border: none;
+    border-radius: 4px;
+    outline: none;
+}
+
+.sidebar-search-input::placeholder {
+    color: var(--color-text-muted);
+}
+
+.sidebar-section-toggle {
+    /* Native: padding horizontal Spacing.sm (8dp), vertical Spacing.sm (8dp).
+       Tighter than the previous 8/4/4 the web used. */
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 8px 8px 4px;
+    cursor: pointer;
+}
+
+.sidebar-chevron {
+    font-size: 8px;
+    color: var(--color-text-muted);
+    transition: transform 0.15s ease;
+}
+
+.sidebar-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
+.sidebar-section-label {
+    /* Native: fontSize = 13.sp. Was 12 in web. */
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--color-text-muted);
+}
+
+.sidebar-section-title {
+    padding: 8px 8px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.sidebar-group {
+    /* Native row: padding start=10dp end=10dp top=7dp bottom=7dp, Spacer width=6dp
+       between the 22dp avatar and the 15sp label. Web was 8px gap / 7px 8px padding,
+       which made the row read taller and more spacious than the JVM build. */
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 10px;
+    margin: 0 8px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.sidebar-group:hover {
+    background: var(--color-hover);
+}
+
+.sidebar-group.selected {
+    background: var(--color-surface-variant);
+}
+
+/* Orphaned joined group — kind:10009 pin with no matching kind:39000 on the
+   relay. Muted text + no hover affordance on the row body so the user can't
+   accidentally try to open a dead group; only the trailing trash button is
+   actionable. */
+.sidebar-group.orphan {
+    opacity: 0.5;
+    cursor: default;
+}
+.sidebar-group.orphan:hover {
+    background: transparent;
+}
+.sidebar-group-forget {
+    margin-left: auto;
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    border-radius: 4px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.sidebar-group-forget:hover {
+    background: var(--color-error);
+    color: #fff;
+}
+.sidebar-group-forget > svg {
+    width: 14px;
+    height: 14px;
+}
+
+.group-icon-sm {
+    /* Native GroupNavIcon: size = 22.dp. Web was 32px, ~45% bigger than native. */
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+.sidebar-group-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 15px;
+    color: var(--color-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sidebar-group.selected .sidebar-group-name,
+.sidebar-group:hover .sidebar-group-name {
+    color: var(--color-text-primary);
+}
+
+.sidebar-unread {
+    flex-shrink: 0;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-error);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 9px;
+}
+
+.sidebar-footer {
+    flex-shrink: 0;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-top: 1px solid var(--color-background-dark);
+}
+
+.sidebar-btn-primary {
+    background: var(--color-primary);
+    color: #fff;
+    border: 0;
+    border-radius: 6px;
+    padding: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.sidebar-btn-secondary {
+    background: var(--color-surface-variant);
+    color: var(--color-text-content);
+    border: 0;
+    border-radius: 6px;
+    padding: 9px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+/* groups sidebar — no-relay empty state (mirrors Compose GroupsNavSidebar) */
+.sidebar-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0 16px;
+}
+
+.sidebar-empty-hash {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--color-text-muted);
+}
+
+.sidebar-empty-title {
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.sidebar-empty-desc {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--color-text-muted);
+}
+
+.sidebar-empty-btn {
+    margin-top: 16px;
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.sidebar-empty-btn:hover {
+    background: var(--color-primary-variant);
+}
+
+.content {
+    flex: 1;
+    min-width: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background);
+}
+
+.content-screen {
+    flex: 1;
+    min-height: 0;
+}
+
+.connection-banner {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #202225;
+    background: var(--color-warning-orange);
+}
+
+.connection-retry {
+    flex-shrink: 0;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #202225;
+    background: rgba(0, 0, 0, 0.18);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.connection-retry:hover {
+    background: rgba(0, 0, 0, 0.28);
+}
+
+.home-welcome {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px;
+    color: var(--color-text-secondary);
+}
+
+.home-welcome h1 {
+    color: var(--color-text-primary);
+}
+
+/* account menu (MeMenu) — popover anchored bottom-left, above the rail avatar */
+.me-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+}
+
+.me-menu {
+    position: fixed;
+    left: 72px;
+    bottom: 12px;
+    width: 320px;
+    max-width: calc(100vw - 88px);
+    padding-bottom: 8px;
+    overflow: hidden;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 12px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
+.me-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+}
+
+.me-avatar-lg {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    font-size: 20px;
+    flex-shrink: 0;
+}
+
+.me-header-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.me-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.me-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* Pencil button next to the user's display name in the account menu —
+   opens the EditProfileModal. Sized like .me-npub-copy so the two
+   inline-action affordances visually rhyme. */
+.me-edit-btn {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+.me-edit-btn:hover {
+    background: var(--color-surface-variant);
+    color: var(--color-text-primary);
+}
+.me-edit-btn > svg {
+    width: 14px;
+    height: 14px;
+}
+
+.me-npub {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    margin-top: 6px;
+    padding: 4px 10px;
+    background: var(--color-background-dark);
+    border-radius: 12px;
+    color: var(--color-text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.me-npub > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.me-npub-copy {
+    flex-shrink: 0;
+}
+
+.me-divider {
+    height: 1px;
+    background: var(--color-background-dark);
+}
+
+.me-account-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+}
+
+.me-account-row:hover {
+    background: var(--color-hover);
+}
+
+.me-avatar-sm {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.me-account-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.me-account-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.me-account-method {
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+.me-check {
+    color: var(--color-primary);
+    font-size: 16px;
+}
+
+.me-delete {
+    padding: 4px;
+    background: transparent;
+    border: 0;
+    color: var(--color-text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.me-action {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.me-action:hover {
+    background: var(--color-hover);
+}
+
+.me-action-icon {
+    width: 20px;
+    text-align: center;
+}
+
+.me-action.danger {
+    color: var(--color-error);
+}
+
+@media (max-width: 900px) {
+    .me-menu {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: auto;
+        max-width: none;
+        border-radius: 12px 12px 0 0;
+    }
+}
+
+/* responsive: rail + sidebar collapse into a drawer */
+.mobile-menu-btn {
+    display: none;
+}
+
+.sidebar-backdrop {
+    display: none;
+}
+
+@media (max-width: 900px) {
+    .mobile-menu-btn {
+        display: inline-flex;
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        z-index: 30;
+        padding: 8px 12px;
+        font-size: 16px;
+        color: var(--color-text-primary);
+        background: var(--color-surface);
+        border: 1px solid var(--color-divider);
+        border-radius: 8px;
+        cursor: pointer;
+    }
+
+    .nav-panels {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform 0.2s ease;
+    }
+
+    .layout.drawer-open .nav-panels {
+        transform: translateX(0);
+    }
+
+    .layout.drawer-open .sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 35;
+        background: rgba(0, 0, 0, 0.5);
+    }
+}
+
+/* ---------- Modals (Create group / Join group / Add relay) ---------- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, 0.7);
+}
+
+.modal-card {
+    width: 90%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 24px;
+    background: var(--color-surface);
+    border-radius: 16px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.modal-card.sm {
+    max-width: 420px;
+}
+
+/* Floating bunker-unreachable banner — top-center, dismisses itself when the
+   bunker state leaves Unreachable / Reconnecting. Mirrors native
+   BunkerStatusBanner (issue #85): Warning icon + title/body, "Log out" text
+   button + "Reconnect" primary button with an inline spinner when the
+   AuthManager.attemptReconnect is in flight. */
+.bunker-banner {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 200;
+    width: calc(100% - 32px);
+    max-width: 520px;
+    padding: 14px;
+    background: var(--color-surface-variant);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    color: var(--color-text-content);
+    font-size: 12px;
+}
+
+.bunker-banner-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.bunker-banner-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    display: inline-flex;
+    color: var(--color-warning-orange);
+}
+
+.bunker-banner-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.bunker-banner-title {
+    font-weight: 600;
+    color: var(--color-warning-orange);
+}
+
+.bunker-banner-body {
+    margin-top: 6px;
+    color: var(--color-text-content);
+    line-height: 1.4;
+}
+
+.bunker-banner-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.bunker-banner-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.bunker-banner-btn.text {
+    color: var(--color-text-content);
+}
+.bunker-banner-btn.text:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.bunker-banner-btn.primary {
+    color: var(--color-warning-orange);
+}
+.bunker-banner-btn.primary:hover {
+    background: rgba(255, 165, 0, 0.12);
+}
+.bunker-banner-btn.primary:disabled {
+    cursor: default;
+    opacity: 0.8;
+}
+
+.bunker-banner-action-icon {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+}
+
+/* Inline spinner that replaces the Refresh icon while reconnecting. Same
+   warning-orange ring + transparent gap so it reads as "working on it". */
+.bunker-banner-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--color-warning-orange);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: bunker-banner-spin 0.9s linear infinite;
+}
+@keyframes bunker-banner-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Account chooser: narrow, list of remaining accounts + "Add a new login" +
+   Cancel. Mirrors native AccountChooserDialog (widthIn 280–340.dp, 16dp
+   radius). The .modal-card padding (24) is overridden so rows can run
+   edge-to-edge inside the card. */
+.modal-card.chooser-card {
+    max-width: 340px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.modal-card.chooser-card .modal-header {
+    padding: 20px;
+}
+
+.chooser-list {
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.chooser-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+}
+
+.chooser-row:hover {
+    background: var(--color-hover);
+}
+
+.chooser-row.disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.chooser-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.chooser-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.chooser-name {
+    font-size: 14px;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chooser-method {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chooser-chevron {
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+    font-size: 18px;
+    display: inline-flex;
+}
+
+.chooser-divider {
+    height: 1px;
+    background: var(--color-background-dark);
+}
+
+.chooser-action {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 20px;
+    color: #ffffff;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.chooser-action:hover {
+    background: var(--color-hover);
+}
+
+.chooser-action.disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.chooser-action-icon {
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+}
+
+.chooser-error {
+    margin: 0 16px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--color-error);
+    background: rgba(237, 66, 69, 0.1);
+    border-radius: 4px;
+}
+
+.modal-card.chooser-card .modal-footer {
+    padding: 4px 12px 8px;
+    justify-content: flex-end;
+}
+
+/* relay modal: header + tabs are fixed, list scrolls inside */
+.modal-card.relay-modal {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    max-height: 560px;
+}
+
+.modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.relay-modal .modal-header {
+    padding: 20px 12px 16px 20px;
+    margin-bottom: 0;
+}
+
+.modal-header-text {
+    flex: 1;
+}
+
+.modal-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.modal-subtitle {
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+}
+
+.modal-subtitle.tight {
+    margin-bottom: 16px;
+}
+
+.modal-close {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    background: var(--color-surface-variant);
+    color: var(--color-text-primary);
+}
+
+.field-label {
+    margin-top: 16px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+
+.field-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+}
+
+.inline-link {
+    color: var(--color-primary);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.modal-input,
+.modal-textarea,
+.modal-select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--color-text-primary);
+    background: var(--color-input);
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    outline: none;
+}
+
+.modal-textarea {
+    resize: vertical;
+    min-height: 76px;
+    line-height: 1.4;
+}
+
+.modal-input:focus,
+.modal-textarea:focus,
+.modal-select:focus {
+    border-color: var(--color-primary);
+}
+
+.modal-input::placeholder,
+.modal-textarea::placeholder {
+    color: var(--color-text-muted);
+}
+
+.modal-select {
+    appearance: none;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2372767d' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+}
+
+.upload-field {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.modal-input.flush {
+    flex: 1;
+}
+
+.upload-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 14px;
+    font-size: 16px;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.upload-btn:hover {
+    color: var(--color-text-primary);
+}
+
+.upload-file-input {
+    display: none;
+}
+
+.access-section-title {
+    margin-top: 24px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+}
+
+.access-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    padding: 12px 14px;
+    background: var(--color-surface-variant);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.access-icon {
+    font-size: 15px;
+    opacity: 0.8;
+}
+
+.access-text {
+    flex: 1;
+}
+
+.access-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.access-desc {
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+.switch {
+    flex-shrink: 0;
+    width: 40px;
+    height: 22px;
+    padding: 2px;
+    background: var(--color-input);
+    border-radius: 11px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.switch.on {
+    background: var(--color-primary);
+}
+
+.switch-thumb {
+    width: 18px;
+    height: 18px;
+    background: var(--color-text-muted);
+    border-radius: 50%;
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.switch.on .switch-thumb {
+    background: #ffffff;
+    transform: translateX(18px);
+}
+
+.modal-error {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--color-error);
+}
+
+.modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 24px;
+}
+
+.modal-footer.flush {
+    margin-top: 0;
+    padding: 12px 20px;
+    background: var(--color-background-dark);
+}
+
+.btn-text {
+    padding: 9px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn-text:hover {
+    color: var(--color-text-primary);
+}
+
+.btn-primary {
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn-primary:hover {
+    background: var(--color-primary-variant);
+}
+
+.btn-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.btn-danger {
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-error);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.btn-danger:hover {
+    background: #c93b3e;
+}
+
+/* Add-relay tabs */
+.modal-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--color-surface-variant);
+}
+
+.modal-tab {
+    flex: 1;
+    padding: 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+}
+
+.modal-tab.selected {
+    color: var(--color-text-primary);
+    border-bottom-color: var(--color-primary);
+}
+
+.relay-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.relay-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--color-background-dark);
+    border-radius: 8px;
+}
+
+/* Native: row bg flips to surface-variant on hover when !isConnected; added
+   rows stay flat (no pointer, no recolor). Mirrors AddRelayModal.kt:270. */
+.relay-card:not(.added) {
+    cursor: pointer;
+}
+.relay-card:not(.added):hover {
+    background: var(--color-surface-variant);
+}
+
+.relay-card-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    font-size: 17px;
+    font-weight: 700;
+    border-radius: 8px;
+}
+
+.relay-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.relay-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.relay-card-url {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.relay-card-desc {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* "Added" modifier for .btn-primary — used on the Suggested-relay rows in the
+   AddRelay modal to flag a relay already in the user's list. Grey pill, muted
+   label, disabled-style cursor, *no* interactive state — native draws this as
+   a flat SurfaceVariant box with no .clickable, so hover/focus/active must
+   not flip the colour or fade the button. opacity:1 cancels .btn-primary's
+   :disabled 0.5; pointer-events:none keeps the cursor reading as a no-op. */
+.btn-primary.added,
+.btn-primary.added:hover,
+.btn-primary.added:focus,
+.btn-primary.added:active {
+    color: var(--color-text-muted);
+    background: var(--color-surface-variant);
+    opacity: 1;
+    cursor: default;
+    pointer-events: none;
+}
+
+.relay-custom {
+    flex: 1;
+    padding: 16px 20px;
+}
+
+.relay-custom .access-section-title {
+    margin-top: 0;
+}
+
+@media (max-width: 600px) {
+    .modal-card {
+        width: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .modal-card.relay-modal {
+        max-height: 100vh;
+    }
+}
+
+/* ---------- Onboarding (logged in, no relay yet) — fills the shell content column ---------- */
+.onboarding-page {
+    width: 100%;
+    min-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-background);
+}
+
+.onboarding-inner {
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 40px 24px;
+}
+
+.onboarding-logo {
+    width: 88px;
+    height: 88px;
+    border-radius: 20px;
+    object-fit: cover;
+}
+
+.onboarding-title {
+    margin: 20px 0 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.onboarding-desc {
+    margin: 8px 0 0;
+    max-width: 400px;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--color-text-muted);
+}
+
+.onboarding-steps {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin: 28px 0;
+    align-items: stretch;
+}
+
+.onboarding-step {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 16px;
+    background: var(--color-background-dark);
+    border-radius: 10px;
+}
+
+.onboarding-step-badge {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #ffffff;
+    background: var(--color-primary);
+    border-radius: 50%;
+}
+
+.onboarding-step-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.onboarding-step-desc {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--color-text-muted);
+}
+
+.onboarding-btn {
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-text-primary);
+}
+
+.onboarding-btn.primary {
+    padding: 12px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    background: var(--color-primary);
+}
+
+.onboarding-btn.primary:hover {
+    background: var(--color-primary-variant);
+}
+
+.onboarding-btn.secondary {
+    margin-top: 8px;
+    padding: 10px 28px;
+    font-size: 13px;
+    font-weight: 500;
+    background: var(--color-surface);
+}
+
+.onboarding-btn.secondary:hover {
+    background: var(--color-surface-variant);
+}
+
+@media (max-width: 912px) {
+    .onboarding-logo {
+        width: 64px;
+        height: 64px;
+        border-radius: 16px;
+    }
+
+    .onboarding-title {
+        font-size: 20px;
+    }
+
+    .onboarding-desc {
+        font-size: 14px;
+    }
+
+    .onboarding-steps {
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .onboarding-step {
+        flex-direction: row;
+        align-items: center;
+        gap: 14px;
+        width: 100%;
+        max-width: 280px;
+        text-align: left;
+    }
+
+    .onboarding-btn {
+        width: 100%;
+        max-width: 280px;
+    }
+}
+
+/* ---------- Chat view (group screen) ---------- */
+.chat {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+}
+
+.chat-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background);
+    /* Anchor for the jump-to-bottom FAB (.chat-jump-bottom). */
+    position: relative;
+}
+
+/* Jump-to-bottom FAB — Telegram pattern. Floats above the composer when the
+   user has scrolled up from the bottom; the badge shows unread count from
+   other users so the user can either skip or keep reading from the divider. */
+/* Matches the native SmallFloatingActionButton in MessagesList.kt:612 —
+   primary-blue rounded square with a white chevron, not the round dark
+   pill the web had before. */
+.chat-jump-bottom {
+    position: absolute;
+    right: 16px;
+    bottom: 80px;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    border: none;
+    background: var(--color-primary);
+    color: #fff;
+    box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2),
+        0 6px 10px 0 rgba(0, 0, 0, 0.14),
+        0 1px 18px 0 rgba(0, 0, 0, 0.12);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    transition: filter 0.15s;
+}
+.chat-jump-bottom:hover {
+    filter: brightness(1.08);
+}
+.chat-jump-bottom > svg {
+    width: 24px;
+    height: 24px;
+}
+.chat-jump-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.chat-header {
+    position: relative;
+    flex-shrink: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px;
+    background: var(--color-background-dark);
+}
+
+.chat-header-title {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 8px;
+    cursor: pointer;
+}
+
+.chat-header-icon {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.chat-header-meta {
+    min-width: 0;
+}
+
+.chat-header-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-header-about {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-members-btn {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.chat-messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* Clip horizontal overflow at the feed level — the swipe-to-reply gesture
+       translateX's the row left, which otherwise leaks scroll onto the page. */
+    overflow-x: hidden;
+    /* Browser scroll-anchoring: when content above the viewport mutates
+       (reactions land on older messages, an image two pages up resolves its
+       size), keep the user's visible message in place instead of letting the
+       feed jump. Default in modern browsers but pinned explicitly so we
+       don't lose it to a future cascade override. (issue #74) */
+    overflow-anchor: auto;
+    padding: 16px 0;
+    /* Anchor for the absolutely-positioned .chat-loading-more pill. */
+    position: relative;
+}
+/* Date separator: a centered label flanked by divider lines (mirrors the native DateSeparator). */
+.date-sep {
+    display: flex;
+    align-items: center;
+    margin: 12px 16px;
+}
+.date-sep::before,
+.date-sep::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-divider);
+}
+.date-sep-label {
+    flex-shrink: 0;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+}
+/* "New messages" divider — red lines + bold label, mirrors native NewMessagesDivider.
+   Lives between the last-read message and the first unread from another user, and is
+   dismissed once the user has scrolled away from the bottom and back (issue #83). */
+.new-msg-divider {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+}
+.new-msg-divider::before,
+.new-msg-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-error);
+}
+.new-msg-divider-label {
+    flex-shrink: 0;
+    padding: 0 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-error);
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+/* Moderation / system event rows (join / role change / removed / left) — mirrors native. */
+.sys-event {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+.sys-event-icon {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+.sys-event-icon .ico {
+    width: 14px;
+    height: 14px;
+}
+.sys-event-icon.joined {
+    color: var(--color-success);
+    background: rgba(87, 242, 135, 0.15);
+}
+.sys-event-icon.role {
+    color: var(--color-warning-orange);
+    background: rgba(255, 165, 0, 0.15);
+}
+.sys-event-icon.removed {
+    color: var(--color-error);
+    background: rgba(237, 66, 69, 0.15);
+}
+.sys-event-icon.left {
+    color: var(--color-text-muted);
+    background: rgba(114, 118, 125, 0.18);
+}
+.sys-event-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.sys-event-avatar.clickable {
+    cursor: pointer;
+}
+.sys-event-avatars {
+    display: flex;
+    align-items: center;
+}
+.sys-event-avatars .sys-event-avatar {
+    margin-right: -8px;
+    border: 2px solid var(--color-background);
+}
+.sys-event-overflow {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 2px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-text-secondary);
+    background: var(--color-surface);
+    border-radius: 50%;
+}
+.sys-event-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sys-event-name {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+.sys-event-time {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    opacity: 0.7;
+}
+
+.chat-empty {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    font-size: 15px;
+}
+
+/* "Private group" / "Awaiting admin approval" panel — mirrors native
+   MessagesList.kt:412-446. Shown when the user opens a group they can't
+   read (kind:39002 doesn't include them, OR relay returned a CLOSED
+   restricted frame). Lock icon + title + supporting copy, centered. */
+.chat-restricted {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px 24px;
+    color: var(--color-text-secondary);
+    text-align: center;
+}
+.chat-restricted-icon {
+    width: 40px;
+    height: 40px;
+    fill: var(--color-text-muted);
+    margin-bottom: 12px;
+}
+.chat-restricted-title {
+    font-size: 16px;
+    color: var(--color-text-secondary);
+    margin-bottom: 8px;
+}
+.chat-restricted-body {
+    font-size: 14px;
+    color: var(--color-text-muted);
+    max-width: 360px;
+    line-height: 1.5;
+}
+
+.chat-loading-more {
+    /* Float over the top of the chat instead of taking layout space — its
+       ~30px height was inserting / removing on every pagination cycle,
+       shifting every message below it and racing with the scroll-anchor
+       restore. position: absolute keeps it visible while in flight without
+       affecting the flow of the messages around it. */
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    padding: 6px 14px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--color-text-muted);
+    background: var(--color-background-dark);
+    border-radius: 12px;
+    pointer-events: none;
+}
+
+.chat-date {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    margin: 12px 16px;
+    color: var(--color-text-muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.chat-date::before,
+.chat-date::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--color-divider);
+}
+
+.chat-date span {
+    padding: 0 12px;
+}
+
+.system-event {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 16px 4px 72px;
+    color: var(--color-text-muted);
+    font-size: 13px;
+}
+
+.system-event-icon {
+    color: var(--color-success);
+}
+
+.msg {
+    position: relative;
+    display: flex;
+    padding: 6px 16px;
+}
+
+.msg:hover {
+    background: var(--color-message-hover);
+}
+
+.msg.menu-open {
+    z-index: 60;
+    background: var(--color-message-hover);
+}
+
+/* Reply icon revealed under the row during swipe-to-reply. Sits absolutely on
+   the right edge; the .msg's flex children render *on top* of it because they
+   come later in the DOM, so the row slides left over the icon as in native. */
+.msg-swipe-icon {
+    position: absolute;
+    top: 50%;
+    right: 16px;
+    transform: translateY(-50%) scale(1);
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    opacity: 0;
+    pointer-events: none;
+    /* No transition by default — the swipe drives opacity per frame.
+       onTouchEnd adds a brief transition before fading back to 0. */
+}
+.msg-swipe-icon .ico {
+    width: 18px;
+    height: 18px;
+}
+
+/* Hover action toolbar (top-right of a message) */
+.msg-actions {
+    position: absolute;
+    top: -10px;
+    right: 16px;
+    display: none;
+    gap: 2px;
+    padding: 2px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    z-index: 2;
+}
+
+.msg:hover .msg-actions,
+.msg.menu-open .msg-actions {
+    display: flex;
+}
+
+.msg-action-btn {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.msg-action-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+/* Message context menu */
+.ctx-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+}
+
+.ctx-menu {
+    position: fixed;
+    left: 0;
+    top: 0;
+    visibility: hidden;
+    z-index: 61;
+    width: 210px;
+    padding: 6px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    font-size: 14px;
+    color: var(--color-text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.ctx-item:hover {
+    background: var(--color-hover);
+}
+
+.ctx-item.danger {
+    color: var(--color-error);
+}
+
+.ctx-item.danger:hover {
+    background: rgba(237, 66, 69, 0.15);
+}
+
+.ctx-item-icon {
+    width: 18px;
+    text-align: center;
+    font-size: 14px;
+}
+
+.ctx-divider {
+    height: 1px;
+    margin: 6px 4px;
+    background: var(--color-divider);
+}
+
+/* Hairline above each grouped (same-author) message, aligned with content (after the gutter). */
+.msg.grouped::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 72px;
+    right: 16px;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.msg-gutter {
+    width: 56px;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: flex-start;
+}
+
+.msg-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.msg-hover-time {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    line-height: 20px;
+    opacity: 0;
+}
+
+.msg.grouped:hover .msg-hover-time {
+    opacity: 1;
+}
+
+.msg-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.msg-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.msg-author {
+    font-size: 15px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.msg-admin {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-primary);
+    background: rgba(88, 101, 242, 0.15);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.msg-time {
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+.msg-text {
+    font-size: 15px;
+    line-height: 1.4;
+    color: var(--color-text-content);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.msg-link {
+    color: var(--color-text-link);
+    text-decoration: none;
+}
+
+.msg-link:hover {
+    text-decoration: underline;
+}
+
+.msg-image {
+    display: block;
+    /* min() so the desktop 360px cap still holds, but on narrow viewports the
+       image shrinks to the bubble width — otherwise a 360px image inside a
+       <360px bubble overflows and leaks horizontal scroll onto the page. */
+    max-width: min(360px, 100%);
+    max-height: 300px;
+    /* Reserve vertical space before the image resolves its intrinsic size, so
+       the message row doesn't jump from ~0px to ~300px when the load
+       completes. The dark background reads as a placeholder. (issue #74) */
+    min-height: 120px;
+    min-width: 120px;
+    background: var(--color-input);
+    margin-top: 4px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+.msg-video {
+    display: block;
+    max-width: min(360px, 100%);
+    max-height: 300px;
+    /* Same reserved slot as .msg-image — preload="metadata" still has a
+       small window where the <video>'s dimensions aren't known. */
+    min-height: 120px;
+    min-width: 120px;
+    background: var(--color-input);
+    margin-top: 4px;
+    border-radius: 8px;
+    background: #000;
+}
+
+/* Fallback shown when a <video> fires its error event (host CDN flaky, bad
+   Content-Type, src not supported). Replaces the dead-black <video> box and
+   gives the user a single click to retry without reloading the whole site. */
+.msg-video-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    max-width: min(360px, 100%);
+    min-height: 120px;
+    min-width: 160px;
+    margin-top: 4px;
+    padding: 16px;
+    background: var(--color-input);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    color: var(--color-text-muted);
+}
+.msg-video-error-label {
+    font-size: 13px;
+}
+.msg-video-retry {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: none;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.msg-video-retry:hover {
+    filter: brightness(1.1);
+}
+
+.msg-event-ref,
+.msg-group-ref {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    margin: 2px 0;
+    padding: 3px 8px;
+    vertical-align: middle;
+    background: var(--color-input);
+    border-left: 3px solid var(--color-primary);
+    border-radius: 4px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.msg-event-ref:hover,
+.msg-group-ref:hover {
+    background: var(--color-surface-variant);
+}
+.msg-event-ref-ico {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--color-primary);
+}
+.msg-event-ref-author {
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+/* nevent/note quoted-event card (mirrors native QuotedEvent) */
+.quoted-event {
+    display: block;
+    max-width: 420px;
+    margin: 4px 0;
+    padding: 8px 10px;
+    background: var(--color-input);
+    border-left: 3px solid var(--color-primary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.quoted-event:hover {
+    background: var(--color-surface-variant);
+}
+.quoted-event-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+.quoted-event-avatar {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+}
+.quoted-event-author {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+.quoted-event-content {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+.quoted-event-loading {
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
+/* naddr group reference card (mirrors native GroupLinkCard) */
+.group-link-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    max-width: 380px;
+    margin: 4px 0;
+    padding: 8px;
+    background: var(--color-surface);
+    border-radius: 12px;
+    cursor: pointer;
+}
+.group-link-card:hover {
+    background: var(--color-surface-variant);
+}
+.group-link-avatar {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    font-size: 18px;
+    font-weight: 700;
+}
+.group-link-meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.group-link-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.group-link-about {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.group-link-relay {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* "Test sound" link in notification settings */
+.settings-test-sound {
+    margin-top: 8px;
+    padding: 4px 0;
+    background: transparent;
+    border: none;
+    color: var(--color-primary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.settings-test-sound:hover {
+    text-decoration: underline;
+}
+
+/* Profile zap pill (UserProfileModal) */
+.profile-name-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+}
+.profile-name-col {
+    min-width: 0;
+}
+.profile-zap {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    padding: 5px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-warning-orange);
+    background: rgba(255, 165, 0, 0.15);
+    border: 1px solid rgba(255, 165, 0, 0.4);
+    border-radius: 16px;
+    cursor: pointer;
+}
+.profile-zap:hover {
+    background: rgba(255, 165, 0, 0.25);
+}
+.profile-zap .ico {
+    width: 16px;
+    height: 16px;
+}
+
+/* Fenced code block + inline code (mirrors native CodeBlockContent / Monospace) */
+.code-block {
+    margin: 4px 0;
+    max-width: 100%;
+    background: #2b2d31;
+    border-radius: 6px;
     overflow: hidden;
 }
-
-/*
- * Compose does all of its own scrolling/gesture handling on the canvas, so the
- * browser must not claim touch gestures itself (horizontal pan / edge back-swipe
- * / pull-to-refresh). Without this the browser intercepts the left-edge
- * left-to-right swipe over the scrolling chat list before it reaches the app
- * (issue #77). touch-action:none is exactly what Compose wants here.
- */
-#composeApplication, #composeApplication canvas {
-    touch-action: none;
-    overscroll-behavior: none;
+.code-lang {
+    padding: 6px 12px;
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+.code-pre {
+    margin: 0;
+    padding: 12px;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #e3e5e8;
+    white-space: pre;
+    tab-size: 2;
+}
+.msg-code {
+    padding: 1px 5px;
+    background: #2b2d31;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    color: #e3e5e8;
 }
 
-/*
- * Compose WebElementView wraps each native HTML element in an absolutely-positioned
- * <div> appended to <body>. These wrappers sit above the Compose <canvas> and block
- * wheel/scroll events from reaching it. pointer-events:none lets events pass through
- * to the canvas layer; click handling is done via Compose's clickable modifier.
- */
-body > div:not(#composeApplication)[style*="position: absolute"] {
+.msg-mention {
+    color: var(--color-mention);
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.msg-mention:hover {
+    text-decoration: underline;
+}
+
+.msg-reply {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 4px;
+    padding: 4px 8px 4px 4px;
+    background: rgba(47, 49, 54, 0.5);
+    border-radius: 4px;
+    cursor: pointer;
+}
+.msg-reply:hover {
+    background: rgba(47, 49, 54, 0.9);
+}
+
+.msg-reply-bar {
+    flex-shrink: 0;
+    width: 3px;
+    border-radius: 2px;
+    background: var(--color-primary);
+}
+
+.msg-reply-content {
+    min-width: 0;
+}
+
+.msg-reply-author {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.msg-reply-text {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.msg-reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.reaction-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    padding: 2px 7px;
+    font-size: 13px;
+    color: var(--color-text-content);
+    background: var(--color-surface-variant);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.reaction-emoji {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+    vertical-align: middle;
+}
+
+/* NIP-30 custom emoji rendered inline inside message text. Scales with the
+   surrounding font like a glyph instead of pushing the line height. */
+.msg-emoji {
+    display: inline-block;
+    height: 1.4em;
+    width: auto;
+    max-width: 4em;
+    object-fit: contain;
+    vertical-align: -0.35em;
+    margin: 0 1px;
+}
+
+.reaction-badge.mine {
+    color: var(--color-primary);
+    background: rgba(88, 101, 242, 0.15);
+    border-color: var(--color-primary);
+}
+
+.reaction-count {
+    font-size: 11px;
+    opacity: 0.85;
+}
+/* Stacked reactor avatars inside a reaction badge (up to 3, overlapping). */
+.reaction-avatars {
+    display: inline-flex;
+    align-items: center;
+}
+.reaction-avatar {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--color-surface-variant);
+    flex-shrink: 0;
+}
+.reaction-avatar + .reaction-avatar {
+    margin-left: -6px;
+}
+
+.reaction-add {
+    display: none;
+    align-items: center;
+    margin-top: 4px;
+    padding: 2px 9px;
+    font-size: 13px;
+    color: var(--color-text-muted);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.msg:hover .reaction-add {
+    display: inline-flex;
+}
+
+.reaction-add:hover {
+    color: var(--color-text-primary);
+}
+
+.composer-reply {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 16px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-variant);
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid var(--color-background);
+}
+
+.composer-reply-name {
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+
+.composer-reply-close {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.composer-reply-close:hover {
+    color: var(--color-text-primary);
+}
+
+.composer.replying {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.composer {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    /* flex-end so the upload / emoji / send buttons stay pinned to the bottom
+       row of the composer when the textarea grows past one line. */
+    align-items: flex-end;
+    gap: 8px;
+    padding: 8px 12px;
+    margin: 0 16px 16px;
+    background: var(--color-surface-variant);
+    border-radius: 8px;
+}
+/* @user / %group mention autocomplete popover above the composer */
+.mention-popup {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 6px);
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 4px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 40;
+}
+.mention-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.mention-row:hover {
+    background: var(--color-message-hover);
+}
+.mention-avatar {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 700;
+}
+.mention-name {
+    font-size: 14px;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.composer-btn {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.composer-btn:hover {
+    color: var(--color-text-content);
+}
+
+.composer-input {
+    /* Auto-growing textarea (was an <input>): starts at one line and the JS
+       useEffect(draft) bumps height to scrollHeight on each change. CSS caps
+       it at ~5 lines, after which it scrolls internally. resize:none hides
+       the browser's drag handle since growth is controlled by content. */
+    flex: 1;
+    min-width: 0;
+    min-height: 22px;
+    max-height: 140px;
+    padding: 4px 0;
+    line-height: 1.4;
+    background: transparent;
+    border: none;
+    outline: none;
+    resize: none;
+    overflow-y: auto;
+    color: var(--color-text-primary);
+    font-size: 15px;
+    font-family: inherit;
+}
+
+.composer-input::placeholder {
+    color: var(--color-text-muted);
+}
+
+.composer-send {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    border-radius: 50%;
+    cursor: default;
+}
+
+.composer-send.active {
+    color: var(--color-primary);
+    cursor: pointer;
+}
+
+.member-sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-surface);
+}
+
+.member-header {
+    flex-shrink: 0;
+    /* Matches .chat-header / .sidebar-header — keeps the top band aligned. */
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+    /* White (was text-secondary grey) so the title reads cleanly on the
+       BackgroundDark band — matches the native MemberSidebar header. */
+    color: #ffffff;
+    background: var(--color-background-dark);
+}
+
+.member-header-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #ffffff;
+}
+
+/* The Person icon inherits color via fill: currentColor (.ico rule), so the
+   white from .member-header-title applies automatically. */
+.member-header-title .ico {
+    width: 18px;
+    height: 18px;
+}
+
+.member-add-btn {
+    width: 26px;
+    height: 26px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.member-add-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.member-search {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    position: relative;
+}
+
+.member-search-icon {
+    position: absolute;
+    left: 21px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    fill: var(--color-text-muted);
     pointer-events: none;
+}
+
+.member-search-input {
+    width: 100%;
+    padding: 6px 10px 6px 32px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--color-text-primary);
+    background: var(--color-background-dark);
+    border: none;
+    border-radius: 4px;
+    outline: none;
+}
+
+.member-search-input::placeholder {
+    color: var(--color-text-muted);
+}
+
+.member-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 4px 8px 16px;
+}
+
+.member-section {
+    padding: 8px 8px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.member-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.member-row:hover {
+    background: var(--color-hover);
+}
+
+.member-avatar-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.member-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.member-avatar.dimmed {
+    opacity: 0.4;
+}
+
+.member-dot {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--color-surface);
+    border-radius: 50%;
+    background: var(--color-text-muted);
+}
+
+.member-dot.online {
+    background: var(--color-success);
+}
+
+.member-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.member-name.dimmed {
+    color: var(--color-text-muted);
+}
+
+.member-admin {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-primary);
+    background: rgba(88, 101, 242, 0.15);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.member-backdrop {
+    display: none;
+}
+
+/* Member sidebar collapses to a right drawer on narrow screens */
+@media (max-width: 1000px) {
+    .chat-members-btn {
+        display: inline-flex;
+    }
+
+    .member-sidebar {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 40;
+        transform: translateX(100%);
+        transition: transform 0.2s ease;
+    }
+
+    .chat.members-open .member-sidebar {
+        transform: translateX(0);
+    }
+
+    .chat.members-open .member-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 35;
+        background: rgba(0, 0, 0, 0.5);
+    }
+}
+
+/* ---------- Settings (full-screen overlay) ---------- */
+.settings-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    background: var(--color-background);
+}
+
+.settings-fill {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.settings-fill.dark {
+    background: var(--color-background-dark);
+}
+
+.settings-sidebar {
+    width: 218px;
+    flex-shrink: 0;
+    background: var(--color-background-dark);
+    padding: 24px 8px 24px 24px;
+    overflow-y: auto;
+}
+
+.settings-nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+/* Chevron + mobile list header only appear in the compact (single-column) layout. */
+.settings-nav-chevron,
+.settings-mobile-header {
+    display: none;
+}
+.settings-nav-chevron .ico {
+    width: 18px;
+    height: 18px;
+    color: var(--color-text-muted);
+}
+
+.settings-nav-item:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.settings-nav-item.active {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+    font-weight: 600;
+}
+
+.settings-nav-item.danger {
+    color: var(--color-error);
+}
+
+.settings-nav-item.danger:hover {
+    background: rgba(237, 66, 69, 0.15);
+}
+
+.settings-nav-divider {
+    height: 1px;
+    margin: 8px 4px;
+    background: var(--color-divider);
+}
+
+.settings-content {
+    width: 740px;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow-y: auto;
+    padding: 24px 20px 80px 40px;
+}
+
+.settings-content > * {
+    max-width: 660px;
+}
+
+.settings-close-col {
+    width: 80px;
+    flex-shrink: 0;
+    padding: 24px 0 0 16px;
+}
+
+.settings-close {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 50%;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+
+.settings-close:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.settings-close-x {
+    font-size: 14px;
+}
+
+.settings-close-esc {
+    font-size: 9px;
+    font-weight: 700;
+    color: var(--color-text-muted);
+}
+
+.settings-card {
+    background: var(--color-surface);
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 16px;
+}
+/* Desktop panel title with a divider + generous margin (mirrors native). */
+.settings-content-title {
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--color-divider);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+/* Divider separating two settings inside one card (spans the card's full width). */
+.settings-card-divider {
+    height: 1px;
+    margin: 16px -20px;
+    background: var(--color-divider);
+}
+/* Description under a section head. */
+.settings-section-desc {
+    margin: -6px 0 16px;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--color-text-secondary);
+}
+
+/* ===== Relays (NIP-65) panel ===== */
+.settings-info-text {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+}
+.settings-warn-card {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    margin-bottom: 16px;
+    background: rgba(255, 165, 0, 0.12);
+    border-radius: 8px;
+}
+.settings-warn-ico {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: var(--color-warning-orange);
+}
+.settings-warn-title {
+    margin-bottom: 4px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--color-warning-orange);
+}
+.settings-warn-body {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--color-warning-orange);
+}
+.relay-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-divider);
+}
+.relay-row-url {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.relay-chip {
+    flex-shrink: 0;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-text-muted);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.relay-chip.on {
+    color: var(--color-primary);
+    background: rgba(88, 101, 242, 0.2);
+}
+.relay-row-remove {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+.relay-row-remove:hover {
+    color: var(--color-error);
+    background: var(--color-hover);
+}
+.relay-row-remove .ico {
+    width: 18px;
+    height: 18px;
+}
+.relay-warn {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--color-warning-orange);
+}
+.relay-add-head {
+    margin-top: 20px;
+}
+.relay-add-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 12px;
+}
+.relay-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+.relay-check input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+}
+.relay-add-btn {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 7px 14px;
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 6px;
+    color: var(--color-primary);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.relay-add-btn:hover {
+    background: var(--color-hover);
+}
+.relay-add-btn:disabled {
+    color: var(--color-text-muted);
+    cursor: default;
+}
+.relay-add-btn .ico {
+    width: 16px;
+    height: 16px;
+}
+.relay-save-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 8px;
+}
+.relay-save-status {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.settings-card.center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.settings-card.warning {
+    border: 1px solid rgba(255, 165, 0, 0.3);
+}
+
+.settings-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    font-size: 36px;
+    font-weight: 700;
+}
+
+.settings-avatar-caption {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+.settings-section-head {
+    margin-bottom: 14px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+}
+
+.settings-field {
+    margin-bottom: 16px;
+}
+
+.settings-field .field-label {
+    margin-top: 0;
+}
+
+.settings-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 8px;
+}
+
+.settings-save {
+    padding: 9px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.settings-save:hover {
+    background: var(--color-primary-variant);
+}
+.settings-save:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.settings-save:hover {
+    background: var(--color-hover);
+}
+
+.settings-key {
+    margin: 8px 0 12px;
+    padding: 12px;
+    font-family: monospace;
+    font-size: 13px;
+    word-break: break-all;
+    color: var(--color-text-content);
+    background: var(--color-background-dark);
+    border-radius: 6px;
+}
+
+.settings-key.danger {
+    color: var(--color-error);
+}
+
+.settings-outline-btn {
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-content);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.settings-outline-btn:hover {
+    background: var(--color-hover);
+}
+
+.settings-outline-btn:hover {
+    background: var(--color-hover);
+}
+
+.settings-outline-btn.danger {
+    color: var(--color-error);
+}
+
+.settings-tip {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+}
+
+.settings-relay-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--color-background-dark);
+}
+
+.settings-relay-url {
+    font-size: 14px;
+    color: var(--color-text-content);
+    word-break: break-all;
+}
+
+.settings-relay-badge {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: var(--color-surface-variant);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.settings-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.settings-toggle-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-toggle-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.settings-toggle-desc {
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+}
+
+.settings-radio-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 12px;
+    margin: 0 -12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.settings-radio-row:hover {
+    background: var(--color-surface-variant);
+}
+
+.settings-radio {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    margin-top: 2px;
+    border: 2px solid var(--color-text-muted);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settings-radio.on {
+    border-color: var(--color-primary);
+}
+
+.settings-radio-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: transparent;
+}
+
+.settings-radio.on .settings-radio-dot {
+    background: var(--color-primary);
+}
+
+.settings-perm {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.settings-perm-status {
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
+.settings-status-line {
+    margin-bottom: 14px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+/* Mobile-only back row (settings panel → section list). */
+.settings-back {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px 0;
+    background: transparent;
+    border: none;
+    color: var(--color-text-primary);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.settings-back .ico {
+    width: 22px;
+    height: 22px;
+}
+
+@media (max-width: 720px) {
+    .settings-fill {
+        display: none;
+    }
+    /* Single-column: the sidebar (list) and the content (panel) each take the full width;
+       only one shows at a time, toggled by .show-panel — mirrors native's list↔panel. */
+    .settings-sidebar {
+        width: auto;
+        flex: 1;
+        padding: 0;
+    }
+    .settings-mobile-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px;
+    }
+    .settings-mobile-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--color-text-primary);
+    }
+    .settings-mobile-close {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        background: var(--color-surface-variant);
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+    }
+    .settings-mobile-close .ico {
+        width: 20px;
+        height: 20px;
+    }
+    /* Full-width tappable rows with a chevron and hairline dividers. */
+    .settings-nav-item {
+        padding: 14px 16px;
+        border-radius: 0;
+        border-bottom: 1px solid var(--color-divider);
+        font-size: 16px;
+    }
+    .settings-nav-chevron {
+        display: flex;
+    }
+    .settings-nav-divider {
+        display: none;
+    }
+    .settings-content {
+        width: auto;
+        flex: 1;
+        padding: 16px 16px 80px;
+    }
+    .settings-content > * {
+        max-width: none;
+    }
+    .settings-back {
+        display: flex;
+    }
+    .settings-content-title {
+        display: none;
+    }
+    .settings-close-col {
+        display: none;
+    }
+    .settings-overlay:not(.show-panel) .settings-content {
+        display: none;
+    }
+    .settings-overlay.show-panel .settings-sidebar {
+        display: none;
+    }
+}
+
+/* ---------- Notifications screen ---------- */
+.groups-sidebar.hidden {
+    display: none;
+}
+
+.notif-screen {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background);
+}
+
+.notif-header {
+    flex-shrink: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 16px;
+    background: var(--color-background-dark);
+}
+
+.notif-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.notif-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.notif-action-btn {
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.notif-action-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.notif-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.notif-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    color: var(--color-text-muted);
+    font-size: 15px;
+}
+
+.notif-empty-icon {
+    font-size: 40px;
+    opacity: 0.5;
+}
+
+.notif-item {
+    display: flex;
+    cursor: pointer;
+    border-bottom: 1px solid var(--color-background-dark);
+}
+
+.notif-item:hover {
+    background: var(--color-hover);
+}
+
+.notif-item.unread {
+    background: rgba(88, 101, 242, 0.08);
+}
+
+.notif-accent {
+    width: 3px;
+    flex-shrink: 0;
+    background: transparent;
+}
+
+.notif-item.unread .notif-accent {
+    background: var(--color-primary);
+}
+
+.notif-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px 12px 13px;
+}
+
+.notif-avatar-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.notif-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.notif-badge {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 2px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    color: #ffffff;
+    border: 2px solid var(--color-background);
+    border-radius: 8px;
+}
+
+.notif-badge.reply {
+    background: #5b8af5;
+}
+
+.notif-badge.mention {
+    background: #e67e22;
+}
+
+.notif-badge.reaction {
+    background: #e74c3c;
+}
+
+.notif-badge.message {
+    background: #27ae60;
+}
+
+.notif-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.notif-head {
+    font-size: 14px;
+    color: var(--color-text-muted);
+}
+
+.notif-actor {
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.notif-label {
+    color: var(--color-text-muted);
+}
+
+.notif-preview {
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.notif-context {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+.notif-context-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    font-size: 9px;
+    font-weight: 700;
+    border-radius: 4px;
+}
+
+.notif-context-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+}
+
+.notif-dot {
+    color: var(--color-text-muted);
+}
+
+/* ---------- Group info / user profile modals ---------- */
+.clickable {
+    cursor: pointer;
+}
+
+.msg-author.clickable {
+    cursor: pointer;
+}
+.msg-author.clickable:hover {
+    text-decoration: underline;
+}
+
+.info-card,
+.profile-card {
+    padding: 0;
+    overflow: hidden;
+    max-width: 440px;
+}
+
+.info-cover,
+.profile-banner {
+    position: relative;
+    height: 120px;
+    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-variant));
+}
+
+.cover-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.info-cover-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #ffffff;
+    background: rgba(0, 0, 0, 0.4);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.info-cover-close:hover {
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.info-cover-icon,
+.profile-avatar {
+    position: absolute;
+    left: 20px;
+    bottom: -32px;
+    width: 80px;
+    height: 80px;
+    font-size: 30px;
+    font-weight: 700;
+    border: 4px solid var(--color-surface);
+}
+
+.info-cover-icon {
+    border-radius: 16px;
+}
+
+.profile-avatar {
+    border-radius: 50%;
+}
+
+.info-content {
+    padding: 44px 20px 20px;
+}
+
+.info-content .settings-section-head {
+    margin-top: 20px;
+}
+
+.info-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.profile-handle {
+    margin-top: 2px;
+    font-size: 14px;
+    color: var(--color-text-muted);
+}
+
+.info-badges {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.info-badge {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 12px;
+    background: var(--color-surface-variant);
+    color: var(--color-text-secondary);
+}
+
+.info-badge.success {
+    color: var(--color-success);
+}
+
+.info-badge.primary {
+    color: var(--color-primary);
+}
+
+.info-about {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-text-content);
+    overflow-wrap: anywhere;
+}
+
+.info-id-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.info-id {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.info-copy {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.info-copy:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+/* ---------- Chat header overflow menu + moderation modals ---------- */
+.chat-icon-btn {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+/* Join-requests indicator in the chat header (admin/closed-group only). The
+   button is a normal chat-icon-btn; the badge is an absolutely-positioned
+   counter pip in the top-right corner — matches the native screenshot. */
+.chat-requests-btn {
+    position: relative;
+}
+
+.chat-requests-badge {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    color: #ffffff;
+    background: var(--color-error);
+    border-radius: 999px;
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+/* Hamburger in the chat header — only visible on mobile, where the groups sidebar
+   is a drawer. Hidden on desktop where the sidebar is always present (mirrors
+   native's mobile-only navigationIcon slot in GroupHeader). */
+.chat-drawer-btn {
+    display: none;
+}
+@media (max-width: 900px) {
+    .chat-drawer-btn {
+        display: inline-flex;
+    }
+}
+
+.chat-join-btn {
+    flex-shrink: 0;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.chat-pending {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-warning-orange);
+    background: rgba(255, 165, 0, 0.15);
+    border-radius: 8px;
+}
+
+.chat-join-btn:hover {
+    background: var(--color-primary-variant);
+}
+
+/* Secondary 'Invite Code' button shown next to 'Join' for closed groups
+   (matches GroupHeader.kt:208-232 — surface-variant background, icon
+   on the left, sits flush against the primary Join button). */
+.chat-invite-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-right: 8px;
+}
+.chat-invite-btn:hover {
+    background: var(--color-hover);
+}
+.chat-invite-btn > svg {
+    width: 14px;
+    height: 14px;
+}
+
+/* "Members are private" / "Members hidden until approved" panel in
+   the right sidebar (mirrors MemberSidebar.kt:296-324). Centered lock
+   icon + label, takes over the slot the member list usually fills. */
+.member-private {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 16px;
+    text-align: center;
+}
+.member-private-icon {
+    width: 28px;
+    height: 28px;
+    fill: var(--color-text-muted);
+    margin-bottom: 10px;
+}
+.member-private-label {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    line-height: 1.4;
+}
+
+.composer-join {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 16px 16px;
+    padding: 12px 16px;
+    background: var(--color-surface-variant);
+    border-radius: 8px;
+    color: var(--color-text-secondary);
+    font-size: 14px;
+}
+
+.composer-join-btn {
+    flex-shrink: 0;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.composer-join-btn:hover {
+    background: var(--color-primary-variant);
+}
+
+.chat-icon-btn:hover,
+.chat-members-btn:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.chat-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+}
+
+.chat-menu {
+    position: absolute;
+    top: 50px;
+    right: 8px;
+    z-index: 51;
+    width: 200px;
+    padding: 6px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.chat-menu-item {
+    padding: 8px 10px;
+    font-size: 14px;
+    color: var(--color-text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.chat-menu-item:hover {
+    background: var(--color-hover);
+}
+
+.chat-menu-item.danger {
+    color: var(--color-error);
+}
+
+.chat-menu-item.danger:hover {
+    background: rgba(237, 66, 69, 0.15);
+}
+
+.chat-menu-divider {
+    height: 1px;
+    margin: 6px 4px;
+    background: var(--color-divider);
+}
+
+/* shared moderation lists / rows */
+.btn-primary.block {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.mod-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 12px 0;
+}
+
+.mod-tab {
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.mod-tab.selected {
+    color: #ffffff;
+    background: var(--color-primary);
+}
+
+.mod-list {
+    max-height: 340px;
+    overflow-y: auto;
+}
+
+.mod-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-background-dark);
+}
+
+.mod-avatar {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.mod-name-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mod-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.mod-code {
+    flex: 1;
+    min-width: 0;
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--color-text-content);
+    word-break: break-all;
+}
+
+.mod-actions {
+    flex-shrink: 0;
+    display: flex;
+    gap: 6px;
+}
+
+.mod-btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-content);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.mod-btn:hover {
+    background: var(--color-hover);
+}
+
+.mod-btn.primary {
+    color: #ffffff;
+    background: var(--color-primary);
+}
+
+.mod-btn.primary:hover {
+    background: var(--color-primary-variant);
+}
+
+.mod-btn.danger {
+    color: var(--color-error);
+}
+
+.mod-empty {
+    padding: 32px 0;
+    text-align: center;
+    font-size: 14px;
+    color: var(--color-text-muted);
+}
+
+.share-field {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+/* ---------- Add-account sheet ---------- */
+.add-account-sheet {
+    position: fixed;
+    left: 72px;
+    bottom: 12px;
+    z-index: 101;
+    width: 420px;
+    max-width: calc(100vw - 88px);
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+}
+
+.add-sheet-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+}
+
+.add-sheet-icon {
+    width: 32px;
+    text-align: center;
+    font-size: 18px;
+}
+
+.add-sheet-back,
+.add-sheet-close {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.add-sheet-back:hover,
+.add-sheet-close:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.add-sheet-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #ffffff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.add-sheet-divider {
+    height: 1px;
+    background: var(--color-background-dark);
+}
+
+.add-sheet-body {
+    padding: 16px 20px 20px;
+}
+
+.add-sheet-note {
+    margin: 0 0 12px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.add-method-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    padding: 12px 14px;
+    background: var(--color-background-dark);
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.add-method-row:hover {
+    background: var(--color-hover);
+}
+
+.add-method-icon {
+    font-size: 18px;
+}
+
+.add-method-label {
+    flex: 1;
+    font-size: 14px;
+    color: #ffffff;
+}
+
+.add-method-chevron {
+    font-size: 18px;
+    color: var(--color-text-secondary);
+}
+
+@media (max-width: 900px) {
+    .add-account-sheet {
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: auto;
+        max-width: none;
+        border-radius: 12px 12px 0 0;
+    }
+}
+
+
+/* ---------- Home / group picker ---------- */
+.home {
+    /* position:relative so the 3-dots dropdown (sibling of both headers) can
+       anchor absolute top/right within the home pane, not the document. */
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background);
+}
+
+/* Two header variants: a native-style row for narrow viewports (mobile) and
+   the pre-77c17f7 centered-column layout for wide ones (desktop). Both are
+   rendered unconditionally from Kotlin; CSS toggles which is visible at the
+   600px breakpoint. */
+
+.home-header-mobile {
+    position: relative;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 56px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    background: var(--color-background-dark);
+}
+
+.home-header-desktop {
+    position: relative;
+    flex-shrink: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    padding: 32px 24px 16px;
+}
+
+/* Switch at 900px — matches where the groups sidebar becomes always-visible,
+   so the desktop column header (no hamburger) only appears when the user no
+   longer needs the drawer button. */
+@media (min-width: 900px) {
+    .home-header-mobile {
+        display: none;
+    }
+    .home-header-desktop {
+        display: flex;
+    }
+}
+
+.home-relay-options {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+/* Desktop header pins its cog/+ and 3-dots buttons to the top-right corner
+   of the *content area* (inside the header's 32/24 padding, not floating in
+   the padding band). The 3-dots sits flush at the content's right edge; the
+   cog sits to its left with a small gap. */
+.home-header-desktop > .home-relay-options {
+    position: absolute;
+    top: 24px;
+}
+.home-header-desktop > .home-relay-options-more {
+    right: 24px;
+}
+.home-header-desktop > .home-relay-options-cog {
+    right: 64px;
+}
+
+.home-relay-options:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.home-relay-menu-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+}
+
+.home-relay-menu {
+    position: absolute;
+    top: 44px;
+    right: 8px;
+    z-index: 21;
+    width: 220px;
+    padding: 6px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.home-relay-menu-item {
+    padding: 8px 10px;
+    font-size: 14px;
+    color: var(--color-text-primary);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.home-relay-menu-item:hover {
+    background: var(--color-hover);
+}
+
+.home-relay-menu-item.danger {
+    color: var(--color-error);
+}
+
+.home-relay-menu-item.danger:hover {
+    background: rgba(237, 66, 69, 0.15);
+}
+
+/* Mobile-header inline avatar (36px) and ellipsised title (flex-grow row). */
+.home-header-mobile .home-relay-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.home-header-mobile .home-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.home-header-mobile .home-subtitle {
+    display: none;
+}
+
+/* Desktop header — the OLD layout: big centered avatar + large title +
+   "Choose a group…" subtitle below. */
+.home-header-desktop .home-relay-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    font-size: 26px;
+    font-weight: 700;
+}
+
+.home-header-desktop .home-title {
+    margin-top: 12px;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.home-header-desktop .home-subtitle {
+    margin-top: 4px;
+    font-size: 14px;
+    color: var(--color-text-muted);
+}
+
+/* Native HomeScreenDesktop renders FilterBar and PickGroupSearch as two
+   GridItemSpan(maxLineSpan) rows above the cards — each on its own line,
+   each spanning the full grid width. Web mirrors that with a column-flex
+   toolbar so the search input always reaches 100% (not just on mobile)
+   and the filter chips sit on the row above it. */
+.home-toolbar {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 8px 24px;
+}
+
+.home-filters {
+    display: flex;
+    gap: 6px;
+}
+
+.home-filter {
+    /* Match native FilterChip (HomeScreenDesktop.kt:312): RoundedCornerShape(4.dp),
+       fontWeight SemiBold. Padding/font kept slightly larger (8/12, 13px) per
+       manual tuning — native's 5/12 + 12sp read too small on the web's denser
+       grid. */
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--color-text-muted);
+    background: var(--color-background-dark);
+    border: none;
+    border-radius: 4px;
+    box-sizing: border-box;
+    cursor: pointer;
+}
+
+.home-filter:hover {
+    /* Native hover bg is SurfaceVariant (#40444b), not Surface. */
+    background: var(--color-surface-variant);
+    color: var(--color-text-secondary);
+}
+
+.home-filter.active {
+    color: #ffffff;
+    background: var(--color-primary);
+}
+
+.home-search {
+    /* Native PickGroupSearch (HomeScreenDesktop.kt:353): fillMaxWidth(),
+       height 40.dp, RoundedCornerShape(4.dp), horizontal padding 12.dp.
+       The filter pill above used to share this row with width:280px — now
+       both sit on their own row, the search always spans 100%. */
+    width: 100%;
+    height: 40px;
+    box-sizing: border-box;
+    padding: 0 12px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--color-text-primary);
+    background: var(--color-background-dark);
+    border: none;
+    border-radius: 4px;
+    outline: none;
+}
+
+.home-search::placeholder {
+    color: var(--color-text-muted);
+}
+
+.home-grid {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 24px 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+    align-content: start;
+}
+
+.home-empty {
+    grid-column: 1 / -1;
+    padding: 40px 0;
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 14px;
+}
+
+.pick-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--color-background-dark);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.pick-card:hover {
+    background: var(--color-surface);
+    border-color: var(--color-surface-variant);
+}
+
+.pick-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 8px;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.pick-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.pick-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pick-about {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pick-badges {
+    display: flex;
+    gap: 6px;
+    margin-top: 7px;
+}
+
+.pick-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 10px;
+}
+
+.pick-badge.private {
+    color: #eb459e;
+    background: rgba(235, 69, 158, 0.15);
+}
+
+.pick-badge.closed {
+    color: #faa61a;
+    background: rgba(250, 166, 26, 0.15);
+}
+
+.pick-badge.open {
+    color: var(--color-success);
+    background: rgba(87, 242, 135, 0.15);
+}
+
+.pick-btn {
+    flex-shrink: 0;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    background: var(--color-primary);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.pick-btn:hover {
+    background: var(--color-primary-variant);
+}
+
+.pick-btn.joined {
+    background: var(--color-success);
+    /* White label on the solid green pill — matches 0xchat reference. */
+    color: #ffffff;
+    cursor: default;
+}
+
+/* ---------- Manage relay page ---------- */
+.manage {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background);
+}
+
+.manage-header {
+    flex-shrink: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+    background: var(--color-background-dark);
+}
+
+.manage-back {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.manage-back:hover {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.manage-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #ffffff;
+}
+
+.manage-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.manage-relay-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--color-surface);
+    border-radius: 8px;
+}
+
+.manage-relay-icon {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.manage-relay-meta {
+    min-width: 0;
+}
+
+.manage-relay-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.manage-relay-url {
+    font-size: 12px;
+    color: var(--color-text-muted);
+    word-break: break-all;
+}
+
+.manage-section {
+    margin: 22px 0 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--color-text-muted);
+}
+
+.manage-empty {
+    padding: 16px;
+    font-size: 14px;
+    color: var(--color-text-muted);
+    background: var(--color-surface);
+    border-radius: 8px;
+}
+
+.manage-group-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background: var(--color-surface);
+    border-radius: 8px;
+    margin-bottom: 6px;
+}
+
+.manage-group-icon {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.manage-group-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.manage-leave {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-error);
+    background: transparent;
+    border: 1px solid var(--color-error);
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.manage-leave:hover {
+    background: rgba(237, 66, 69, 0.12);
+}
+
+.manage-actions {
+    margin-top: 24px;
+}
+
+.manage-actions .btn-danger {
+    width: 100%;
+}
+
+/* ---------- Skeleton loaders (shimmer) ---------- */
+.skel {
+    background: linear-gradient(
+        90deg,
+        var(--color-surface-variant) 25%,
+        var(--color-hover) 37%,
+        var(--color-surface-variant) 63%
+    );
+    background-size: 400% 100%;
+    animation: skel-shimmer 1.4s ease infinite;
+    border-radius: 4px;
+}
+
+@keyframes skel-shimmer {
+    0% {
+        background-position: 100% 0;
+    }
+    100% {
+        background-position: 0 0;
+    }
+}
+
+.skel-line {
+    height: 12px;
+}
+
+.w-30 {
+    width: 30%;
+}
+
+.w-40 {
+    width: 40%;
+}
+
+.w-50 {
+    width: 50%;
+}
+
+.w-60 {
+    width: 60%;
+}
+
+.w-75 {
+    width: 75%;
+}
+
+.w-80 {
+    width: 80%;
+}
+
+/* Home picker card skeleton */
+.skel-pick-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--color-background-dark);
+    border-radius: 8px;
+}
+
+.skel-pick-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 8px;
+}
+
+.skel-pick-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Groups sidebar row skeleton */
+.skel-nav-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+}
+
+.skel-nav-icon {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    border-radius: 50%;
+}
+
+/* Member sidebar row skeleton */
+.skel-member-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 8px;
+}
+
+.skel-member-avatar {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: 50%;
+}
+
+/* Chat message skeleton */
+.skel-msg {
+    display: flex;
+    gap: 16px;
+    padding: 8px 16px;
+}
+
+.skel-msg-avatar {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 50%;
+}
+
+.skel-msg-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding-top: 4px;
+}
+
+/* ===== NIP-57 Zaps ===== */
+.zap-card {
+    max-width: 440px;
+}
+.zap-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.zap-presets {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+.zap-preset {
+    padding: 9px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    background: transparent;
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.zap-preset:hover {
+    border-color: var(--color-primary);
+}
+.zap-preset.selected {
+    color: var(--color-primary);
+    background: rgba(88, 101, 242, 0.18);
+    border-color: var(--color-primary);
+}
+.zap-invoice-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+    margin: 0;
+}
+.zap-invoice-sub {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin: 0;
+}
+.zap-qr-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 8px 0;
+}
+.zap-qr-wrap .qr-img {
+    width: 220px;
+    height: 220px;
+}
+.zap-invoice-actions {
+    display: flex;
+    gap: 8px;
+}
+.zap-invoice-actions .btn-text {
+    flex: 1;
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    padding: 9px 0;
+}
+.zap-waiting {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+.zap-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--color-surface-variant);
+    border-top-color: var(--color-text-secondary);
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+}
+.zap-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 24px 0;
+}
+.zap-success-bolt {
+    font-size: 44px;
+    line-height: 1;
+}
+.zap-success-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+.zap-success-sub {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+/* Zap total badge under a message (mirrors reaction badges) */
+.msg-zaps {
+    display: flex;
+    margin-top: 4px;
+}
+.zap-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    background: var(--color-input);
+    border: 1px solid transparent;
+    border-radius: 12px;
+    cursor: pointer;
+}
+.zap-badge.mine {
+    color: var(--color-warning-orange);
+    background: rgba(255, 165, 0, 0.18);
+    border-color: rgba(255, 165, 0, 0.4);
+}
+.zap-badge-bolt {
+    font-size: 12px;
+}
+.msg-action-btn.zap:hover {
+    color: var(--color-warning-orange);
+}
+
+/* ===== Emoji picker ===== */
+.emoji-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+}
+.emoji-picker {
+    width: 340px;
+    max-width: 92vw;
+    height: 420px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-surface);
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.emoji-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-surface-variant);
+}
+.emoji-search-ico {
+    width: 18px;
+    height: 18px;
+    color: var(--color-text-muted);
+}
+.emoji-search-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--color-text-primary);
+    font-size: 14px;
+}
+.emoji-search-input::placeholder {
+    color: var(--color-text-muted);
+}
+.emoji-tabs {
+    display: flex;
+    align-items: center;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--color-surface-variant);
+}
+.emoji-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 32px;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--color-text-muted);
+}
+.emoji-tab:hover {
+    color: var(--color-text-primary);
+    background: var(--color-message-hover);
+}
+.emoji-tab .ico {
+    width: 18px;
+    height: 18px;
+}
+.emoji-grid-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 4px 8px 8px;
+}
+.emoji-section-title {
+    position: sticky;
+    top: 0;
+    /* 4px top+bottom matches native's `Spacing.xs` vertical padding on
+       EmojiPickerGrid section headers — keeps the gap between sections tight
+       rather than the doubled 8/4 padding we had before. */
+    padding: 4px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--color-text-muted);
+    background: var(--color-surface);
+}
+.emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 2px;
+}
+.emoji-cell {
+    aspect-ratio: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    line-height: 1;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    overflow: hidden;
+}
+.emoji-cell:hover {
+    background: var(--color-message-hover);
+}
+.emoji-empty {
+    padding: 24px;
+    text-align: center;
+    color: var(--color-text-muted);
+    font-size: 13px;
+}
+
+/* ===== Material icons (inline SVG, mirror the native Compose icons) ===== */
+.ico {
+    width: 1.2em;
+    height: 1.2em;
+    fill: currentColor;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+/* Large standalone icons that replaced oversized emoji */
+.zap-success-ico {
+    width: 48px;
+    height: 48px;
+    color: var(--color-warning-orange);
+}
+.qr-placeholder .ico {
+    width: 40px;
+    height: 40px;
+}
+.add-sheet-icon .ico,
+.ext-icon .ico,
+.benefits-head .ico,
+.bunker-desc > .ico {
+    width: 1.4em;
+    height: 1.4em;
+}
+
+/* ===== Fullscreen image viewer (lightbox) ===== */
+.img-viewer-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.9);
+    cursor: zoom-out;
+    padding: 24px;
+}
+.img-viewer-img {
+    max-width: 95vw;
+    max-height: 95vh;
+    object-fit: contain;
+    border-radius: 6px;
+    cursor: default;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+}
+/* Transparent images get a contrasting backdrop so dark/light content stays visible. */
+.img-viewer-img.on-light {
+    background: #ffffff;
+    padding: 12px;
+}
+.img-viewer-img.on-dark {
+    background: #15171a;
+    padding: 12px;
+}
+.img-viewer-bar {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    gap: 8px;
+}
+.img-viewer-action {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.4);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+.img-viewer-action:hover {
+    background: rgba(0, 0, 0, 0.7);
+}
+.img-viewer-action .ico {
+    width: 22px;
+    height: 22px;
+}
+.msg-image {
+    cursor: zoom-in;
+}
+/* Transparent images get a contrasting backdrop so dark/light logos stay visible. */
+.msg-image.on-light {
+    background: #ffffff;
+    padding: 4px;
+}
+.msg-image.on-dark {
+    background: #15171a;
+    padding: 4px;
+}
+
+/* Deep-link (&e=) target message flash */
+@keyframes msg-flash {
+    0% {
+        background: rgba(88, 101, 242, 0.30);
+    }
+    100% {
+        background: transparent;
+    }
+}
+.msg.highlight {
+    animation: msg-flash 2.4s ease-out;
 }

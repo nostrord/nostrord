@@ -88,6 +88,12 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = _joinedGroupsByRelay
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = _isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = _hasMoreMessages
+    val _groupStates =
+        MutableStateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>>(emptyMap())
+    override val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>> =
+        _groupStates
+
+    override suspend fun resetGroupLoadingState(groupId: String) {}
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = _reactions
     override val groupMembers: StateFlow<Map<String, List<String>>> = _groupMembers
     override val groupAdmins: StateFlow<Map<String, List<String>>> = _groupAdmins
@@ -266,6 +272,10 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun requestGroupAdmins(groupId: String) {}
 
+    override suspend fun requestPendingJoinRequests(groupId: String) {}
+
+    override fun fetchRelayMetadata(relayUrl: String) {}
+
     override suspend fun refreshGroupMetadata(groupId: String) {}
 
     override val childrenByParent: StateFlow<Map<String, Set<String>>> = MutableStateFlow(emptyMap())
@@ -293,6 +303,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage> = messages.value[groupId] ?: emptyList()
 
     override fun markGroupAsRead(groupId: String) {}
+
+    override fun markGroupAsReadUpTo(groupId: String, timestamp: Long) {}
 
     override fun getUnreadCount(groupId: String): Int = unreadCounts.value[groupId] ?: 0
 

@@ -229,9 +229,25 @@ class NostrGroupClient(
     // under concurrent sends, which is acceptable for logging purposes.
     private val openSubscriptions = mutableSetOf<String>()
 
+    // Last unfiltered kind:39000 group-list REQ timestamp, used to coalesce
+    // back-to-back calls from concurrent code paths (e.g. resubscribeAfterAuth
+    // + drainFullFetchRequest landing on the same socket within 1 ms). Without
+    // this guard the relay sees the same {kinds:[39000]} filter three times on
+    // one socket on cold start — see analyze_har.py output for the symptom.
+    private var lastUnfilteredGroupListAtMs: Long = 0L
+
     companion object {
         /** Probe interval for browser targets without engine ws ping/pong. */
         private const val BROWSER_PROBE_INTERVAL_MS = 30_000L
+
+        /**
+         * Min gap between two unfiltered kind:39000 REQs on the same socket.
+         * Sized to catch back-to-back duplicates fired by concurrent callers
+         * (connect() vs resubscribeAfterAuth's drainFullFetchRequest land within
+         * a single millisecond) without blocking the legitimate post-AUTH
+         * refetch, which arrives only after handleAuthChallenge's 500 ms wait.
+         */
+        private const val GROUP_LIST_DEDUP_WINDOW_MS = 200L
     }
 
     fun getRelayUrl(): String = relayUrl
@@ -274,17 +290,18 @@ class NostrGroupClient(
                     // when the engine closes a dead socket.
                     //
                     // Browser engines hide ping/pong frames from JS code, so on
-                    // those targets we send a periodic best-effort REQ+CLOSE
-                    // probe. The probe only feeds activity to the underlying
-                    // socket — it never decides liveness, so a quiet healthy
-                    // relay is not forcibly reconnected.
+                    // those targets we send a periodic CLOSE for an unknown sub
+                    // id. By NIP-01 the relay silently ignores it, so this is a
+                    // pure write-probe — the send() call surfaces a dead socket
+                    // through the catch below, without making the relay scan its
+                    // kind:0 index or leaking random metadata events into the
+                    // pipeline (which the old REQ+CLOSE form did).
                     val wsSession = this
                     if (!hasEngineWebSocketPing()) {
                         launch {
                             while (isActive) {
                                 delay(BROWSER_PROBE_INTERVAL_MS)
                                 try {
-                                    wsSession.send(Frame.Text("""["REQ","_hb",{"kinds":[0],"limit":1}]"""))
                                     wsSession.send(Frame.Text("""["CLOSE","_hb"]"""))
                                 } catch (_: Exception) {
                                     // Send failed — socket is gone, frame loop
@@ -324,6 +341,16 @@ class NostrGroupClient(
     suspend fun waitForConnection(timeoutMs: Long = 7_000): Boolean = withTimeoutOrNull(timeoutMs) {
         connectionResult.await()
     } ?: false
+
+    /**
+     * Has this socket already signed and sent an AUTH response that the relay
+     * accepted (or replied to)? Used by the bunker-ready watcher to skip a
+     * reconnect when AUTH actually succeeded during the verifying window — a
+     * full bunker round-trip can complete signing before [_isBunkerVerifying]
+     * flips to false, so the assumption "verifying=true ⇒ AUTH was unsigned"
+     * is wrong for slow signers and produces a needless socket churn.
+     */
+    fun hasAuthSucceeded(): Boolean = authCompleted.isCompleted
 
     /**
      * Wait for the relay's NIP-42 AUTH challenge to be answered.
@@ -583,6 +610,16 @@ class NostrGroupClient(
     }
 
     suspend fun requestGroups() {
+        // Coalesce duplicate unfiltered REQs from concurrent callers. Without
+        // this, connect() + resubscribeAfterAuth + drainFullFetchRequest can
+        // each fire on the same socket inside a single millisecond, sending
+        // the same {kinds:[39000]} filter three times — the relay then streams
+        // the full group directory two extra times (>3000 events of pure
+        // overhead on cold start).
+        val now = epochMillis()
+        if (now - lastUnfilteredGroupListAtMs < GROUP_LIST_DEDUP_WINDOW_MS) return
+        lastUnfilteredGroupListAtMs = now
+
         // Use a relay-specific subscription ID to avoid collisions when multiple
         // relay clients are active concurrently. The ID must be stable per relay
         // so the EOSE handler can map it back to the originating relay URL.
@@ -1242,6 +1279,35 @@ class NostrGroupClient(
                 buildJsonObject {
                     putJsonArray("kinds") { add(39001) }
                     put("#d", buildJsonArray { add(groupId) })
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
+    /**
+     * Request pending join-request events (kind 9021 + 9022 leaves) for a specific group.
+     *
+     * The standard chat REQ (limit=50, all kinds) buries old 9021 events under recent
+     * kind:9 chat in active groups, so admins of closed groups miss pending requests
+     * until something else refreshes the mux. This dedicated REQ pulls them directly.
+     * Includes 9022 so the UI's "ignore requests followed by a leave" rule still applies.
+     */
+    suspend fun requestPendingJoinRequests(groupId: String): String {
+        val subId = "joinreq_${groupId.take(8)}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") {
+                        add(9021)
+                        add(9022)
+                    }
+                    putJsonArray("#h") { add(groupId) }
+                    put("limit", 500)
                 },
             )
         }

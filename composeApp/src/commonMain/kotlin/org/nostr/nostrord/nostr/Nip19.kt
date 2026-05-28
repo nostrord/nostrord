@@ -195,4 +195,63 @@ object Nip19 {
         is Entity.Nevent -> entity.eventId
         is Entity.Naddr -> entity.pubkey
     }
+
+    /**
+     * Outcome of parsing user-provided pubkey input — used by the add-member
+     * modals and any other place that needs to validate "the user typed an
+     * identity". Concrete error variants instead of a single Invalid so the
+     * UI can say something more useful than "Invalid".
+     */
+    sealed class PubkeyParse {
+        data class Ok(val hex: String) : PubkeyParse()
+        object Empty : PubkeyParse()
+
+        /** Looks like a bech32 entity but doesn't decode (bad checksum, wrong HRP, etc). */
+        object Malformed : PubkeyParse()
+
+        /** Decoded as something that isn't a user identity (note, nevent, naddr). */
+        object NotAPubkey : PubkeyParse()
+
+        /** User pasted their private key — never broadcast this. */
+        object IsPrivateKey : PubkeyParse()
+    }
+
+    /**
+     * Parse a string the user typed into a "user identity" field. Accepts:
+     *  - 64-char hex pubkey, any case (lower / upper / mixed) — normalised to lower
+     *  - npub1...   (bech32 npub)
+     *  - nprofile1... (NIP-19 profile, takes the pubkey, drops relay hints)
+     *
+     * Rejects (with specific reasons):
+     *  - nsec... (their private key) — explicit reject, never silently treat as pubkey
+     *  - note / nevent / naddr — those aren't user identities
+     *  - anything else — Malformed
+     */
+    fun parsePubkeyInput(input: String): PubkeyParse {
+        val s = input.trim()
+        if (s.isBlank()) return PubkeyParse.Empty
+
+        // Plain 64-char hex pubkey (most common from copy-paste of a UI display).
+        if (s.length == 64 && s.all { it.isAsciiHexDigit() }) {
+            return PubkeyParse.Ok(s.lowercase())
+        }
+
+        // Bech32 entity: must have the "1" separator. Anything that starts with
+        // "npub" / "nsec" / "nprofile" but no "1" is a typo, not a real entity.
+        return when {
+            s.startsWith("npub1") || s.startsWith("nprofile1") || s.startsWith("nsec1") -> {
+                when (val entity = decode(s)) {
+                    is Entity.Npub -> PubkeyParse.Ok(entity.pubkey)
+                    is Entity.Nprofile -> PubkeyParse.Ok(entity.pubkey)
+                    is Entity.Nsec -> PubkeyParse.IsPrivateKey
+                    null -> PubkeyParse.Malformed
+                    else -> PubkeyParse.NotAPubkey
+                }
+            }
+            s.startsWith("note1") || s.startsWith("nevent1") || s.startsWith("naddr1") -> PubkeyParse.NotAPubkey
+            else -> PubkeyParse.Malformed
+        }
+    }
+
+    private fun Char.isAsciiHexDigit(): Boolean = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
 }

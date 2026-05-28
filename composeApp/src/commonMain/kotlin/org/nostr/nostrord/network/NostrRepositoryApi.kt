@@ -45,6 +45,25 @@ interface NostrRepositoryApi {
     val restrictedRelays: StateFlow<Map<String, String>>
     val isLoadingMore: StateFlow<Map<String, Boolean>>
     val hasMoreMessages: StateFlow<Map<String, Boolean>>
+
+    /**
+     * Per-group GroupLoadingState. Lets the UI tell apart "Idle / InitialLoading
+     * (haven't gotten EOSE yet)" from "Exhausted (relay confirmed empty)", which
+     * the boolean [hasMoreMessages] conflates — both are `hasMore = false`. The
+     * web's "No messages yet" empty state needs the distinction so it doesn't
+     * flash before the relay has actually spoken (issue: empty state showing on
+     * group open before any kind:9 has streamed).
+     */
+    val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>>
+
+    /**
+     * Force-reset the loading state of [groupId] to Idle. Used to recover from
+     * controllers stuck in InitialLoading because their underlying socket died
+     * (account swap, connection reset) but the natural onConnectionLost path
+     * didn't fire (e.g. explicit primaryClient.disconnect() during a reconnect()
+     * doesn't always trigger the WebSocket close callback in time).
+     */
+    suspend fun resetGroupLoadingState(groupId: String)
     val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>>
 
     /** NIP-57 zap totals keyed by zapped event id. */
@@ -279,6 +298,19 @@ interface NostrRepositoryApi {
 
     suspend fun requestGroupAdmins(groupId: String)
 
+    /**
+     * Request pending join requests (kind 9021 + 9022) for a group. Admin-only;
+     * supplements the standard chat REQ, which buries old 9021s under recent chat.
+     */
+    suspend fun requestPendingJoinRequests(groupId: String)
+
+    /**
+     * Fire-and-forget NIP-11 fetch for [relayUrl]. Used by the AddRelay modal
+     * to populate icons + names for relays the user hasn't connected to yet.
+     * Idempotent: succeeded/in-flight URLs are skipped inside the manager.
+     */
+    fun fetchRelayMetadata(relayUrl: String)
+
     suspend fun refreshGroupMetadata(groupId: String)
 
     /** Observable parent→children map derived from `parent` tags in kind:39000. */
@@ -378,6 +410,9 @@ interface NostrRepositoryApi {
     fun getMessagesForGroup(groupId: String): List<NostrGroupClient.NostrMessage>
 
     fun markGroupAsRead(groupId: String)
+
+    /** Advance the last-read timestamp for partial-read tracking. See UnreadManager.markAsReadUpTo. */
+    fun markGroupAsReadUpTo(groupId: String, timestamp: Long)
 
     fun getUnreadCount(groupId: String): Int
 

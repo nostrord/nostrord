@@ -1869,8 +1869,22 @@ class GroupManager(
 
         // Get controller and attempt to start pagination
         val controller = loadingRegistry.getController(groupId)
-        val result = controller.startPagination() ?: return false
-        val (subscriptionId, cursor) = result
+        val (subscriptionId, cursor) = controller.startPagination() ?: run {
+            // Slow relays (e.g. groups.0xchat.com) sometimes deliver messages but no EOSE
+            // within the 10s window, leaving the controller in Error(PARTIAL_TIMEOUT) with
+            // an advanced cursor. Auto-resume via retry() so user scroll keeps pagination
+            // moving instead of deadlocking until a manual retry. retry() honors maxRetries,
+            // so a permanently broken relay still stops after a bounded number of attempts.
+            val st = controller.state.value
+            val canResume = st is GroupLoadingState.Error &&
+                st.reason == GroupLoadingState.ErrorReason.PARTIAL_TIMEOUT &&
+                st.cursor != null
+            if (!canResume) return false
+            val retrySubId = controller.retry() ?: return false
+            val retryCursor = (controller.state.value as? GroupLoadingState.Retrying)?.cursor
+                ?: return false
+            Pair(retrySubId, retryCursor)
+        }
 
         // Register subscription for O(1) lookup
         loadingRegistry.registerSubscription(subscriptionId, controller)
@@ -2596,6 +2610,18 @@ class GroupManager(
         if (!shouldRequest(groupId, "admins")) return true // recently requested
         val currentClient = clientForGroup(groupId) ?: return false
         currentClient.requestGroupAdmins(groupId)
+        return true
+    }
+
+    /**
+     * Request pending join requests (kind 9021 + 9022) for a group.
+     * Use when an admin opens a closed group — the standard chat REQ caps at 50
+     * events and buries 9021s under recent chat. Debounced by [shouldRequest].
+     */
+    suspend fun requestPendingJoinRequests(groupId: String): Boolean {
+        if (!shouldRequest(groupId, "joinreq")) return true
+        val currentClient = clientForGroup(groupId) ?: return false
+        currentClient.requestPendingJoinRequests(groupId)
         return true
     }
 

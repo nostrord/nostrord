@@ -197,6 +197,11 @@ class NostrRepository(
     override val restrictedRelays: StateFlow<Map<String, String>> = _restrictedRelays.asStateFlow()
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
+    override val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>> = groupManager.groupStates
+
+    override suspend fun resetGroupLoadingState(groupId: String) {
+        groupManager.resetLoadingForGroups(listOf(groupId))
+    }
     override val reactions: StateFlow<Map<String, Map<String, GroupManager.ReactionInfo>>> = groupManager.reactions
 
     // NIP-57 zap totals per zapped event id.
@@ -316,7 +321,18 @@ class NostrRepository(
             }.collect { ready ->
                 if (ready && !wasReady) {
                     try {
-                        reconnect()
+                        // Skip the primary reconnect if it already AUTH'd this
+                        // session — a slow bunker can still complete signing
+                        // before the verifying flag flips, in which case the
+                        // socket is healthy and reconnecting throws away ~3.5 s
+                        // of setup + AUTH cost on every cold start. ensureJoined
+                        // is idempotent; pool relays whose AUTH genuinely failed
+                        // still get reconnected via their own onConnectionLost.
+                        val primary = connectionManager.getPrimaryClient()
+                        val primaryHealthy = primary != null &&
+                            primary.isConnected() &&
+                            primary.hasAuthSucceeded()
+                        if (!primaryHealthy) reconnect()
                         ensureJoinedRelaysConnected(
                             connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() },
                         )
@@ -863,6 +879,17 @@ class NostrRepository(
     }
 
     override suspend fun reconnect(): Boolean {
+        // Explicitly notify GroupManager that all in-flight loading is dead.
+        // connectionManager.reconnect() calls primaryClient.disconnect() which
+        // closes the old socket — but the `onConnectionLost` callback that
+        // would normally cascade into GroupManager.handleConnectionLost() may
+        // not fire in time (explicit disconnect doesn't always trigger the
+        // close-event handler synchronously). Without this reset, controllers
+        // left in InitialLoading from REQs sent on the dying socket reject
+        // resubscribeAllGroups' new REQ calls (startInitialLoad only accepts
+        // Idle/Error), so the new session never gets fresh data — chat sits
+        // on skeletons until the controller's own ~10s timeout fires.
+        groupManager.handleConnectionLost()
         val connected = connectionManager.reconnect()
         if (connected) {
             val client = connectionManager.getPrimaryClient()
@@ -1124,10 +1151,19 @@ class NostrRepository(
         _targetSwitchRelayUrl.value = newRelayUrl
 
         // Skip if already on this relay — avoids unnecessary disconnect/reconnect/AUTH cycle.
-        if (newRelayUrl == connectionManager.currentRelayUrl.value &&
-            connectionManager.getPrimaryClient()?.isConnected() == true
-        ) {
-            return
+        // Also skip if a connect to the same relay is in flight: deep-link cold-start
+        // fires repo.switchRelay() from AppShell's useEffectOnce after initialize()
+        // has already kicked off connect(primaryRelay) but before primaryClient is set.
+        // Without this guard, switchRelay nulls the in-flight primaryClient and opens
+        // a duplicate socket on the same URL — observed as a doomed second WebSocket
+        // attempt to groups.0xchat.com (handshake fails, ~1.7 s lost to backoff).
+        val sameRelay = newRelayUrl == connectionManager.currentRelayUrl.value
+        if (sameRelay) {
+            val state = connectionManager.connectionState.value
+            val healthy = connectionManager.getPrimaryClient()?.isConnected() == true
+            val connectInFlight = state is ConnectionManager.ConnectionState.Connecting ||
+                state is ConnectionManager.ConnectionState.Reconnecting
+            if (healthy || connectInFlight) return
         }
 
         val normalized = newRelayUrl.normalizeRelayUrl()
@@ -1519,6 +1555,25 @@ class NostrRepository(
     }
 
     /**
+     * Request pending join requests (kind 9021 + 9022) for a group. Admin-only
+     * use case — the standard chat REQ misses old 9021s in active groups.
+     */
+    override suspend fun requestPendingJoinRequests(groupId: String) {
+        if (connectionManager.getPrimaryClient() == null) {
+            connect()
+        }
+        groupManager.requestPendingJoinRequests(groupId)
+    }
+
+    /**
+     * Fire-and-forget NIP-11 fetch for [relayUrl]. Powers the suggested-relay
+     * cards in the AddRelay modal; deduplicated inside [RelayMetadataManager].
+     */
+    override fun fetchRelayMetadata(relayUrl: String) {
+        _relayMetadataManager.fetch(relayUrl)
+    }
+
+    /**
      * Request group roles (kind 39003) for a specific group.
      */
     suspend fun requestGroupRoles(groupId: String) {
@@ -1799,6 +1854,10 @@ class NostrRepository(
     // Unread message operations
     override fun markGroupAsRead(groupId: String) {
         unreadManager.markAsRead(groupId)
+    }
+
+    override fun markGroupAsReadUpTo(groupId: String, timestamp: Long) {
+        unreadManager.markAsReadUpTo(groupId, timestamp)
     }
 
     override fun getUnreadCount(groupId: String): Int = unreadManager.getUnreadCount(groupId)

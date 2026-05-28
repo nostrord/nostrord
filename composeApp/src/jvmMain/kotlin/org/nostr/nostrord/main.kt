@@ -81,6 +81,27 @@ private fun parseDeepLinkUrl(url: String): ExternalLaunchContext? {
 }
 
 fun main(args: Array<String> = emptyArray()) {
+    // Without this, AWT EDT / coroutine crashes on Linux JBR surface as native
+    // GTK error dialogs whose body is just the offending class name (truncated
+    // LinkageError / NoClassDefFoundError / NPE-with-null-message), leaving no
+    // way to diagnose. The handler also covers EDT once we set it as the
+    // default — JBR routes EDT exceptions through Thread.UncaughtExceptionHandler.
+    Thread.setDefaultUncaughtExceptionHandler { thread, ex ->
+        System.err.println("[nostrord] uncaught on ${thread.name}:")
+        ex.printStackTrace(System.err)
+    }
+    // EDT has its own per-thread handler set by EventDispatchThread that ignores
+    // the default. Pre-install ours on the EDT explicitly so Compose / Swing
+    // recomposition crashes also land in stderr instead of vanishing into a
+    // native dialog.
+    java.awt.EventQueue.invokeLater {
+        Thread.currentThread().uncaughtExceptionHandler =
+            Thread.UncaughtExceptionHandler { thread, ex ->
+                System.err.println("[nostrord] uncaught on EDT (${thread.name}):")
+                ex.printStackTrace(System.err)
+            }
+    }
+
     // Parse deep link from CLI args (e.g., OS protocol handler passes URL as first arg)
     args.firstOrNull()?.let { url ->
         parseDeepLinkUrl(url)?.let { StartupResolver.setExternalLaunchContext(it) }
