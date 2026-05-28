@@ -465,7 +465,7 @@ body {
     padding: 8px;
     background: #fff;
     border-radius: 8px;
-    image-rendering: pixelated;
+    image-rendering: auto;
 }
 
 .bunker-benefits {
