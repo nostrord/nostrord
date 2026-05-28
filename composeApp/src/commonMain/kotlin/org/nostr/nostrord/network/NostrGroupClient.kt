@@ -229,9 +229,25 @@ class NostrGroupClient(
     // under concurrent sends, which is acceptable for logging purposes.
     private val openSubscriptions = mutableSetOf<String>()
 
+    // Last unfiltered kind:39000 group-list REQ timestamp, used to coalesce
+    // back-to-back calls from concurrent code paths (e.g. resubscribeAfterAuth
+    // + drainFullFetchRequest landing on the same socket within 1 ms). Without
+    // this guard the relay sees the same {kinds:[39000]} filter three times on
+    // one socket on cold start — see analyze_har.py output for the symptom.
+    private var lastUnfilteredGroupListAtMs: Long = 0L
+
     companion object {
         /** Probe interval for browser targets without engine ws ping/pong. */
         private const val BROWSER_PROBE_INTERVAL_MS = 30_000L
+
+        /**
+         * Min gap between two unfiltered kind:39000 REQs on the same socket.
+         * Sized to catch back-to-back duplicates fired by concurrent callers
+         * (connect() vs resubscribeAfterAuth's drainFullFetchRequest land within
+         * a single millisecond) without blocking the legitimate post-AUTH
+         * refetch, which arrives only after handleAuthChallenge's 500 ms wait.
+         */
+        private const val GROUP_LIST_DEDUP_WINDOW_MS = 200L
     }
 
     fun getRelayUrl(): String = relayUrl
@@ -324,6 +340,16 @@ class NostrGroupClient(
     suspend fun waitForConnection(timeoutMs: Long = 7_000): Boolean = withTimeoutOrNull(timeoutMs) {
         connectionResult.await()
     } ?: false
+
+    /**
+     * Has this socket already signed and sent an AUTH response that the relay
+     * accepted (or replied to)? Used by the bunker-ready watcher to skip a
+     * reconnect when AUTH actually succeeded during the verifying window — a
+     * full bunker round-trip can complete signing before [_isBunkerVerifying]
+     * flips to false, so the assumption "verifying=true ⇒ AUTH was unsigned"
+     * is wrong for slow signers and produces a needless socket churn.
+     */
+    fun hasAuthSucceeded(): Boolean = authCompleted.isCompleted
 
     /**
      * Wait for the relay's NIP-42 AUTH challenge to be answered.
@@ -583,6 +609,16 @@ class NostrGroupClient(
     }
 
     suspend fun requestGroups() {
+        // Coalesce duplicate unfiltered REQs from concurrent callers. Without
+        // this, connect() + resubscribeAfterAuth + drainFullFetchRequest can
+        // each fire on the same socket inside a single millisecond, sending
+        // the same {kinds:[39000]} filter three times — the relay then streams
+        // the full group directory two extra times (>3000 events of pure
+        // overhead on cold start).
+        val now = epochMillis()
+        if (now - lastUnfilteredGroupListAtMs < GROUP_LIST_DEDUP_WINDOW_MS) return
+        lastUnfilteredGroupListAtMs = now
+
         // Use a relay-specific subscription ID to avoid collisions when multiple
         // relay clients are active concurrently. The ID must be stable per relay
         // so the EOSE handler can map it back to the originating relay URL.

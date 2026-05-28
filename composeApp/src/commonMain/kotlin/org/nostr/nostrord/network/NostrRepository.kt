@@ -321,7 +321,18 @@ class NostrRepository(
             }.collect { ready ->
                 if (ready && !wasReady) {
                     try {
-                        reconnect()
+                        // Skip the primary reconnect if it already AUTH'd this
+                        // session — a slow bunker can still complete signing
+                        // before the verifying flag flips, in which case the
+                        // socket is healthy and reconnecting throws away ~3.5 s
+                        // of setup + AUTH cost on every cold start. ensureJoined
+                        // is idempotent; pool relays whose AUTH genuinely failed
+                        // still get reconnected via their own onConnectionLost.
+                        val primary = connectionManager.getPrimaryClient()
+                        val primaryHealthy = primary != null &&
+                            primary.isConnected() &&
+                            primary.hasAuthSucceeded()
+                        if (!primaryHealthy) reconnect()
                         ensureJoinedRelaysConnected(
                             connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() },
                         )
@@ -1140,10 +1151,19 @@ class NostrRepository(
         _targetSwitchRelayUrl.value = newRelayUrl
 
         // Skip if already on this relay — avoids unnecessary disconnect/reconnect/AUTH cycle.
-        if (newRelayUrl == connectionManager.currentRelayUrl.value &&
-            connectionManager.getPrimaryClient()?.isConnected() == true
-        ) {
-            return
+        // Also skip if a connect to the same relay is in flight: deep-link cold-start
+        // fires repo.switchRelay() from AppShell's useEffectOnce after initialize()
+        // has already kicked off connect(primaryRelay) but before primaryClient is set.
+        // Without this guard, switchRelay nulls the in-flight primaryClient and opens
+        // a duplicate socket on the same URL — observed as a doomed second WebSocket
+        // attempt to groups.0xchat.com (handshake fails, ~1.7 s lost to backoff).
+        val sameRelay = newRelayUrl == connectionManager.currentRelayUrl.value
+        if (sameRelay) {
+            val state = connectionManager.connectionState.value
+            val healthy = connectionManager.getPrimaryClient()?.isConnected() == true
+            val connectInFlight = state is ConnectionManager.ConnectionState.Connecting ||
+                state is ConnectionManager.ConnectionState.Reconnecting
+            if (healthy || connectInFlight) return
         }
 
         val normalized = newRelayUrl.normalizeRelayUrl()

@@ -38,6 +38,15 @@ class MetadataManager(
         /** Metadata older than this is considered stale and will be re-fetched. */
         const val STALE_THRESHOLD_MS = 30 * 60 * 1000L
 
+        /**
+         * How long to suppress retries for a pubkey whose previous batch finished
+         * without returning any kind:0 event. Without this, every UI render that
+         * triggers requestUserMetadata refires the same single-author REQ to every
+         * bootstrap relay every few seconds (observed: ~60 duplicate REQs per relay
+         * on cold start, dominating the profile-fetch fan-out).
+         */
+        const val NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000L
+
         /** Number of retry attempts before giving up on a metadata fetch. */
         const val MAX_FETCH_ATTEMPTS = 3
 
@@ -64,6 +73,13 @@ class MetadataManager(
 
     private val metadataCache = LruCache<String, CachedMetadata>(MAX_METADATA_CACHE_SIZE)
     private val eventsCache = LruCache<String, CachedEvent>(MAX_EVENTS_CACHE_SIZE)
+
+    /**
+     * Pubkey → wall-clock time we last finished a batch fetch that returned no
+     * kind:0 for that pubkey. Suppresses repeat fetches for [NEGATIVE_CACHE_TTL_MS]
+     * so a non-existent profile doesn't keep getting re-asked from every UI render.
+     */
+    private val negativeMetadataCache = LruCache<String, Long>(MAX_METADATA_CACHE_SIZE)
 
     private val inFlightPubkeys = mutableSetOf<String>()
     private val inFlightMutex = Mutex()
@@ -98,20 +114,46 @@ class MetadataManager(
         if (pubkeys.isEmpty()) return
 
         scope.launch {
+            val now = epochMillis()
             val toFetch =
                 inFlightMutex.withLock {
                     pubkeys
                         .filter { pk ->
-                            pk !in inFlightPubkeys &&
-                                (metadataCache.get(pk) == null || (forceStale && isStale(pk)))
+                            if (pk in inFlightPubkeys) return@filter false
+                            if (metadataCache.get(pk) != null && !(forceStale && isStale(pk))) {
+                                return@filter false
+                            }
+                            // Skip pubkeys whose previous batch returned no kind:0
+                            // within the TTL — relays don't suddenly start hosting
+                            // metadata for an unknown user inside 5 minutes.
+                            val negAt = negativeMetadataCache.get(pk)
+                            if (!forceStale && negAt != null && now - negAt < NEGATIVE_CACHE_TTL_MS) {
+                                return@filter false
+                            }
+                            true
                         }.also { inFlightPubkeys.addAll(it) }
                 }
             if (toFetch.isEmpty()) return@launch
 
+            val fetchStartedAt = epochMillis()
             try {
                 batchFetch(toFetch)
             } finally {
-                inFlightMutex.withLock { inFlightPubkeys.removeAll(toFetch.toSet()) }
+                val finishedAt = epochMillis()
+                inFlightMutex.withLock {
+                    inFlightPubkeys.removeAll(toFetch.toSet())
+                    // Mark pubkeys whose batch returned nothing fresh so the next
+                    // caller doesn't refetch immediately. "Nothing fresh" = no
+                    // cache entry OR an entry that predates this batch.
+                    toFetch.forEach { pk ->
+                        val fetchedAt = metadataCache.get(pk)?.fetchedAt
+                        if (fetchedAt == null || fetchedAt < fetchStartedAt) {
+                            negativeMetadataCache.put(pk, finishedAt)
+                        } else {
+                            negativeMetadataCache.remove(pk)
+                        }
+                    }
+                }
             }
         }
     }
