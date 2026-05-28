@@ -164,6 +164,37 @@ private fun detectMention(text: String, cursor: Int): MentionCtx? {
     return MentionCtx(before[idx], query, idx)
 }
 
+/** A run of composer text, flagged as a resolved @mention (gold) or plain. */
+private data class HlSeg(val text: String, val mention: Boolean)
+
+/**
+ * Split [text] into plain / mention runs for the composer's colored mirror. Only "@name"
+ * substrings whose name is a resolved mention ([names]) are tinted — same rule as native's
+ * MentionVisualTransformation (it colors the chosen mentions, not every "@word").
+ */
+private fun highlightSegments(text: String, names: Set<String>): List<HlSeg> {
+    if (text.isEmpty()) return emptyList()
+    val colored = BooleanArray(text.length)
+    names.forEach { name ->
+        if (name.isEmpty()) return@forEach
+        val token = "@$name"
+        var i = text.indexOf(token)
+        while (i >= 0) {
+            for (j in i until i + token.length) colored[j] = true
+            i = text.indexOf(token, i + token.length)
+        }
+    }
+    val segs = mutableListOf<HlSeg>()
+    var start = 0
+    for (k in 1..text.length) {
+        if (k == text.length || colored[k] != colored[start]) {
+            segs.add(HlSeg(text.substring(start, k), colored[start]))
+            start = k
+        }
+    }
+    return segs
+}
+
 /**
  * Chat view — real data port of the Compose GroupScreenDesktop: header + grouped messages
  * (live `messages` flow) + composer (`sendMessage`), members sidebar (`groupMembers` /
@@ -289,6 +320,12 @@ val ChatScreen =
         val (emojiOpen, setEmojiOpen) = useState { false }
         // Active @user / %group mention being typed in the composer.
         val (mention, setMention) = useState<MentionCtx?> { null }
+        // displayName -> pubkeyHex for @user mentions chosen from the popup. Passed to
+        // repo.sendMessage, which rewrites "@name" -> "nostr:npub" and adds the p-tag,
+        // mirroring native MessageInput.mentions. (Groups insert the naddr ref directly.)
+        val (mentions, setMentions) = useState<Map<String, String>> { emptyMap() }
+        // Highlighted row in the mention popup, driven by ArrowUp/ArrowDown and hover.
+        val (mentionSelected, setMentionSelected) = useState { 0 }
 
         // Autocomplete suggestions for the active mention (members for @, groups for %).
         val mentionMatches: List<MentionMatch> =
@@ -318,12 +355,17 @@ val ChatScreen =
                 else -> emptyList()
             }
 
-        // Replace the typed "@query"/"%query" with the chosen nostr: reference.
-        fun insertMention(ref: String) {
+        // Replace the typed "@query"/"%query" with the chosen suggestion. Users insert
+        // "@name" (resolved to nostr:npub + p-tag at send via the mentions map, like
+        // native); groups insert the nostr:naddr ref directly (no group resolver in repo).
+        fun insertMention(mm: MentionMatch) {
             val m = mention ?: return
             val cursorEnd = (m.start + 1 + m.query.length).coerceAtMost(draft.length)
-            setDraft(draft.take(m.start) + ref + " " + draft.substring(cursorEnd))
+            val inserted = if (mm.group) mm.ref else "@${mm.label}"
+            setDraft(draft.take(m.start) + inserted + " " + draft.substring(cursorEnd))
+            if (!mm.group) setMentions { it + (mm.label to mm.seed) }
             setMention(null)
+            setMentionSelected(0)
         }
 
         // Mirrors native's isSupportedMediaMime: image / video / audio go to
@@ -415,6 +457,9 @@ val ChatScreen =
         // <input> just clipped long messages to the visible width with no signal
         // that the rest of the text was still there.
         val composerInputRef = useRef<HTMLTextAreaElement>(null)
+        // Colored mirror behind the textarea (gold @mentions). Its scroll is kept in
+        // sync with the textarea so glyphs stay aligned once the field scrolls.
+        val composerHighlightRef = useRef<HTMLDivElement>(null)
         // Debounce handle for the per-visible mark-as-read pass (Gap 3). Cleared
         // on every scroll tick so we only commit after the scroll settles for
         // 500ms — same cadence the native MessagesList snapshotFlow uses.
@@ -811,13 +856,14 @@ val ChatScreen =
             val replyId = replyingToId
             setSending(true)
             launchApp {
-                val result = repo.sendMessage(group.id, text, replyToMessageId = replyId)
+                val result = repo.sendMessage(group.id, text, mentions = mentions, replyToMessageId = replyId)
                 setSending(false)
                 if (result is Result.Success) {
                     // Clear only after publish succeeded. NIP-07 cancel / signer
                     // failure / relay reject all return Result.Error and the draft
                     // stays so the user can retry without retyping.
                     setDraft("")
+                    setMentions(emptyMap())
                     setReplyingToId(null)
                 }
             }
@@ -1296,82 +1342,128 @@ val ChatScreen =
                             icon = Ic.AttachFile
                             onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
                         }
-                        textarea {
-                            ref = composerInputRef
-                            className = ClassName("composer-input")
-                            placeholder = "Message $groupName"
-                            value = draft
-                            rows = 1
-                            onChange = { event ->
-                                val v = event.currentTarget.value
-                                setDraft(v)
-                                val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
-                                setMention(detectMention(v, cursor))
-                            }
-                            onKeyDown = { event ->
-                                when {
-                                    mention != null && mentionMatches.isNotEmpty() && event.key == "Enter" -> {
-                                        event.preventDefault()
-                                        insertMention(mentionMatches.first().ref)
-                                    }
-                                    mention != null && event.key == "Escape" -> setMention(null)
-                                    // Plain Enter sends; Shift+Enter inserts a newline
-                                    // (default textarea behaviour, no preventDefault).
-                                    event.key == "Enter" && !event.shiftKey -> {
-                                        event.preventDefault()
-                                        send()
+                        div {
+                            className = ClassName("composer-input-wrap")
+                            // Colored mirror painted behind the textarea: same text, but with
+                            // resolved @mentions tinted gold (native parity). pointer-events:none
+                            // in CSS keeps the textarea fully interactive.
+                            div {
+                                className = ClassName("composer-highlight")
+                                ref = composerHighlightRef
+                                highlightSegments(draft, mentions.keys).forEach { seg ->
+                                    if (seg.mention) {
+                                        span {
+                                            className = ClassName("msg-mention")
+                                            +seg.text
+                                        }
+                                    } else {
+                                        +seg.text
                                     }
                                 }
                             }
-                            onBlur = { window.setTimeout({ setMention(null) }, 150) }
-                            // Ctrl/Cmd+V of any image/video/audio file: upload to
-                            // nostr.build and append the URL to the draft. Matches
-                            // native ClipboardImageReader, which handles both raw
-                            // image bytes AND file references from the file manager.
-                            onPaste = { event ->
-                                val items = event.asDynamic().clipboardData?.items
-                                val count = (items?.length as? Int) ?: 0
-                                for (i in 0 until count) {
-                                    val item = items[i]
-                                    val type = item.type.unsafeCast<String?>()
-                                    if (item.kind == "file" && isMediaMime(type)) {
-                                        val file = item.getAsFile()
-                                        if (file != null) {
+                            textarea {
+                                ref = composerInputRef
+                                // Keep the mirror's scroll aligned with the textarea once it scrolls.
+                                onScroll = {
+                                    composerHighlightRef.current?.scrollTop =
+                                        composerInputRef.current?.scrollTop ?: 0.0
+                                }
+                                className = ClassName("composer-input")
+                                placeholder = "Message $groupName"
+                                value = draft
+                                rows = 1
+                                onChange = { event ->
+                                    val v = event.currentTarget.value
+                                    setDraft(v)
+                                    val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
+                                    setMention(detectMention(v, cursor))
+                                    setMentionSelected(0)
+                                }
+                                onKeyDown = { event ->
+                                    val hasMentions = mention != null && mentionMatches.isNotEmpty()
+                                    when {
+                                        // Arrow keys move the highlight (clamped, like native).
+                                        hasMentions && event.key == "ArrowDown" -> {
                                             event.preventDefault()
-                                            handleMediaFile(file)
+                                            setMentionSelected { (it + 1).coerceAtMost(mentionMatches.size - 1) }
+                                        }
+                                        hasMentions && event.key == "ArrowUp" -> {
+                                            event.preventDefault()
+                                            setMentionSelected { (it - 1).coerceAtLeast(0) }
+                                        }
+                                        // Enter / Tab confirm the highlighted suggestion.
+                                        hasMentions && (event.key == "Enter" || event.key == "Tab") -> {
+                                            event.preventDefault()
+                                            insertMention(mentionMatches[mentionSelected.coerceIn(0, mentionMatches.size - 1)])
+                                        }
+                                        mention != null && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            setMention(null)
+                                        }
+                                        // Plain Enter sends; Shift+Enter inserts a newline
+                                        // (default textarea behaviour, no preventDefault).
+                                        event.key == "Enter" && !event.shiftKey -> {
+                                            event.preventDefault()
+                                            send()
                                         }
                                     }
                                 }
-                            }
-                            // Drag a file from the OS file manager onto the composer:
-                            // same upload path as paste. dragover.preventDefault is
-                            // required to make the textarea a valid drop target —
-                            // browsers reject the drop otherwise. (Native gets this
-                            // via the OS clipboard; web needs the explicit gesture.)
-                            onDragOver = { it.preventDefault() }
-                            onDrop = { event ->
-                                val files = event.asDynamic().dataTransfer?.files
-                                val count = (files?.length as? Int) ?: 0
-                                if (count > 0) event.preventDefault()
-                                for (i in 0 until count) {
-                                    val file = files[i]
-                                    val type = file.type.unsafeCast<String?>()
-                                    if (isMediaMime(type)) handleMediaFile(file)
+                                onBlur = { window.setTimeout({ setMention(null) }, 150) }
+                                // Ctrl/Cmd+V of any image/video/audio file: upload to
+                                // nostr.build and append the URL to the draft. Matches
+                                // native ClipboardImageReader, which handles both raw
+                                // image bytes AND file references from the file manager.
+                                onPaste = { event ->
+                                    val items = event.asDynamic().clipboardData?.items
+                                    val count = (items?.length as? Int) ?: 0
+                                    for (i in 0 until count) {
+                                        val item = items[i]
+                                        val type = item.type.unsafeCast<String?>()
+                                        if (item.kind == "file" && isMediaMime(type)) {
+                                            val file = item.getAsFile()
+                                            if (file != null) {
+                                                event.preventDefault()
+                                                handleMediaFile(file)
+                                            }
+                                        }
+                                    }
+                                }
+                                // Drag a file from the OS file manager onto the composer:
+                                // same upload path as paste. dragover.preventDefault is
+                                // required to make the textarea a valid drop target —
+                                // browsers reject the drop otherwise. (Native gets this
+                                // via the OS clipboard; web needs the explicit gesture.)
+                                onDragOver = { it.preventDefault() }
+                                onDrop = { event ->
+                                    val files = event.asDynamic().dataTransfer?.files
+                                    val count = (files?.length as? Int) ?: 0
+                                    if (count > 0) event.preventDefault()
+                                    for (i in 0 until count) {
+                                        val file = files[i]
+                                        val type = file.type.unsafeCast<String?>()
+                                        if (isMediaMime(type)) handleMediaFile(file)
+                                    }
                                 }
                             }
                         }
                         if (mention != null && mentionMatches.isNotEmpty()) {
                             div {
                                 className = ClassName("mention-popup")
-                                mentionMatches.forEach { mm ->
+                                div {
+                                    className = ClassName("mention-header")
+                                    +(if (mention.trigger == '%') "GROUPS" else "MEMBERS")
+                                }
+                                val sel = mentionSelected.coerceIn(0, mentionMatches.size - 1)
+                                mentionMatches.forEachIndexed { idx, mm ->
                                     div {
                                         key = mm.ref
-                                        className = ClassName("mention-row")
+                                        className = ClassName(if (idx == sel) "mention-row selected" else "mention-row")
                                         // mousedown (before blur) + preventDefault keeps input focus.
                                         onMouseDown = { e ->
                                             e.preventDefault()
-                                            insertMention(mm.ref)
+                                            insertMention(mm)
                                         }
+                                        onMouseEnter = { setMentionSelected(idx) }
                                         WebAvatar {
                                             url = mm.picture
                                             seed = mm.seed
@@ -1379,9 +1471,16 @@ val ChatScreen =
                                             kind = if (mm.group) AvatarKind.GROUP else AvatarKind.USER
                                             cls = "mention-avatar"
                                         }
-                                        span {
-                                            className = ClassName("mention-name")
-                                            +(if (mm.group) "%${mm.label}" else "@${mm.label}")
+                                        div {
+                                            className = ClassName("mention-text")
+                                            span {
+                                                className = ClassName("mention-name")
+                                                +(if (mm.group) "%${mm.label}" else mm.label)
+                                            }
+                                            span {
+                                                className = ClassName("mention-key")
+                                                +(mm.seed.take(8) + "…" + mm.seed.takeLast(4))
+                                            }
                                         }
                                     }
                                 }

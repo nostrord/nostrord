@@ -3355,36 +3355,61 @@ body {
     left: 0;
     right: 0;
     bottom: calc(100% + 6px);
-    max-height: 240px;
-    overflow-y: auto;
-    padding: 4px;
+    max-height: 320px;
+    overflow: hidden auto;
+    padding: 0;
     background: var(--color-surface);
     border: 1px solid var(--color-surface-variant);
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     z-index: 40;
 }
+.mention-header {
+    padding: 8px 12px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
 .mention-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    border-radius: 6px;
+    gap: 10px;
+    padding: 6px 12px;
     cursor: pointer;
 }
 .mention-row:hover {
     background: var(--color-message-hover);
 }
+.mention-row.selected {
+    /* Primary @ 20%, matches native MentionItem keyboard-selection */
+    background: rgba(88, 101, 242, 0.2);
+}
 .mention-avatar {
-    width: 24px;
-    height: 24px;
+    width: 32px;
+    height: 32px;
     flex-shrink: 0;
-    font-size: 11px;
+    /* Circular for users; groups self-override to a rounded square via .avatar-stack.group. */
+    border-radius: 50%;
+    font-size: 12px;
     font-weight: 700;
+}
+.mention-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
 }
 .mention-name {
     font-size: 14px;
     color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.mention-key {
+    font-size: 11px;
+    color: var(--color-text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3409,12 +3434,41 @@ body {
     color: var(--color-text-content);
 }
 
+/* Holds the textarea and its colored mirror so @mentions can be tinted gold
+   (a plain textarea can't style part of its text). */
+.composer-input-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+/* Read-only mirror painted behind the transparent textarea: same text, but with
+   @mentions wrapped in .msg-mention. Must match .composer-input's box exactly
+   (font, padding, line-height, wrapping) so glyphs line up under the caret. */
+.composer-highlight {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    padding: 4px 0;
+    line-height: 1.4;
+    font-size: 15px;
+    font-family: inherit;
+    color: var(--color-text-primary);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    overflow: hidden;
+    pointer-events: none;
+}
 .composer-input {
     /* Auto-growing textarea (was an <input>): starts at one line and the JS
        useEffect(draft) bumps height to scrollHeight on each change. CSS caps
        it at ~5 lines, after which it scrolls internally. resize:none hides
-       the browser's drag handle since growth is controlled by content. */
-    flex: 1;
+       the browser's drag handle since growth is controlled by content.
+       Text is transparent (the .composer-highlight mirror shows it in color);
+       caret-color keeps the cursor visible. */
+    position: relative;
+    z-index: 1;
+    width: 100%;
     min-width: 0;
     min-height: 22px;
     max-height: 140px;
@@ -3425,7 +3479,8 @@ body {
     outline: none;
     resize: none;
     overflow-y: auto;
-    color: var(--color-text-primary);
+    color: transparent;
+    caret-color: var(--color-text-primary);
     font-size: 15px;
     font-family: inherit;
 }
