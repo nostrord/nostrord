@@ -29,6 +29,23 @@
       NotoColorEmoji via composeResources; the web doesn't reference it.
     -->
 
+    <!-- Visible-viewport height for mobile. dvh/svh aren't supported on every
+         engine (e.g. older Android WebView), so the layout would fall back to
+         100vh = the address-bar-hidden height and push the chat composer off
+         screen. window.innerHeight always reflects the *visible* area and the
+         resize event fires when the address bar shows/hides, so --app-height
+         keeps the shell exactly viewport-tall everywhere. -->
+    <script>
+        (function () {
+            function setAppHeight() {
+                document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+            }
+            setAppHeight();
+            window.addEventListener('resize', setAppHeight);
+            window.addEventListener('orientationchange', setAppHeight);
+        })();
+    </script>
+
     <link type="text/css" rel="stylesheet" href="styles.css?v=__BUILD_VERSION__">
     <!-- Crypto libraries - defer loading to not block render -->
     <script defer src="aes-js.min.js?v=__BUILD_VERSION__"></script>

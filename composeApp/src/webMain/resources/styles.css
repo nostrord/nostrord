@@ -62,9 +62,19 @@
 
 html, body {
     width: 100%;
+    /* --app-height (set from window.innerHeight in index.html) is the visible
+       viewport. dvh/100% are fallbacks for the first paint before the script
+       runs and for engines where it is unavailable. */
     height: 100%;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
     margin: 0;
     padding: 0;
+    /* The app owns its own scroll regions (.chat-messages, .notif-list,
+       .login-page). Locking the document prevents the whole shell from
+       scrolling on mobile, which is what let the chat header slide off the top
+       and the composer drift up from the bottom. */
+    overflow: hidden;
 }
 
 body {
@@ -85,6 +95,7 @@ body {
 
 #composeApplication {
     width: 100%;
+    /* Fills body, which is sized from --app-height. */
     height: 100%;
 }
 
@@ -102,7 +113,9 @@ body {
 
 /* ===================== Login ===================== */
 .login-page {
-    min-height: 100vh;
+    /* Bounded height (not min-height) so the document stays locked and the page
+       scrolls within itself via overflow-y. */
+    height: 100%;
     overflow-y: auto;
     padding: 24px;
     display: flex;
@@ -666,7 +679,8 @@ body {
 /* ===================== Shell (logged in) ===================== */
 .layout {
     display: flex;
-    height: 100vh;
+    /* Fills #composeApplication, which is sized from --app-height. */
+    height: 100%;
 }
 
 .nav-panels {
@@ -1157,7 +1171,10 @@ body {
 .content {
     flex: 1;
     min-width: 0;
-    height: 100vh;
+    /* Fills the shell row height (which comes from --app-height) so the column
+       never exceeds the visible viewport and the chat header/composer stay
+       pinned on mobile. */
+    height: 100%;
     display: flex;
     flex-direction: column;
     background: var(--color-background);
@@ -1166,6 +1183,10 @@ body {
 .content-screen {
     flex: 1;
     min-height: 0;
+    /* Safety net for full-height views without their own scroll region (e.g.
+       onboarding on short screens). Chat and notifications fit exactly and own
+       their internal scroll, so this never double-scrolls them. */
+    overflow-y: auto;
 }
 
 .connection-banner {
