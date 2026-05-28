@@ -1623,6 +1623,19 @@ val ChatScreen =
                         placeholder = "Search members"
                         value = memberQuery
                         onChange = { event -> setMemberQuery(event.currentTarget.value) }
+                        onKeyDown = { event ->
+                            if (event.key == "Escape") {
+                                setMemberQuery("")
+                                event.currentTarget.blur()
+                            }
+                        }
+                    }
+                    if (memberQuery.isNotEmpty()) {
+                        button {
+                            className = ClassName("search-clear-btn member-search-clear")
+                            onClick = { setMemberQuery("") }
+                            icon(Ic.Close)
+                        }
                     }
                 }
                 div {

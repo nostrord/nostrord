@@ -589,6 +589,19 @@ val AppShell =
                                                 placeholder = "Filter…"
                                                 value = groupQuery
                                                 onChange = { event -> setGroupQuery(event.currentTarget.value) }
+                                                onKeyDown = { event ->
+                                                    if (event.key == "Escape") {
+                                                        setGroupQuery("")
+                                                        event.currentTarget.blur()
+                                                    }
+                                                }
+                                            }
+                                            if (groupQuery.isNotEmpty()) {
+                                                button {
+                                                    className = ClassName("search-clear-btn sidebar-search-clear")
+                                                    onClick = { setGroupQuery("") }
+                                                    icon(Ic.Close)
+                                                }
                                             }
                                         }
                                         shownOther.forEach { group ->

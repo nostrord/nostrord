@@ -279,11 +279,28 @@ val HomeScreen =
                         homeFilter("My Groups", myGroups.size, filter == "Mine") { setFilter("Mine") }
                         homeFilter("Other Groups", otherGroups.size, filter == "Other") { setFilter("Other") }
                     }
-                    input {
-                        className = ClassName("home-search")
-                        placeholder = "Search groups..."
-                        value = search
-                        onChange = { event -> setSearch(event.currentTarget.value) }
+                    div {
+                        className = ClassName("home-search-wrap")
+                        icon(Ic.Search, "home-search-icon")
+                        input {
+                            className = ClassName("home-search")
+                            placeholder = "Search groups..."
+                            value = search
+                            onChange = { event -> setSearch(event.currentTarget.value) }
+                            onKeyDown = { event ->
+                                if (event.key == "Escape") {
+                                    setSearch("")
+                                    event.currentTarget.blur()
+                                }
+                            }
+                        }
+                        if (search.isNotEmpty()) {
+                            button {
+                                className = ClassName("search-clear-btn")
+                                onClick = { setSearch("") }
+                                icon(Ic.Close)
+                            }
+                        }
                     }
                 }
 

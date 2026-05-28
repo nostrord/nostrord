@@ -931,7 +931,9 @@ body {
 .sidebar-search-icon {
     position: absolute;
     left: 14px;
-    top: calc(50% + 1px);
+    /* Container padding is 2px top / 6px bottom, so the geometric 50% sits 2px
+       below the 28px input's true center. Offset back up to line up with it. */
+    top: calc(50% - 2px);
     transform: translateY(-50%);
     width: 12px;
     height: 12px;
@@ -947,7 +949,7 @@ body {
     width: 100%;
     height: 28px;
     box-sizing: border-box;
-    padding: 0 6px 0 26px;
+    padding: 0 26px 0 26px;
     font-size: 12px;
     font-family: inherit;
     color: var(--color-text-primary);
@@ -959,6 +961,15 @@ body {
 
 .sidebar-search-input::placeholder {
     color: var(--color-text-muted);
+}
+
+.sidebar-search-clear {
+    right: 14px;
+    top: calc(50% - 2px);
+}
+.sidebar-search-clear > svg {
+    width: 12px;
+    height: 12px;
 }
 
 .sidebar-section-toggle {
@@ -3633,7 +3644,8 @@ body {
 
 .member-search-input {
     width: 100%;
-    padding: 6px 10px 6px 32px;
+    box-sizing: border-box;
+    padding: 6px 34px 6px 32px;
     font-size: 13px;
     font-family: inherit;
     color: var(--color-text-primary);
@@ -3645,6 +3657,10 @@ body {
 
 .member-search-input::placeholder {
     color: var(--color-text-muted);
+}
+
+.member-search-clear {
+    right: 21px;
 }
 
 .member-scroll {
@@ -5457,6 +5473,22 @@ body {
     background: var(--color-primary);
 }
 
+.home-search-wrap {
+    position: relative;
+    display: flex;
+}
+
+.home-search-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    fill: var(--color-text-muted);
+    pointer-events: none;
+}
+
 .home-search {
     /* Native PickGroupSearch (HomeScreenDesktop.kt:353): fillMaxWidth(),
        height 40.dp, RoundedCornerShape(4.dp), horizontal padding 12.dp.
@@ -5465,7 +5497,7 @@ body {
     width: 100%;
     height: 40px;
     box-sizing: border-box;
-    padding: 0 12px;
+    padding: 0 38px 0 38px;
     font-size: 13px;
     font-family: inherit;
     color: var(--color-text-primary);
@@ -5477,6 +5509,35 @@ body {
 
 .home-search::placeholder {
     color: var(--color-text-muted);
+}
+
+.home-search-wrap .search-clear-btn {
+    right: 10px;
+}
+
+/* Clear (X) button shown inside a search field when it has text. Mirrors the
+   native trailing-icon clear: click or press Esc to empty the field. */
+.search-clear-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.search-clear-btn:hover {
+    color: var(--color-text-primary);
+}
+
+.search-clear-btn > svg {
+    width: 16px;
+    height: 16px;
 }
 
 .home-grid {
