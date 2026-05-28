@@ -1521,14 +1521,20 @@ val ChatScreen =
                         }
                         button {
                             val uploading = uploadCount > 0
-                            // Treat the button as "ready" while uploading too — the
-                            // spinner is visible only against the active background.
+                            // Spinner while an upload OR the publish is in flight. The publish
+                            // window covers the NIP-46 remote-signer round-trip (e.g. Amber),
+                            // which can take a second or two — without feedback the user thinks
+                            // Enter did nothing. Reuses the upload spinner; native already shows
+                            // this via isSending in MessageInput.
+                            val busy = uploading || sending
+                            // Keep the button on its active background while busy so the spinner
+                            // is visible against it.
                             className = ClassName(
-                                if (draft.isNotBlank() || uploading) "composer-send active" else "composer-send",
+                                if (draft.isNotBlank() || busy) "composer-send active" else "composer-send",
                             )
                             disabled = (draft.isBlank() && !uploading) || sending || uploading
                             onClick = { send() }
-                            if (uploading) {
+                            if (busy) {
                                 span { className = ClassName("btn-spinner") }
                             } else {
                                 icon(Ic.Send)
