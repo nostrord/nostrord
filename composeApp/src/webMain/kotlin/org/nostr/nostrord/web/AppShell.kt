@@ -1021,9 +1021,13 @@ val AppShell =
                         onClose = { setModal(null) }
                         onAdded = { url ->
                             // Persist to the kind:10009 list, then switch to it.
+                            // Clear the selected group so we land on the new relay's
+                            // home instead of carrying over the previous relay's
+                            // group id into the URL (?relay=new&group=oldGroup).
                             launchApp {
                                 repo.addRelay(url)
                                 repo.switchRelay(url)
+                                setSelectedGroupId(null)
                             }
                             setModal(null)
                         }
