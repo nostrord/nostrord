@@ -445,6 +445,15 @@ val ChatScreen =
         // existing rows. The anchor approach is robust to all of those because
         // the element's offsetTop reflects whatever the DOM ended up as.
         val loadingOlder = useRef(false)
+        // True once the isLoadingMore StateFlow has actually been observed high
+        // for the in-flight pagination. The flow lags the synchronous
+        // loadingOlder latch by however long it takes the fired coroutine to
+        // reach startPagination -> updateLegacyFlags -> re-render. During that
+        // lag window the settle effect must NOT reset the latch and re-fire, or
+        // it double-fetches the same window (HAR: two REQs, identical `until`,
+        // ~5ms apart, each pulling the same 50 events). This ref lets the settle
+        // effect tell "load still in flight, flow lagging" from "load completed".
+        val wasLoadingMore = useRef(false)
         val anchorElementId = useRef<String>(null)
         val anchorOffsetFromTop = useRef(0.0)
         val atBottom = useRef(true)
@@ -460,6 +469,13 @@ val ChatScreen =
         // bottom). Gates both the alignment effect itself (one-shot per group
         // entry) and the entry-time auto-pin-to-bottom in the auto-scroll effect.
         val openedAtDivider = useRef(false)
+        // True for a brief window right after the entry alignment lands on the
+        // divider. While set, the media ResizeObserver re-snaps the divider to
+        // the top of the viewport as images above it resolve height, so the user
+        // ends up exactly on "New Messages" instead of drifting into the middle
+        // of the feed. Cleared on a timer (media settles fast) and guarded by a
+        // proximity check so it never yanks a user who has scrolled away.
+        val dividerSettling = useRef(false)
         // Mirror of atBottom for re-renders the FAB needs. The ref stays as the
         // hot-path source of truth for the scroll handler; setAtBottomState is
         // only invoked on the transition so we don't re-render every scroll tick.
@@ -545,6 +561,8 @@ val ChatScreen =
             // through the session. Native does the same with remember(groupId).
             setLastReadSnapshot(repo.getLastReadTimestamp(group.id))
             wasNotAtBottom.current = false
+            loadingOlder.current = false
+            wasLoadingMore.current = false
             openedAtDivider.current = false
             // Reset atBottom to true on group entry. Without this, the ref
             // carries the PREVIOUS group's value across the ChatScreen re-
@@ -674,22 +692,37 @@ val ChatScreen =
         // (otherwise reactions appearing under the user's viewport on a near-
         // bottom feed would not re-pin to bottom). Cheap: O(messages).
         val reactionCount = reactionsByMsg.values.sumOf { it.size }
-        // Pagination scroll preservation is now handled entirely by the
-        // browser's overflow-anchor: auto on .chat-messages. When messages
-        // prepend above the viewport, the browser picks the topmost-visible
-        // element as the anchor and adjusts scrollTop so it stays put while
-        // the new content fits in above. Previous iterations had explicit
-        // anchor-based scrollTop math here, but with the React-key fix for
-        // SystemEvent rows + the chat-loading-more pill made absolute (so it
-        // stops shifting layout on toggle), the browser's mechanism is enough
-        // — and the manual math was racing the browser's adjustment and
-        // landing the user past the correct position. We only need to settle
-        // the latch so the next pagination cycle can fire.
+        // Pagination scroll preservation. When older messages prepend above the
+        // viewport, two mechanisms keep the user pinned to the same message: the
+        // browser's overflow-anchor: auto on .chat-messages does the bulk of the
+        // work, and this layout effect corrects whatever it misses by re-aligning
+        // the SPECIFIC element captured at scroll-up time (anchorElementId) to the
+        // exact offset-from-top it had before the prepend.
+        //
+        // Reading the anchor's LIVE getBoundingClientRect post-prepend (rather
+        // than the old `prevScrollTop + heightAdded` math) is what makes this safe
+        // to layer on top of overflow-anchor: if the browser already nailed it the
+        // measured drift is ~0 and we no-op; if it overshot (the failure the user
+        // saw as the feed jumping to the top when older messages loaded) we nudge
+        // scrollTop by the drift to put the anchor back where it was. It also
+        // absorbs async media inside the freshly-prepended rows resolving their
+        // height between the prepend and this effect, which overflow-anchor alone
+        // does not always catch. Runs pre-paint so the correction is never visible.
         useLayoutEffect(messages.size) {
-            if (loadingOlder.current == true) {
-                loadingOlder.current = false
-                anchorElementId.current = null
+            if (loadingOlder.current != true) return@useLayoutEffect
+            val el = document.getElementById(ElementId("chat-messages"))
+            val anchorId = anchorElementId.current
+            if (el != null && !anchorId.isNullOrBlank()) {
+                val anchorEl = document.getElementById(ElementId(anchorId))
+                if (anchorEl != null) {
+                    val containerTop = el.getBoundingClientRect().top
+                    val currentOffset = anchorEl.getBoundingClientRect().top - containerTop
+                    val drift = currentOffset - (anchorOffsetFromTop.current ?: 0.0)
+                    if (abs(drift) > 0.5) el.scrollTop = el.scrollTop + drift
+                }
             }
+            loadingOlder.current = false
+            anchorElementId.current = null
         }
         // When the controller settles (initial REQ ends, or a pagination
         // round-trips — success, failure, or "all-duplicates no-op"), release
@@ -702,7 +735,20 @@ val ChatScreen =
         // `hasMore && !isLoadingMore` continuously — we approximate that
         // by clearing the latch here.
         useEffect(hasMore, isLoadingMore, messages.size) {
-            if (isLoadingMore) return@useEffect
+            if (isLoadingMore) {
+                // Load confirmed in flight — remember it so the completion pass
+                // below can tell a finished load from the pre-flow lag window.
+                wasLoadingMore.current = true
+                return@useEffect
+            }
+            // isLoadingMore is false. If our latch is set but we never saw the
+            // flow go high, a loadMore we fired is still in flight and the
+            // StateFlow just hasn't caught up — do NOT reset the latch or fire a
+            // second load, or we double-fetch the same `until` window. The fired
+            // coroutine clears the latch itself if no load actually started (see
+            // the launchApp blocks), so this can't wedge.
+            if (loadingOlder.current == true && wasLoadingMore.current != true) return@useEffect
+            wasLoadingMore.current = false
             loadingOlder.current = false
             anchorElementId.current = null
             // Match native's `totalItems > 0` precondition: on cold-boot the
@@ -729,8 +775,9 @@ val ChatScreen =
                 if (el.scrollTop <= 0.0) el.scrollTop = 1.0
                 // Skip the anchor capture path: the user is not actively
                 // scrolling here, so the browser's overflow-anchor: auto
-                // handles the prepend on its own.
-                launchApp { repo.loadMoreMessages(group.id) }
+                // handles the prepend on its own. Clear the latch if no load
+                // actually started so this re-check isn't wedged shut.
+                launchApp { if (!repo.loadMoreMessages(group.id)) loadingOlder.current = false }
             }
         }
         // Pin to bottom when the user was already there. useLayoutEffect (pre-
@@ -777,6 +824,10 @@ val ChatScreen =
             // same framing Telegram uses on entry.
             dividerEl.asDynamic().scrollIntoView(js("({ behavior: 'auto', block: 'start' })"))
             openedAtDivider.current = true
+            // Hold the divider in place while above-the-fold media settles, then
+            // release so the user is free to scroll without being snapped back.
+            dividerSettling.current = true
+            window.setTimeout({ dividerSettling.current = false }, 1_200)
             // Mark not-at-bottom so subsequent auto-scrolls don't yank the view
             // down, and prime the round-trip gate so the divider dismissal still
             // works once the user reaches the bottom.
@@ -797,16 +848,30 @@ val ChatScreen =
         // arrivals) so a single setup covers the whole session. (issue #74)
         useEffect(group.id) {
             val pinIfAtBottom = {
-                // Don't pin while the pagination restore is mid-flight — the
+                // Don't adjust while the pagination restore is mid-flight — the
                 // ResizeObserver fires for images loading inside freshly-prepended
                 // messages (above the viewport), and we'd otherwise yank the
-                // user from their read position down to the bottom.
-                if (atBottom.current == true &&
-                    props.scrollToMessageId == null &&
-                    loadingOlder.current != true
-                ) {
+                // user from their read position.
+                if (props.scrollToMessageId == null && loadingOlder.current != true) {
                     val el = document.getElementById(ElementId("chat-messages"))
-                    if (el != null) el.scrollTop = el.scrollHeight.toDouble()
+                    if (el != null) {
+                        if (atBottom.current == true) {
+                            el.scrollTop = el.scrollHeight.toDouble()
+                        } else if (dividerSettling.current == true) {
+                            // Re-anchor the entry divider as media above it loads,
+                            // but only while it's still near the viewport — if the
+                            // user has already scrolled well away, leave them be.
+                            val dividerEl = document.getElementById(ElementId("new-msg-divider"))
+                            if (dividerEl != null) {
+                                val containerTop = el.getBoundingClientRect().top
+                                val dividerTop = dividerEl.getBoundingClientRect().top
+                                if (abs(dividerTop - containerTop) < el.clientHeight.toDouble()) {
+                                    dividerEl.asDynamic()
+                                        .scrollIntoView(js("({ behavior: 'auto', block: 'start' })"))
+                                }
+                            }
+                        }
+                    }
                 }
                 Unit
             }
@@ -1179,7 +1244,15 @@ val ChatScreen =
                                 }
                             }
                             if (!foundAnchor) anchorElementId.current = null
-                            launchApp { repo.loadMoreMessages(group.id) }
+                            // Release the latch (and drop the stale anchor) if no
+                            // load actually started — keeps the next scroll-up
+                            // from being blocked by a wedged latch.
+                            launchApp {
+                                if (!repo.loadMoreMessages(group.id)) {
+                                    loadingOlder.current = false
+                                    anchorElementId.current = null
+                                }
+                            }
                         }
                     }
                     if (isLoadingMore && messages.isNotEmpty()) {
