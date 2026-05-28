@@ -14,7 +14,9 @@ expect val messagesTextSelectionEnabled: Boolean
 
 /**
  * Wraps [content] in a [SelectionContainer] only when [messagesTextSelectionEnabled].
- * On mobile it is a pass-through, which disables native text selection for messages.
+ * Currently disabled on every platform: a [SelectionContainer] installs a native
+ * right-click "Copy" popup that shadows the app's own message context menu, so we
+ * skip it and let the message handle copying through its context menu instead.
  */
 @Composable
 fun MessageSelectionContainer(content: @Composable () -> Unit) {
