@@ -3288,6 +3288,25 @@ body {
     border-color: var(--color-primary);
 }
 
+/* In-flight reaction (signEvent + relay round-trip not yet done). Dimmed and
+   non-interactive, with a small muted spinner in place of the reactor avatars.
+   Replaced by the real badge once the optimistic update lands. */
+.reaction-badge.pending {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.reaction-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--color-surface-variant);
+    border-top-color: var(--color-text-muted);
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
 .reaction-count {
     font-size: 11px;
     opacity: 0.85;

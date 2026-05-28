@@ -35,6 +35,7 @@ import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.messageSkeleton
 import org.nostr.nostrord.web.components.uploadBlob
+import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
@@ -1312,7 +1313,7 @@ val ChatScreen =
                                         onUser = { setProfilePubkey(it) }
                                         onReply = { setReplyingToId(message.id) }
                                         onReact = { emoji ->
-                                            launchApp { repo.sendReaction(group.id, message.id, message.pubkey, emoji) }
+                                            repo.sendReaction(group.id, message.id, message.pubkey, emoji)
                                         }
                                         onDelete = { setMessageToDelete(message.id) }
                                     }
@@ -1881,7 +1882,7 @@ external interface MessageRowProps : Props {
     var eventJson: String
     var onUser: (String) -> Unit
     var onReply: () -> Unit
-    var onReact: (String) -> Unit
+    var onReact: suspend (String) -> Unit
     var onZap: () -> Unit
     var onDelete: () -> Unit
 }
@@ -1890,6 +1891,31 @@ private val MessageRow =
     FC<MessageRowProps> { props ->
         val (menuOpen, setMenuOpen) = useState { false }
         val (reactOpen, setReactOpen) = useState { false }
+        // Emojis with an in-flight sendReaction. The reaction only appears
+        // optimistically AFTER signEvent resolves, which on NIP-46 (Amber /
+        // bunker) is a 1-2s round-trip with no feedback otherwise. We show a
+        // pending badge + spinner during that window (same idea as the send
+        // button's spinner), and drop it once the optimistic badge lands.
+        val (pendingEmojis, setPendingEmojis) = useState<Set<String>> { emptySet() }
+        val react: (String) -> Unit = { emoji ->
+            if (emoji !in pendingEmojis) {
+                setPendingEmojis { it + emoji }
+                launchApp {
+                    try {
+                        props.onReact(emoji)
+                    } finally {
+                        setPendingEmojis { it - emoji }
+                    }
+                }
+            }
+        }
+        // Esc closes whichever overlay is open (emoji picker or context menu),
+        // matching the backdrop click. Document-level listener so it fires even
+        // when focus sits in the picker's search input.
+        useEscClose {
+            if (reactOpen) setReactOpen(false)
+            if (menuOpen) setMenuOpen(false)
+        }
         // Anchor (viewport x,y) for the context menu; positioned/flipped by the effect below.
         val (menuAt, setMenuAt) = useState<Pair<Int, Int>?> { null }
         val menuRef = useRef<HTMLDivElement>(null)
@@ -2079,14 +2105,18 @@ private val MessageRow =
                         props.onGroupRef,
                     )
                 }
-                if (props.reactions.isNotEmpty()) {
+                // Pending emojis still waiting on signEvent + relay; hide any
+                // that the optimistic update already merged into props.reactions
+                // so we never show a spinner badge next to its real counterpart.
+                val visiblePending = pendingEmojis.filter { it !in props.reactions }
+                if (props.reactions.isNotEmpty() || visiblePending.isNotEmpty()) {
                     div {
                         className = ClassName("msg-reactions")
                         props.reactions.forEach { (emoji, info) ->
                             val mine = props.myPubkey != null && props.myPubkey in info.reactors
                             button {
                                 className = ClassName(if (mine) "reaction-badge mine" else "reaction-badge")
-                                onClick = { props.onReact(emoji) }
+                                onClick = { react(emoji) }
                                 val emojiUrl = info.emojiUrl
                                 if (!emojiUrl.isNullOrBlank()) {
                                     img {
@@ -2115,6 +2145,13 @@ private val MessageRow =
                                         +"+${info.reactors.size - 3}"
                                     }
                                 }
+                            }
+                        }
+                        visiblePending.forEach { emoji ->
+                            div {
+                                className = ClassName("reaction-badge pending")
+                                +emoji
+                                span { className = ClassName("reaction-spinner") }
                             }
                         }
                     }
@@ -2217,7 +2254,7 @@ private val MessageRow =
                     onClick = { setReactOpen(false) }
                     EmojiPicker {
                         onPick = { emoji ->
-                            props.onReact(emoji)
+                            react(emoji)
                             setReactOpen(false)
                         }
                     }
