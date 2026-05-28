@@ -1460,12 +1460,12 @@ val ChatScreen =
                 }
                 div {
                     className = ClassName("member-scroll")
-                    val memberQ = memberQuery.trim().lowercase()
+                    val memberQ = memberQuery.trim().normalizeForSearch()
                     val filtered =
                         if (memberQ.isEmpty()) {
                             members.toList()
                         } else {
-                            members.filter { displayName(it, userMetadata[it]).lowercase().contains(memberQ) }
+                            members.filter { displayName(it, userMetadata[it]).normalizeForSearch().contains(memberQ) }
                         }
                     // Mirrors native MemberSidebar.kt:100-101 — chat apps surface
                     // who can reply NOW (online) above static role hierarchy.
