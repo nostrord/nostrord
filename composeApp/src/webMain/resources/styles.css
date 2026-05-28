@@ -4804,6 +4804,9 @@ body {
 
 .chat-join-btn {
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 8px 18px;
     font-size: 13px;
     font-weight: 600;
@@ -4812,6 +4815,10 @@ body {
     border: none;
     border-radius: 8px;
     cursor: pointer;
+}
+.chat-join-btn > svg {
+    width: 16px;
+    height: 16px;
 }
 
 .chat-pending {
@@ -4893,6 +4900,9 @@ body {
 
 .composer-join-btn {
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 8px 18px;
     font-size: 13px;
     font-weight: 600;
@@ -4901,6 +4911,10 @@ body {
     border: none;
     border-radius: 8px;
     cursor: pointer;
+}
+.composer-join-btn > svg {
+    width: 16px;
+    height: 16px;
 }
 
 .composer-join-btn:hover {

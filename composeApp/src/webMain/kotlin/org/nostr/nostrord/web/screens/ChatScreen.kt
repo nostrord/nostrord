@@ -1008,7 +1008,8 @@ val ChatScreen =
                             button {
                                 className = ClassName("chat-join-btn")
                                 onClick = { join() }
-                                +(if (!group.isOpen) "Request to Join" else "Join")
+                                icon(Ic.PersonAdd)
+                                span { +(if (!group.isOpen) "Request to Join" else "Join") }
                             }
                         }
                     } else {
@@ -1367,7 +1368,8 @@ val ChatScreen =
                             button {
                                 className = ClassName("composer-join-btn")
                                 onClick = { join() }
-                                +(if (!group.isOpen) "Request to Join" else "Join Now")
+                                icon(Ic.PersonAdd)
+                                span { +(if (!group.isOpen) "Request to Join" else "Join Now") }
                             }
                         }
                     }
