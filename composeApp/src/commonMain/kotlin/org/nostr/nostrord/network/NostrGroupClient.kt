@@ -290,17 +290,18 @@ class NostrGroupClient(
                     // when the engine closes a dead socket.
                     //
                     // Browser engines hide ping/pong frames from JS code, so on
-                    // those targets we send a periodic best-effort REQ+CLOSE
-                    // probe. The probe only feeds activity to the underlying
-                    // socket — it never decides liveness, so a quiet healthy
-                    // relay is not forcibly reconnected.
+                    // those targets we send a periodic CLOSE for an unknown sub
+                    // id. By NIP-01 the relay silently ignores it, so this is a
+                    // pure write-probe — the send() call surfaces a dead socket
+                    // through the catch below, without making the relay scan its
+                    // kind:0 index or leaking random metadata events into the
+                    // pipeline (which the old REQ+CLOSE form did).
                     val wsSession = this
                     if (!hasEngineWebSocketPing()) {
                         launch {
                             while (isActive) {
                                 delay(BROWSER_PROBE_INTERVAL_MS)
                                 try {
-                                    wsSession.send(Frame.Text("""["REQ","_hb",{"kinds":[0],"limit":1}]"""))
                                     wsSession.send(Frame.Text("""["CLOSE","_hb"]"""))
                                 } catch (_: Exception) {
                                     // Send failed — socket is gone, frame loop
