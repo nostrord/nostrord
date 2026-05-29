@@ -4756,6 +4756,9 @@ body {
     line-height: 1.5;
     color: var(--color-text-content);
     overflow-wrap: anywhere;
+    /* Preserve newlines in bios/descriptions so each line lands on its own row,
+       matching native (which renders the raw text with its line breaks). */
+    white-space: pre-wrap;
 }
 
 .info-id-row {
