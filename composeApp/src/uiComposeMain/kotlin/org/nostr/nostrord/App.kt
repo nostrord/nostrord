@@ -30,6 +30,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -398,6 +399,17 @@ private fun AuthenticatedApp(
 
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+
+    // Dragging (or tapping) the drawer open should dismiss the soft keyboard,
+    // e.g. while composing a chat message. targetValue flips to Open as soon as
+    // the gesture commits, so the keyboard hides without waiting for the open
+    // animation to finish.
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(drawerState.targetValue) {
+        if (drawerState.targetValue == DrawerValue.Open) {
+            keyboardController?.hide()
+        }
+    }
 
     // Lifecycle integration — reconnect on foreground, persist cursors on background/destroy.
     val lifecycleOwner = LocalLifecycleOwner.current
