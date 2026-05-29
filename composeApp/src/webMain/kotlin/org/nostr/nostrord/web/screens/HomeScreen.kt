@@ -43,6 +43,9 @@ val HomeScreen =
         val joinedByRelay = useStateFlow(repo.joinedGroupsByRelay)
         val kind10009 = useStateFlow(repo.kind10009Relays)
         val loadingRelays = useStateFlow(repo.loadingRelays)
+        val fullListFetched = useStateFlow(repo.fullGroupListFetchedRelays)
+        val connState = useStateFlow(repo.connectionState)
+        val orphanedByRelay = useStateFlow(repo.orphanedJoinedByRelay)
 
         val isRelaySaved = currentRelay in kind10009
         val groupsLoading = currentRelay in loadingRelays
@@ -55,6 +58,11 @@ val HomeScreen =
         val joined = joinedByRelay[currentRelay].orEmpty()
         val myGroups = groups.filter { it.id in joined }
         val otherGroups = groups.filter { it.id !in joined }
+        // Joined ids without a matching kind:39000 on this relay — stale kind:10009
+        // pins. Native surfaces them as stub cards in the My Groups tab so the count
+        // matches reality (HomeScreen.kt:118-137). They carry no name, a fixed
+        // explanatory about, and are rendered private/closed.
+        val orphanedIds = orphanedByRelay[currentRelay].orEmpty()
 
         // Default to "Mine" only when the relay actually has joined groups —
         // mirrors native HomeScreen.kt:75-78. Without this, switching to a
@@ -68,6 +76,22 @@ val HomeScreen =
         useEffect(currentRelay, hasJoinedHere) {
             setFilter(if (hasJoinedHere) "Mine" else "Other")
         }
+        // Selecting the Other Groups filter on a lazy relay triggers the full group
+        // list fetch (the picker is the homescreen analogue of opening the sidebar's
+        // OTHER GROUPS section). Without this, a lazy relay's Other tab stayed empty
+        // until the user opened the sidebar section. Mirrors native HomeScreen.kt:171-175.
+        val isRelayLazy = repo.isGroupFetchLazy(currentRelay)
+        val isConnected = connState is org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState.Connected
+        useEffect(filter, currentRelay, isRelayLazy, currentRelay in fullListFetched, isConnected) {
+            if (filter == "Other" &&
+                isRelayLazy &&
+                currentRelay !in fullListFetched &&
+                isConnected &&
+                currentRelay.isNotBlank()
+            ) {
+                launchApp { repo.requestFullGroupListForRelay(currentRelay) }
+            }
+        }
         val (search, setSearch) = useState { "" }
         val (managing, setManaging) = useState { false }
         val (confirmRemove, setConfirmRemove) = useState { false }
@@ -75,12 +99,32 @@ val HomeScreen =
         // 3-dots header menu (Copy relay URL / Share) — mirrors native HomeScreenDesktop.
         val (relayMenuOpen, setRelayMenuOpen) = useState { false }
 
-        val base = if (filter == "Mine") myGroups else otherGroups
+        val base =
+            if (filter == "Mine") {
+                val known = myGroups.map { it.id }.toSet()
+                val stubs =
+                    orphanedIds
+                        .filter { it !in known }
+                        .map { id ->
+                            GroupMetadata(
+                                id = id,
+                                name = null,
+                                about = "Deleted or unavailable on this relay",
+                                picture = null,
+                                isPublic = false,
+                                isOpen = false,
+                            )
+                        }
+                myGroups + stubs
+            } else {
+                otherGroups
+            }
+        // Native search matches name or id only (HomeScreen.kt:111-115), not about.
         val shown =
             base.filter {
                 search.isBlank() ||
-                    (it.name ?: it.id).contains(search, ignoreCase = true) ||
-                    (it.about ?: "").contains(search, ignoreCase = true)
+                    it.name?.contains(search, ignoreCase = true) == true ||
+                    it.id.contains(search, ignoreCase = true)
             }
 
         if (managing) {
@@ -327,12 +371,23 @@ val HomeScreen =
             }
         }
 
-        // Confirm: remove relay
+        // Confirm: remove relay. Wording branches on saved-state and whether the
+        // user has joined groups here, matching native ManageRelayContent.kt:62-71.
         if (confirmRemove) {
+            val removeMessage =
+                if (isRelaySaved) {
+                    if (myGroups.isEmpty()) {
+                        "$relayLabel will be removed from your relay list."
+                    } else {
+                        "$relayLabel and all its groups will be removed from your list."
+                    }
+                } else {
+                    "Your groups on $relayLabel will be removed from your list."
+                }
             confirmDialog(
                 title = "Remove relay?",
-                message = "$relayLabel will be removed from your relay list. You'll leave its groups.",
-                confirmLabel = "Remove relay",
+                message = removeMessage,
+                confirmLabel = "Remove",
                 onCancel = { setConfirmRemove(false) },
                 onConfirm = {
                     setConfirmRemove(false)

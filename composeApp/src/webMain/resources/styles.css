@@ -1008,6 +1008,17 @@ body {
     color: var(--color-text-muted);
 }
 
+/* Empty/loading hint under a section ("No other groups", "Loading groups…",
+   "No groups found"). Native renders these as a 12sp muted line padded by
+   Spacing.md; the section-label style is bold and flush-left, which read as a
+   header and sat misaligned with the group rows. Left padding (8px row margin +
+   10px row padding) lines the text up with the rows above it. */
+.sidebar-empty-hint {
+    padding: 4px 18px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
 .sidebar-group {
     /* Native row: padding start=10dp end=10dp top=7dp bottom=7dp, Spacer width=6dp
        between the 22dp avatar and the 15sp label. Web was 8px gap / 7px 8px padding,
@@ -1039,6 +1050,26 @@ body {
 }
 .sidebar-group.orphan:hover {
     background: transparent;
+}
+/* Orphan row body: stacked "Unavailable group" + truncated id, mirroring the
+   native OrphanedGroupItem Column (13sp name over a 10sp muted id). */
+.sidebar-orphan-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+.sidebar-orphan-text .sidebar-group-name {
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+.sidebar-orphan-id {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .sidebar-group-forget {
     margin-left: auto;

@@ -172,17 +172,32 @@ val AppShell =
         // else surfaces this dialog before AccountManager.removeAccount runs.
         val (removeTarget, setRemoveTarget) = useState<Account?> { null }
         val (removeTargetBusy, setRemoveTargetBusy) = useState { false }
+        // Orphaned-group removal confirm (mirrors native OrphanedGroupItem's
+        // AlertDialog in GroupsNavSidebar.kt:918-940). Forgetting a pin rewrites
+        // the user's kind:10009 across devices, so it gets a confirmation step
+        // rather than firing on the first trash click.
+        val (forgetOrphanId, setForgetOrphanId) = useState<String?> { null }
         val (myExpanded, setMyExpanded) = useState { true }
         // OTHER GROUPS expansion is persisted per relay so a deliberately
         // collapsed sidebar stays collapsed on next session. Matches native
         // GroupsNavSidebar.kt:167-169.
+        //
+        // The value is derived SYNCHRONOUSLY on relay change (native uses
+        // remember(relayUrl), which re-inits in the same render). A useState +
+        // useEffect load lagged one render behind: on a relay switch the
+        // lazy-fetch effect below ran with the PREVIOUS relay's expanded flag,
+        // so returning to a collapsed relay re-downloaded OTHER GROUPS even
+        // though its section was closed. Reading the pref during render (a
+        // supported setState-during-render bailout) closes that window — effects
+        // only ever see the committed value for the current relay.
         val (otherExpanded, setOtherExpanded) = useState { true }
-        useEffect(activeRelay) {
-            if (activeRelay.isBlank()) return@useEffect
+        val otherExpandedRelay = useRef("")
+        if (otherExpandedRelay.current != activeRelay && activeRelay.isNotBlank()) {
+            otherExpandedRelay.current = activeRelay
             setOtherExpanded(SecureStorage.getBooleanPref("sidebar_other_expanded_$activeRelay", default = true))
         }
         useEffect(activeRelay, otherExpanded) {
-            if (activeRelay.isNotBlank()) {
+            if (activeRelay.isNotBlank() && otherExpandedRelay.current == activeRelay) {
                 SecureStorage.saveBooleanPref("sidebar_other_expanded_$activeRelay", otherExpanded)
             }
         }
@@ -350,10 +365,14 @@ val AppShell =
             }
         }
 
-        // Fetch the full group list for the active relay (so Other Groups / the picker
-        // show non-joined groups). Idempotent — the repo tracks fetched relays.
-        useEffect(activeRelay, fullListFetched.size) {
-            if (activeRelay.isNotBlank() && activeRelay !in fullListFetched) {
+        // Eager relays fetch the full group list up front (so Other Groups / the picker
+        // show non-joined groups). Idempotent — the repo tracks fetched relays. LAZY
+        // relays are deliberately excluded here: their full list is gated on the user
+        // opening the OTHER GROUPS section (effect above, native GroupsNavSidebar.kt:179-183).
+        // Without the !isRelayLazy guard, a lazy relay downloaded every group even with
+        // the section collapsed, diverging from native.
+        useEffect(activeRelay, fullListFetched.size, isRelayLazy) {
+            if (activeRelay.isNotBlank() && !isRelayLazy && activeRelay !in fullListFetched) {
                 launchApp { repo.requestFullGroupListForRelay(activeRelay) }
             }
         }
@@ -570,15 +589,16 @@ val AppShell =
                                     // native MY GROUPS treatment (GroupsNavSidebar.kt) where
                                     // these rows are visually demoted with a forget IconButton.
                                     orphanedIds.forEach { id ->
-                                        orphanedGroupRow(id) {
-                                            launchApp { repo.forgetGroup(id, activeRelay) }
-                                        }
+                                        orphanedGroupRow(id) { setForgetOrphanId(id) }
                                     }
                                 }
 
                                 // Show the section if there are Other Groups OR a query is active
-                                // (so an empty-result search keeps the input visible to clear/edit).
-                                if (otherGroups.isNotEmpty() || groupQ.isNotEmpty()) {
+                                // (so an empty-result search keeps the input visible to clear/edit) OR
+                                // the relay is lazy — a collapsed lazy relay has no Other Groups loaded
+                                // yet, so without this the header vanished and the user could never
+                                // reopen the section. Matches native GroupsNavSidebar.kt:368.
+                                if (otherGroups.isNotEmpty() || groupQ.isNotEmpty() || isRelayLazy) {
                                     sectionToggle("Other Groups", otherExpanded, otherGroups.size) { setOtherExpanded(!otherExpanded) }
                                     if (otherExpanded) {
                                         div {
@@ -609,8 +629,17 @@ val AppShell =
                                         }
                                         if (groupQ.isNotEmpty() && shownOther.isEmpty()) {
                                             div {
-                                                className = ClassName("sidebar-section-label")
+                                                className = ClassName("sidebar-empty-hint")
                                                 +"No groups found"
+                                            }
+                                        }
+                                        // Lazy relay with the section open but nothing fetched yet:
+                                        // mirror native's placeholder so the open section isn't blank
+                                        // (GroupsNavSidebar.kt:516-525).
+                                        if (groupQ.isEmpty() && otherGroups.isEmpty() && isRelayLazy) {
+                                            div {
+                                                className = ClassName("sidebar-empty-hint")
+                                                +(if (groupsLoading) "Loading groups…" else "No other groups")
                                             }
                                         }
                                     }
@@ -1025,6 +1054,41 @@ val AppShell =
                 }
             }
 
+            forgetOrphanId?.let { id ->
+                div {
+                    className = ClassName("modal-overlay")
+                    onClick = { setForgetOrphanId(null) }
+                    div {
+                        className = ClassName("modal-card sm")
+                        onClick = { it.stopPropagation() }
+                        div {
+                            className = ClassName("modal-title")
+                            +"Remove unavailable group?"
+                        }
+                        div {
+                            className = ClassName("modal-subtitle tight")
+                            +"This group no longer exists on the relay. Removing it updates your pinned list (kind:10009) so it stops appearing across your devices."
+                        }
+                        div {
+                            className = ClassName("modal-footer")
+                            button {
+                                className = ClassName("btn-text")
+                                onClick = { setForgetOrphanId(null) }
+                                +"Cancel"
+                            }
+                            button {
+                                className = ClassName("btn-primary")
+                                onClick = {
+                                    launchApp { repo.forgetGroup(id, activeRelay) }
+                                    setForgetOrphanId(null)
+                                }
+                                +"Remove"
+                            }
+                        }
+                    }
+                }
+            }
+
             when (modal) {
                 "create" -> CreateGroupModal { onClose = { setModal(null) } }
                 "join" -> JoinGroupModal { onClose = { setModal(null) } }
@@ -1081,10 +1145,18 @@ private fun ChildrenBuilder.orphanedGroupRow(groupId: String, onForget: () -> Un
             name = groupId
             cls = "group-icon-sm"
         }
-        span {
-            className = ClassName("sidebar-group-name")
-            // Show a shortened hex id — there's no name (no kind:39000).
-            +(groupId.take(12) + "…")
+        // Two lines like native OrphanedGroupItem: "Unavailable group" + a
+        // shortened hex id (there's no name without a kind:39000).
+        div {
+            className = ClassName("sidebar-orphan-text")
+            span {
+                className = ClassName("sidebar-group-name")
+                +"Unavailable group"
+            }
+            span {
+                className = ClassName("sidebar-orphan-id")
+                +(groupId.take(12) + if (groupId.length > 12) "…" else "")
+            }
         }
         button {
             className = ClassName("sidebar-group-forget")
