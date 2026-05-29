@@ -577,6 +577,13 @@ private fun AuthenticatedApp(
     // Android system back button — disabled when settings overlay is open (SettingsScreen handles it)
     PlatformBackHandler(enabled = !showSettings && navHistory.canGoBack) { onHistoryBack() }
 
+    // Back with the drawer open just closes the drawer. Registered after the
+    // navigation handler so it wins while open (Compose dispatches to the
+    // last-registered enabled handler).
+    PlatformBackHandler(enabled = drawerState.targetValue == DrawerValue.Open) {
+        scope.launch { drawerState.close() }
+    }
+
     // Browser back/forward buttons (JS/WasmJS only, no-op on other platforms).
     // Uses URL-based navigation: on popstate, the URL is parsed and applied directly.
     BrowserNavigationHandler(
