@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,11 +39,19 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
+import io.ktor.client.call.body
+import io.ktor.client.request.get
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.nostr.nostrord.network.createHttpClient
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.decodeDataImageUri
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.isAnimatedImageUrl
 import org.nostr.nostrord.utils.isDataImageUri
+import org.nostr.nostrord.utils.rememberImageDownloader
+import org.nostr.nostrord.utils.supportsImageDownload
 
 @Composable
 fun ImageViewerModal(
@@ -54,6 +63,10 @@ fun ImageViewerModal(
     val isAnimated = isAnimatedImageUrl(imageUrl)
     // Inline base64 image: decode to bytes for Coil; remote URLs use the optimized URL.
     val imageModel: Any = remember(imageUrl) { decodeDataImageUri(imageUrl) ?: getImageUrl(imageUrl) }
+
+    val scope = rememberCoroutineScope()
+    val downloadImage = rememberImageDownloader()
+    var isDownloading by remember { mutableStateOf(false) }
 
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
 
@@ -175,6 +188,45 @@ fun ImageViewerModal(
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                if (supportsImageDownload) {
+                    IconButton(
+                        onClick = {
+                            if (isDownloading) return@IconButton
+                            isDownloading = true
+                            scope.launch {
+                                try {
+                                    resolveDownloadableImage(imageUrl)?.let { (bytes, fileName, mimeType) ->
+                                        downloadImage(bytes, fileName, mimeType)
+                                    }
+                                } finally {
+                                    isDownloading = false
+                                }
+                            }
+                        },
+                        modifier =
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .pointerHoverIcon(PointerIcon.Hand),
+                    ) {
+                        if (isDownloading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Download",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                }
+
                 // Inline base64 images have no external URL to open.
                 if (!isDataImageUri(imageUrl)) {
                     IconButton(
@@ -218,5 +270,40 @@ fun ImageViewerModal(
                 }
             }
         }
+    }
+}
+
+/**
+ * Resolves the raw bytes to save for [url], plus a file name and MIME type. Inline base64
+ * images decode locally; remote images are fetched at their original (un-proxied) URL for
+ * full resolution. Returns null on failure.
+ */
+private suspend fun resolveDownloadableImage(url: String): Triple<ByteArray, String, String>? {
+    decodeDataImageUri(url)?.let { bytes ->
+        val mime = url.substringAfter("data:", "").substringBefore(";").ifBlank { "image/png" }
+        val ext = mime.substringAfter('/', "png").substringBefore('+').ifBlank { "png" }
+        return Triple(bytes, "nostrord_${url.hashCode().toUInt()}.$ext", mime)
+    }
+
+    val name = url.substringBefore('?').substringAfterLast('/').ifBlank { "image" }
+    val ext = name.substringAfterLast('.', "").lowercase()
+    val mime =
+        when (ext) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "png" -> "image/png"
+            else -> "image/*"
+        }
+    val fileName = if ('.' in name) name else "$name.png"
+
+    val client = createHttpClient()
+    return try {
+        val bytes: ByteArray = withContext(Dispatchers.Default) { client.get(url).body() }
+        Triple(bytes, fileName, mime)
+    } catch (_: Exception) {
+        null
+    } finally {
+        client.close()
     }
 }
