@@ -69,7 +69,14 @@ import web.dom.ElementId
 import web.dom.document
 import web.html.HTMLDivElement
 import web.html.HTMLTextAreaElement
+import kotlin.js.Date
 import kotlin.math.abs
+
+// How long (ms) after an at-bottom pin the media-settle observer may still snap
+// the feed to the bottom. Long enough to cover async image/video metadata that
+// resolves right after entry or a fresh arrival; short enough that pressing play
+// on an old video later never yanks the user to the bottom.
+private const val MEDIA_SETTLE_WINDOW_MS = 4000.0
 
 external interface ChatScreenProps : Props {
     var group: GroupMetadata
@@ -457,6 +464,16 @@ val ChatScreen =
         val anchorElementId = useRef<String>(null)
         val anchorOffsetFromTop = useRef(0.0)
         val atBottom = useRef(true)
+        // Timestamp (epoch ms) until which the media-settle observer may snap the
+        // feed to the bottom. The ResizeObserver / chat-content-loaded handler
+        // keeps the newest content pinned while async media resolves its height,
+        // but only for a short window after a legitimate at-bottom pin (entry or a
+        // fresh arrival). Without this bound the observer stays armed all session,
+        // so pressing play on an old video later (its onLoadedMetadata fires
+        // chat-content-loaded; after an overnight suspend the dropped decoder
+        // leaves the saved scroll within the at-bottom slack) would re-grow the
+        // element and yank the user to the bottom.
+        val mediaSettleUntil = useRef(0.0)
         // "New messages" divider snapshot. Captured once on group entry, then
         // cleared the first time the user scrolls up and back down to the bottom
         // (issue #83 — divider sticks around after the user has clearly read them).
@@ -817,6 +834,9 @@ val ChatScreen =
             val el = document.getElementById(ElementId("chat-messages")) ?: return@useLayoutEffect
             if (atBottom.current == true) {
                 el.scrollTop = el.scrollHeight.toDouble()
+                // Open the media-settle window so async images/videos in the
+                // just-pinned newest content can re-snap as they resolve height.
+                mediaSettleUntil.current = Date.now() + MEDIA_SETTLE_WINDOW_MS
                 // Messages seen at the bottom are read — clear their unread + notification entries.
                 repo.markGroupAsRead(group.id)
             }
@@ -876,7 +896,7 @@ val ChatScreen =
                 if (props.scrollToMessageId == null && loadingOlder.current != true) {
                     val el = document.getElementById(ElementId("chat-messages"))
                     if (el != null) {
-                        if (atBottom.current == true) {
+                        if (atBottom.current == true && Date.now() < (mediaSettleUntil.current ?: 0.0)) {
                             el.scrollTop = el.scrollHeight.toDouble()
                         } else if (dividerSettling.current == true) {
                             // Re-anchor the entry divider as media above it loads,
