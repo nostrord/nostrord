@@ -1183,6 +1183,7 @@ private fun MobileContent(
                 OnboardingScreen(
                     onAddRelay = onAddRelay,
                     onAddRelayCustomUrl = onAddRelayCustomUrl,
+                    onOpenDrawer = onOpenDrawer,
                 )
             } else {
                 HomeScreen(
