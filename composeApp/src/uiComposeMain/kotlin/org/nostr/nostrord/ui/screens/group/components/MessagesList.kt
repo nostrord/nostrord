@@ -69,6 +69,7 @@ import org.nostr.nostrord.ui.components.chat.ZapEventItem
 import org.nostr.nostrord.ui.components.emoji.EmojiPicker
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
+import org.nostr.nostrord.ui.scroll.ScrollEntryTarget
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.buildShareMessageLink
@@ -170,20 +171,24 @@ fun MessagesList(
                 LazyListState()
             }
         }
-    // One-shot anchor to the divider on group entry: fires the first time
-    // chatItems contains a NewMessagesDivider after entering the group, then
-    // sets the latch so later pagination / new messages don't re-anchor.
-    val alignedToDivider = remember(groupId) { mutableStateOf(false) }
+    val scrollStateHolder = rememberScrollStateHolder(groupId)
+    val isSeekingTarget = targetMessageId != null
+
+    // One-shot entry alignment to the "New messages" divider (Telegram pattern).
+    // Fires once when a divider first appears after entering the group, then
+    // latches openedAtDivider so streaming chunks / pagination don't re-anchor.
+    // Setting atBottom = false here is what suppresses the bottom-pin from yanking
+    // the view down on later chunks — the single authority the whole scroll system
+    // now reads. No divider (everything already read) leaves the latch at its
+    // default atBottom = true, so the group simply opens at the bottom.
     LaunchedEffect(groupId, chatItems) {
-        if (alignedToDivider.value) return@LaunchedEffect
+        if (scrollStateHolder.openedAtDivider || chatItems.isEmpty()) return@LaunchedEffect
         val idx = chatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
-        if (idx >= 0) {
+        val target = scrollStateHolder.applyEntryChange(hasDivider = idx >= 0, isSeeking = isSeekingTarget)
+        if (target == ScrollEntryTarget.Divider && idx >= 0) {
             listState.scrollToItem(idx)
-            alignedToDivider.value = true
         }
     }
-
-    val scrollStateHolder = rememberScrollStateHolder(groupId)
 
     fun getItemKey(item: ChatItem): String = when (item) {
         is ChatItem.DateSeparator -> "date_${item.date}"
@@ -193,7 +198,6 @@ fun MessagesList(
         is ChatItem.ZapEvent -> "zap_${item.id}"
     }
 
-    val isSeekingTarget = targetMessageId != null
     val currentOnTargetConsumed by rememberUpdatedState(onTargetConsumed)
 
     // Correct scroll position after pagination prepends items.
