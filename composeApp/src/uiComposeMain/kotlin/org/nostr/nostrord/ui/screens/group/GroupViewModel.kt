@@ -15,6 +15,7 @@ class GroupViewModel(
 ) : ViewModel() {
     val messages = repo.messages
     val connectionState = repo.connectionState
+    val isSyncing = repo.isSyncing
     val joinedGroups = repo.joinedGroups
     val joinedGroupsByRelay = repo.joinedGroupsByRelay
     val groups = repo.groups

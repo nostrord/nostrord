@@ -79,6 +79,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val authUrl: StateFlow<String?> = _authUrl
     override val currentRelayUrl: StateFlow<String> = _currentRelayUrl
     override val connectionState: StateFlow<ConnectionManager.ConnectionState> = _connectionState
+    val _isSyncing = MutableStateFlow(false)
+    override val isSyncing: StateFlow<Boolean> = _isSyncing
     override val groups: StateFlow<List<GroupMetadata>> = _groups
     override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = MutableStateFlow(emptyMap())
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages

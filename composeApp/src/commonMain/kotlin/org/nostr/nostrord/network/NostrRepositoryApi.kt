@@ -27,6 +27,13 @@ interface NostrRepositoryApi {
     val connectionState: StateFlow<ConnectionManager.ConnectionState>
     val isDiscoveringRelays: StateFlow<Boolean>
 
+    /**
+     * True while a foreground-resume re-sync is in flight. The group screen disables
+     * the composer and shows a syncing hint until it clears, so a reply isn't written
+     * against a feed that's about to jump with newly arrived messages.
+     */
+    val isSyncing: StateFlow<Boolean>
+
     /** Non-null when a deep link opened a relay not in the user's saved list. */
     val pendingDeepLinkRelay: StateFlow<String?>
 

@@ -119,6 +119,11 @@ fun MessageInput(
         !platform.startsWith("Android") && !platform.startsWith("iOS")
     }
 
+    // While a foreground-resume re-sync is in flight, freshly arrived messages are
+    // about to push the feed; block the composer and surface a hint so a reply isn't
+    // written against a stale view (#104).
+    val isSyncing by AppModule.nostrRepository.isSyncing.collectAsState()
+
     // Auto-focus only where there's a physical keyboard (desktop, desktop web).
     // On touch devices — Android, iOS, and coarse-pointer (mobile) web — this would
     // pop the on-screen keyboard the instant a group opens, so it's skipped.
@@ -390,6 +395,29 @@ fun MessageInput(
         Column(
             modifier = Modifier.fillMaxWidth(),
         ) {
+            if (isSyncing) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(NostrordColors.SurfaceVariant)
+                        .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        color = NostrordColors.Primary,
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    Text(
+                        text = "Syncing new messages…",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption,
+                    )
+                }
+            }
+
             if (replyingToMessage != null) {
                 ReplyingToBar(
                     message = replyingToMessage,
@@ -478,9 +506,10 @@ fun MessageInput(
                         value = textFieldValue,
                         onValueChange = { handleTextFieldValueChange(it) },
                         interactionSource = textFieldInteractionSource,
+                        enabled = !isSyncing,
                         placeholder = {
                             Text(
-                                "Message ${groupName ?: selectedChannel}",
+                                if (isSyncing) "Syncing new messages…" else "Message ${groupName ?: selectedChannel}",
                                 style = NostrordTypography.InputPlaceholder,
                                 color = NostrordColors.TextMuted,
                             )
@@ -681,12 +710,12 @@ fun MessageInput(
 
                     IconButton(
                         onClick = {
-                            if (textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste) {
+                            if (textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste && !isSyncing) {
                                 showEmojiPicker = false
                                 onSendMessage()
                             }
                         },
-                        enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
+                        enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste && !isSyncing,
                         modifier = Modifier.size(40.dp),
                     ) {
                         if (isSending || isUploadingPaste) {

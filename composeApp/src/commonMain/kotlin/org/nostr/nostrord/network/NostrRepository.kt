@@ -51,6 +51,11 @@ import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.urlDecode
 
+// How long onForeground keeps [NostrRepository.isSyncing] true after issuing the
+// resume re-subscribe, giving freshly requested messages a window to stream in
+// before the composer re-enables (#104).
+private const val FOREGROUND_SYNC_SETTLE_MS = 1_200L
+
 /**
  * Repository for Nostr operations.
  * Coordinates between specialized managers for different concerns.
@@ -185,6 +190,13 @@ class NostrRepository(
     override val isDiscoveringRelays: StateFlow<Boolean> = _isDiscoveringRelays.asStateFlow()
     private val _pendingDeepLinkRelay = MutableStateFlow<String?>(null)
     override val pendingDeepLinkRelay: StateFlow<String?> = _pendingDeepLinkRelay.asStateFlow()
+
+    // True while a foreground-resume re-sync is in flight (set by onForeground,
+    // cleared after a brief settle). The group composer disables input and shows a
+    // "syncing" hint while this is true so a reply isn't written against a stale feed
+    // that is about to jump with newly arrived messages.
+    private val _isSyncing = MutableStateFlow(false)
+    override val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
     // Expose group state
     override val groups: StateFlow<List<GroupMetadata>> = groupManager.groups
@@ -909,26 +921,35 @@ class NostrRepository(
      */
     override fun onForeground() {
         scope.launch {
-            val state = connectionManager.connectionState.value
-            when (state) {
-                // Only force reconnect if fully disconnected (no auto-reconnect running).
-                // Error state means auto-reconnect exhausted Phase 1 — force a fresh attempt.
-                is ConnectionManager.ConnectionState.Disconnected,
-                is ConnectionManager.ConnectionState.Error,
-                -> reconnect()
+            _isSyncing.value = true
+            try {
+                val state = connectionManager.connectionState.value
+                when (state) {
+                    // Only force reconnect if fully disconnected (no auto-reconnect running).
+                    // Error state means auto-reconnect exhausted Phase 1 — force a fresh attempt.
+                    is ConnectionManager.ConnectionState.Disconnected,
+                    is ConnectionManager.ConnectionState.Error,
+                    -> reconnect()
 
-                // Auto-reconnect or initial connect in progress — don't interrupt.
-                is ConnectionManager.ConnectionState.Reconnecting,
-                is ConnectionManager.ConnectionState.Connecting,
-                -> {
-                    reconnectDroppedNip29PoolRelays()
-                }
+                    // Auto-reconnect or initial connect in progress — don't interrupt.
+                    is ConnectionManager.ConnectionState.Reconnecting,
+                    is ConnectionManager.ConnectionState.Connecting,
+                    -> {
+                        reconnectDroppedNip29PoolRelays()
+                    }
 
-                // Already connected — refresh subscriptions and pool relays.
-                is ConnectionManager.ConnectionState.Connected -> {
-                    groupManager.refreshLiveSubscriptions()
-                    reconnectDroppedNip29PoolRelays()
+                    // Already connected — refresh subscriptions and pool relays.
+                    is ConnectionManager.ConnectionState.Connected -> {
+                        groupManager.refreshLiveSubscriptions()
+                        reconnectDroppedNip29PoolRelays()
+                    }
                 }
+                // Re-subscribe REQs are fire-and-forget; give freshly requested messages
+                // a brief window to stream in before clearing the flag, so the UI doesn't
+                // re-enable the composer the instant the REQ is sent (#104).
+                delay(FOREGROUND_SYNC_SETTLE_MS)
+            } finally {
+                _isSyncing.value = false
             }
         }
     }
