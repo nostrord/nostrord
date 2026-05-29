@@ -51,6 +51,10 @@ data class UploadResult(
     val width: Int? = null,
     val height: Int? = null,
     val size: Long? = null,
+    // Server-generated poster image (nostr.build returns one for videos). Emitted
+    // as the imeta `thumb` field so clients can preview a video without fetching
+    // it (the web player uses it as the <video> poster).
+    val thumbnailUrl: String? = null,
 ) {
     /**
      * Build a NIP-68 `imeta` tag from this upload result.
@@ -63,6 +67,7 @@ data class UploadResult(
         sha256?.let { add("x $it") }
         if (width != null && height != null) add("dim ${width}x$height")
         size?.let { add("size $it") }
+        thumbnailUrl?.let { add("thumb $it") }
     }
 }
 
@@ -188,6 +193,11 @@ object NostrBuildUploader {
                 width = dimensions?.get("width")?.jsonPrimitive?.intOrNull,
                 height = dimensions?.get("height")?.jsonPrimitive?.intOrNull,
                 size = entry["size"]?.jsonPrimitive?.longOrNull,
+                // nostr.build v2 returns a generated poster for video uploads.
+                // Field name observed as "thumbnail"; fall back to "thumb".
+                thumbnailUrl =
+                entry["thumbnail"]?.jsonPrimitive?.contentOrNull
+                    ?: entry["thumb"]?.jsonPrimitive?.contentOrNull,
             ),
         )
     }

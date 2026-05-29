@@ -2987,6 +2987,45 @@ body {
     background: #000;
 }
 
+/* Wrap so the loading spinner can overlay the reserved <video> box while the
+   metadata phase is in flight (or queued behind the concurrency gate). */
+.msg-video-wrap {
+    position: relative;
+    display: inline-block;
+    margin-top: 4px;
+}
+.msg-video-wrap .msg-video {
+    margin-top: 0;
+}
+/* Play overlay shown before the user starts a video (preload="none", so nothing
+   is fetched until this is clicked). A centered circular button over the black
+   reserved box. */
+.msg-video-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+}
+.msg-video-play:hover {
+    background: rgba(0, 0, 0, 0.35);
+}
+.msg-video-play::after {
+    content: "";
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    /* white play triangle, nudged right to look centered in the circle */
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23fff'%3E%3Cpath d='M8 5v14l11-7z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
 /* Fallback shown when a <video> fires its error event (host CDN flaky, bad
    Content-Type, src not supported). Replaces the dead-black <video> box and
    gives the user a single click to retry without reloading the whole site. */

@@ -2482,6 +2482,28 @@ private fun extractEmojiMap(tags: List<List<String>>): Map<String, String> = tag
         shortcode to url
     }.toMap()
 
+/** NIP-92 imeta thumbnails: maps a media url to its poster image url (thumb, else
+ *  image). Used as the <video> poster so a click-to-load player shows a preview
+ *  frame instead of a black box — without fetching the video itself. */
+private fun extractVideoPosters(tags: List<List<String>>): Map<String, String> {
+    val result = mutableMapOf<String, String>()
+    for (tag in tags) {
+        if (tag.isEmpty() || tag[0] != "imeta") continue
+        var url: String? = null
+        var thumb: String? = null
+        for (i in 1 until tag.size) {
+            val field = tag[i]
+            when {
+                field.startsWith("url ") -> url = field.removePrefix("url ")
+                field.startsWith("thumb ") -> thumb = field.removePrefix("thumb ")
+                field.startsWith("image ") -> if (thumb == null) thumb = field.removePrefix("image ")
+            }
+        }
+        if (url != null && thumb != null) result[url] = thumb
+    }
+    return result
+}
+
 /** Emit [text] verbatim, replacing :shortcode: tokens with `<img>` when in [emojiMap]. */
 private fun ChildrenBuilder.renderTextWithEmojis(text: String, emojiMap: Map<String, String>) {
     if (emojiMap.isEmpty() || ':' !in text) {
@@ -2516,10 +2538,11 @@ private fun ChildrenBuilder.renderMessageContent(
     onGroupRef: (String, String?) -> Unit,
 ) {
     val emojiMap = extractEmojiMap(tags)
+    val posters = extractVideoPosters(tags)
     var last = 0
     for (block in CODE_BLOCK_REGEX.findAll(content)) {
         if (block.range.first > last) {
-            renderInline(content.substring(last, block.range.first), emojiMap, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+            renderInline(content.substring(last, block.range.first), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
         }
         val lang = block.groupValues[1].takeIf { it.isNotBlank() }
         div {
@@ -2538,7 +2561,7 @@ private fun ChildrenBuilder.renderMessageContent(
         last = block.range.last + 1
     }
     if (last < content.length) {
-        renderInline(content.substring(last), emojiMap, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        renderInline(content.substring(last), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
     }
 }
 
@@ -2546,6 +2569,7 @@ private fun ChildrenBuilder.renderMessageContent(
 private fun ChildrenBuilder.renderInline(
     text: String,
     emojiMap: Map<String, String>,
+    posters: Map<String, String>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
@@ -2555,7 +2579,7 @@ private fun ChildrenBuilder.renderInline(
     var last = 0
     for (m in INLINE_CODE_REGEX.findAll(text)) {
         if (m.range.first > last) {
-            renderEntities(text.substring(last, m.range.first), emojiMap, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+            renderEntities(text.substring(last, m.range.first), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
         }
         code {
             className = ClassName("msg-code")
@@ -2564,13 +2588,14 @@ private fun ChildrenBuilder.renderInline(
         last = m.range.last + 1
     }
     if (last < text.length) {
-        renderEntities(text.substring(last), emojiMap, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
+        renderEntities(text.substring(last), emojiMap, posters, userMetadata, messagesById, onUser, onEventRef, onGroupRef)
     }
 }
 
 private fun ChildrenBuilder.renderEntities(
     content: String,
     emojiMap: Map<String, String>,
+    posters: Map<String, String>,
     userMetadata: Map<String, UserMetadata>,
     messagesById: Map<String, NostrGroupClient.NostrMessage>,
     onUser: (String) -> Unit,
@@ -2590,7 +2615,10 @@ private fun ChildrenBuilder.renderEntities(
             if (IMAGE_EXT.containsMatchIn(url)) {
                 ChatImage { imageUrl = url }
             } else if (VIDEO_EXT.containsMatchIn(url)) {
-                ChatVideo { videoUrl = url }
+                ChatVideo {
+                    videoUrl = url
+                    posterUrl = posters[url]
+                }
             } else {
                 a {
                     className = ClassName("msg-link")
