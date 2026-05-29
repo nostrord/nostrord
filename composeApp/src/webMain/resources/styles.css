@@ -2991,7 +2991,11 @@ body {
    metadata phase is in flight (or queued behind the concurrency gate). */
 .msg-video-wrap {
     position: relative;
-    display: inline-block;
+    /* Block so the video breaks onto its own line (like .msg-image), but
+       fit-content keeps it shrink-wrapped to the video box so the play-button
+       overlay (inset: 0) still aligns to the 360px frame, not the full row. */
+    display: block;
+    width: fit-content;
     margin-top: 4px;
 }
 .msg-video-wrap .msg-video {
