@@ -30,6 +30,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
+import org.nostr.nostrord.web.components.YouTubeEmbed
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
@@ -2505,6 +2506,14 @@ private val URL_REGEX =
 private val IMAGE_EXT = Regex("\\.(jpg|jpeg|png|gif|webp|avif|svg)(\\?.*)?$", RegexOption.IGNORE_CASE)
 private val VIDEO_EXT = Regex("\\.(mp4|webm|mov|avi|mkv|m4v|ogv)(\\?.*)?$", RegexOption.IGNORE_CASE)
 
+// Detect YouTube links (watch / shorts / live / embed / youtu.be) and capture
+// the 11-char video id, mirroring the native MessageContentParser regex.
+private val YOUTUBE_REGEX =
+    Regex(
+        """(?:youtube\.com/(?:watch\?v=|shorts/|live/|embed/)|youtu\.be/)([\w-]{11})""",
+        RegexOption.IGNORE_CASE,
+    )
+
 private val CODE_BLOCK_REGEX = Regex("```(?:([A-Za-z0-9_+-]*)\n)?([\\s\\S]*?)```")
 private val INLINE_CODE_REGEX = Regex("`([^`\n]+)`")
 
@@ -2653,7 +2662,10 @@ private fun ChildrenBuilder.renderEntities(
             ChatImage { imageUrl = token }
         } else if (token.startsWith("http")) {
             val url = token.trimEnd('.', ',', ')', '!', '?', ';', ':')
-            if (IMAGE_EXT.containsMatchIn(url)) {
+            val youtubeId = YOUTUBE_REGEX.find(url)?.groupValues?.get(1)
+            if (youtubeId != null) {
+                YouTubeEmbed { videoId = youtubeId }
+            } else if (IMAGE_EXT.containsMatchIn(url)) {
                 ChatImage { imageUrl = url }
             } else if (VIDEO_EXT.containsMatchIn(url)) {
                 ChatVideo {
