@@ -721,7 +721,19 @@ val ChatScreen =
                     if (abs(drift) > 0.5) el.scrollTop = el.scrollTop + drift
                 }
             }
-            loadingOlder.current = false
+            // Do NOT release loadingOlder here. This layout effect is declared
+            // BEFORE the pin-to-bottom layout effect below, and React runs layout
+            // effects in declaration order on the same commit. The pin effect's
+            // first gate is `if (loadingOlder.current == true) return` — it bails
+            // on an in-flight pagination BEFORE it ever checks atBottom. If we
+            // cleared the latch here, the pin effect would see it false on the
+            // very render a prepended page lands and, whenever atBottom was left
+            // stale-true (group/relay-switch reset at entry + the auto-prefetch
+            // loop that fires loadMoreMessages without going through onScroll),
+            // jump the feed to the bottom. The settle effect (post-paint useEffect
+            // below) is the documented sole owner of the latch and clears it
+            // reliably once isLoadingMore transitions low. We only drop the anchor
+            // id so a re-run before settle doesn't re-correct against a stale row.
             anchorElementId.current = null
         }
         // When the controller settles (initial REQ ends, or a pagination
@@ -764,8 +776,17 @@ val ChatScreen =
             // re-check does NOT fire again. That confines loading to one page per
             // scroll-up gesture (native's "firstVisible <= 5" parity); the re-check
             // only re-fires for a degenerate no-growth page, mirroring native's snapshotFlow.
+            // Only auto-prefetch when the user is actually parked up in the
+            // history (atBottom == false). On group entry atBottom is reset to
+            // true and the feed is pinning to the bottom, but for a frame or two
+            // scrollTop is still near 0 (content/media not laid out yet) — without
+            // this gate that transient near-top reading fired a phantom prefetch,
+            // loading an extra page of OLDER messages that then prepended and made
+            // the pin-to-bottom effect jump the view. Native only paginates at
+            // firstVisible <= 5 (i.e. scrolled up), never while pinned to bottom;
+            // this matches that. The user-scroll prefetch in onScroll is unaffected.
             val prefetchTrigger = el.clientHeight.toDouble() * 0.5
-            if (el.scrollTop < prefetchTrigger) {
+            if (el.scrollTop < prefetchTrigger && atBottom.current != true) {
                 loadingOlder.current = true
                 // Browsers suppress scroll-anchoring while scrollTop == 0, so a
                 // prepend at the very top leaves scrollTop pinned at 0 and this
