@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
@@ -10,6 +11,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
+import org.nostr.nostrord.utils.decodeDataImageUri
 import org.nostr.nostrord.utils.getImageUrl
 
 /**
@@ -24,11 +26,13 @@ actual fun StaticImage(
     onError: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
+    // Inline base64 image: decode to bytes for Coil; otherwise use the optimized URL.
+    val model: Any = remember(url) { decodeDataImageUri(url) ?: getImageUrl(url) }
     AsyncImage(
         model =
         ImageRequest
             .Builder(context)
-            .data(getImageUrl(url))
+            .data(model)
             .crossfade(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)

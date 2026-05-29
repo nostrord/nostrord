@@ -16,6 +16,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
+import org.nostr.nostrord.utils.decodeDataImageUri
 import org.nostr.nostrord.utils.getImageUrl
 
 /**
@@ -31,16 +32,18 @@ actual fun StaticImage(
     onError: () -> Unit,
 ) {
     val context = LocalPlatformContext.current
+    // Inline base64 image: decode to bytes and hand them straight to Coil (no proxy/retry).
+    val dataBytes = remember(url) { decodeDataImageUri(url) }
     val optimizedUrl = remember(url) { getImageUrl(url) }
     var useOriginal by remember(url) { mutableStateOf(false) }
 
-    val dataUrl = if (useOriginal) url else optimizedUrl
+    val model: Any = dataBytes ?: if (useOriginal) url else optimizedUrl
 
     AsyncImage(
         model =
         ImageRequest
             .Builder(context)
-            .data(dataUrl)
+            .data(model)
             .crossfade(true)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)

@@ -39,8 +39,10 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.decodeDataImageUri
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.isAnimatedImageUrl
+import org.nostr.nostrord.utils.isDataImageUri
 
 @Composable
 fun ImageViewerModal(
@@ -50,6 +52,8 @@ fun ImageViewerModal(
     val uriHandler = LocalUriHandler.current
     val context = LocalPlatformContext.current
     val isAnimated = isAnimatedImageUrl(imageUrl)
+    // Inline base64 image: decode to bytes for Coil; remote URLs use the optimized URL.
+    val imageModel: Any = remember(imageUrl) { decodeDataImageUri(imageUrl) ?: getImageUrl(imageUrl) }
 
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
 
@@ -132,7 +136,7 @@ fun ImageViewerModal(
                         model =
                         ImageRequest
                             .Builder(context)
-                            .data(getImageUrl(imageUrl))
+                            .data(imageModel)
                             .crossfade(true)
                             .size(Size(1920, 1920)) // Cap decode size — display max is 1200dp
                             .memoryCachePolicy(CachePolicy.ENABLED)
@@ -171,26 +175,29 @@ fun ImageViewerModal(
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                IconButton(
-                    onClick = {
-                        try {
-                            uriHandler.openUri(imageUrl)
-                        } catch (_: Exception) {
-                        }
-                    },
-                    modifier =
-                    Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .pointerHoverIcon(PointerIcon.Hand),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = "Open in browser",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp),
-                    )
+                // Inline base64 images have no external URL to open.
+                if (!isDataImageUri(imageUrl)) {
+                    IconButton(
+                        onClick = {
+                            try {
+                                uriHandler.openUri(imageUrl)
+                            } catch (_: Exception) {
+                            }
+                        },
+                        modifier =
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                            .pointerHoverIcon(PointerIcon.Hand),
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = "Open in browser",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
 
                 IconButton(

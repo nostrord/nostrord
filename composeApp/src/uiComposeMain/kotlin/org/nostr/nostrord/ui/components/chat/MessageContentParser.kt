@@ -181,8 +181,10 @@ object MessageContentParser {
 
         // Pass 2: Parse remaining content with priority system
 
-        // Step 1: Find all URL matches (enhanced for video/audio detection)
-        val urlMatches = findUrls(contentWithPlaceholders)
+        // Step 1: Find all URL matches (enhanced for video/audio detection).
+        // Inline base64 data: images are found first and folded into the URL set so
+        // every downstream pass treats their ranges as already covered.
+        val urlMatches = findDataImages(contentWithPlaceholders) + findUrls(contentWithPlaceholders)
 
         // Step 2: Find relay URLs (ws://, wss://)
         val coveredByUrls = urlMatches.map { it.range }
@@ -366,6 +368,30 @@ object MessageContentParser {
             """https?://[^\s<>"]+""",
             RegexOption.IGNORE_CASE,
         )
+
+    /**
+     * Inline base64 image regex: `data:image/<type>;base64,<payload>`.
+     * The payload runs until the first non-base64 character (whitespace, etc.).
+     */
+    private val dataImageRegex =
+        Regex(
+            """data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+""",
+            RegexOption.IGNORE_CASE,
+        )
+
+    /** Tokens longer than this are left as text — a multi-MB blob isn't worth decoding into the list. */
+    private val maxDataImageLen = 12 * 1024 * 1024
+
+    /**
+     * Find inline base64 `data:image/...` tokens and emit them as image parts.
+     * Oversized blobs are skipped so they fall through to plain text rendering.
+     */
+    private fun findDataImages(content: String): List<ParsedMatch> = dataImageRegex
+        .findAll(content)
+        .mapNotNull { match ->
+            if (match.value.length > maxDataImageLen) return@mapNotNull null
+            ParsedMatch(match.range, ParsedPart.Image(match.value))
+        }.toList()
 
     /**
      * WebSocket relay URL regex (ws:// or wss://)

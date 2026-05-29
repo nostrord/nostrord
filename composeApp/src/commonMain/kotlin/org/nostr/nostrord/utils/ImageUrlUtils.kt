@@ -1,10 +1,39 @@
 package org.nostr.nostrord.utils
 
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
+
 /**
  * Returns the URL to use for loading an image.
  * Delegates to platform actuals, which should call [optimizeImageUrl] for CDN resizing.
  */
 expect fun getImageUrl(url: String): String
+
+/**
+ * True for a base64-encoded `data:image/...;base64,...` URI. These are embedded inline in
+ * event content by some clients instead of a remote URL. Native renderers decode them to
+ * bytes (see [decodeDataImageUri]); the web target hands the URI straight to an <img> tag.
+ */
+fun isDataImageUri(url: String): Boolean = url.startsWith("data:image/", ignoreCase = true) && url.contains(";base64,")
+
+/** Decoded payload above this size is refused, to keep a huge inline blob from janking the chat list. */
+private const val MAX_DATA_IMAGE_BYTES = 8 * 1024 * 1024
+
+/**
+ * Decodes the base64 payload of a [data:image][isDataImageUri] URI to raw bytes, or null when the
+ * URI is not a base64 data image, is malformed, or exceeds [MAX_DATA_IMAGE_BYTES].
+ */
+@OptIn(ExperimentalEncodingApi::class)
+fun decodeDataImageUri(url: String): ByteArray? {
+    if (!isDataImageUri(url)) return null
+    val base64 = url.substringAfter(";base64,", "")
+    if (base64.isEmpty() || (base64.length / 4L) * 3 > MAX_DATA_IMAGE_BYTES) return null
+    return try {
+        Base64.withPadding(Base64.PaddingOption.PRESENT_OPTIONAL).decode(base64)
+    } catch (_: Throwable) {
+        null
+    }
+}
 
 /** Max width we request from CDNs — 2x of the 400dp chat image max. */
 private const val CDN_MAX_WIDTH = 800
@@ -72,6 +101,9 @@ fun normalizeAnimatedUrl(url: String): String {
  * reduced network downloads.
  */
 fun optimizeImageUrl(url: String): String {
+    // data: URIs are self-contained — proxying through wsrv.nl would corrupt the base64.
+    if (isDataImageUri(url)) return url
+
     val normalized = normalizeAnimatedUrl(url)
     val lower = normalized.lowercase()
 
@@ -127,6 +159,10 @@ fun proxyViaWeserv(
  */
 fun isAnimatedImageUrl(url: String): Boolean {
     val lower = url.lowercase()
+    // Inline data: images — only gif/webp can animate; png/jpeg are always static.
+    if (lower.startsWith("data:image/")) {
+        return lower.startsWith("data:image/gif") || lower.startsWith("data:image/webp")
+    }
     if (lower.contains(".gif") || lower.contains(".webp")) return true
     val animatedHosts =
         listOf(

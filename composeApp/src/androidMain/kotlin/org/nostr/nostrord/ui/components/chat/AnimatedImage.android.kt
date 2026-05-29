@@ -16,6 +16,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
+import org.nostr.nostrord.utils.decodeDataImageUri
 import org.nostr.nostrord.utils.getImageUrl
 
 /**
@@ -40,6 +41,8 @@ actual fun AnimatedImage(
 ) {
     val context = LocalPlatformContext.current
     var loadError by remember(url) { mutableStateOf(false) }
+    // Inline base64 animation (gif/webp): decode to bytes so Coil's animated decoder runs on them.
+    val dataBytes = remember(url) { decodeDataImageUri(url) }
 
     if (loadError) {
         return
@@ -49,7 +52,7 @@ actual fun AnimatedImage(
         model =
         ImageRequest
             .Builder(context)
-            .data(getImageUrl(url))
+            .data(dataBytes ?: getImageUrl(url))
             .crossfade(false) // false: crossfade interferes with per-frame rendering
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
