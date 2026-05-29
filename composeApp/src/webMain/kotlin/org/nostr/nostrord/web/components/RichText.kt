@@ -61,6 +61,8 @@ fun ChildrenBuilder.renderAboutText(
             a {
                 className = ClassName("msg-link")
                 href = url
+                asDynamic().target = "_blank"
+                rel = "noopener noreferrer"
                 +url
             }
             if (url.length < token.length) +token.substring(url.length)
@@ -73,6 +75,8 @@ fun ChildrenBuilder.renderAboutText(
                     a {
                         className = ClassName("msg-link")
                         href = "https://njump.me/$bech"
+                        asDynamic().target = "_blank"
+                        rel = "noopener noreferrer"
                         +token
                     }
                 else -> +token

@@ -2676,6 +2676,8 @@ private fun ChildrenBuilder.renderEntities(
                 a {
                     className = ClassName("msg-link")
                     href = url
+                    asDynamic().target = "_blank"
+                    rel = "noopener noreferrer"
                     +url
                 }
             }
@@ -2711,6 +2713,8 @@ private fun ChildrenBuilder.renderEntities(
                         a {
                             className = ClassName("msg-link")
                             href = "https://njump.me/${token.removePrefix("nostr:")}"
+                            asDynamic().target = "_blank"
+                            rel = "noopener noreferrer"
                             +"[article]"
                         }
                     }
