@@ -68,6 +68,7 @@ class GroupViewModel(
         mentions: Map<String, String>,
         replyToId: String?,
         extraTags: List<List<String>> = emptyList(),
+        onSuccess: () -> Unit = {},
     ) {
         _isSending.value = true
         _sendError.value = null
@@ -93,7 +94,7 @@ class GroupViewModel(
                         }
                     _sendError.value = friendly
                 }
-                is Result.Success -> {}
+                is Result.Success -> onSuccess()
             }
             _isSending.value = false
         }

@@ -775,12 +775,16 @@ fun GroupScreen(
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
-                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
-                        messageInput = ""
-                        mentions = emptyMap()
-                        groupMentions = emptyMap()
-                        replyingToMessage = null
-                        pendingUploads = emptyList()
+                        // Clear only once the send succeeds (the input is read-only
+                        // while in flight). On failure the text stays so it can be
+                        // retried instead of being lost.
+                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags) {
+                            messageInput = ""
+                            mentions = emptyMap()
+                            groupMentions = emptyMap()
+                            replyingToMessage = null
+                            pendingUploads = emptyList()
+                        }
                     },
                     onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
                     onLeaveGroup = { showLeaveDialog = true },
@@ -893,12 +897,16 @@ fun GroupScreen(
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
-                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
-                        messageInput = ""
-                        mentions = emptyMap()
-                        groupMentions = emptyMap()
-                        replyingToMessage = null
-                        pendingUploads = emptyList()
+                        // Clear only once the send succeeds (the input is read-only
+                        // while in flight). On failure the text stays so it can be
+                        // retried instead of being lost.
+                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags) {
+                            messageInput = ""
+                            mentions = emptyMap()
+                            groupMentions = emptyMap()
+                            replyingToMessage = null
+                            pendingUploads = emptyList()
+                        }
                     },
                     onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
                     onLeaveGroup = { showLeaveDialog = true },

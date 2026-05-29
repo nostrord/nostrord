@@ -1548,6 +1548,11 @@ val ChatScreen =
                                 className = ClassName("composer-input")
                                 placeholder = "Message $groupName"
                                 value = draft
+                                // Lock typing while a send is in flight (e.g. a slow
+                                // NIP-46 signer round-trip). readOnly, not disabled, so
+                                // the field keeps focus for the next message. The draft
+                                // stays visible and is cleared only on success.
+                                readOnly = sending
                                 rows = 1
                                 onChange = { event ->
                                     val v = event.currentTarget.value

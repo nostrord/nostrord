@@ -477,6 +477,10 @@ fun MessageInput(
                     TextField(
                         value = textFieldValue,
                         onValueChange = { handleTextFieldValueChange(it) },
+                        // Lock typing while a send is in flight (e.g. a slow NIP-46
+                        // signer round-trip). readOnly, not disabled, so the field keeps
+                        // focus for the next message; the text clears only once sent.
+                        readOnly = isSending,
                         interactionSource = textFieldInteractionSource,
                         placeholder = {
                             Text(
