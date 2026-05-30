@@ -2493,22 +2493,36 @@ body {
     cursor: pointer;
 }
 
+/* Non-scrolling flex wrapper. .chat-messages-list is the scroller; this just gives
+   it a flex height and anchors the absolutely-positioned loading pill / FAB. */
 .chat-messages {
     flex: 1;
     min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+/* The Virtuoso scroller itself. Fills the wrapper; Virtuoso sets its own
+   overflow. The 16px block padding restores the feed's top/bottom breathing room
+   that the old container padding gave. */
+/* The actual scroller — renders all rows (non-virtualized). overflow-anchor:auto
+   keeps the visible content stable when a row ABOVE the viewport grows (a reaction
+   lands, a reply preview / image / video resolves its height) — issue #74. During
+   pagination the component flips it to 'none' (inline style) so it doesn't double-
+   adjust against the JS scrollHeight-delta restore, then back to 'auto'. */
+.chat-messages-list {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    /* Clip horizontal overflow at the feed level — the swipe-to-reply gesture
-       translateX's the row left, which otherwise leaks scroll onto the page. */
     overflow-x: hidden;
-    /* Browser scroll-anchoring: when content above the viewport mutates
-       (reactions land on older messages, an image two pages up resolves its
-       size), keep the user's visible message in place instead of letting the
-       feed jump. Default in modern browsers but pinned explicitly so we
-       don't lose it to a future cascade override. (issue #74) */
     overflow-anchor: auto;
     padding: 16px 0;
-    /* Anchor for the absolutely-positioned .chat-loading-more pill. */
-    position: relative;
+}
+/* Inner content wrapper — its height = total rows height; a ResizeObserver on it
+   re-pins to the bottom when content grows there (media/reactions) while following. */
+.chat-messages-inner {
+    display: flow-root;
 }
 /* Date separator: a centered label flanked by divider lines (mirrors the native DateSeparator). */
 .date-sep {

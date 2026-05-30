@@ -24,6 +24,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.ChatImage
+import org.nostr.nostrord.web.components.ChatMessageList
 import org.nostr.nostrord.web.components.ChatVideo
 import org.nostr.nostrord.web.components.EmojiPicker
 import org.nostr.nostrord.web.components.Ic
@@ -62,22 +63,13 @@ import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useEffect
 import react.useEffectOnce
-import react.useLayoutEffect
 import react.useRef
 import react.useState
 import web.cssom.ClassName
 import web.dom.ElementId
-import web.dom.document
 import web.html.HTMLDivElement
 import web.html.HTMLTextAreaElement
-import kotlin.js.Date
 import kotlin.math.abs
-
-// How long (ms) after an at-bottom pin the media-settle observer may still snap
-// the feed to the bottom. Long enough to cover async image/video metadata that
-// resolves right after entry or a fresh arrival; short enough that pressing play
-// on an old video later never yanks the user to the bottom.
-private const val MEDIA_SETTLE_WINDOW_MS = 4000.0
 
 external interface ChatScreenProps : Props {
     var group: GroupMetadata
@@ -442,39 +434,15 @@ val ChatScreen =
 
         // Scroll/pagination bookkeeping (refs so they don't trigger re-render).
         //
-        // Pagination restore anchors to a SPECIFIC DOM ELEMENT (the one at the
-        // top of the viewport when the prepend was triggered), then after the
-        // prepend lands we adjust scrollTop so that exact element ends up at
-        // the same offset from the viewport top it had before. This replaces
-        // the earlier `prevScrollTop + heightAdded` math, which broke whenever
-        // anything OTHER than the prepend changed scrollHeight between save and
-        // restore — new socket messages arriving in parallel, async images /
-        // videos resolving dimensions, reactions / replies adding height to
-        // existing rows. The anchor approach is robust to all of those because
-        // the element's offsetTop reflects whatever the DOM ended up as.
-        val loadingOlder = useRef(false)
-        // True once the isLoadingMore StateFlow has actually been observed high
-        // for the in-flight pagination. The flow lags the synchronous
-        // loadingOlder latch by however long it takes the fired coroutine to
-        // reach startPagination -> updateLegacyFlags -> re-render. During that
-        // lag window the settle effect must NOT reset the latch and re-fire, or
-        // it double-fetches the same window (HAR: two REQs, identical `until`,
-        // ~5ms apart, each pulling the same 50 events). This ref lets the settle
-        // effect tell "load still in flight, flow lagging" from "load completed".
-        val wasLoadingMore = useRef(false)
-        val anchorElementId = useRef<String>(null)
-        val anchorOffsetFromTop = useRef(0.0)
+        // Scroll + pagination (the latch, stall detection and scrollHeight-restore)
+        // all live inside ChatMessageList now; this screen only mirrors the at-bottom
+        // state for the FAB / divider dismissal.
         val atBottom = useRef(true)
-        // Timestamp (epoch ms) until which the media-settle observer may snap the
-        // feed to the bottom. The ResizeObserver / chat-content-loaded handler
-        // keeps the newest content pinned while async media resolves its height,
-        // but only for a short window after a legitimate at-bottom pin (entry or a
-        // fresh arrival). Without this bound the observer stays armed all session,
-        // so pressing play on an old video later (its onLoadedMetadata fires
-        // chat-content-loaded; after an overnight suspend the dropped decoder
-        // leaves the saved scroll within the at-bottom slack) would re-grow the
-        // element and yank the user to the bottom.
-        val mediaSettleUntil = useRef(0.0)
+        // Commands to the list (ChatMessageList owns the scroll container ref):
+        // scrollKey jumps to a row (deep-link / reply), jumpNonce jumps to bottom.
+        val (scrollKey, setScrollKey) = useState<String?> { null }
+        val (jumpNonce, setJumpNonce) = useState { 0 }
+
         // "New messages" divider snapshot. Captured once on group entry, then
         // cleared the first time the user scrolls up and back down to the bottom
         // (issue #83 — divider sticks around after the user has clearly read them).
@@ -482,18 +450,6 @@ val ChatScreen =
         // doesn't clear it immediately on entry.
         val (lastReadSnapshot, setLastReadSnapshot) = useState<Long?> { null }
         val wasNotAtBottom = useRef(false)
-        // True once we've performed the entry alignment to the divider (Telegram
-        // behaviour — open the chat at the top of the new messages, not at the
-        // bottom). Gates both the alignment effect itself (one-shot per group
-        // entry) and the entry-time auto-pin-to-bottom in the auto-scroll effect.
-        val openedAtDivider = useRef(false)
-        // True for a brief window right after the entry alignment lands on the
-        // divider. While set, the media ResizeObserver re-snaps the divider to
-        // the top of the viewport as images above it resolve height, so the user
-        // ends up exactly on "New Messages" instead of drifting into the middle
-        // of the feed. Cleared on a timer (media settles fast) and guarded by a
-        // proximity check so it never yanks a user who has scrolled away.
-        val dividerSettling = useRef(false)
         // Mirror of atBottom for re-renders the FAB needs. The ref stays as the
         // hot-path source of truth for the scroll handler; setAtBottomState is
         // only invoked on the transition so we don't re-render every scroll tick.
@@ -518,10 +474,6 @@ val ChatScreen =
         // Colored mirror behind the textarea (gold @mentions). Its scroll is kept in
         // sync with the textarea so glyphs stay aligned once the field scrolls.
         val composerHighlightRef = useRef<HTMLDivElement>(null)
-        // Debounce handle for the per-visible mark-as-read pass (Gap 3). Cleared
-        // on every scroll tick so we only commit after the scroll settles for
-        // 500ms — same cadence the native MessagesList snapshotFlow uses.
-        val markReadDebounce = useRef<Int>(null)
         useEffect(replyingToId) {
             if (replyingToId != null) composerInputRef.current?.focus()
         }
@@ -579,9 +531,6 @@ val ChatScreen =
             // through the session. Native does the same with remember(groupId).
             setLastReadSnapshot(repo.getLastReadTimestamp(group.id))
             wasNotAtBottom.current = false
-            loadingOlder.current = false
-            wasLoadingMore.current = false
-            openedAtDivider.current = false
             // Reset atBottom to true on group entry. Without this, the ref
             // carries the PREVIOUS group's value across the ChatScreen re-
             // render: if the user was reading mid-feed in group A (atBottom
@@ -705,260 +654,19 @@ val ChatScreen =
             val pubkeys = (members + messages.map { it.pubkey }).toSet()
             if (pubkeys.isNotEmpty()) launchApp { repo.requestUserMetadata(pubkeys) }
         }
-        // Sum of all reactions across all messages — used as a stable scalar
-        // dependency so the auto-scroll effect re-fires when a reaction lands
-        // (otherwise reactions appearing under the user's viewport on a near-
-        // bottom feed would not re-pin to bottom). Cheap: O(messages).
-        val reactionCount = reactionsByMsg.values.sumOf { it.size }
-        // Pagination scroll preservation. When older messages prepend above the
-        // viewport, two mechanisms keep the user pinned to the same message: the
-        // browser's overflow-anchor: auto on .chat-messages does the bulk of the
-        // work, and this layout effect corrects whatever it misses by re-aligning
-        // the SPECIFIC element captured at scroll-up time (anchorElementId) to the
-        // exact offset-from-top it had before the prepend.
-        //
-        // Reading the anchor's LIVE getBoundingClientRect post-prepend (rather
-        // than the old `prevScrollTop + heightAdded` math) is what makes this safe
-        // to layer on top of overflow-anchor: if the browser already nailed it the
-        // measured drift is ~0 and we no-op; if it overshot (the failure the user
-        // saw as the feed jumping to the top when older messages loaded) we nudge
-        // scrollTop by the drift to put the anchor back where it was. It also
-        // absorbs async media inside the freshly-prepended rows resolving their
-        // height between the prepend and this effect, which overflow-anchor alone
-        // does not always catch. Runs pre-paint so the correction is never visible.
-        useLayoutEffect(messages.size) {
-            if (loadingOlder.current != true) return@useLayoutEffect
-            val el = document.getElementById(ElementId("chat-messages"))
-            val anchorId = anchorElementId.current
-            if (el != null && !anchorId.isNullOrBlank()) {
-                val anchorEl = document.getElementById(ElementId(anchorId))
-                if (anchorEl != null) {
-                    val containerTop = el.getBoundingClientRect().top
-                    val currentOffset = anchorEl.getBoundingClientRect().top - containerTop
-                    val drift = currentOffset - (anchorOffsetFromTop.current ?: 0.0)
-                    if (abs(drift) > 0.5) el.scrollTop = el.scrollTop + drift
-                }
-            }
-            // Do NOT release loadingOlder here. This layout effect is declared
-            // BEFORE the pin-to-bottom layout effect below, and React runs layout
-            // effects in declaration order on the same commit. The pin effect's
-            // first gate is `if (loadingOlder.current == true) return` — it bails
-            // on an in-flight pagination BEFORE it ever checks atBottom. If we
-            // cleared the latch here, the pin effect would see it false on the
-            // very render a prepended page lands and, whenever atBottom was left
-            // stale-true (group/relay-switch reset at entry + the auto-prefetch
-            // loop that fires loadMoreMessages without going through onScroll),
-            // jump the feed to the bottom. The settle effect (post-paint useEffect
-            // below) is the documented sole owner of the latch and clears it
-            // reliably once isLoadingMore transitions low. We only drop the anchor
-            // id so a re-run before settle doesn't re-correct against a stale row.
-            anchorElementId.current = null
-        }
-        // When the controller settles (initial REQ ends, or a pagination
-        // round-trips — success, failure, or "all-duplicates no-op"), release
-        // the latch and re-check whether the user is still parked near the
-        // top. The latch was set when we (or the scroll handler) kicked
-        // loadMoreMessages; it MUST be released on every transition out of
-        // loading, not only on messages.size growing, because a failed /
-        // empty page never grows the list and would otherwise wedge the
-        // latch forever. Native's snapshotFlow side-steps this by reading
-        // `hasMore && !isLoadingMore` continuously — we approximate that
-        // by clearing the latch here.
-        useEffect(hasMore, isLoadingMore, messages.size) {
-            if (isLoadingMore) {
-                // Load confirmed in flight — remember it so the completion pass
-                // below can tell a finished load from the pre-flow lag window.
-                wasLoadingMore.current = true
-                return@useEffect
-            }
-            // isLoadingMore is false. If our latch is set but we never saw the
-            // flow go high, a loadMore we fired is still in flight and the
-            // StateFlow just hasn't caught up — do NOT reset the latch or fire a
-            // second load, or we double-fetch the same `until` window. The fired
-            // coroutine clears the latch itself if no load actually started (see
-            // the launchApp blocks), so this can't wedge.
-            if (loadingOlder.current == true && wasLoadingMore.current != true) return@useEffect
-            wasLoadingMore.current = false
-            loadingOlder.current = false
-            anchorElementId.current = null
-            // Match native's `totalItems > 0` precondition: on cold-boot the
-            // controller is Idle so hasMore/isLoadingMore both fall back to
-            // `?: true` / `?: false`. Without this guard the very first
-            // render would fire a phantom loadMoreMessages on an empty list.
-            if (messages.isEmpty()) return@useEffect
-            if (!hasMore) return@useEffect
-            val el = document.getElementById(ElementId("chat-messages")) ?: return@useEffect
-            // Same near-top threshold as the onScroll handler below. Keep it small
-            // (~half a viewport) so a freshly prepended 50-message page — which is
-            // far taller than this — pushes scrollTop past it and this post-load
-            // re-check does NOT fire again. That confines loading to one page per
-            // scroll-up gesture (native's "firstVisible <= 5" parity); the re-check
-            // only re-fires for a degenerate no-growth page, mirroring native's snapshotFlow.
-            // Only auto-prefetch when the user is actually parked up in the
-            // history (atBottom == false). On group entry atBottom is reset to
-            // true and the feed is pinning to the bottom, but for a frame or two
-            // scrollTop is still near 0 (content/media not laid out yet) — without
-            // this gate that transient near-top reading fired a phantom prefetch,
-            // loading an extra page of OLDER messages that then prepended and made
-            // the pin-to-bottom effect jump the view. Native only paginates at
-            // firstVisible <= 5 (i.e. scrolled up), never while pinned to bottom;
-            // this matches that. The user-scroll prefetch in onScroll is unaffected.
-            val prefetchTrigger = el.clientHeight.toDouble() * 0.5
-            if (el.scrollTop < prefetchTrigger && atBottom.current != true) {
-                loadingOlder.current = true
-                // Browsers suppress scroll-anchoring while scrollTop == 0, so a
-                // prepend at the very top leaves scrollTop pinned at 0 and this
-                // effect re-fires page after page ("stuck at the top"). Nudge 1px
-                // off the top so overflow-anchor engages for this prepend and
-                // pushes the view down past the new page, ending the loop.
-                if (el.scrollTop <= 0.0) el.scrollTop = 1.0
-                // Skip the anchor capture path: the user is not actively
-                // scrolling here, so the browser's overflow-anchor: auto
-                // handles the prepend on its own. Clear the latch if no load
-                // actually started so this re-check isn't wedged shut.
-                launchApp { if (!repo.loadMoreMessages(group.id)) loadingOlder.current = false }
-            }
-        }
-        // Pin to bottom when the user was already there. useLayoutEffect (pre-
-        // paint) so the user sees the scrolled-to-bottom state directly on first
-        // paint instead of briefly seeing the unscrolled feed for one frame.
-        // Also runs before the entry-alignment layout effect below — without the
-        // pre-paint scheduling, the user would see a bottom-flash followed by a
-        // divider-flash on entry (the "pisca sobe-desce" the user reported).
-        useLayoutEffect(messages.size, reactionCount) {
-            // While a deep-link target (?e=) is pending, the seek effect owns scrolling. atBottom
-            // is true on entry, so without this the auto-scroll would pin the view to the bottom on
-            // every page the seek loads — the target would load but never come into view (mirrors
-            // native's AutoScrollEffect `enabled = !isSeekingTarget`).
-            if (props.scrollToMessageId != null) return@useLayoutEffect
-            if (loadingOlder.current == true) return@useLayoutEffect
-            val el = document.getElementById(ElementId("chat-messages")) ?: return@useLayoutEffect
-            if (atBottom.current == true) {
-                el.scrollTop = el.scrollHeight.toDouble()
-                // Open the media-settle window so async images/videos in the
-                // just-pinned newest content can re-snap as they resolve height.
-                mediaSettleUntil.current = Date.now() + MEDIA_SETTLE_WINDOW_MS
-                // Messages seen at the bottom are read — clear their unread + notification entries.
-                repo.markGroupAsRead(group.id)
-            }
-        }
-        // Entry alignment to the "New messages" divider — the Telegram pattern.
-        // useLayoutEffect (pre-paint) so the user lands directly on the divider
-        // without flashing through the pinned-to-bottom state above first.
-        //
-        // We scroll to the divider DOM element itself (not to the first unread
-        // message). The earlier "look up msg-${firstUnread.id}" approach broke
-        // on socket-heavy streams of joins / leaves: messages.firstOrNull picked
-        // up a 9021 / 9022 event (no msg-${id} element exists for those — they
-        // render as system rows), the lookup silently returned null, the latch
-        // never flipped, and the effect re-fired on every new socket frame until
-        // a kind:9 happened to satisfy the filter and pulled the viewport into
-        // the middle of the feed. Anchoring to the divider element bypasses the
-        // whole id-lookup race; the divider is computed by buildWebChatItems
-        // with a kind:9 filter so it only appears where it should.
-        useLayoutEffect(messages.size, lastReadSnapshot) {
-            if (openedAtDivider.current == true) return@useLayoutEffect
-            if (messages.isEmpty()) return@useLayoutEffect
-            if (props.scrollToMessageId != null) return@useLayoutEffect
-            if (lastReadSnapshot == null) return@useLayoutEffect
-            val dividerEl = document.getElementById(ElementId("new-msg-divider")) ?: return@useLayoutEffect
-            // block: 'start' puts the divider line at the top of the viewport —
-            // same framing Telegram uses on entry.
-            dividerEl.asDynamic().scrollIntoView(js("({ behavior: 'auto', block: 'start' })"))
-            openedAtDivider.current = true
-            // Hold the divider in place while above-the-fold media settles, then
-            // release so the user is free to scroll without being snapped back.
-            dividerSettling.current = true
-            window.setTimeout({ dividerSettling.current = false }, 1_200)
-            // Mark not-at-bottom so subsequent auto-scrolls don't yank the view
-            // down, and prime the round-trip gate so the divider dismissal still
-            // works once the user reaches the bottom.
-            atBottom.current = false
-            setAtBottomState(false)
-            wasNotAtBottom.current = true
-        }
-        // Keep the feed pinned to the bottom while async media settles. Async
-        // images / videos resolve their final dimensions AFTER the initial pin
-        // fires; the feed grows under the user and leaves them mid-scroll.
-        //
-        // The chat-content-loaded CustomEvent (from ChatImage.onLoad /
-        // ChatVideo.onLoadedMetadata) was the first attempt at this but it
-        // loses cached-image loads that fire synchronously before this effect
-        // attaches. The ResizeObserver below catches every media element's
-        // intrinsic-size change regardless of cache state, and a
-        // MutationObserver attaches it to media added later (pagination, new
-        // arrivals) so a single setup covers the whole session. (issue #74)
-        useEffect(group.id) {
-            val pinIfAtBottom = {
-                // Don't adjust while the pagination restore is mid-flight — the
-                // ResizeObserver fires for images loading inside freshly-prepended
-                // messages (above the viewport), and we'd otherwise yank the
-                // user from their read position.
-                if (props.scrollToMessageId == null && loadingOlder.current != true) {
-                    val el = document.getElementById(ElementId("chat-messages"))
-                    if (el != null) {
-                        if (atBottom.current == true && Date.now() < (mediaSettleUntil.current ?: 0.0)) {
-                            el.scrollTop = el.scrollHeight.toDouble()
-                        } else if (dividerSettling.current == true) {
-                            // Re-anchor the entry divider as media above it loads,
-                            // but only while it's still near the viewport — if the
-                            // user has already scrolled well away, leave them be.
-                            val dividerEl = document.getElementById(ElementId("new-msg-divider"))
-                            if (dividerEl != null) {
-                                val containerTop = el.getBoundingClientRect().top
-                                val dividerTop = dividerEl.getBoundingClientRect().top
-                                if (abs(dividerTop - containerTop) < el.clientHeight.toDouble()) {
-                                    dividerEl.asDynamic()
-                                        .scrollIntoView(js("({ behavior: 'auto', block: 'start' })"))
-                                }
-                            }
-                        }
-                    }
-                }
-                Unit
-            }
-            document.asDynamic().addEventListener("chat-content-loaded", { _: dynamic -> pinIfAtBottom() })
-            // Inline JS: kotlin-react has no first-class ResizeObserver /
-            // MutationObserver bindings and writing it this way matches the
-            // pattern already used by installGlobalModalFocusTrap.
-            val cleanup =
-                js(
-                    """
-                    (function(onResize) {
-                        var container = document.getElementById('chat-messages');
-                        if (!container) return function() {};
-                        var ro = new ResizeObserver(function() { onResize(); });
-                        function observeIn(node) {
-                            if (!node || node.nodeType !== 1) return;
-                            if (node.tagName === 'IMG' || node.tagName === 'VIDEO') {
-                                ro.observe(node);
-                            }
-                            if (node.querySelectorAll) {
-                                var media = node.querySelectorAll('img, video');
-                                for (var i = 0; i < media.length; i++) ro.observe(media[i]);
-                            }
-                        }
-                        // Seed with what's already mounted (covers cached images
-                        // whose load event already fired before this ran).
-                        observeIn(container);
-                        var mo = new MutationObserver(function(records) {
-                            for (var i = 0; i < records.length; i++) {
-                                var added = records[i].addedNodes;
-                                for (var j = 0; j < added.length; j++) observeIn(added[j]);
-                            }
-                        });
-                        mo.observe(container, { childList: true, subtree: true });
-                        return function() { ro.disconnect(); mo.disconnect(); };
-                    })
-                """,
-                )
-            val disconnect = cleanup(pinIfAtBottom)
-            try {
-                kotlinx.coroutines.awaitCancellation()
-            } finally {
-                disconnect()
-            }
-        }
+        // The full ordered row list (date separators, grouped messages, system rows,
+        // the "new messages" divider) — fed to ChatMessageList as its data. Scroll,
+        // pagination latch and stall detection all live inside that component now.
+        val chatItems = if (messages.isEmpty()) emptyList() else buildWebChatItems(messages, lastReadSnapshot, myPubkey)
+        // Open at the bottom (newest) and let Virtuoso's followOutput keep it there
+        // as the initial pages stream in. We deliberately do NOT auto-scroll to the
+        // "New messages" divider on entry: during the connect/initial-load churn
+        // (the controller cycles Idle -> InitialLoading several times) that
+        // scrollToIndex fought followOutput and made the feed lurch up and down. The
+        // divider row still renders in place so the user sees where unread begins;
+        // it's just not auto-jumped to. (followOutput + per-item resize compensation
+        // are handled by Virtuoso, so the old DOM scroll / ResizeObserver effects
+        // that lived here are gone.)
         // Deep-link target (?e=<id>): fetch the exact event by id once. This is the fast path —
         // a single targeted REQ that lands the message even when it's far older than the loaded
         // window, instead of paginating the whole history (mirrors native's fetchMessageById).
@@ -974,19 +682,12 @@ val ChatScreen =
         useEffect(props.scrollToMessageId, messages.size, hasMore, isLoadingMore) {
             val target = props.scrollToMessageId ?: return@useEffect
             if (target in messagesById) {
-                val el = document.getElementById(ElementId("msg-$target")) ?: return@useEffect
-                // Instant centering — smooth gets interrupted by the pagination re-renders. Pin
-                // atBottom off so the auto-scroll effect can't yank the view back to the bottom
-                // once the target is consumed and a late page lands.
-                val center = js("({ behavior: 'auto', block: 'center' })")
-                el.asDynamic().scrollIntoView(center)
+                // Command ChatMessageList to scroll the target row into view (by its
+                // DOM id, msg-<id>).
+                setScrollKey("msg-$target")
                 atBottom.current = false
                 setHighlightId(target)
                 props.onScrolledToMessage()
-                // Re-center after late avatars/images above the target shift the layout.
-                window.setTimeout({
-                    document.getElementById(ElementId("msg-$target"))?.asDynamic()?.scrollIntoView(center)
-                }, 400)
                 window.setTimeout({ setHighlightId(null) }, 3_000)
             } else if (messages.isNotEmpty() && hasMore && !isLoadingMore) {
                 launchApp { repo.loadMoreMessages(group.id) }
@@ -1021,9 +722,9 @@ val ChatScreen =
         }
 
         // Scroll a loaded message into view and flash it (used by reply-preview clicks).
+        // Commands ChatMessageList via scrollKey (the row's DOM id, msg-<id>).
         fun scrollToMessage(id: String) {
-            val el = document.getElementById(ElementId("msg-$id")) ?: return
-            el.asDynamic().scrollIntoView(js("({ behavior: 'smooth', block: 'center' })"))
+            setScrollKey("msg-$id")
             setHighlightId(id)
             window.setTimeout({ setHighlightId(null) }, 2_600)
         }
@@ -1184,121 +885,19 @@ val ChatScreen =
                     }
                 }
 
-                // Messages
+                // Messages — non-scrolling flex wrapper; Virtuoso (below) owns the
+                // scroll, pagination and scroll anchoring.
                 div {
                     className = ClassName("chat-messages")
-                    id = ElementId("chat-messages")
-                    onScroll = { event ->
-                        val el = event.currentTarget
-                        val sh = el.scrollHeight.toDouble()
-                        // Keep this threshold BELOW a single mouse-wheel notch (~100px on most
-                        // systems; 120 happens to match the classic WHEEL_DELTA). With 120 a single
-                        // wheel-up near the bottom stayed "at bottom", so the next arriving message /
-                        // reaction re-fired the pin-to-bottom layout effect and yanked the feed back to
-                        // the latest message, eating the user's scroll. 48px absorbs sub-pixel / bottom-
-                        // padding jitter while letting one wheel notch reliably exit the at-bottom state.
-                        val isAtBottom = (sh - el.scrollTop - el.clientHeight.toDouble()) < 48.0
-                        // Only push to React state on the transition so the FAB
-                        // doesn't trigger a re-render on every scroll tick.
-                        if (atBottom.current != isAtBottom) {
-                            atBottom.current = isAtBottom
-                            setAtBottomState(isAtBottom)
-                        }
-                        // "New messages" divider: gate dismissal on a round-trip — only
-                        // clear once the user has scrolled away from the bottom AND back.
-                        // Without the round-trip check, the entry auto-pin-to-bottom would
-                        // wipe the divider on first paint and the user would never see it.
-                        // (issue #83)
-                        if (!isAtBottom) {
-                            wasNotAtBottom.current = true
-                        } else if (wasNotAtBottom.current == true && lastReadSnapshot != null) {
-                            setLastReadSnapshot(null)
-                        }
-                        // Partial-read tracking (Gap 3): on scroll settle, find the
-                        // largest createdAt among messages whose bottom is at or
-                        // above the viewport bottom (i.e., fully read) and advance
-                        // lastReadTimestamp to that. Mirrors native's per-visible
-                        // snapshotFlow — fixes "scroll one, mark all read".
-                        markReadDebounce.current?.let { window.clearTimeout(it) }
-                        markReadDebounce.current =
-                            window.setTimeout(
-                                {
-                                    val viewportBottom = el.scrollTop + el.clientHeight.toDouble()
-                                    // .asDynamic() makes the chain dynamic — calling
-                                    // .asDynamic() again on item(i) compiles into a JS
-                                    // method invocation and blows up at runtime.
-                                    val msgEls = el.asDynamic().querySelectorAll("[id^='msg-']")
-                                    val len = (msgEls.length as Int)
-                                    var maxSeen = 0L
-                                    for (i in 0 until len) {
-                                        val m = msgEls.item(i)
-                                        val msgBottom =
-                                            (m.offsetTop as Number).toDouble() +
-                                                (m.offsetHeight as Number).toDouble()
-                                        if (msgBottom > viewportBottom) continue
-                                        val msgId = (m.id as String).removePrefix("msg-")
-                                        val msg = messagesById[msgId] ?: continue
-                                        if (msg.createdAt > maxSeen) maxSeen = msg.createdAt
-                                    }
-                                    if (maxSeen > 0L) {
-                                        repo.markGroupAsReadUpTo(group.id, maxSeen)
-                                    }
-                                },
-                                500,
-                            )
-                        // Trigger pagination as the user nears the top — half a
-                        // viewport of headroom (native loads at "firstVisible <= 5",
-                        // i.e. close to the top, not 2 screens early). The old 2-screen
-                        // value re-armed the post-load effect because a 50-message page
-                        // rarely cleared it, loading page after page in a burst and
-                        // making the feed jump. Half a viewport guarantees one prepended
-                        // page clears the zone, so each scroll-up gesture loads one page.
-                        val prefetchTrigger = el.clientHeight.toDouble() * 0.5
-                        if (el.scrollTop < prefetchTrigger && hasMore && !isLoadingMore && loadingOlder.current != true) {
-                            loadingOlder.current = true
-                            // At the very top (scrollTop == 0) browsers suppress
-                            // scroll-anchoring, so the prepend would keep us pinned
-                            // at 0 and load page after page. Nudge 1px down so
-                            // overflow-anchor engages and the next page pushes the
-                            // view past it (one page per scroll-up gesture).
-                            if (el.scrollTop <= 0.0) el.scrollTop = 1.0
-                            // Pick the first child whose top is at or below the
-                            // container's top — that's the row anchored to the
-                            // viewport's top edge. Record its id and the offset
-                            // from the container top; the layout effect re-finds
-                            // it post-prepend and aligns scrollTop accordingly.
-                            // Falls back to math if no suitable anchor is found
-                            // (e.g., only skeletons in the DOM, no message id'd).
-                            val containerTop = el.getBoundingClientRect().top
-                            val children = el.asDynamic().children
-                            val childCount = (children.length as Int)
-                            var foundAnchor = false
-                            for (i in 0 until childCount) {
-                                val child = children[i]
-                                val childId = (child.id as? String) ?: continue
-                                if (childId.isBlank()) continue
-                                val childTop = (child.getBoundingClientRect().top as Number).toDouble()
-                                if (childTop >= containerTop - 1.0) {
-                                    anchorElementId.current = childId
-                                    anchorOffsetFromTop.current = childTop - containerTop
-                                    foundAnchor = true
-                                    break
-                                }
-                            }
-                            if (!foundAnchor) anchorElementId.current = null
-                            // Release the latch (and drop the stale anchor) if no
-                            // load actually started — keeps the next scroll-up
-                            // from being blocked by a wedged latch.
-                            launchApp {
-                                if (!repo.loadMoreMessages(group.id)) {
-                                    loadingOlder.current = false
-                                    anchorElementId.current = null
-                                }
-                            }
-                        }
-                    }
                     if (isLoadingMore && messages.isNotEmpty()) {
                         div {
+                            // Stable key: this pill is a sibling rendered BEFORE the
+                            // message list and toggles with isLoadingMore. Without
+                            // keys, React reconciles the wrapper's children by index,
+                            // so the pill appearing/disappearing shifted the list's
+                            // index and REMOUNTED it — and each remount snapped the
+                            // feed to the bottom (the pagination "jump to bottom").
+                            key = "chat-loading-pill"
                             className = ClassName("chat-loading-more")
                             +"Loading earlier messages…"
                         }
@@ -1316,12 +915,15 @@ val ChatScreen =
                     val isLoadingThis = isLoadingMore ||
                         groupLoadingState is GroupLoadingState.InitialLoading ||
                         groupLoadingState is GroupLoadingState.Retrying
-                    // Restricted / pending-approval gate FIRST: when the relay
-                    // refused the messages REQ ("restricted") or the user is
-                    // joined but not yet in kind:39002, native renders a
-                    // lock-icon panel instead of skeletons or the empty state
-                    // (MessagesList.kt:412-446). Show the same on web.
-                    if (isGroupRestricted || isPendingApproval) {
+                    // Restricted / pending-approval / skeleton / empty panels apply
+                    // ONLY when there are no messages. Once messages exist we always
+                    // render the list (the final else). This is essential: isMember /
+                    // canPost / isPendingApproval / isGroupRestricted all derive from
+                    // flows that flip while loading (member list / restricted flag
+                    // arrive late); if the panel could win with messages present, that
+                    // flip would unmount and remount ChatMessageList, and each remount
+                    // snapped the feed to the bottom (the pagination "jump to bottom").
+                    if (messages.isEmpty() && (isGroupRestricted || isPendingApproval)) {
                         div {
                             className = ClassName("chat-restricted")
                             icon(Ic.Lock, "chat-restricted-icon")
@@ -1348,90 +950,135 @@ val ChatScreen =
                             +"No messages yet. Say hello 👋"
                         }
                     } else {
-                        buildWebChatItems(messages, lastReadSnapshot, myPubkey).forEach { item ->
-                            when (item) {
-                                is WebChatItem.DateSeparator ->
-                                    div {
-                                        key = "date-${item.date}"
-                                        // Stable DOM id for the pagination scroll-anchor restore.
-                                        id = ElementId("date-${item.date}")
-                                        className = ClassName("date-sep")
-                                        span {
-                                            className = ClassName("date-sep-label")
-                                            +item.date
-                                        }
-                                    }
+                        // Non-virtualized message list: renders every row as DOM and
+                        // keeps the reading position on prepend with a scrollHeight
+                        // delta. This screen owns the data; the component owns scroll +
+                        // pagination. (aliases avoid the prop-name shadowing the locals.)
+                        val moreAvail = hasMore
+                        val loadingMore = isLoadingMore
+                        ChatMessageList {
+                            // Stable key so the list is never remounted when a sibling
+                            // (the loading pill) toggles — a remount snaps to the bottom.
+                            key = "chat-message-list"
+                            items = chatItems.toTypedArray().unsafeCast<Array<dynamic>>()
+                            keyOf = { chatItemKey(it.unsafeCast<WebChatItem>()) }
+                            resetKey = group.id
+                            this.hasMore = moreAvail
+                            this.isLoadingMore = loadingMore
+                            oldestTs = (messages.minOfOrNull { it.createdAt } ?: 0L).toDouble()
+                            scrollToKey = scrollKey
+                            onScrolledToKey = { setScrollKey(null) }
+                            this.jumpNonce = jumpNonce
+                            onStartReached = { launchApp { repo.loadMoreMessages(group.id) } }
+                            onAtBottomChange = { ab ->
+                                atBottom.current = ab
+                                setAtBottomState(ab)
+                                if (!ab) {
+                                    wasNotAtBottom.current = true
+                                } else {
+                                    if (wasNotAtBottom.current == true && lastReadSnapshot != null) setLastReadSnapshot(null)
+                                    repo.markGroupAsRead(group.id)
+                                }
+                            }
+                            onRangeChange = { end ->
+                                // Mark read up to the newest message in/above the
+                                // visible window (mirrors native's per-visible pass).
+                                var maxSeen = 0L
+                                val e = end.coerceIn(0, chatItems.size - 1)
+                                for (i in 0..e) {
+                                    val ci = chatItems[i]
+                                    if (ci is WebChatItem.Message && ci.message.createdAt > maxSeen) maxSeen = ci.message.createdAt
+                                }
+                                if (maxSeen > 0L) repo.markGroupAsReadUpTo(group.id, maxSeen)
+                            }
+                            renderRow = { cb, itDyn ->
+                                val item = itDyn.unsafeCast<WebChatItem>()
+                                cb.run {
+                                    when (item) {
+                                        is WebChatItem.DateSeparator ->
+                                            div {
+                                                key = "date-${item.date}"
+                                                // Stable DOM id for the pagination scroll-anchor restore.
+                                                id = ElementId("date-${item.date}")
+                                                className = ClassName("date-sep")
+                                                span {
+                                                    className = ClassName("date-sep-label")
+                                                    +item.date
+                                                }
+                                            }
 
-                                is WebChatItem.NewMessagesDivider ->
-                                    div {
-                                        key = "new-messages-divider"
-                                        // Stable DOM id so the entry-alignment effect can
-                                        // scrollIntoView the divider itself rather than the
-                                        // adjacent message (which fails for moderation rows
-                                        // that have no msg-${id} element).
-                                        id = ElementId("new-msg-divider")
-                                        className = ClassName("new-msg-divider")
-                                        span {
-                                            className = ClassName("new-msg-divider-label")
-                                            +"New Messages"
-                                        }
-                                    }
+                                        is WebChatItem.NewMessagesDivider ->
+                                            div {
+                                                key = "new-messages-divider"
+                                                // Stable DOM id so the entry-alignment effect can
+                                                // scrollIntoView the divider itself rather than the
+                                                // adjacent message (which fails for moderation rows
+                                                // that have no msg-${id} element).
+                                                id = ElementId("new-msg-divider")
+                                                className = ClassName("new-msg-divider")
+                                                span {
+                                                    className = ClassName("new-msg-divider-label")
+                                                    +"New Messages"
+                                                }
+                                            }
 
-                                is WebChatItem.SystemEvent -> systemEventRow(item, userMetadata) { setProfilePubkey(it) }
+                                        is WebChatItem.SystemEvent -> systemEventRow(item, userMetadata) { setProfilePubkey(it) }
 
-                                is WebChatItem.Message -> {
-                                    val message = item.message
-                                    val parent = parentMessageOf(message)?.let { messagesById[it] }
-                                    val replyPreview =
-                                        parent?.let {
-                                            ReplyPreviewData(
-                                                author = displayName(it.pubkey, userMetadata[it.pubkey]),
-                                                content = processMentions(it.content, userMetadata)
-                                                    .replace('\n', ' ')
-                                                    .trim()
-                                                    .take(120),
-                                                tags = it.tags,
-                                            )
+                                        is WebChatItem.Message -> {
+                                            val message = item.message
+                                            val parent = parentMessageOf(message)?.let { messagesById[it] }
+                                            val replyPreview =
+                                                parent?.let {
+                                                    ReplyPreviewData(
+                                                        author = displayName(it.pubkey, userMetadata[it.pubkey]),
+                                                        content = processMentions(it.content, userMetadata)
+                                                            .replace('\n', ' ')
+                                                            .trim()
+                                                            .take(120),
+                                                        tags = it.tags,
+                                                    )
+                                                }
+                                            val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
+                                            val authorMeta = userMetadata[message.pubkey]
+                                            val zapInfo = zapsByMsg[message.id]
+                                            MessageRow {
+                                                key = message.id
+                                                domId = "msg-${message.id}"
+                                                highlighted = message.id == highlightId
+                                                pubkey = message.pubkey
+                                                name = displayName(message.pubkey, userMetadata[message.pubkey])
+                                                avatarUrl = userMetadata[message.pubkey]?.picture
+                                                time = formatTime(message.createdAt)
+                                                content = message.content
+                                                this.tags = message.tags
+                                                this.firstInGroup = item.firstInGroup
+                                                isAuthorAdmin = message.pubkey in admins
+                                                reactions = reactionsByMsg[message.id].orEmpty()
+                                                this.myPubkey = myPubkey
+                                                this.userMetadata = userMetadata
+                                                this.messagesById = messagesById
+                                                onEventRef = { id -> scrollToMessage(id) }
+                                                onGroupRef = { gid, relay -> props.onNavigateGroup(gid, relay) }
+                                                canZap =
+                                                    message.pubkey != myPubkey &&
+                                                    (!authorMeta?.lud16.isNullOrBlank() || !authorMeta?.lud06.isNullOrBlank())
+                                                zapTotalMsats = zapInfo?.totalMsats ?: 0L
+                                                zapCount = zapInfo?.count ?: 0
+                                                zappedByMe = myPubkey != null && zapInfo != null && myPubkey in zapInfo.zappers
+                                                onZap = { WebZapController.request(message.pubkey, message.id) }
+                                                replyTo = replyPreview
+                                                onReplyClick = { parent?.let { scrollToMessage(it.id) } }
+                                                canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
+                                                messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
+                                                eventJson = eventJsonOf(message)
+                                                onUser = { setProfilePubkey(it) }
+                                                onReply = { setReplyingToId(message.id) }
+                                                onReact = { emoji ->
+                                                    repo.sendReaction(group.id, message.id, message.pubkey, emoji)
+                                                }
+                                                onDelete = { setMessageToDelete(message.id) }
+                                            }
                                         }
-                                    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://")
-                                    val authorMeta = userMetadata[message.pubkey]
-                                    val zapInfo = zapsByMsg[message.id]
-                                    MessageRow {
-                                        key = message.id
-                                        domId = "msg-${message.id}"
-                                        highlighted = message.id == highlightId
-                                        pubkey = message.pubkey
-                                        name = displayName(message.pubkey, userMetadata[message.pubkey])
-                                        avatarUrl = userMetadata[message.pubkey]?.picture
-                                        time = formatTime(message.createdAt)
-                                        content = message.content
-                                        this.tags = message.tags
-                                        this.firstInGroup = item.firstInGroup
-                                        isAuthorAdmin = message.pubkey in admins
-                                        reactions = reactionsByMsg[message.id].orEmpty()
-                                        this.myPubkey = myPubkey
-                                        this.userMetadata = userMetadata
-                                        this.messagesById = messagesById
-                                        onEventRef = { id -> scrollToMessage(id) }
-                                        onGroupRef = { gid, relay -> props.onNavigateGroup(gid, relay) }
-                                        canZap =
-                                            message.pubkey != myPubkey &&
-                                            (!authorMeta?.lud16.isNullOrBlank() || !authorMeta?.lud06.isNullOrBlank())
-                                        zapTotalMsats = zapInfo?.totalMsats ?: 0L
-                                        zapCount = zapInfo?.count ?: 0
-                                        zappedByMe = myPubkey != null && zapInfo != null && myPubkey in zapInfo.zappers
-                                        onZap = { WebZapController.request(message.pubkey, message.id) }
-                                        replyTo = replyPreview
-                                        onReplyClick = { parent?.let { scrollToMessage(it.id) } }
-                                        canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
-                                        messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
-                                        eventJson = eventJsonOf(message)
-                                        onUser = { setProfilePubkey(it) }
-                                        onReply = { setReplyingToId(message.id) }
-                                        onReact = { emoji ->
-                                            repo.sendReaction(group.id, message.id, message.pubkey, emoji)
-                                        }
-                                        onDelete = { setMessageToDelete(message.id) }
                                     }
                                 }
                             }
@@ -1452,13 +1099,11 @@ val ChatScreen =
                         )
                         title = "Jump to latest message"
                         onClick = {
-                            val el = document.getElementById(ElementId("chat-messages"))
-                            if (el != null) {
-                                el.scrollTop = el.scrollHeight.toDouble()
-                                // Tapping the FAB is an explicit "I've seen everything"
-                                // intent — dismiss the divider for this session.
-                                if (lastReadSnapshot != null) setLastReadSnapshot(null)
-                            }
+                            // Command ChatMessageList to jump to the newest row.
+                            setJumpNonce { it + 1 }
+                            // Tapping the FAB is an explicit "I've seen everything"
+                            // intent — dismiss the divider for this session.
+                            if (lastReadSnapshot != null) setLastReadSnapshot(null)
                         }
                         // Chevron, not the bold arrow — matches native's
                         // KeyboardArrowDown in MessagesList.kt:644.
