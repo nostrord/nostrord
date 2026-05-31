@@ -333,7 +333,12 @@ fun MessageContent(
                                         },
                                     )
                                 } else {
-                                    // Direct video file — inline platform player
+                                    // Direct video file — inline platform player.
+                                    // Bound to the same 360x300dp box as images and
+                                    // the web's .msg-video: the player's aspectRatio
+                                    // falls back to the height cap, so a portrait
+                                    // video stays contained instead of filling the
+                                    // column.
                                     PlatformVideoPlayer(
                                         url = firstPart.url,
                                         thumbnailUrl = imetaThumbnails[firstPart.url],
@@ -344,7 +349,9 @@ fun MessageContent(
                                             } catch (_: Exception) {
                                             }
                                         },
-                                        modifier = Modifier,
+                                        modifier = Modifier
+                                            .widthIn(max = 360.dp)
+                                            .heightIn(max = 300.dp),
                                     )
                                 }
                             }
