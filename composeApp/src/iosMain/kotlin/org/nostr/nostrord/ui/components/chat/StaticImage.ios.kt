@@ -1,9 +1,13 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import coil3.BitmapImage
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
@@ -11,6 +15,8 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.size.Size
+import org.nostr.nostrord.ui.image.ImageBackdrop
+import org.nostr.nostrord.ui.image.decideImageBackdrop
 import org.nostr.nostrord.utils.decodeDataImageUri
 import org.nostr.nostrord.utils.getImageUrl
 
@@ -28,6 +34,7 @@ actual fun StaticImage(
     val context = LocalPlatformContext.current
     // Inline base64 image: decode to bytes for Coil; otherwise use the optimized URL.
     val model: Any = remember(url) { decodeDataImageUri(url) ?: getImageUrl(url) }
+    var backdrop by remember(url) { mutableStateOf<ImageBackdrop?>(null) }
     AsyncImage(
         model =
         ImageRequest
@@ -40,11 +47,36 @@ actual fun StaticImage(
             .build(),
         contentDescription = "Image",
         contentScale = contentScale,
-        modifier = modifier,
+        modifier = modifier.chatImageBackdrop(backdrop),
         onState = { state ->
-            if (state is AsyncImagePainter.State.Error) {
-                onError()
+            when (state) {
+                is AsyncImagePainter.State.Success ->
+                    backdrop = sampleImageArgb(state.result.image)?.let(::decideImageBackdrop)
+                is AsyncImagePainter.State.Error -> onError()
+                else -> {}
             }
         },
     )
+}
+
+/** iOS (Skia): sample the decoded [org.jetbrains.skia.Bitmap] on a 24x24 grid. */
+actual fun sampleImageArgb(image: coil3.Image): IntArray? {
+    val bitmap = (image as? BitmapImage)?.bitmap ?: return null
+    return try {
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 0 || h <= 0) return null
+        val n = 24
+        val out = IntArray(n * n)
+        for (y in 0 until n) {
+            val py = y * (h - 1) / (n - 1)
+            for (x in 0 until n) {
+                val px = x * (w - 1) / (n - 1)
+                out[y * n + x] = bitmap.getColor(px, py)
+            }
+        }
+        out
+    } catch (_: Throwable) {
+        null
+    }
 }

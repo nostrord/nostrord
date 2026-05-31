@@ -45,6 +45,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.nostr.nostrord.network.createHttpClient
+import org.nostr.nostrord.ui.image.ImageBackdrop
+import org.nostr.nostrord.ui.image.decideImageBackdrop
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.decodeDataImageUri
 import org.nostr.nostrord.utils.getImageUrl
@@ -69,6 +71,7 @@ fun ImageViewerModal(
     var isDownloading by remember { mutableStateOf(false) }
 
     var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+    var backdrop by remember(imageUrl) { mutableStateOf<ImageBackdrop?>(null) }
 
     var scale by remember { mutableStateOf(1f) }
     var offsetX by remember { mutableStateOf(0f) }
@@ -164,11 +167,17 @@ fun ImageViewerModal(
                             .fillMaxWidth(0.95f)
                             .fillMaxHeight(0.85f)
                             .clip(RoundedCornerShape(12.dp))
+                            .chatImageBackdrop(backdrop, padding = 12.dp)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
                             ) { },
-                        onState = { imageState = it },
+                        onState = { state ->
+                            imageState = state
+                            if (state is AsyncImagePainter.State.Success) {
+                                backdrop = sampleImageArgb(state.result.image)?.let(::decideImageBackdrop)
+                            }
+                        },
                     )
                 }
             }
