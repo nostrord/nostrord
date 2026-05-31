@@ -7,8 +7,10 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
+import org.nostr.nostrord.web.components.aboutMentionPubkeys
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.renderAboutText
 import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
@@ -17,6 +19,7 @@ import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.span
 import react.useEffect
+import react.useState
 import web.cssom.ClassName
 
 external interface UserProfileModalProps : Props {
@@ -31,8 +34,12 @@ external interface UserProfileModalProps : Props {
  */
 val UserProfileModal =
     FC<UserProfileModalProps> { props ->
-        val pubkey = props.pubkey
-        val meta = useStateFlow(AppModule.nostrRepository.userMetadata)[pubkey]
+        // Track the viewed pubkey internally so a mention tapped in the bio can
+        // swap this modal to that profile in place (reset when the prop changes).
+        val (pubkey, setPubkey) = useState { props.pubkey }
+        useEffect(props.pubkey) { setPubkey(props.pubkey) }
+        val allMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
+        val meta = allMeta[pubkey]
         val npub = Nip19.encodeNpub(pubkey)
         val name =
             meta?.displayName?.takeIf { it.isNotBlank() }
@@ -43,6 +50,11 @@ val UserProfileModal =
 
         useEffect(pubkey) {
             launchApp { AppModule.nostrRepository.requestUserMetadata(setOf(pubkey)) }
+        }
+        // Resolve @names for any npub/nprofile mentioned in the bio.
+        useEffect(meta?.about) {
+            val pks = aboutMentionPubkeys(meta?.about ?: "")
+            if (pks.isNotEmpty()) launchApp { AppModule.nostrRepository.requestUserMetadata(pks) }
         }
         useEscClose { props.onClose() }
 
@@ -112,7 +124,7 @@ val UserProfileModal =
                         }
                         div {
                             className = ClassName("info-about")
-                            +(meta?.about ?: "")
+                            renderAboutText(meta?.about ?: "", allMeta) { setPubkey(it) }
                         }
                     }
 

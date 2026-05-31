@@ -12,6 +12,7 @@ import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.useEffectOnce
+import react.useState
 import web.cssom.ClassName
 
 /**
@@ -73,12 +74,38 @@ val ImageViewerHost =
                         icon(Ic.Close)
                     }
                 }
-                img {
-                    className = ClassName("img-viewer-img" + (current.backdrop?.let { " $it" } ?: ""))
-                    src = url
-                    alt = ""
-                    onClick = { it.stopPropagation() }
+                ViewerImage {
+                    // Remount per image so the CORS-fallback state resets between views.
+                    key = url
+                    this.url = url
+                    backdrop = current.backdrop
                 }
+            }
+        }
+    }
+
+private external interface ViewerImageProps : Props {
+    var url: String
+    var backdrop: String?
+}
+
+/**
+ * The fullscreen <img>. Loads with crossOrigin="anonymous" to match [ChatImage] so it reuses the
+ * CORS cache entry the thumbnail already populated instead of triggering a second (non-CORS)
+ * download. Falls back to a plain load if the host sends no CORS headers, same as the thumbnail.
+ */
+private val ViewerImage =
+    FC<ViewerImageProps> { props ->
+        val (corsBlocked, setCorsBlocked) = useState { false }
+        img {
+            className = ClassName("img-viewer-img" + (props.backdrop?.let { " $it" } ?: ""))
+            if (!corsBlocked) asDynamic().crossOrigin = "anonymous"
+            src = props.url
+            alt = ""
+            onClick = { it.stopPropagation() }
+            onError = {
+                if (!corsBlocked) setCorsBlocked(true)
+                Unit
             }
         }
     }

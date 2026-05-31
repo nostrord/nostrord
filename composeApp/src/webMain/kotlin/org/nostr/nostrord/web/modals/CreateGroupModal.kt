@@ -192,6 +192,8 @@ val CreateGroupModal =
                     a {
                         className = ClassName("inline-link")
                         href = relayWebUrl
+                        asDynamic().target = "_blank"
+                        rel = "noopener noreferrer"
                         +"Open →"
                     }
                 }

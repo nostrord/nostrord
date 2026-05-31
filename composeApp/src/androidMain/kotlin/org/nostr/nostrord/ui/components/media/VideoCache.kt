@@ -42,7 +42,11 @@ object VideoCache {
     @Synchronized
     fun initialize(
         context: Context,
-        upstreamFactory: DataSource.Factory = DefaultHttpDataSource.Factory(),
+        // allowCrossProtocolRedirects: media CDNs (nostr.build, Blossom mirrors)
+        // often redirect, sometimes across http/https; without this the load
+        // fails on the redirect instead of following it.
+        upstreamFactory: DataSource.Factory =
+            DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true),
     ) {
         if (simpleCache != null) return
         val cacheDir = File(context.cacheDir, CACHE_DIR_NAME).apply { mkdirs() }

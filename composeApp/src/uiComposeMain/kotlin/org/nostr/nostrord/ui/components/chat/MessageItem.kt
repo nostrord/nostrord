@@ -92,6 +92,7 @@ fun MessageItem(
     isAuthor: Boolean = false,
     isAdmin: Boolean = false,
     reactions: Map<String, GroupManager.ReactionInfo> = emptyMap(),
+    pendingReactionEmojis: Set<String> = emptySet(),
     currentUserPubkey: String? = null,
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
@@ -437,13 +438,14 @@ fun MessageItem(
                         onNavigateToGroup = onNavigateToGroup,
                     )
 
-                    // Reaction badges
-                    if (reactions.isNotEmpty()) {
+                    // Reaction badges (plus spinner placeholders for in-flight reactions)
+                    if (reactions.isNotEmpty() || pendingReactionEmojis.isNotEmpty()) {
                         ReactionBadges(
                             reactions = reactions,
                             currentUserPubkey = currentUserPubkey,
                             resolveMetadata = resolveMetadata,
                             onReactionClick = onReactionBadgeClick,
+                            pendingEmojis = pendingReactionEmojis,
                         )
                     }
 

@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.utils.decodeDataImageUri
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.normalizeAnimatedUrl
 import org.nostr.nostrord.utils.proxyViaWeserv
@@ -135,6 +136,10 @@ actual fun AnimatedImage(
         val decoded: List<Pair<ImageBitmap, Int>> =
             withContext(Dispatchers.IO) {
                 try {
+                    // Inline base64 animation: decode the payload directly, no HTTP fetch.
+                    val inlineBytes = decodeDataImageUri(url)
+                    if (inlineBytes != null) return@withContext decodeBytes(inlineBytes)
+
                     // Try optimized URL first (proxy + Giphy page→media conversion)
                     val optimizedUrl = getImageUrl(normalizeAnimatedUrl(url))
                     val bytes = fetchWithTimeout(optimizedUrl)

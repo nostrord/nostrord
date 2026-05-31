@@ -3,12 +3,15 @@ package org.nostr.nostrord.web.modals
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.settings.NotificationLevel
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.aboutMentionPubkeys
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.renderAboutText
 import org.nostr.nostrord.web.components.useEscClose
 import react.ChildrenBuilder
 import react.FC
@@ -17,6 +20,8 @@ import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.span
+import react.useEffect
+import react.useState
 import web.cssom.ClassName
 
 external interface GroupInfoModalProps : Props {
@@ -37,6 +42,15 @@ val GroupInfoModal =
         val groupLevels = useStateFlow(notificationSettings.groupLevels)
         val defaultLevel = useStateFlow(notificationSettings.defaultLevel)
         val level = groupLevels[group.id] ?: defaultLevel
+        val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
+        // Mention click in the description opens that user's profile on top.
+        val (profilePubkey, setProfilePubkey) = useState<String?> { null }
+        // Resolve @names for any npub/nprofile in the description (native RichAboutText
+        // does the same fetch pass) so mentions show display names, not raw npubs.
+        useEffect(group.about) {
+            val pks = aboutMentionPubkeys(group.about ?: "")
+            if (pks.isNotEmpty()) launchApp { AppModule.nostrRepository.requestUserMetadata(pks) }
+        }
         useEscClose { props.onClose() }
 
         div {
@@ -100,7 +114,7 @@ val GroupInfoModal =
                         }
                         div {
                             className = ClassName("info-about")
-                            +group.about
+                            renderAboutText(group.about, userMetadata) { setProfilePubkey(it) }
                         }
                     }
 
@@ -139,6 +153,14 @@ val GroupInfoModal =
                         }
                     }
                 }
+            }
+        }
+
+        // A mention tapped in the description opens that profile over this modal.
+        profilePubkey?.let { pk ->
+            UserProfileModal {
+                pubkey = pk
+                onClose = { setProfilePubkey(null) }
             }
         }
     }

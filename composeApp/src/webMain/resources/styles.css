@@ -62,9 +62,19 @@
 
 html, body {
     width: 100%;
+    /* --app-height (set from window.innerHeight in index.html) is the visible
+       viewport. dvh/100% are fallbacks for the first paint before the script
+       runs and for engines where it is unavailable. */
     height: 100%;
+    height: 100dvh;
+    height: var(--app-height, 100dvh);
     margin: 0;
     padding: 0;
+    /* The app owns its own scroll regions (.chat-messages, .notif-list,
+       .login-page). Locking the document prevents the whole shell from
+       scrolling on mobile, which is what let the chat header slide off the top
+       and the composer drift up from the bottom. */
+    overflow: hidden;
 }
 
 body {
@@ -85,6 +95,7 @@ body {
 
 #composeApplication {
     width: 100%;
+    /* Fills body, which is sized from --app-height. */
     height: 100%;
 }
 
@@ -102,7 +113,9 @@ body {
 
 /* ===================== Login ===================== */
 .login-page {
-    min-height: 100vh;
+    /* Bounded height (not min-height) so the document stays locked and the page
+       scrolls within itself via overflow-y. */
+    height: 100%;
     overflow-y: auto;
     padding: 24px;
     display: flex;
@@ -666,7 +679,8 @@ body {
 /* ===================== Shell (logged in) ===================== */
 .layout {
     display: flex;
-    height: 100vh;
+    /* Fills #composeApplication, which is sized from --app-height. */
+    height: 100%;
 }
 
 .nav-panels {
@@ -917,7 +931,9 @@ body {
 .sidebar-search-icon {
     position: absolute;
     left: 14px;
-    top: calc(50% + 1px);
+    /* Container padding is 2px top / 6px bottom, so the geometric 50% sits 2px
+       below the 28px input's true center. Offset back up to line up with it. */
+    top: calc(50% - 2px);
     transform: translateY(-50%);
     width: 12px;
     height: 12px;
@@ -933,7 +949,7 @@ body {
     width: 100%;
     height: 28px;
     box-sizing: border-box;
-    padding: 0 6px 0 26px;
+    padding: 0 26px 0 26px;
     font-size: 12px;
     font-family: inherit;
     color: var(--color-text-primary);
@@ -945,6 +961,15 @@ body {
 
 .sidebar-search-input::placeholder {
     color: var(--color-text-muted);
+}
+
+.sidebar-search-clear {
+    right: 14px;
+    top: calc(50% - 2px);
+}
+.sidebar-search-clear > svg {
+    width: 12px;
+    height: 12px;
 }
 
 .sidebar-section-toggle {
@@ -983,6 +1008,17 @@ body {
     color: var(--color-text-muted);
 }
 
+/* Empty/loading hint under a section ("No other groups", "Loading groups…",
+   "No groups found"). Native renders these as a 12sp muted line padded by
+   Spacing.md; the section-label style is bold and flush-left, which read as a
+   header and sat misaligned with the group rows. Left padding (8px row margin +
+   10px row padding) lines the text up with the rows above it. */
+.sidebar-empty-hint {
+    padding: 4px 18px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
 .sidebar-group {
     /* Native row: padding start=10dp end=10dp top=7dp bottom=7dp, Spacer width=6dp
        between the 22dp avatar and the 15sp label. Web was 8px gap / 7px 8px padding,
@@ -1014,6 +1050,26 @@ body {
 }
 .sidebar-group.orphan:hover {
     background: transparent;
+}
+/* Orphan row body: stacked "Unavailable group" + truncated id, mirroring the
+   native OrphanedGroupItem Column (13sp name over a 10sp muted id). */
+.sidebar-orphan-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+.sidebar-orphan-text .sidebar-group-name {
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+.sidebar-orphan-id {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .sidebar-group-forget {
     margin-left: auto;
@@ -1157,7 +1213,10 @@ body {
 .content {
     flex: 1;
     min-width: 0;
-    height: 100vh;
+    /* Fills the shell row height (which comes from --app-height) so the column
+       never exceeds the visible viewport and the chat header/composer stay
+       pinned on mobile. */
+    height: 100%;
     display: flex;
     flex-direction: column;
     background: var(--color-background);
@@ -1166,6 +1225,10 @@ body {
 .content-screen {
     flex: 1;
     min-height: 0;
+    /* Safety net for full-height views without their own scroll region (e.g.
+       onboarding on short screens). Chat and notifications fit exactly and own
+       their internal scroll, so this never double-scrolls them. */
+    overflow-y: auto;
 }
 
 .connection-banner {
@@ -2126,12 +2189,15 @@ body {
 @media (max-width: 600px) {
     .modal-card {
         width: 100%;
-        max-height: 100vh;
-        border-radius: 0;
+        /* Keep the base 16px rounding (no border-radius: 0 here) and cap height
+           at the overlay content box so the 16px overlay padding stays visible
+           top and bottom — all four rounded corners show instead of the card
+           bleeding into the browser bar. */
+        max-height: 100%;
     }
 
     .modal-card.relay-modal {
-        max-height: 100vh;
+        max-height: 100%;
     }
 }
 
@@ -2331,6 +2397,11 @@ body {
     z-index: 5;
     transition: filter 0.15s;
 }
+/* When a reply banner is open above the composer, raise the FAB so it never
+   overlaps the banner's close (X) button. */
+.chat-jump-bottom.replying {
+    bottom: 110px;
+}
 .chat-jump-bottom:hover {
     filter: brightness(1.08);
 }
@@ -2409,8 +2480,8 @@ body {
 
 .chat-members-btn {
     flex-shrink: 0;
-    width: 40px;
-    height: 40px;
+    width: 34px;
+    height: 34px;
     display: none;
     align-items: center;
     justify-content: center;
@@ -2422,22 +2493,34 @@ body {
     cursor: pointer;
 }
 
+/* Non-scrolling flex wrapper. .chat-messages-list is the scroller; this just gives
+   it a flex height and anchors the absolutely-positioned loading pill / FAB. */
 .chat-messages {
     flex: 1;
     min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+/* The actual scroller — renders all rows (non-virtualized). overflow-anchor:auto is
+   what keeps the visible content stable while reading history: the browser holds the
+   anchored row fixed when older pages are prepended above AND when avatars/images/videos
+   above the viewport finish loading and change height (issue #74). The component flips it
+   to 'none' (inline) only while pinned at the bottom following the feed, where anchoring
+   would fight the bottom-pin. */
+.chat-messages-list {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    /* Clip horizontal overflow at the feed level — the swipe-to-reply gesture
-       translateX's the row left, which otherwise leaks scroll onto the page. */
     overflow-x: hidden;
-    /* Browser scroll-anchoring: when content above the viewport mutates
-       (reactions land on older messages, an image two pages up resolves its
-       size), keep the user's visible message in place instead of letting the
-       feed jump. Default in modern browsers but pinned explicitly so we
-       don't lose it to a future cascade override. (issue #74) */
     overflow-anchor: auto;
     padding: 16px 0;
-    /* Anchor for the absolutely-positioned .chat-loading-more pill. */
-    position: relative;
+}
+/* Inner content wrapper — its height = total rows height; a ResizeObserver on it
+   re-pins to the bottom when content grows there (media/reactions) while following. */
+.chat-messages-inner {
+    display: flow-root;
 }
 /* Date separator: a centered label flanked by divider lines (mirrors the native DateSeparator). */
 .date-sep {
@@ -2916,6 +2999,20 @@ body {
     background: #000;
 }
 
+/* Wrap so the loading spinner can overlay the reserved <video> box while the
+   metadata phase is in flight (or queued behind the concurrency gate). */
+.msg-video-wrap {
+    position: relative;
+    /* Block so the video breaks onto its own line (like .msg-image), but
+       fit-content keeps it shrink-wrapped to the video box so the play-button
+       overlay (inset: 0) still aligns to the 360px frame, not the full row. */
+    display: block;
+    width: fit-content;
+    margin-top: 4px;
+}
+.msg-video-wrap .msg-video {
+    margin-top: 0;
+}
 /* Fallback shown when a <video> fires its error event (host CDN flaky, bad
    Content-Type, src not supported). Replaces the dead-black <video> box and
    gives the user a single click to retry without reloading the whole site. */
@@ -2951,6 +3048,98 @@ body {
 }
 .msg-video-retry:hover {
     filter: brightness(1.1);
+}
+
+/* Tap-to-load placeholder shown in place of any inline media when
+   Settings > Media > Auto-load media is off. Clicking reveals the real
+   image / video / YouTube embed for that single item (nothing is fetched
+   before the click). */
+.msg-media-gate {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: min(360px, 100%);
+    min-height: 64px;
+    margin-top: 4px;
+    padding: 12px 16px;
+    background: var(--color-input);
+    border: 1px dashed var(--color-divider);
+    border-radius: 8px;
+    color: var(--color-text-content);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s, border-color 0.12s;
+}
+.msg-media-gate:hover {
+    background: var(--color-hover);
+    border-color: var(--color-text-secondary);
+}
+.msg-media-gate-icon {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    background: var(--color-text-content);
+    -webkit-mask: center / contain no-repeat;
+    mask: center / contain no-repeat;
+}
+/* Image: framed picture with a mountain + sun. */
+.msg-media-gate-icon.image {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000'%3E%3Cpath d='M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000'%3E%3Cpath d='M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E");
+}
+/* Video: play triangle inside a rounded frame. */
+.msg-media-gate-icon.video {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000'%3E%3Cpath d='M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 4.5v7l5-3.5z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000'%3E%3Cpath d='M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 4.5v7l5-3.5z'/%3E%3C/svg%3E");
+}
+
+/* Inline YouTube preview: a 16:9 thumbnail with a centered play button,
+   matching the native YouTubeLinkCard. Clicking swaps to an iframe embed. */
+.msg-youtube {
+    position: relative;
+    display: block;
+    width: 100%;
+    max-width: 400px;
+    aspect-ratio: 16 / 9;
+    margin-top: 4px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #000;
+}
+.msg-youtube-thumb,
+.msg-youtube-frame {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+.msg-youtube-thumb {
+    object-fit: cover;
+}
+.msg-youtube-play {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.15);
+}
+.msg-youtube-play:hover {
+    background: rgba(0, 0, 0, 0.25);
+}
+.msg-youtube-play::after {
+    content: "";
+    width: 64px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(255, 0, 0, 0.85);
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23fff'%3E%3Cpath d='M8 5v14l11-7z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
 }
 
 .msg-event-ref,
@@ -3183,7 +3372,7 @@ body {
     cursor: pointer;
 }
 .msg-reply:hover {
-    background: rgba(47, 49, 54, 0.9);
+    background: linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)), rgba(47, 49, 54, 0.5);
 }
 
 .msg-reply-bar {
@@ -3257,6 +3446,25 @@ body {
     color: var(--color-primary);
     background: rgba(88, 101, 242, 0.15);
     border-color: var(--color-primary);
+}
+
+/* In-flight reaction (signEvent + relay round-trip not yet done). Dimmed and
+   non-interactive, with a small muted spinner in place of the reactor avatars.
+   Replaced by the real badge once the optimistic update lands. */
+.reaction-badge.pending {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.reaction-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--color-surface-variant);
+    border-top-color: var(--color-text-muted);
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
 }
 
 .reaction-count {
@@ -3585,7 +3793,8 @@ body {
 
 .member-search-input {
     width: 100%;
-    padding: 6px 10px 6px 32px;
+    box-sizing: border-box;
+    padding: 6px 34px 6px 32px;
     font-size: 13px;
     font-family: inherit;
     color: var(--color-text-primary);
@@ -3597,6 +3806,10 @@ body {
 
 .member-search-input::placeholder {
     color: var(--color-text-muted);
+}
+
+.member-search-clear {
+    right: 21px;
 }
 
 .member-scroll {
@@ -4661,6 +4874,9 @@ body {
     line-height: 1.5;
     color: var(--color-text-content);
     overflow-wrap: anywhere;
+    /* Preserve newlines in bios/descriptions so each line lands on its own row,
+       matching native (which renders the raw text with its line breaks). */
+    white-space: pre-wrap;
 }
 
 .info-id-row {
@@ -4756,6 +4972,9 @@ body {
 
 .chat-join-btn {
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 8px 18px;
     font-size: 13px;
     font-weight: 600;
@@ -4764,6 +4983,10 @@ body {
     border: none;
     border-radius: 8px;
     cursor: pointer;
+}
+.chat-join-btn > svg {
+    width: 16px;
+    height: 16px;
 }
 
 .chat-pending {
@@ -4806,6 +5029,30 @@ body {
     height: 14px;
 }
 
+/* Mobile: header join/invite buttons collapse to icon-only to save the
+   cramped horizontal space (the labels stay on the desktop header). Sized
+   to match the other 40x40 header buttons (chat-icon-btn/chat-members-btn). */
+@media (max-width: 900px) {
+    .chat-join-btn > span,
+    .chat-invite-btn > span {
+        display: none;
+    }
+    .chat-join-btn,
+    .chat-invite-btn {
+        gap: 0;
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        justify-content: center;
+        margin-right: 0;
+    }
+    .chat-join-btn > svg,
+    .chat-invite-btn > svg {
+        width: 20px;
+        height: 20px;
+    }
+}
+
 /* "Members are private" / "Members hidden until approved" panel in
    the right sidebar (mirrors MemberSidebar.kt:296-324). Centered lock
    icon + label, takes over the slot the member list usually fills. */
@@ -4845,6 +5092,9 @@ body {
 
 .composer-join-btn {
     flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     padding: 8px 18px;
     font-size: 13px;
     font-weight: 600;
@@ -4853,6 +5103,10 @@ body {
     border: none;
     border-radius: 8px;
     cursor: pointer;
+}
+.composer-join-btn > svg {
+    width: 16px;
+    height: 16px;
 }
 
 .composer-join-btn:hover {
@@ -5371,6 +5625,22 @@ body {
     background: var(--color-primary);
 }
 
+.home-search-wrap {
+    position: relative;
+    display: flex;
+}
+
+.home-search-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    fill: var(--color-text-muted);
+    pointer-events: none;
+}
+
 .home-search {
     /* Native PickGroupSearch (HomeScreenDesktop.kt:353): fillMaxWidth(),
        height 40.dp, RoundedCornerShape(4.dp), horizontal padding 12.dp.
@@ -5379,7 +5649,7 @@ body {
     width: 100%;
     height: 40px;
     box-sizing: border-box;
-    padding: 0 12px;
+    padding: 0 38px 0 38px;
     font-size: 13px;
     font-family: inherit;
     color: var(--color-text-primary);
@@ -5391,6 +5661,35 @@ body {
 
 .home-search::placeholder {
     color: var(--color-text-muted);
+}
+
+.home-search-wrap .search-clear-btn {
+    right: 10px;
+}
+
+/* Clear (X) button shown inside a search field when it has text. Mirrors the
+   native trailing-icon clear: click or press Esc to empty the field. */
+.search-clear-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.search-clear-btn:hover {
+    color: var(--color-text-primary);
+}
+
+.search-clear-btn > svg {
+    width: 16px;
+    height: 16px;
 }
 
 .home-grid {

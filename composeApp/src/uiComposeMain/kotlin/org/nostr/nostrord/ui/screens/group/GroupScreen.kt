@@ -92,6 +92,7 @@ fun GroupScreen(
     val relayMetadata by vm.relayMetadata.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
     val allReactions by vm.reactions.collectAsState()
+    val pendingReactions by vm.pendingReactions.collectAsState()
     val allGroupMembers by vm.groupMembers.collectAsState()
     val allGroupAdmins by vm.groupAdmins.collectAsState()
     val loadingMembersSet by vm.loadingMembers.collectAsState()
@@ -762,6 +763,7 @@ fun GroupScreen(
                     isAdmin = isAdmin,
                     userMetadata = userMetadata,
                     reactions = allReactions,
+                    pendingReactions = pendingReactions,
                     currentUserPubkey = currentUserPubkey,
                     messageInput = messageInput,
                     onMessageInputChange = { messageInput = it },
@@ -773,12 +775,16 @@ fun GroupScreen(
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
-                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
-                        messageInput = ""
-                        mentions = emptyMap()
-                        groupMentions = emptyMap()
-                        replyingToMessage = null
-                        pendingUploads = emptyList()
+                        // Clear only once the send succeeds (the input is read-only
+                        // while in flight). On failure the text stays so it can be
+                        // retried instead of being lost.
+                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags) {
+                            messageInput = ""
+                            mentions = emptyMap()
+                            groupMentions = emptyMap()
+                            replyingToMessage = null
+                            pendingUploads = emptyList()
+                        }
                     },
                     onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
                     onLeaveGroup = { showLeaveDialog = true },
@@ -879,6 +885,7 @@ fun GroupScreen(
                     isAdmin = isAdmin,
                     userMetadata = userMetadata,
                     reactions = allReactions,
+                    pendingReactions = pendingReactions,
                     currentUserPubkey = currentUserPubkey,
                     messageInput = messageInput,
                     onMessageInputChange = { messageInput = it },
@@ -890,12 +897,16 @@ fun GroupScreen(
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
-                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags)
-                        messageInput = ""
-                        mentions = emptyMap()
-                        groupMentions = emptyMap()
-                        replyingToMessage = null
-                        pendingUploads = emptyList()
+                        // Clear only once the send succeeds (the input is read-only
+                        // while in flight). On failure the text stays so it can be
+                        // retried instead of being lost.
+                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags) {
+                            messageInput = ""
+                            mentions = emptyMap()
+                            groupMentions = emptyMap()
+                            replyingToMessage = null
+                            pendingUploads = emptyList()
+                        }
                     },
                     onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
                     onLeaveGroup = { showLeaveDialog = true },

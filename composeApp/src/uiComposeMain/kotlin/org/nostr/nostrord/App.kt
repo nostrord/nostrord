@@ -30,6 +30,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -399,6 +400,17 @@ private fun AuthenticatedApp(
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
 
+    // Dragging (or tapping) the drawer open should dismiss the soft keyboard,
+    // e.g. while composing a chat message. targetValue flips to Open as soon as
+    // the gesture commits, so the keyboard hides without waiting for the open
+    // animation to finish.
+    val keyboardController = LocalSoftwareKeyboardController.current
+    LaunchedEffect(drawerState.targetValue) {
+        if (drawerState.targetValue == DrawerValue.Open) {
+            keyboardController?.hide()
+        }
+    }
+
     // Lifecycle integration — reconnect on foreground, persist cursors on background/destroy.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -564,6 +576,13 @@ private fun AuthenticatedApp(
 
     // Android system back button — disabled when settings overlay is open (SettingsScreen handles it)
     PlatformBackHandler(enabled = !showSettings && navHistory.canGoBack) { onHistoryBack() }
+
+    // Back with the drawer open just closes the drawer. Registered after the
+    // navigation handler so it wins while open (Compose dispatches to the
+    // last-registered enabled handler).
+    PlatformBackHandler(enabled = drawerState.targetValue == DrawerValue.Open) {
+        scope.launch { drawerState.close() }
+    }
 
     // Browser back/forward buttons (JS/WasmJS only, no-op on other platforms).
     // Uses URL-based navigation: on popstate, the URL is parsed and applied directly.
@@ -1164,6 +1183,7 @@ private fun MobileContent(
                 OnboardingScreen(
                     onAddRelay = onAddRelay,
                     onAddRelayCustomUrl = onAddRelayCustomUrl,
+                    onOpenDrawer = onOpenDrawer,
                 )
             } else {
                 HomeScreen(

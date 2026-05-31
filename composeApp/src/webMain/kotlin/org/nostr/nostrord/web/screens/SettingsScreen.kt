@@ -45,7 +45,7 @@ external interface SettingsScreenProps : Props {
 }
 
 private val sections =
-    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Notifications", "Security", "Experimental")
+    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Media", "Notifications", "Security", "Experimental")
 
 /**
  * Settings — real port of the Compose SettingsScreen: a full-screen overlay with a section
@@ -135,6 +135,7 @@ val SettingsScreen =
                     "Profile" -> ProfilePanel()
                     "Backup Keys" -> BackupPanel()
                     "Relays (NIP-65)" -> RelaysPanel()
+                    "Media" -> MediaPanel()
                     "Notifications" -> NotificationsPanel()
                     "Security" -> SecurityPanel()
                     "Experimental" -> ExperimentalPanel()
@@ -621,6 +622,22 @@ private val NotificationsPanel =
             levelRadio("Muted", "Never notify.", defaultLevel == NotificationLevel.MUTED) {
                 settings.setDefaultLevel(NotificationLevel.MUTED)
             }
+        }
+    }
+
+// ── Media ────────────────────────────────────────────────────────────────────
+
+private val MediaPanel =
+    FC<Props> {
+        val media = AppModule.mediaSettings
+        val autoLoad = useStateFlow(media.autoLoadMedia)
+        div {
+            className = ClassName("settings-card")
+            settingsToggle(
+                "Auto-load media",
+                "Automatically load images and videos in chat. When off, each one shows a tap-to-load placeholder so you choose what to fetch.",
+                autoLoad,
+            ) { media.setAutoLoadMedia(!autoLoad) }
         }
     }
 

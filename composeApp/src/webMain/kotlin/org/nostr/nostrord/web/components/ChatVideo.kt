@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.components
 
 import kotlinx.browser.document
+import kotlinx.browser.window
 import kotlinx.coroutines.awaitCancellation
 import react.FC
 import react.Props
@@ -15,41 +16,65 @@ import web.html.HTMLVideoElement
 
 external interface ChatVideoProps : Props {
     var videoUrl: String
+
+    /** Optional NIP-92 imeta thumbnail, shown as the poster so a not-yet-loaded
+     *  video previews a frame instead of a black box. */
+    var posterUrl: String?
 }
 
+// How long a metadata load may stall before we abort and retry. nostr.build
+// routinely accepts the socket and sends nothing (readyState 0 / networkState
+// LOADING, no `loadedmetadata`, no `error`); a fresh request usually succeeds, so
+// keep this short. Reset by any real progress.
+private const val WATCHDOG_MS = 5000
+
+// Silent watchdog re-mounts (fresh connection) before showing the Retry panel.
+private const val MAX_AUTO_RETRIES = 4
+
 /**
- * A chat inline video with retry-on-failure. Without this wrapping, a network blip during the
- * preload="metadata" fetch leaves the bare <video> as a dead black box for the rest of the
- * page lifetime — the user has to reload the whole site. The host's flaky Content-Type or
- * Range responses produce the same dead state.
+ * A chat inline video.
  *
- * On the media element's error event we flip to a fallback panel; the retry button bumps a
- * remount key so React re-creates the element from scratch (HTMLMediaElement has no "reset
- * everything" call that reliably re-attempts MEDIA_ERR_SRC_NOT_SUPPORTED, so a real remount
- * is the safe path).
+ * When Settings > Media > Auto-load is ON (default), the video loads its metadata
+ * and shows a real first frame with native controls, ready to play — but only once
+ * it scrolls within ~one viewport (an IntersectionObserver gates the fetch). This
+ * keeps the "comes back after a while" burst in check: returning to a group no
+ * longer fires a Range request for every off-screen video at once, only for the
+ * handful actually near the viewport.
+ *
+ * When Auto-load is OFF, nothing is fetched (not even the poster); a tap-to-load
+ * placeholder is shown until the user reveals this single video.
+ *
+ * Either way a stalled metadata load (nostr.build accepting the socket then sending
+ * nothing) is covered by a watchdog: abort + silent retry on a fresh element, then
+ * a Retry panel, so it never hangs forever.
  */
 val ChatVideo =
     FC<ChatVideoProps> { props ->
         val (failed, setFailed) = useState { false }
-        // Bumped on retry: React key on the <video> tag, forcing a full re-mount so the
-        // browser re-fetches and re-decodes from zero instead of holding the broken state.
+        // Bumped on retry (watchdog or manual): React key on the <video>, forcing a
+        // full re-mount so the browser re-fetches from a fresh element.
         val (attempt, setAttempt) = useState { 0 }
-        // Lazy-load gate. Without this, every <video> in the loaded history opens a
-        // Range: bytes=0- request at mount just to read its MOOV atom (preload="metadata").
-        // N parallel range fetches queue behind the per-host connection cap, so videos
-        // far from the viewport "come back after a while". The observer flips this true
-        // when the element scrolls within ~one viewport of the visible area.
+        // Flips true once metadata arrives; ends the watchdog.
+        val (metaLoaded, setMetaLoaded) = useState { false }
+        // Lazy-load gate: the IntersectionObserver flips this true when the element
+        // scrolls within ~one viewport, so off-screen videos defer their fetch.
         val (inView, setInView) = useState { false }
         val videoRef = useRef<HTMLVideoElement>(null)
+        // Settings > Media: when auto-load is off we show a "Tap to load" placeholder
+        // and fetch nothing until the user reveals it.
+        val autoLoad = useAutoLoadMedia()
+        val (revealed, setRevealed) = useState { false }
 
-        // Release the underlying media resource on unmount. Without this, switching
-        // between groups / relays piles up <video> elements that React has dropped
-        // from the tree but the browser still holds open (decoder + network buffer +
-        // connection). Browsers cap simultaneous media elements (~75 Chrome / fewer
-        // Firefox); once the cap is hit, freshly-mounted videos render as a black
-        // box that "comes back after a while" — exactly when the engine GC's the
-        // stale resources. pause() + removeAttribute("src") + load() is the
-        // canonical incantation to release them eagerly.
+        // Show the player when auto-load is on, or once the user taps the placeholder.
+        val showPlayer = autoLoad || revealed
+        // Fetch only when the player is shown AND the element is near the viewport.
+        // A manual reveal (tap) implies it's already on screen, so load right away.
+        val loadNow = showPlayer && (inView || revealed)
+
+        // Release the underlying media resource on unmount so switching groups /
+        // relays doesn't pile up <video> elements the browser still holds open
+        // (decoder + buffer + connection); the media-element cap otherwise makes
+        // fresh videos render black until the engine GCs the stale ones.
         useEffect(props.videoUrl) {
             try {
                 awaitCancellation()
@@ -64,10 +89,11 @@ val ChatVideo =
         }
 
         // IntersectionObserver — one-shot. Disconnects as soon as the element enters
-        // the viewport (rootMargin pre-loads one viewport ahead so scroll feels instant).
-        useEffect(props.videoUrl, attempt) {
+        // the viewport (rootMargin pre-loads one viewport ahead so scroll feels
+        // instant). Only relevant while the player is shown and not yet in view.
+        useEffect(props.videoUrl, showPlayer, attempt) {
             val node = videoRef.current ?: return@useEffect
-            if (inView) return@useEffect
+            if (!showPlayer || inView) return@useEffect
             val callback: (dynamic, dynamic) -> Unit = { entries, obs ->
                 if (entries[0].isIntersecting == true) {
                     obs.disconnect()
@@ -84,7 +110,42 @@ val ChatVideo =
             }
         }
 
-        if (failed) {
+        // Stall watchdog: only while a metadata load is in flight (loadNow but no
+        // metadata yet). Any real progress resets it; on fire, abort and recover
+        // (silent retry, then the Retry panel).
+        useEffect(loadNow, metaLoaded, failed, attempt) {
+            val node = videoRef.current
+            if (node == null || !loadNow || metaLoaded || failed) return@useEffect
+            var timer = 0
+            val fire: () -> Unit = {
+                val willRetry = attempt < MAX_AUTO_RETRIES
+                runCatching {
+                    node.asDynamic().pause()
+                    node.removeAttribute("src")
+                    node.asDynamic().load()
+                }
+                if (willRetry) setAttempt { it + 1 } else setFailed(true)
+            }
+            val arm: () -> Unit = {
+                if (timer != 0) window.clearTimeout(timer)
+                timer = window.setTimeout(fire, WATCHDOG_MS)
+            }
+            val onProgress: (dynamic) -> Unit = { arm() }
+            node.asDynamic().addEventListener("progress", onProgress)
+            node.asDynamic().addEventListener("loadeddata", onProgress)
+            arm()
+            try {
+                awaitCancellation()
+            } finally {
+                if (timer != 0) window.clearTimeout(timer)
+                node.asDynamic().removeEventListener("progress", onProgress)
+                node.asDynamic().removeEventListener("loadeddata", onProgress)
+            }
+        }
+
+        if (!showPlayer) {
+            mediaGatePlaceholder("video") { setRevealed(true) }
+        } else if (failed) {
             div {
                 className = ClassName("msg-video-error")
                 div {
@@ -95,35 +156,41 @@ val ChatVideo =
                     className = ClassName("msg-video-retry")
                     onClick = {
                         setFailed(false)
+                        setMetaLoaded(false)
                         setAttempt { it + 1 }
                     }
                     +"Retry"
                 }
             }
         } else {
-            video {
-                key = "${props.videoUrl}#$attempt"
-                ref = videoRef
-                className = ClassName("msg-video")
-                // Only set src once the element is near the viewport — keeps the
-                // <video> mounted (so the observer has a target) but defers the
-                // network fetch until it actually matters.
-                if (inView) src = props.videoUrl
-                controls = true
-                // Show a preview frame without downloading/playing the whole file (no autoplay).
-                preload = "metadata"
-                playsInline = true
-                // Notify the feed when the video's intrinsic dimensions arrive
-                // (preload="metadata" fires loadedmetadata, not load) so the
-                // scroll can re-pin to bottom for any user still anchored
-                // there. Same mechanic as ChatImage's onLoad. (issue #74)
-                onLoadedMetadata = {
-                    document.asDynamic().dispatchEvent(
-                        js("new CustomEvent('chat-content-loaded')"),
-                    )
-                    Unit
+            div {
+                className = ClassName("msg-video-wrap")
+                video {
+                    key = "${props.videoUrl}#$attempt"
+                    ref = videoRef
+                    className = ClassName("msg-video")
+                    // Only set src once near the viewport — keeps the element mounted
+                    // (so the observer has a target) but defers the metadata fetch.
+                    if (loadNow) src = props.videoUrl
+                    // Static thumbnail (NIP-92 imeta) shown until a frame loads — a
+                    // cheap <img>-style fetch, NOT a video range request.
+                    props.posterUrl?.let { poster = it }
+                    // Show a preview frame + duration without downloading/playing the
+                    // whole file (no autoplay). The native controls let the user play.
+                    preload = "metadata"
+                    controls = true
+                    playsInline = true
+                    onLoadedMetadata = {
+                        setMetaLoaded(true)
+                        // Re-pin the scroll for anyone anchored at the bottom now that
+                        // the video's height is known (issue #74).
+                        document.asDynamic().dispatchEvent(
+                            js("new CustomEvent('chat-content-loaded')"),
+                        )
+                        Unit
+                    }
+                    onError = { setFailed(true) }
                 }
-                onError = { setFailed(true) }
             }
         }
     }
