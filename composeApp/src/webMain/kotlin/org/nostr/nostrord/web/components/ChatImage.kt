@@ -30,6 +30,15 @@ val ChatImage =
         // render drops crossOrigin so the image still shows. We then skip sampling (the plain
         // image would taint the canvas anyway).
         val (corsBlocked, setCorsBlocked) = useState { false }
+        // Settings → Media: when auto-load is off we show a "Tap to load" placeholder
+        // and fetch nothing until the user reveals this image. data: URIs are already
+        // embedded in the event (no network), so they're never gated.
+        val autoLoad = useAutoLoadMedia()
+        val (revealed, setRevealed) = useState { false }
+        if (!autoLoad && !revealed && !props.imageUrl.startsWith("data:")) {
+            mediaGatePlaceholder("image") { setRevealed(true) }
+            return@FC
+        }
 
         img {
             className = ClassName("msg-image" + (backdrop?.let { " $it" } ?: ""))

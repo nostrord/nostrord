@@ -77,6 +77,7 @@ enum class SettingsSection(val label: String) {
     Profile("Profile"),
     BackupKeys("Backup Keys"),
     RelaysNip65("Relays (NIP-65)"),
+    Media("Media"),
     Notifications("Notifications"),
     Security("Security"),
     Experimental("Experimental"),
@@ -249,6 +250,14 @@ fun SettingsScreen(
         NotificationsPanelContent()
     }
 
+    val autoLoadMedia by AppModule.mediaSettings.autoLoadMedia.collectAsState()
+    val mediaContent: @Composable () -> Unit = {
+        MediaPanelContent(
+            autoLoadMedia = autoLoadMedia,
+            onToggleAutoLoad = { AppModule.mediaSettings.setAutoLoadMedia(it) },
+        )
+    }
+
     val subgroupsEnabled by AppModule.featureFlags.subgroupsEnabled.collectAsState()
     val experimentalContent: @Composable () -> Unit = {
         ExperimentalPanelContent(
@@ -306,6 +315,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
                 experimentalContent = experimentalContent,
@@ -320,6 +330,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
                 experimentalContent = experimentalContent,
@@ -345,6 +356,7 @@ private fun DesktopSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit,
@@ -408,7 +420,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp),
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, securityContent, experimentalContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, mediaContent, notificationsContent, securityContent, experimentalContent)
                     }
                 }
 
@@ -434,6 +446,7 @@ private fun MobileSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit,
@@ -477,7 +490,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, notificationsContent, securityContent, experimentalContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, mediaContent, notificationsContent, securityContent, experimentalContent)
             }
         }
     }
@@ -532,6 +545,9 @@ private fun SettingsSidebar(
     }
     SettingsNavItem("Relays (NIP-65)", activeSection == SettingsSection.RelaysNip65, compact = compact) {
         onSelectSection(SettingsSection.RelaysNip65)
+    }
+    SettingsNavItem("Media", activeSection == SettingsSection.Media, compact = compact) {
+        onSelectSection(SettingsSection.Media)
     }
     SettingsNavItem("Notifications", activeSection == SettingsSection.Notifications, compact = compact) {
         onSelectSection(SettingsSection.Notifications)
@@ -652,6 +668,7 @@ private fun SettingsPanel(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
     experimentalContent: @Composable () -> Unit,
@@ -671,6 +688,7 @@ private fun SettingsPanel(
             SettingsSection.Profile -> profileContent()
             SettingsSection.BackupKeys -> backupContent()
             SettingsSection.RelaysNip65 -> relaysContent()
+            SettingsSection.Media -> mediaContent()
             SettingsSection.Notifications -> notificationsContent()
             SettingsSection.Security -> securityContent()
             SettingsSection.Experimental -> experimentalContent()
@@ -1192,6 +1210,33 @@ private fun PermissionStatusRow(
         )
         Spacer(Modifier.width(Spacing.sm))
         Text(text = text, color = NostrordColors.TextSecondary, fontSize = 13.sp)
+    }
+}
+
+// ── Media panel content ───────────────────────────────────────────────────────
+
+@Composable
+private fun MediaPanelContent(
+    autoLoadMedia: Boolean,
+    onToggleAutoLoad: (Boolean) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+        ) {
+            ExperimentalToggleRow(
+                label = "Auto-load media",
+                description = "Automatically load images and videos in chat. When off, " +
+                    "each one shows a tap-to-load placeholder so you choose what to fetch.",
+                checked = autoLoadMedia,
+                onCheckedChange = onToggleAutoLoad,
+            )
+        }
     }
 }
 

@@ -51,6 +51,14 @@ val YouTubeEmbed =
     FC<YouTubeEmbedProps> { props ->
         val (playing, setPlaying) = useState { false }
         val thumbnailUrl = "https://i.ytimg.com/vi/${props.videoId}/hqdefault.jpg"
+        // Settings → Media: when auto-load is off we show a "Tap to load" placeholder
+        // and fetch nothing (not even the thumbnail) until the user reveals it.
+        val autoLoad = useAutoLoadMedia()
+        val (revealed, setRevealed) = useState { false }
+        if (!autoLoad && !revealed) {
+            mediaGatePlaceholder("video") { setRevealed(true) }
+            return@FC
+        }
 
         div {
             className = ClassName("msg-youtube")

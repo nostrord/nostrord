@@ -10,6 +10,9 @@ import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -229,6 +232,10 @@ fun MessageContent(
     // Collect user metadata for mention display names
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
 
+    // Settings > Media: when off, inline media renders a tap-to-load placeholder
+    // and fetches nothing until the user reveals each item.
+    val autoLoadMedia by AppModule.mediaSettings.autoLoadMedia.collectAsState()
+
     // Group parts into inline sequences and block elements
     val groups =
         remember(parts) {
@@ -285,11 +292,16 @@ fun MessageContent(
                     when (firstPart) {
                         is ImagePart -> {
                             Spacer(modifier = Modifier.height(8.dp))
-                            ChatImage(
-                                imageUrl = firstPart.url,
-                                dimensions = imetaDimensions[firstPart.url],
-                                onClick = { selectedImageUrl = firstPart.url },
-                            )
+                            GatedMedia(
+                                autoLoad = autoLoadMedia,
+                                label = "image",
+                            ) {
+                                ChatImage(
+                                    imageUrl = firstPart.url,
+                                    dimensions = imetaDimensions[firstPart.url],
+                                    onClick = { selectedImageUrl = firstPart.url },
+                                )
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                         }
                         is CodeBlockPart -> {
@@ -304,42 +316,52 @@ fun MessageContent(
                             Spacer(modifier = Modifier.height(8.dp))
                             val dims = imetaDimensions[firstPart.url]
                             val videoAspect = if (dims != null) dims.first.toFloat() / dims.second.toFloat() else 16f / 9f
-                            if (firstPart.videoId != null) {
-                                // YouTube — thumbnail preview, click opens externally
-                                YouTubeLinkCard(
-                                    videoId = firstPart.videoId!!,
-                                    url = firstPart.url,
-                                    onClick = {
-                                        try {
-                                            uriHandler.openUri(firstPart.url)
-                                        } catch (_: Exception) {
-                                        }
-                                    },
-                                )
-                            } else {
-                                // Direct video file — inline platform player
-                                PlatformVideoPlayer(
-                                    url = firstPart.url,
-                                    thumbnailUrl = imetaThumbnails[firstPart.url],
-                                    aspectRatio = videoAspect,
-                                    onFallbackClick = {
-                                        try {
-                                            uriHandler.openUri(firstPart.url)
-                                        } catch (_: Exception) {
-                                        }
-                                    },
-                                    modifier = Modifier,
-                                )
+                            GatedMedia(
+                                autoLoad = autoLoadMedia,
+                                label = "video",
+                            ) {
+                                if (firstPart.videoId != null) {
+                                    // YouTube — thumbnail preview, click opens externally
+                                    YouTubeLinkCard(
+                                        videoId = firstPart.videoId!!,
+                                        url = firstPart.url,
+                                        onClick = {
+                                            try {
+                                                uriHandler.openUri(firstPart.url)
+                                            } catch (_: Exception) {
+                                            }
+                                        },
+                                    )
+                                } else {
+                                    // Direct video file — inline platform player
+                                    PlatformVideoPlayer(
+                                        url = firstPart.url,
+                                        thumbnailUrl = imetaThumbnails[firstPart.url],
+                                        aspectRatio = videoAspect,
+                                        onFallbackClick = {
+                                            try {
+                                                uriHandler.openUri(firstPart.url)
+                                            } catch (_: Exception) {
+                                            }
+                                        },
+                                        modifier = Modifier,
+                                    )
+                                }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                         }
                         is AudioPart -> {
                             Spacer(modifier = Modifier.height(8.dp))
-                            val audioPlayer = rememberAudioPlayer()
-                            AudioPlayerContent(
-                                url = firstPart.url,
-                                player = audioPlayer,
-                            )
+                            GatedMedia(
+                                autoLoad = autoLoadMedia,
+                                label = "audio",
+                            ) {
+                                val audioPlayer = rememberAudioPlayer()
+                                AudioPlayerContent(
+                                    url = firstPart.url,
+                                    player = audioPlayer,
+                                )
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
                         }
                         is MentionPart -> {
@@ -970,6 +992,66 @@ private fun SafeEmojiImage(
 }
 
 /**
+ * Wraps inline chat media with the Settings > Media "auto-load" gate. When
+ * [autoLoad] is true (default) [content] renders immediately; when off, a
+ * tap-to-load placeholder is shown until the user reveals this single item.
+ */
+@Composable
+private fun GatedMedia(
+    autoLoad: Boolean,
+    label: String,
+    content: @Composable () -> Unit,
+) {
+    var revealed by remember { mutableStateOf(false) }
+    if (autoLoad || revealed) {
+        content()
+    } else {
+        MediaPlaceholder(label = label) { revealed = true }
+    }
+}
+
+/**
+ * Compact tap-to-load placeholder used by [GatedMedia], mirroring the web's
+ * pill-sized button (icon + label) rather than a full media-sized box. The icon
+ * differs per [label] so image / video / audio are distinguishable at a glance.
+ */
+@Composable
+private fun MediaPlaceholder(
+    label: String,
+    onClick: () -> Unit,
+) {
+    val icon =
+        when (label) {
+            "video" -> Icons.Default.Movie
+            "audio" -> Icons.Default.MusicNote
+            else -> Icons.Default.Image
+        }
+    Row(
+        modifier =
+        Modifier
+            .clip(NostrordShapes.imageShape)
+            .background(NostrordColors.Surface)
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = NostrordColors.TextContent,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = "Tap to load $label",
+            color = NostrordColors.TextContent,
+            style = NostrordTypography.Caption,
+        )
+    }
+}
+
+/**
  * @param dimensions NIP-68 imeta (width, height) hint. When present, the image
  *                   container is pre-sized with the correct aspect ratio so the
  *                   layout doesn't shift when the image finishes loading.
@@ -993,24 +1075,31 @@ private fun ChatImage(
         return
     }
 
-    // Pre-size the container when NIP-68 dimensions are available to prevent layout shift.
-    val aspectModifier =
+    // Bound every image to the same 360x300dp box the web uses (.msg-image:
+    // max-width 360 / max-height 300), so a tall portrait stays contained instead
+    // of filling the column. When NIP-68 dimensions are known we also fix the
+    // aspect ratio so the slot is reserved before the load resolves; portrait
+    // images match the height cap first, landscape the width cap.
+    val sizeModifier =
         if (dimensions != null) {
             val (w, h) = dimensions
-            Modifier.aspectRatio(w.toFloat() / h.toFloat(), matchHeightConstraintsFirst = false)
+            val ratio = w.toFloat() / h.toFloat()
+            Modifier
+                .widthIn(max = 360.dp)
+                .heightIn(max = 300.dp)
+                .aspectRatio(ratio, matchHeightConstraintsFirst = ratio < 1f)
         } else {
             Modifier
+                .widthIn(max = 360.dp)
+                .heightIn(max = 300.dp)
         }
 
     if (isAnimatedImageUrl(imageUrl)) {
-        // Animated images use aspectRatio() in JS/WasmJS — give generous height
-        // so the aspect ratio modifier isn't clipped by a tight heightIn cap.
         AnimatedImage(
             url = imageUrl,
             modifier =
             modifier
-                .widthIn(max = 400.dp)
-                .then(aspectModifier)
+                .then(sizeModifier)
                 .clip(NostrordShapes.imageShape),
             onClick = onClick,
             onError = { showError = true },
@@ -1020,10 +1109,12 @@ private fun ChatImage(
             url = imageUrl,
             modifier =
             modifier
-                .widthIn(max = 400.dp)
-                .then(if (dimensions == null) Modifier.heightIn(max = 500.dp) else aspectModifier)
+                .then(sizeModifier)
                 .clip(NostrordShapes.imageShape),
-            contentScale = ContentScale.FillWidth,
+            // With known dimensions the slot already matches the aspect ratio, so
+            // fill it. Without them, fit the loaded image inside the cap (preserving
+            // aspect, no crop) — same as the web's max-width/max-height scaling.
+            contentScale = if (dimensions != null) ContentScale.FillWidth else ContentScale.Fit,
             onClick = onClick,
             onError = { showError = true },
         )

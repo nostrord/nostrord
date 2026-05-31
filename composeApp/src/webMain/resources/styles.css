@@ -3013,35 +3013,6 @@ body {
 .msg-video-wrap .msg-video {
     margin-top: 0;
 }
-/* Play overlay shown before the user starts a video (preload="none", so nothing
-   is fetched until this is clicked). A centered circular button over the black
-   reserved box. */
-.msg-video-play {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    background: rgba(0, 0, 0, 0.25);
-    border-radius: 8px;
-}
-.msg-video-play:hover {
-    background: rgba(0, 0, 0, 0.35);
-}
-.msg-video-play::after {
-    content: "";
-    width: 52px;
-    height: 52px;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.55);
-    /* white play triangle, nudged right to look centered in the circle */
-    background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='%23fff'%3E%3Cpath d='M8 5v14l11-7z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: center;
-}
-
 /* Fallback shown when a <video> fires its error event (host CDN flaky, bad
    Content-Type, src not supported). Replaces the dead-black <video> box and
    gives the user a single click to retry without reloading the whole site. */
@@ -3077,6 +3048,51 @@ body {
 }
 .msg-video-retry:hover {
     filter: brightness(1.1);
+}
+
+/* Tap-to-load placeholder shown in place of any inline media when
+   Settings > Media > Auto-load media is off. Clicking reveals the real
+   image / video / YouTube embed for that single item (nothing is fetched
+   before the click). */
+.msg-media-gate {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: min(360px, 100%);
+    min-height: 64px;
+    margin-top: 4px;
+    padding: 12px 16px;
+    background: var(--color-input);
+    border: 1px dashed var(--color-divider);
+    border-radius: 8px;
+    color: var(--color-text-content);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s, border-color 0.12s;
+}
+.msg-media-gate:hover {
+    background: var(--color-hover);
+    border-color: var(--color-text-secondary);
+}
+.msg-media-gate-icon {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    background: var(--color-text-content);
+    -webkit-mask: center / contain no-repeat;
+    mask: center / contain no-repeat;
+}
+/* Image: framed picture with a mountain + sun. */
+.msg-media-gate-icon.image {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000'%3E%3Cpath d='M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000'%3E%3Cpath d='M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E");
+}
+/* Video: play triangle inside a rounded frame. */
+.msg-media-gate-icon.video {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000'%3E%3Cpath d='M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 4.5v7l5-3.5z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23000'%3E%3Cpath d='M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm6 4.5v7l5-3.5z'/%3E%3C/svg%3E");
 }
 
 /* Inline YouTube preview: a 16:9 thumbnail with a centered play button,
