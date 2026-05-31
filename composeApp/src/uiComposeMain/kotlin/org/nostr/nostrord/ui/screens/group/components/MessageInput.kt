@@ -244,6 +244,19 @@ fun MessageInput(
     }
 
     fun handleTextFieldValueChange(newValue: TextFieldValue) {
+        // Lock typing while a send is in flight. We do this here instead of via
+        // readOnly so the Android IME session is not torn down and recreated,
+        // which closes and reopens the soft keyboard (flicker) on every send.
+        // Simply dropping the change is not enough: the Android IME keeps a
+        // composing region and replays the buffered keystrokes once the lock
+        // lifts (e.g. "adas" + typed "das" -> "adasdas"). Re-assert the current
+        // value with the composition cleared so nothing can accumulate.
+        if (isSending) {
+            if (textFieldValue.composition != null) {
+                textFieldValue = textFieldValue.copy(composition = null)
+            }
+            return
+        }
         textFieldValue = newValue
         onMessageInputChange(newValue.text)
         updateMentionState(newValue)
@@ -477,10 +490,11 @@ fun MessageInput(
                     TextField(
                         value = textFieldValue,
                         onValueChange = { handleTextFieldValueChange(it) },
-                        // Lock typing while a send is in flight (e.g. a slow NIP-46
-                        // signer round-trip). readOnly, not disabled, so the field keeps
-                        // focus for the next message; the text clears only once sent.
-                        readOnly = isSending,
+                        // Typing is locked while a send is in flight inside
+                        // handleTextFieldValueChange, not via readOnly: toggling
+                        // readOnly restarts the Android IME (keyboard flicker) and
+                        // behaves inconsistently across platforms. The handler is
+                        // the single source of truth for the in-flight lock.
                         interactionSource = textFieldInteractionSource,
                         placeholder = {
                             Text(

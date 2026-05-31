@@ -775,16 +775,38 @@ fun GroupScreen(
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
-                        // Clear only once the send succeeds (the input is read-only
-                        // while in flight). On failure the text stays so it can be
-                        // retried instead of being lost.
-                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags) {
-                            messageInput = ""
-                            mentions = emptyMap()
-                            groupMentions = emptyMap()
-                            replyingToMessage = null
-                            pendingUploads = emptyList()
-                        }
+                        // Snapshot for restore-on-failure, then clear the input
+                        // immediately (optimistic). Clearing up front, instead of
+                        // after the send resolves, removes the race where keystrokes
+                        // typed during a fast send overwrite the post-send clear.
+                        val sentInput = messageInput
+                        val sentMentions = mentions
+                        val sentGroupMentions = groupMentions
+                        val sentReply = replyingToMessage
+                        val sentUploads = pendingUploads
+                        messageInput = ""
+                        mentions = emptyMap()
+                        groupMentions = emptyMap()
+                        replyingToMessage = null
+                        pendingUploads = emptyList()
+                        vm.sendMessage(
+                            content,
+                            selectedChannel,
+                            sentMentions,
+                            sentReply?.id,
+                            imetaTags,
+                            onFailure = {
+                                // Restore so it can be retried, unless the user has
+                                // already started typing a new message in the meantime.
+                                if (messageInput.isEmpty()) {
+                                    messageInput = sentInput
+                                    mentions = sentMentions
+                                    groupMentions = sentGroupMentions
+                                    replyingToMessage = sentReply
+                                    pendingUploads = sentUploads
+                                }
+                            },
+                        )
                     },
                     onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
                     onLeaveGroup = { showLeaveDialog = true },
@@ -897,16 +919,38 @@ fun GroupScreen(
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
-                        // Clear only once the send succeeds (the input is read-only
-                        // while in flight). On failure the text stays so it can be
-                        // retried instead of being lost.
-                        vm.sendMessage(content, selectedChannel, mentions, replyingToMessage?.id, imetaTags) {
-                            messageInput = ""
-                            mentions = emptyMap()
-                            groupMentions = emptyMap()
-                            replyingToMessage = null
-                            pendingUploads = emptyList()
-                        }
+                        // Snapshot for restore-on-failure, then clear the input
+                        // immediately (optimistic). Clearing up front, instead of
+                        // after the send resolves, removes the race where keystrokes
+                        // typed during a fast send overwrite the post-send clear.
+                        val sentInput = messageInput
+                        val sentMentions = mentions
+                        val sentGroupMentions = groupMentions
+                        val sentReply = replyingToMessage
+                        val sentUploads = pendingUploads
+                        messageInput = ""
+                        mentions = emptyMap()
+                        groupMentions = emptyMap()
+                        replyingToMessage = null
+                        pendingUploads = emptyList()
+                        vm.sendMessage(
+                            content,
+                            selectedChannel,
+                            sentMentions,
+                            sentReply?.id,
+                            imetaTags,
+                            onFailure = {
+                                // Restore so it can be retried, unless the user has
+                                // already started typing a new message in the meantime.
+                                if (messageInput.isEmpty()) {
+                                    messageInput = sentInput
+                                    mentions = sentMentions
+                                    groupMentions = sentGroupMentions
+                                    replyingToMessage = sentReply
+                                    pendingUploads = sentUploads
+                                }
+                            },
+                        )
                     },
                     onJoinGroup = { inviteCode -> vm.joinGroup(inviteCode) },
                     onLeaveGroup = { showLeaveDialog = true },

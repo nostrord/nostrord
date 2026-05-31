@@ -69,6 +69,7 @@ class GroupViewModel(
         replyToId: String?,
         extraTags: List<List<String>> = emptyList(),
         onSuccess: () -> Unit = {},
+        onFailure: () -> Unit = {},
     ) {
         _isSending.value = true
         _sendError.value = null
@@ -93,6 +94,7 @@ class GroupViewModel(
                             else -> cleaned.replaceFirstChar { it.uppercaseChar() }
                         }
                     _sendError.value = friendly
+                    onFailure()
                 }
                 is Result.Success -> onSuccess()
             }
