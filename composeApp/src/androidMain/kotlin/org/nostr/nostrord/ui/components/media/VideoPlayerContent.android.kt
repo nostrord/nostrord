@@ -2,24 +2,40 @@ package org.nostr.nostrord.ui.components.media
 
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -40,8 +56,15 @@ actual fun PlatformVideoPlayer(
     val exoPlayer =
         remember(url) {
             ExoPlayer
-                .Builder(context)
-                .setMediaSourceFactory(DefaultMediaSourceFactory(VideoCache.dataSourceFactory()))
+                .Builder(
+                    context,
+                    // Decoder fallback: when a primary (usually hardware) decoder
+                    // fails to initialize, try the next one instead of aborting
+                    // playback. This is what makes WebM (VP8/VP9) play on devices
+                    // whose hardware VP9 decoder is missing or flaky — without it,
+                    // those videos error out while H.264 mp4 keeps working.
+                    DefaultRenderersFactory(context).setEnableDecoderFallback(true),
+                ).setMediaSourceFactory(DefaultMediaSourceFactory(VideoCache.dataSourceFactory()))
                 .setLoadControl(feedTunedLoadControl())
                 .build()
                 .apply {
@@ -51,6 +74,22 @@ actual fun PlatformVideoPlayer(
                     playWhenReady = false
                 }
         }
+
+    // Set when ExoPlayer can't play the stream on this device (e.g. a high-res VP9
+    // .webm whose MediaCodec decoder won't initialize even with software fallback —
+    // browsers and the desktop player decode it, MediaCodec can't). Instead of a dead
+    // black box we then show a tap-to-open-externally panel.
+    var playbackFailed by remember(url) { mutableStateOf(false) }
+    DisposableEffect(exoPlayer) {
+        val listener =
+            object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    playbackFailed = true
+                }
+            }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener) }
+    }
 
     // Inline composable can be unmounted (scroll, navigation) while the overlay still
     // borrows our player. When that happens we defer release to the overlay's onClose.
@@ -71,6 +110,39 @@ actual fun PlatformVideoPlayer(
     }
 
     val isBorrowedByFullscreen = fullscreenController?.active == exoPlayer
+
+    if (playbackFailed) {
+        Box(
+            modifier =
+            modifier
+                .widthIn(max = 400.dp)
+                .aspectRatio(aspectRatio, matchHeightConstraintsFirst = false)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Black)
+                .clickable { onFallbackClick() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(16.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(36.dp),
+                )
+                Text(
+                    text = "Can't play this video here. Tap to open.",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        return
+    }
 
     AndroidView(
         factory = { ctx ->
