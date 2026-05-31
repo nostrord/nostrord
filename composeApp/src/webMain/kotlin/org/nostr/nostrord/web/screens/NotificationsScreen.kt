@@ -20,7 +20,7 @@ import react.useEffect
 import web.cssom.ClassName
 
 external interface NotificationsScreenProps : Props {
-    var onOpen: (relayUrl: String, groupId: String) -> Unit
+    var onOpen: (relayUrl: String, groupId: String, messageId: String?) -> Unit
 }
 
 /**
@@ -77,7 +77,7 @@ val NotificationsScreen =
                     entries.forEach { entry ->
                         notifItem(entry, userMetadata[entry.actorPubkey]) {
                             store.markRead(entry.id)
-                            props.onOpen(entry.relayUrl, entry.groupId)
+                            props.onOpen(entry.relayUrl, entry.groupId, entry.messageId)
                         }
                     }
                 }

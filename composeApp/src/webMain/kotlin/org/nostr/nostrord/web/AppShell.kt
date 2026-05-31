@@ -718,11 +718,12 @@ val AppShell =
                     when {
                         notificationsOpen ->
                             NotificationsScreen {
-                                onOpen = { relay, gid ->
+                                onOpen = { relay, gid, messageId ->
                                     if (relay.isNotBlank() && relay != currentRelayUrl) {
                                         launchApp { repo.switchRelay(relay) }
                                     }
                                     setSelectedGroupId(gid)
+                                    messageId?.takeIf { it.isNotBlank() }?.let { setScrollToEventId(it) }
                                     setNotificationsOpen(false)
                                 }
                             }
