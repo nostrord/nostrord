@@ -335,6 +335,38 @@ class GroupLoadingController(
     }
 
     /**
+     * Handle a reconnect/re-subscribe while PRESERVING pagination progress.
+     *
+     * Unlike [handleDisconnect] (which resets to Idle so a fresh initial load runs),
+     * this keeps the advanced cursor when the group is mid-pagination. The cursor is a
+     * timestamp bookmark, not tied to the dropped socket, so there is no reason to
+     * discard it on reconnect. Resetting to Idle here caused the initial load to re-fire
+     * with `until = oldest message - 1`; when the oldest message is a bulk-delivered
+     * moderation event (an old join/leave far older than the paginated chat frontier),
+     * that jumps straight to the floor and marks the group Exhausted, silently skipping
+     * all the un-paginated middle history. The live feed is re-established separately by
+     * the mux refresh, so preserving the cursor loses nothing.
+     */
+    suspend fun handleReconnect() {
+        mutex.withLock {
+            timeoutJob?.cancel()
+            timeoutJob = null
+            currentTracker = null
+            val cursor = getCurrentCursor()
+            _state.value = if (cursor != null && cursor.pageNumber > 0) {
+                // Revert an in-flight Paginating to HasMore so the user's next scroll
+                // resumes from the same frontier (the in-flight page's EOSE will never
+                // arrive on the new socket).
+                GroupLoadingState.HasMore(cursor)
+            } else {
+                // Never paginated (still on the initial load) — fall back to Idle so a
+                // fresh initial load runs on reconnect.
+                GroupLoadingState.Idle
+            }
+        }
+    }
+
+    /**
      * Retry after error.
      * Returns subscription ID if retry started.
      */
@@ -567,5 +599,19 @@ class GroupLoadingRegistry(
             }
         }
         snapshot.forEach { it.handleDisconnect() }
+    }
+
+    /**
+     * Handle reconnect for a specific set of groups, PRESERVING pagination cursors.
+     * See [GroupLoadingController.handleReconnect]. Used by resubscribeAllGroups so a
+     * reconnect mid-pagination does not discard how far back the user has scrolled.
+     */
+    suspend fun handleReconnectForGroups(groupIds: List<String>) {
+        val snapshot = mutex.withLock {
+            groupIds.mapNotNull { controllers[it] }.also { affected ->
+                subscriptionToController.entries.removeAll { e -> e.value in affected }
+            }
+        }
+        snapshot.forEach { it.handleReconnect() }
     }
 }

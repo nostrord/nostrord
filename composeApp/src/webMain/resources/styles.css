@@ -2503,14 +2503,12 @@ body {
     flex-direction: column;
     position: relative;
 }
-/* The Virtuoso scroller itself. Fills the wrapper; Virtuoso sets its own
-   overflow. The 16px block padding restores the feed's top/bottom breathing room
-   that the old container padding gave. */
-/* The actual scroller — renders all rows (non-virtualized). overflow-anchor:auto
-   keeps the visible content stable when a row ABOVE the viewport grows (a reaction
-   lands, a reply preview / image / video resolves its height) — issue #74. During
-   pagination the component flips it to 'none' (inline style) so it doesn't double-
-   adjust against the JS scrollHeight-delta restore, then back to 'auto'. */
+/* The actual scroller — renders all rows (non-virtualized). overflow-anchor:auto is
+   what keeps the visible content stable while reading history: the browser holds the
+   anchored row fixed when older pages are prepended above AND when avatars/images/videos
+   above the viewport finish loading and change height (issue #74). The component flips it
+   to 'none' (inline) only while pinned at the bottom following the feed, where anchoring
+   would fight the bottom-pin. */
 .chat-messages-list {
     flex: 1;
     min-height: 0;

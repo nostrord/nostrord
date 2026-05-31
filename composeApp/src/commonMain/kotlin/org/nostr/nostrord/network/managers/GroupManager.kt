@@ -1905,6 +1905,17 @@ class GroupManager(
             cursor.untilTimestamp
         }
 
+        // Private/closed groups gate reads behind NIP-42 AUTH. After a reconnect the
+        // socket's auth deferred resets; firing the pagination REQ before re-AUTH lands
+        // gets CLOSED "auth-required" and returns zero events, which the UI mistakes for
+        // "no older history" and stops paginating early. Wait for re-AUTH first. This is
+        // a no-op once AUTH has already succeeded on this socket, and is skipped entirely
+        // on relays that never issue a challenge (public groups), so it costs nothing in
+        // the common case.
+        if (currentClient.requiresAuth() && !currentClient.hasAuthSucceeded()) {
+            currentClient.awaitAuthOrTimeout()
+        }
+
         return try {
             currentClient.requestGroupMessages(
                 groupId = groupId,
@@ -2093,6 +2104,31 @@ class GroupManager(
      */
     suspend fun resetLoadingForGroups(groupIds: List<String>) {
         loadingRegistry.handleDisconnectForGroups(groupIds)
+    }
+
+    /**
+     * Like [resetLoadingForGroups] but PRESERVES pagination cursors for groups that
+     * are mid-pagination (see [GroupLoadingController.handleReconnect]). Does NOT touch
+     * the mux tracker (the caller clears it separately). Use on a re-AUTH re-subscribe so
+     * a periodic AUTH challenge doesn't reset an actively-scrolled group to Idle, which
+     * would re-fire the initial load with `until = oldest - 1`, jump to the floor, inject
+     * ancient events at the top and mark the group Exhausted.
+     */
+    suspend fun resetLoadingForGroupsPreservingCursor(groupIds: List<String>) {
+        loadingRegistry.handleReconnectForGroups(groupIds)
+    }
+
+    /**
+     * Re-subscribe opened groups after a reconnect while PRESERVING pagination
+     * progress (cursor). Clears the mux tracker so the live feed is re-sent, but
+     * keeps how far back the user has scrolled so the next page resumes from the
+     * same frontier instead of jumping to the oldest message and going Exhausted.
+     */
+    suspend fun handleReconnectForGroups(groupIds: List<String>) {
+        loadingRegistry.handleReconnectForGroups(groupIds)
+        groupIds.mapNotNull { getRelayForGroup(it) }.distinct().forEach {
+            muxTracker.clearRelay(it)
+        }
     }
 
     /**

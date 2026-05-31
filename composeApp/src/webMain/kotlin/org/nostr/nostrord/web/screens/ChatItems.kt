@@ -35,8 +35,7 @@ sealed class WebChatItem {
     ) : WebChatItem()
 }
 
-/** Stable identity for a chat row — used by Virtuoso's computeItemKey and the
- *  firstItemIndex prepend-diff so reorders/prepends never remount the wrong node. */
+/** Stable React key per chat row so prepends/reorders never remount the wrong node. */
 fun chatItemKey(item: WebChatItem): String = when (item) {
     is WebChatItem.DateSeparator -> "date-${item.date}"
     WebChatItem.NewMessagesDivider -> "new-messages-divider"
@@ -58,10 +57,25 @@ fun buildWebChatItems(
     currentUserPubkey: String? = null,
 ): List<WebChatItem> {
     val items = mutableListOf<WebChatItem>()
-    val sorted = messages.sortedBy { it.createdAt }
+    val sortedAll = messages.sortedBy { it.createdAt }
+
+    // Bound the rendered timeline to the loaded MESSAGE window. Join/leave + moderation
+    // events arrive in full from a dedicated subscription (no page limit), so the oldest
+    // one would become a false "top" far above the oldest paginated message — pagination
+    // then fills messages BELOW it instead of prepending at the real top, which looks
+    // wrong and stalls the scroll (first row never changes). Hide system events older
+    // than the oldest loaded message; they reveal as pagination lowers the frontier. With
+    // no messages yet, show everything (a fresh group is only join/leave).
+    val oldestMessageTs = sortedAll.filter { it.kind == 9 }.minOfOrNull { it.createdAt }
+    val sorted =
+        if (oldestMessageTs == null) {
+            sortedAll
+        } else {
+            sortedAll.filter { it.kind == 9 || it.createdAt >= oldestMessageTs }
+        }
 
     val leaveRequestTimestamps: Map<String, List<Long>> =
-        sorted.filter { it.kind == 9022 }.groupBy({ it.pubkey }, { it.createdAt })
+        sortedAll.filter { it.kind == 9022 }.groupBy({ it.pubkey }, { it.createdAt })
 
     var lastDate: String? = null
     var lastMessagePubkey: String? = null
@@ -161,5 +175,56 @@ fun buildWebChatItems(
         }
     }
     flush()
-    return items
+    return collapseSystemEventFlaps(items)
+}
+
+/**
+ * Collapse a run of consecutive join/leave events from the SAME single user into one
+ * summary row ("joined and left", "joined and left 6 times"). A user that flaps (joins
+ * and leaves repeatedly) otherwise produces a wall of alternating rows, since the
+ * per-action merge above only groups the SAME action across DIFFERENT users.
+ *
+ * Runs are broken by date separators, the unread divider, chat messages, role/removal
+ * events and already-merged multi-user events, so the collapse is per-day and in order,
+ * and the upstream member/approval logic is untouched. A lone join (no matching leave)
+ * is left as-is so "joined the group" still shows for users who are still present.
+ */
+private fun collapseSystemEventFlaps(items: List<WebChatItem>): List<WebChatItem> {
+    fun isFlap(e: WebChatItem.SystemEvent): Boolean = e.totalUsers == 1 && (e.type == SystemEventType.JOINED || e.type == SystemEventType.LEFT)
+
+    val result = mutableListOf<WebChatItem>()
+    var run = mutableListOf<WebChatItem.SystemEvent>()
+
+    fun flush() {
+        when {
+            run.isEmpty() -> {}
+            run.size == 1 -> result.add(run.first())
+            else -> {
+                val first = run.first()
+                val last = run.last()
+                val cycles = minOf(
+                    run.count { it.type == SystemEventType.JOINED },
+                    run.count { it.type == SystemEventType.LEFT },
+                )
+                val action = if (cycles <= 1) "joined and left" else "joined and left $cycles times"
+                // Keep first.id for a stable key; last.createdAt/type so the row sits at
+                // the end of the run and its icon reflects whether the user is currently in.
+                result.add(first.copy(action = action, createdAt = last.createdAt, type = last.type))
+            }
+        }
+        run = mutableListOf()
+    }
+
+    for (item in items) {
+        if (item is WebChatItem.SystemEvent && isFlap(item)) {
+            val prev = run.lastOrNull()
+            if (prev != null && prev.pubkey != item.pubkey) flush()
+            run.add(item)
+        } else {
+            flush()
+            result.add(item)
+        }
+    }
+    flush()
+    return result
 }

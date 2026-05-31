@@ -352,6 +352,18 @@ class NostrGroupClient(
      */
     fun hasAuthSucceeded(): Boolean = authCompleted.isCompleted
 
+    // True once this relay has ever sent a NIP-42 AUTH challenge — i.e. it gates
+    // reads behind auth (private/closed groups). Persists across reconnects (a
+    // relay that required auth once always will), so pagination can decide whether
+    // it must await re-AUTH before firing a REQ. Public relays never set this.
+    private var authChallengeSeen = false
+
+    fun markAuthChallengeSeen() {
+        authChallengeSeen = true
+    }
+
+    fun requiresAuth(): Boolean = authChallengeSeen
+
     /**
      * Wait for the relay's NIP-42 AUTH challenge to be answered.
      * Returns true if auth completed, false if the relay didn't send a challenge

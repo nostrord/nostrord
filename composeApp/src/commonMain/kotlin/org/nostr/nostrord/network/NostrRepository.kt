@@ -2264,6 +2264,10 @@ class NostrRepository(
         when (msgType) {
             "AUTH" -> {
                 val authChallenge = client.parseAuthChallenge(arr) ?: return
+                // Remember this relay gates reads behind auth, so pagination can
+                // await re-AUTH after a reconnect instead of racing ahead and
+                // getting CLOSED "auth-required".
+                client.markAuthChallengeSeen()
                 scope.launch {
                     // Only run post-AUTH side effects when we actually signed and sent
                     // the response. handleAuthChallenge dedupes per relay; a chatty
@@ -2721,11 +2725,17 @@ class NostrRepository(
         groupManager.markRelayLoading(relayUrl)
         requestGroupsForRelay(client, relayUrl)
 
-        // Reset loading states for opened groups so pagination works if user scrolls up.
+        // Re-subscribe opened groups, PRESERVING pagination cursors. A reconnect must
+        // not reset a mid-pagination group to Idle: the fast-lane initial load below
+        // would then re-fire with `until = oldest message - 1`, and when the oldest is a
+        // bulk-delivered moderation event (an old join far older than the chat frontier)
+        // it jumps to the floor and marks the group Exhausted, skipping all un-paginated
+        // middle history. The cursor is a timestamp bookmark; the mux refresh re-sends
+        // the live feed, so keeping it loses nothing.
         val openedGroupIds = groupManager.getOpenedGroupIds()
             .filter { groupManager.getRelayForGroup(it) == relayUrl }
         if (openedGroupIds.isNotEmpty()) {
-            groupManager.handleConnectionLostForGroups(openedGroupIds.toList())
+            groupManager.handleReconnectForGroups(openedGroupIds.toList())
         }
 
         // Fast-lane: direct requests for the ACTIVE group so it renders first.
@@ -2814,7 +2824,13 @@ class NostrRepository(
 
         val groupIds = (openedOnRelay + closedOnRelay + joinedOnRelay).distinct()
         if (groupIds.isNotEmpty()) {
-            groupManager.resetLoadingForGroups(groupIds)
+            // PRESERVE pagination cursors: a periodic AUTH re-challenge (0xchat does this)
+            // must not reset an actively-scrolled group to Idle. Doing so re-fired the
+            // initial load below with `until = oldest - 1`, which jumps to the floor,
+            // injects ancient events at the top (visible scroll shift) and marks the group
+            // Exhausted, dropping all un-paginated middle history. Groups that never
+            // paginated (page 0) still fall back to Idle and re-init via the loop below.
+            groupManager.resetLoadingForGroupsPreservingCursor(groupIds)
         }
 
         // Force-clear the mux tracker so the refresh always re-sends subscriptions.

@@ -31,10 +31,6 @@ external interface ChatMessageListProps : Props {
     var hasMore: Boolean
     var isLoadingMore: Boolean
 
-    /** Oldest loaded message timestamp. Pagination stops once this stops decreasing
-     *  (no genuinely older history) so pinning at the top can't load forever. */
-    var oldestTs: Double
-
     /** Fired when the user nears the top — caller loads older history (no guards needed). */
     var onStartReached: () -> Unit
 
@@ -53,16 +49,10 @@ external interface ChatMessageListProps : Props {
 }
 
 /**
- * Non-virtualized chat list. After fighting two virtualizers (react-virtuoso's
- * firstItemIndex never positioned reliably here: blank on mount, opened mid-list,
- * lurched to the bottom on scroll-up), this renders EVERY row as real DOM. That
- * removes the entire class of virtualization bugs (blank viewport, wrong mount
- * position, firstItemIndex) and leaves exactly one thing to manage: keep the
- * reading position when older history is prepended. On a plain list that is a
- * deterministic scrollHeight delta — content added above the viewport grows
- * scrollHeight by exactly that amount, so adding the delta to scrollTop holds the
- * view perfectly still. Chat history is bounded (hundreds–thousands of rows), so
- * full DOM rendering is fine.
+ * Non-virtualized chat list: renders every row as real DOM (history is bounded).
+ * Pins to the bottom while following the feed; while reading history it relies on
+ * the browser's overflow-anchor to hold the view across prepends and late media
+ * layout, so older pages load without the scroll position jumping.
  */
 val ChatMessageList =
     FC<ChatMessageListProps> { props ->
@@ -70,39 +60,24 @@ val ChatMessageList =
         val innerEl = useRef<HTMLDivElement>(null)
         val items = props.items
         val loadingOlder = useRef(false)
-        val prevHeight = useRef(-1.0)
-        val prevFirstKey = useRef<String>(null)
+        val firedSize = useRef(0)
         val atBottom = useRef(true)
         val openedFor = useRef<String>(null)
-        val firedAtOldestTs = useRef(0.0)
-        val noGrowthStreak = useRef(0)
-        val stalled = useRef(false)
         val wasLoading = useRef(false)
         val markDebounce = useRef<Int>(null)
-        // Always-current oldest timestamp (read by the delayed settle effect, whose
-        // captured props are stale after the delay).
-        val latestOldestTs = useRef(0.0)
-        latestOldestTs.current = props.oldestTs
 
-        // Open at the bottom on first render of a group, then either hold position
-        // across a prepend (loadingOlder) or pin to the bottom if the user is there.
-        // Pre-paint so corrections are never visible.
+        // Following the feed: pin to bottom, scroll-anchoring OFF. Reading history:
+        // anchoring ON and never touch scrollTop, so the browser holds position across
+        // prepends and late image/avatar layout (a manual scrollTop delta could not).
         useLayoutEffect(items.size, props.resetKey) {
             val node = el.current ?: return@useLayoutEffect
-            val firstKey = if (items.isNotEmpty()) props.keyOf(items[0]) else null
 
             if (openedFor.current != props.resetKey) {
-                // First render of this group: open at the bottom. Anchor OFF — while
-                // pinning to the bottom the browser's scroll-anchoring would re-anchor
-                // to a row above and drift us off the bottom as avatars/images resolve.
+                // First render of this group: open at the bottom, anchoring off.
                 node.asDynamic().style.overflowAnchor = "none"
                 node.scrollTop = node.scrollHeight.toDouble()
                 openedFor.current = props.resetKey
-                prevHeight.current = node.scrollHeight.toDouble()
-                prevFirstKey.current = firstKey
                 loadingOlder.current = false
-                stalled.current = false
-                noGrowthStreak.current = 0
                 if (atBottom.current != true) {
                     atBottom.current = true
                     props.onAtBottomChange(true)
@@ -110,26 +85,28 @@ val ChatMessageList =
                 return@useLayoutEffect
             }
 
-            val frontGrew = prevFirstKey.current != null && firstKey != null && firstKey != prevFirstKey.current
-
             if (atBottom.current == true) {
-                // At the bottom (just opened / following the feed): always stay at the
-                // bottom as content streams in. Anchor OFF so scroll-anchoring doesn't
-                // fight the pin and drift us up.
+                // Following: stay pinned to the bottom as content streams in. Anchor OFF
+                // so it doesn't re-anchor to a row above and drift us up.
                 node.asDynamic().style.overflowAnchor = "none"
                 node.scrollTop = node.scrollHeight.toDouble()
-            } else if (frontGrew) {
-                // Reading history: older content was prepended above the viewport, which
-                // grew scrollHeight by exactly that amount; add the delta to scrollTop
-                // so the visible rows stay put.
-                val delta = node.scrollHeight.toDouble() - (prevHeight.current ?: node.scrollHeight.toDouble())
-                if (delta != 0.0) node.scrollTop = node.scrollTop.toDouble() + delta
+            } else {
+                // Reading history: let the browser anchor the visible content. Do NOT
+                // touch scrollTop — overflow-anchor holds the position across the prepend
+                // and across late image/avatar layout, so there is no jump.
+                node.asDynamic().style.overflowAnchor = "auto"
+                // Release the latch the instant the page rendered (items grew past the
+                // fire-time count) so continued scrolling loads the next page without
+                // waiting out the settle timer. isLoadingMore still guards a double fire.
+                if (loadingOlder.current == true && items.size > (firedSize.current ?: 0)) {
+                    loadingOlder.current = false
+                }
             }
-            prevHeight.current = node.scrollHeight.toDouble()
-            prevFirstKey.current = firstKey
         }
 
-        // Release the pagination latch once the streaming page settles; decide stall.
+        // Fallback latch release: the layout effect frees the latch as soon as the page
+        // renders; this only covers a page that returns nothing new (no growth), so the
+        // latch can't get stuck. Pagination just trusts hasMore/isLoadingMore (like native).
         useEffect(props.isLoadingMore, items.size) {
             if (props.isLoadingMore) {
                 wasLoading.current = true
@@ -139,30 +116,7 @@ val ChatMessageList =
             delay(400)
             wasLoading.current = false
             if (loadingOlder.current == true) {
-                // Progress = the OLDEST message actually got older (smaller timestamp).
-                // Size growth is the wrong signal: a re-serving relay (or mux overlap)
-                // grows the count by filling the middle while the oldest stays put,
-                // which left the user pinned at the top paginating forever. If the
-                // oldest didn't advance, count it as no-progress and stop after a few.
-                val firedTs = firedAtOldestTs.current ?: 0.0
-                val nowTs = latestOldestTs.current ?: 0.0
-                val advanced = firedTs <= 0.0 || (nowTs in 1.0..(firedTs - 1.0))
                 loadingOlder.current = false
-                prevHeight.current = -1.0
-                firedAtOldestTs.current = 0.0
-                // Restore scroll-anchoring to the parked-reading default — but only
-                // 'auto' if the user is still reading history; if they're back at the
-                // bottom, keep it off so the pin isn't fought.
-                el.current?.let { it.asDynamic().style.overflowAnchor = if (atBottom.current == true) "none" else "auto" }
-                // oldest-not-advancing is a STRONG signal (with until=oldest, real
-                // older history would have come back), so stop after a single such
-                // round — no need to tolerate several like the old size-based check.
-                if (advanced) {
-                    noGrowthStreak.current = 0
-                    stalled.current = false
-                } else {
-                    stalled.current = true
-                }
             }
         }
 
@@ -209,6 +163,29 @@ val ChatMessageList =
         div {
             className = ClassName("chat-messages-list")
             ref = el
+            // At the very top (scrollTop 0) the browser fires no scroll event for further
+            // wheel-up, so onScroll-based pagination would stall there. The wheel event
+            // still fires, so it loads the next page; the loadingOlder latch keeps it to
+            // one page per load cycle, and stopping the wheel stops loading (no burst).
+            onWheel = { ev ->
+                if ((ev.deltaY as Double) < 0.0) {
+                    val node = ev.currentTarget
+                    val sh = node.scrollHeight.toDouble()
+                    val st = node.scrollTop.toDouble()
+                    val ch = node.clientHeight.toDouble()
+                    val mayPaginate = atBottom.current != true || sh <= ch + 4.0
+                    if (st < ch * 2.5 &&
+                        mayPaginate &&
+                        props.hasMore &&
+                        !props.isLoadingMore &&
+                        loadingOlder.current != true
+                    ) {
+                        loadingOlder.current = true
+                        firedSize.current = items.size
+                        props.onStartReached()
+                    }
+                }
+            }
             onScroll = { ev ->
                 val node = ev.currentTarget
                 val sh = node.scrollHeight.toDouble()
@@ -218,40 +195,23 @@ val ChatMessageList =
                 if (atBottom.current != isAtBottom) {
                     atBottom.current = isAtBottom
                     props.onAtBottomChange(isAtBottom)
-                    // Scroll-anchoring is wanted ONLY while parked reading history (so
-                    // a reaction/media above the viewport doesn't jump the view). At the
-                    // bottom it fights the pin; while paginating the JS restore owns it.
-                    if (loadingOlder.current != true) {
-                        node.asDynamic().style.overflowAnchor = if (isAtBottom) "none" else "auto"
-                    }
+                    // Anchoring ON while reading history (holds position across prepends and
+                    // late image layout), OFF at the bottom where it would fight the pin.
+                    node.asDynamic().style.overflowAnchor = if (isAtBottom) "none" else "auto"
                 }
-                // Load older history as the user nears the top. The scrollHeight
-                // captured here is restored by the layout effect after the prepend,
-                // so the view never jumps; once a page lands, scrollTop has grown
-                // past the trigger, so it won't re-fire until the user scrolls up.
-                //
-                // Do NOT paginate while at the bottom: on a short group the bottom is
-                // already within ch*1.5 of the top, so without this guard it would
-                // paginate immediately on open and the streaming page would drift the
-                // user up off the newest. The exception is a feed that doesn't fill the
-                // viewport (sh <= ch) — then the user can't scroll up to ask for more,
-                // so allow a cold-start fill.
+                // Load older history as the user nears the top (prefetch ~2.5 viewports
+                // ahead so the page lands before they reach the top). Don't paginate while
+                // at the bottom, except when the feed doesn't fill the viewport (sh <= ch)
+                // and the user can't scroll up to ask for more.
                 val mayPaginate = atBottom.current != true || sh <= ch + 4.0
-                if (st < ch * 1.5 &&
+                if (st < ch * 2.5 &&
                     mayPaginate &&
                     props.hasMore &&
                     !props.isLoadingMore &&
-                    loadingOlder.current != true &&
-                    stalled.current != true
+                    loadingOlder.current != true
                 ) {
                     loadingOlder.current = true
-                    prevHeight.current = sh
-                    firedAtOldestTs.current = props.oldestTs
-                    // Disable browser scroll-anchoring for the prepend so it doesn't
-                    // double-adjust against our scrollHeight-delta restore; re-enabled
-                    // at settle so reactions/media/replies above the viewport stay
-                    // anchored normally.
-                    node.asDynamic().style.overflowAnchor = "none"
+                    firedSize.current = items.size
                     props.onStartReached()
                 }
                 // Mark-as-read: bottom-most fully-visible row (debounced).

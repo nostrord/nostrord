@@ -965,7 +965,6 @@ val ChatScreen =
                             resetKey = group.id
                             this.hasMore = moreAvail
                             this.isLoadingMore = loadingMore
-                            oldestTs = (messages.minOfOrNull { it.createdAt } ?: 0L).toDouble()
                             scrollToKey = scrollKey
                             onScrolledToKey = { setScrollKey(null) }
                             this.jumpNonce = jumpNonce
