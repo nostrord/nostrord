@@ -75,6 +75,7 @@ fun MessageInput(
     pendingRequestedAtSeconds: Long? = null,
     onCancelJoinRequest: () -> Unit = {},
     selectedChannel: String,
+    groupId: String,
     groupName: String?,
     messageInput: String,
     onSendMessage: (String) -> Unit,
@@ -136,7 +137,21 @@ fun MessageInput(
         }
     }
 
-    var textFieldValue by remember { mutableStateOf(TextFieldValue(messageInput)) }
+    // Seed the field from the saved per-group draft and re-seed when the group changes,
+    // so leaving a group and coming back restores the unsent text (text lives here, not
+    // hoisted to the screen, so this is the source of truth for the draft body).
+    var textFieldValue by remember(groupId) {
+        val savedText = AppModule.messageDraftStore.get(groupId).text
+        mutableStateOf(TextFieldValue(savedText, TextRange(savedText.length)))
+    }
+
+    // Persist the text on every change to the in-memory draft store. snapshotFlow keeps
+    // this out of composition (a plain map write, no recomposition), so it does not
+    // reintroduce the per-keystroke chat re-render this composer was split out to avoid.
+    LaunchedEffect(groupId) {
+        snapshotFlow { textFieldValue.text }
+            .collect { AppModule.messageDraftStore.setText(groupId, it) }
+    }
 
     suspend fun handlePastedMedia(bytes: ByteArray, filename: String) {
         if (bytes.size.toLong() > MAX_UPLOAD_BYTES) {

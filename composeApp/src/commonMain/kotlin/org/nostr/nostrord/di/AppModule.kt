@@ -69,6 +69,10 @@ object AppModule {
 
     val accountStore: AccountStore by lazy { AccountStore() }
 
+    // Per-group composer drafts (in memory, session-scoped). Lets the chat input
+    // restore unsent text + mentions when the user leaves a group and comes back.
+    val messageDraftStore: org.nostr.nostrord.ui.MessageDraftStore by lazy { org.nostr.nostrord.ui.MessageDraftStore() }
+
     // One-shot transient messages surfaced to the user (snackbar). Used for
     // events the user did not explicitly trigger, e.g. a bunker session that
     // got revoked while the user was sitting on another screen.

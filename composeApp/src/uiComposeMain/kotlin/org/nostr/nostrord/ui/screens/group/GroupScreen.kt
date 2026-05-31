@@ -33,6 +33,20 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
 
+// Unit separator — safe field delimiter for encoding GroupInfo into the platform-agnostic
+// String values the shared MessageDraftStore holds. It cannot appear in ids, names or URLs.
+private const val DRAFT_FIELD_SEP = "\u001f"
+
+private fun encodeGroupMentions(groupMentions: Map<String, GroupInfo>): Map<String, String> = groupMentions.mapValues { (_, g) ->
+    listOf(g.id, g.name, g.picture ?: "", g.relay).joinToString(DRAFT_FIELD_SEP)
+}
+
+private fun decodeGroupMentions(encoded: Map<String, String>): Map<String, GroupInfo> = encoded.mapNotNull { (name, value) ->
+    val parts = value.split(DRAFT_FIELD_SEP)
+    if (parts.size < 4) return@mapNotNull null
+    name to GroupInfo(id = parts[0], name = parts[1], picture = parts[2].ifEmpty { null }, relay = parts[3])
+}.toMap()
+
 @Composable
 fun GroupScreen(
     groupId: String,
@@ -138,9 +152,16 @@ fun GroupScreen(
     val isLoadingMore = isLoadingMoreMap[groupId] ?: false
     val hasMoreMessages = hasMoreMessagesMap[groupId] ?: true
 
-    var messageInput by remember { mutableStateOf("") }
-    var mentions by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
-    var groupMentions by remember { mutableStateOf<Map<String, GroupInfo>>(emptyMap()) }
+    // messageInput is only the failure-restore channel into the composer (the live text
+    // lives in MessageInput); keyed by groupId so a restore value can't leak across groups.
+    var messageInput by remember(groupId) { mutableStateOf("") }
+    // Mention maps are part of the per-group draft: seed from the store on group change so
+    // an @user / %group typed before switching is restored (and doesn't bleed into the next
+    // group, which the un-keyed remember used to do).
+    var mentions by remember(groupId) { mutableStateOf(AppModule.messageDraftStore.get(groupId).mentions) }
+    var groupMentions by remember(groupId) {
+        mutableStateOf(decodeGroupMentions(AppModule.messageDraftStore.get(groupId).groupMentions))
+    }
     var replyingToMessage by remember(groupId) { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var pendingUploads by remember { mutableStateOf<List<UploadResult>>(emptyList()) }
     var showLeaveDialog by remember { mutableStateOf(false) }
@@ -332,6 +353,18 @@ fun GroupScreen(
         remember(messages, lastReadSnapshot) {
             buildChatItems(messages, lastReadSnapshot, currentUserPubkey)
         }
+
+    // Persist the per-group draft's mention maps whenever they change (MessageInput owns
+    // and persists the text itself). Plain in-memory map writes, no recomposition. When a
+    // send clears mentions (and the text), the store entry empties and is dropped.
+    LaunchedEffect(groupId) {
+        snapshotFlow { mentions }.collect { AppModule.messageDraftStore.setMentions(groupId, it) }
+    }
+    LaunchedEffect(groupId) {
+        snapshotFlow { groupMentions }.collect {
+            AppModule.messageDraftStore.setGroupMentions(groupId, encodeGroupMentions(it))
+        }
+    }
 
     // Unread-from-others count for the FAB badge (Telegram pattern). Mirrors
     // the divider's filter — own messages don't count as unread.

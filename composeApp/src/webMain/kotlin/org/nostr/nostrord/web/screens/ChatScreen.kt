@@ -262,6 +262,24 @@ private val ChatComposer =
         val composerInputRef = useRef<HTMLTextAreaElement>(null)
         val composerHighlightRef = useRef<HTMLDivElement>(null)
 
+        // Per-group draft: restore what was being typed when this group was last open.
+        // Runs on group change only (the same component is reused across groups, so the
+        // draft state would otherwise leak from one group to the next).
+        useEffect(props.groupId) {
+            val draftEntry = AppModule.messageDraftStore.get(props.groupId)
+            setDraft(draftEntry.text)
+            setMentions(draftEntry.mentions)
+            setGroupMentions(draftEntry.groupMentions)
+        }
+        // Persist on change. The store is a plain in-memory map (no re-render), so saving
+        // on every keystroke is free. On group switch this effect's deps are still the old
+        // group's values, so it does not fire until the load effect above swaps them in.
+        useEffect(draft, mentions, groupMentions) {
+            AppModule.messageDraftStore.setText(props.groupId, draft)
+            AppModule.messageDraftStore.setMentions(props.groupId, mentions)
+            AppModule.messageDraftStore.setGroupMentions(props.groupId, groupMentions)
+        }
+
         // Autocomplete suggestions for the active mention (members for @, groups for %).
         val mentionMatches: List<MentionMatch> =
             when (mention?.trigger) {
