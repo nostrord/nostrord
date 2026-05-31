@@ -77,8 +77,7 @@ fun MessageInput(
     selectedChannel: String,
     groupName: String?,
     messageInput: String,
-    onMessageInputChange: (String) -> Unit,
-    onSendMessage: () -> Unit,
+    onSendMessage: (String) -> Unit,
     onJoinGroup: (inviteCode: String?) -> Unit,
     groupMembers: List<MemberInfo> = emptyList(),
     mentions: Map<String, String> = emptyMap(), // displayName -> pubkey
@@ -160,7 +159,6 @@ fun MessageInput(
                     val sep = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
                     val newText = current + sep + url
                     textFieldValue = TextFieldValue(newText, TextRange(newText.length))
-                    onMessageInputChange(newText)
                     onMediaUploaded(result.data)
                 }
                 is Result.Error -> pasteError = result.error.message
@@ -170,15 +168,16 @@ fun MessageInput(
         }
     }
 
-    // Sync with external messageInput when it changes (e.g., cleared after send)
+    // `messageInput` is a one-way restore channel from the parent: it carries a
+    // failed send's draft so it can be recovered. It is intentionally NOT updated
+    // while typing (that would recompose the whole screen + message list on every
+    // keystroke), so we only pull from it when it has text AND the field is empty
+    // (don't clobber a message the user has already started typing).
     LaunchedEffect(messageInput) {
-        if (textFieldValue.text != messageInput) {
+        if (messageInput.isNotEmpty() && textFieldValue.text.isEmpty()) {
             textFieldValue = TextFieldValue(messageInput, TextRange(messageInput.length))
-            // Refocus after send (input cleared) only where auto-focus is wanted —
-            // skip touch/mobile web so a send doesn't re-pop the on-screen keyboard.
-            if (messageInput.isEmpty() && autoFocusTextInput) {
-                focusRequester.requestFocus()
-            }
+            // Skip touch/mobile web so a restore doesn't re-pop the on-screen keyboard.
+            if (autoFocusTextInput) focusRequester.requestFocus()
         }
     }
 
@@ -258,9 +257,27 @@ fun MessageInput(
             return
         }
         textFieldValue = newValue
-        onMessageInputChange(newValue.text)
         updateMentionState(newValue)
         updateGroupMentionState(newValue)
+    }
+
+    // Hand the composed text to the parent and clear the field optimistically.
+    // The text lives here (not hoisted to the screen), so this is the single point
+    // the parent learns what to send. On failure the parent pushes the draft back
+    // via the `messageInput` restore channel.
+    fun submit() {
+        val text = textFieldValue.text
+        if (text.isBlank() || isSending || isUploadingPaste) return
+        showEmojiPicker = false
+        showMentionPopup = false
+        showGroupMentionPopup = false
+        mentionStartIndex = -1
+        groupMentionStartIndex = -1
+        mentionQuery = ""
+        groupMentionQuery = ""
+        onSendMessage(text)
+        textFieldValue = TextFieldValue("")
+        if (autoFocusTextInput) focusRequester.requestFocus()
     }
 
     fun handleMemberSelect(member: MemberInfo) {
@@ -279,7 +296,6 @@ fun MessageInput(
         }
         val cursorPosition = beforeMention.length + mentionPart.length
         textFieldValue = TextFieldValue(newText, TextRange(cursorPosition))
-        onMessageInputChange(newText)
         if (!mentions.containsKey(member.displayName)) {
             onMentionsChange(mentions + (member.displayName to member.pubkey))
         }
@@ -305,7 +321,6 @@ fun MessageInput(
         }
         val cursorPosition = beforeMention.length + mentionPart.length
         textFieldValue = TextFieldValue(newText, TextRange(cursorPosition))
-        onMessageInputChange(newText)
         if (!groupMentions.containsKey(group.name)) {
             onGroupMentionsChange(groupMentions + (group.name to group))
         }
@@ -482,7 +497,6 @@ fun MessageInput(
                             val separator = if (current.isNotEmpty() && !current.endsWith(" ") && !current.endsWith("\n")) " " else ""
                             val newText = current + separator + url
                             textFieldValue = TextFieldValue(newText, TextRange(newText.length))
-                            onMessageInputChange(newText)
                             onMediaUploaded(uploadResult)
                         },
                     )
@@ -611,7 +625,6 @@ fun MessageInput(
                                         val newText = text.substring(0, sel.start) + "\n" + text.substring(sel.end)
                                         val newValue = TextFieldValue(newText, TextRange(sel.start + 1))
                                         textFieldValue = newValue
-                                        onMessageInputChange(newText)
                                         updateMentionState(newValue)
                                         updateGroupMentionState(newValue)
                                         true
@@ -628,8 +641,7 @@ fun MessageInput(
                                             if (selectedGroup != null) handleGroupSelect(selectedGroup)
                                             true
                                         } else if (textFieldValue.text.isNotBlank()) {
-                                            showEmojiPicker = false
-                                            onSendMessage()
+                                            submit()
                                             true
                                         } else {
                                             true
@@ -698,12 +710,7 @@ fun MessageInput(
                     }
 
                     IconButton(
-                        onClick = {
-                            if (textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste) {
-                                showEmojiPicker = false
-                                onSendMessage()
-                            }
-                        },
+                        onClick = { submit() },
                         enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
                         modifier = Modifier.size(40.dp),
                     ) {
@@ -844,7 +851,6 @@ fun MessageInput(
                                     val newText = text.substring(0, cursor) + emoji + text.substring(cursor)
                                     val newCursor = cursor + emoji.length
                                     textFieldValue = TextFieldValue(newText, TextRange(newCursor))
-                                    onMessageInputChange(newText)
                                 },
                                 onDismiss = {
                                     showEmojiPicker = false

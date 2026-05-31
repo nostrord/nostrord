@@ -766,20 +766,19 @@ fun GroupScreen(
                     pendingReactions = pendingReactions,
                     currentUserPubkey = currentUserPubkey,
                     messageInput = messageInput,
-                    onMessageInputChange = { messageInput = it },
-                    onSendMessage = {
+                    onSendMessage = { text ->
                         val imetaTags = pendingUploads.map { it.toImetaTag() }
-                        var content = messageInput
+                        var content = text
                         groupMentions.forEach { (name, group) ->
                             val relayPubkey = relayMetadata[group.relay]?.pubkey
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
-                        // Snapshot for restore-on-failure, then clear the input
-                        // immediately (optimistic). Clearing up front, instead of
-                        // after the send resolves, removes the race where keystrokes
-                        // typed during a fast send overwrite the post-send clear.
-                        val sentInput = messageInput
+                        // Snapshot for restore-on-failure. The composer owns and clears
+                        // its own field; here we clear the rest of the draft state and
+                        // reset messageInput so a failure can push the text back through
+                        // the restore channel (a transition from "" guarantees it fires).
+                        val sentInput = text
                         val sentMentions = mentions
                         val sentGroupMentions = groupMentions
                         val sentReply = replyingToMessage
@@ -796,15 +795,13 @@ fun GroupScreen(
                             sentReply?.id,
                             imetaTags,
                             onFailure = {
-                                // Restore so it can be retried, unless the user has
-                                // already started typing a new message in the meantime.
-                                if (messageInput.isEmpty()) {
-                                    messageInput = sentInput
-                                    mentions = sentMentions
-                                    groupMentions = sentGroupMentions
-                                    replyingToMessage = sentReply
-                                    pendingUploads = sentUploads
-                                }
+                                // Restore so it can be retried. The composer re-accepts
+                                // the text only if the user hasn't started a new message.
+                                messageInput = sentInput
+                                mentions = sentMentions
+                                groupMentions = sentGroupMentions
+                                replyingToMessage = sentReply
+                                pendingUploads = sentUploads
                             },
                         )
                     },
@@ -910,20 +907,19 @@ fun GroupScreen(
                     pendingReactions = pendingReactions,
                     currentUserPubkey = currentUserPubkey,
                     messageInput = messageInput,
-                    onMessageInputChange = { messageInput = it },
-                    onSendMessage = {
+                    onSendMessage = { text ->
                         val imetaTags = pendingUploads.map { it.toImetaTag() }
-                        var content = messageInput
+                        var content = text
                         groupMentions.forEach { (name, group) ->
                             val relayPubkey = relayMetadata[group.relay]?.pubkey
                             val naddr = Nip19.encodeNaddr(group.id, group.relay, pubkeyHex = relayPubkey)
                             content = content.replace("%$name", "nostr:$naddr")
                         }
-                        // Snapshot for restore-on-failure, then clear the input
-                        // immediately (optimistic). Clearing up front, instead of
-                        // after the send resolves, removes the race where keystrokes
-                        // typed during a fast send overwrite the post-send clear.
-                        val sentInput = messageInput
+                        // Snapshot for restore-on-failure. The composer owns and clears
+                        // its own field; here we clear the rest of the draft state and
+                        // reset messageInput so a failure can push the text back through
+                        // the restore channel (a transition from "" guarantees it fires).
+                        val sentInput = text
                         val sentMentions = mentions
                         val sentGroupMentions = groupMentions
                         val sentReply = replyingToMessage
@@ -940,15 +936,13 @@ fun GroupScreen(
                             sentReply?.id,
                             imetaTags,
                             onFailure = {
-                                // Restore so it can be retried, unless the user has
-                                // already started typing a new message in the meantime.
-                                if (messageInput.isEmpty()) {
-                                    messageInput = sentInput
-                                    mentions = sentMentions
-                                    groupMentions = sentGroupMentions
-                                    replyingToMessage = sentReply
-                                    pendingUploads = sentUploads
-                                }
+                                // Restore so it can be retried. The composer re-accepts
+                                // the text only if the user hasn't started a new message.
+                                messageInput = sentInput
+                                mentions = sentMentions
+                                groupMentions = sentGroupMentions
+                                replyingToMessage = sentReply
+                                pendingUploads = sentUploads
                             },
                         )
                     },

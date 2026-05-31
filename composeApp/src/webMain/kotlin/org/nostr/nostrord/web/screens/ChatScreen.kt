@@ -202,6 +202,374 @@ private fun highlightSegments(text: String, tokens: Collection<String>): List<Hl
     return segs
 }
 
+private external interface ChatComposerProps : Props {
+    var groupId: String
+    var groupName: String
+    var groupIsOpen: Boolean
+    var canPost: Boolean
+    var isPending: Boolean
+    var members: List<String>
+    var allGroups: List<GroupMetadata>
+    var userMetadata: Map<String, UserMetadata>
+    var relayUrl: String
+    var relayPubkey: String?
+
+    /** Id of the message being replied to (null = no reply), plus the parent's display name for the banner. */
+    var replyingToId: String?
+    var replyParentName: String?
+    var onCancelReply: () -> Unit
+
+    /** Cleared after a successful publish so the parent can drop the reply target. */
+    var onSent: () -> Unit
+    var onJoin: () -> Unit
+}
+
+/**
+ * Composer — the message input bar (textarea + colored mention mirror, @user / %group autocomplete,
+ * emoji picker, paste/drag upload, Send). Split out of [ChatScreen] so that typing only re-renders
+ * this subtree: the draft and mention state live here, not at screen level, so each keystroke no
+ * longer re-runs ChatScreen's message sort/filter or re-renders the message list.
+ */
+private val ChatComposer =
+    FC<ChatComposerProps> { props ->
+        val repo = AppModule.nostrRepository
+        val members = props.members
+        val userMetadata = props.userMetadata
+        val allGroups = props.allGroups
+        val relayUrl = props.relayUrl
+        val groupName = props.groupName
+
+        val (draft, setDraft) = useState { "" }
+        // Tracks an in-flight sendMessage so we (a) don't double-send if the user
+        // mashes Enter, and (b) keep the draft visible until the signer + relay
+        // come back — clearing optimistically erased the message when a NIP-07
+        // cancel or relay reject killed the publish.
+        val (sending, setSending) = useState { false }
+        // Active media uploads in flight (paste / drag-and-drop). The send button
+        // shows a spinner instead of the Send icon while > 0.
+        val (uploadCount, setUploadCount) = useState { 0 }
+        // Composer emoji picker open state.
+        val (emojiOpen, setEmojiOpen) = useState { false }
+        // Active @user / %group mention being typed in the composer.
+        val (mention, setMention) = useState<MentionCtx?> { null }
+        // displayName -> pubkeyHex for @user mentions chosen from the popup.
+        val (mentions, setMentions) = useState<Map<String, String>> { emptyMap() }
+        // groupName -> "nostr:naddr…" for %group mentions, resolved into the content at send.
+        val (groupMentions, setGroupMentions) = useState<Map<String, String>> { emptyMap() }
+        // Highlighted row in the mention popup, driven by ArrowUp/ArrowDown and hover.
+        val (mentionSelected, setMentionSelected) = useState { 0 }
+
+        val composerInputRef = useRef<HTMLTextAreaElement>(null)
+        val composerHighlightRef = useRef<HTMLDivElement>(null)
+
+        // Autocomplete suggestions for the active mention (members for @, groups for %).
+        val mentionMatches: List<MentionMatch> =
+            when (mention?.trigger) {
+                '@' -> {
+                    val normalizedQuery = mention.query.normalizeForSearch()
+                    members.asSequence()
+                        .map { pk -> pk to displayName(pk, userMetadata[pk]) }
+                        .filter { (_, nm) -> mention.query.isBlank() || nm.normalizeForSearch().contains(normalizedQuery) }
+                        .take(6)
+                        .map { (pk, nm) ->
+                            MentionMatch(
+                                nm,
+                                userMetadata[pk]?.picture,
+                                pk,
+                                group = false,
+                                ref = "nostr:" + Nip19.encodeNpub(pk),
+                                sub = pk.take(8) + "…" + pk.takeLast(4),
+                            )
+                        }
+                        .toList()
+                }
+                '%' -> {
+                    val normalizedQuery = mention.query.normalizeForSearch()
+                    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                    allGroups.asSequence()
+                        .filter { g -> mention.query.isBlank() || (g.name ?: g.id).normalizeForSearch().contains(normalizedQuery) }
+                        .take(6)
+                        .map { g ->
+                            val ref = "nostr:" + Nip19.encodeNaddr(g.id, relayUrl, 39000, props.relayPubkey)
+                            MentionMatch(g.name ?: g.id, g.picture, g.id, group = true, ref = ref, sub = relayHost)
+                        }
+                        .toList()
+                }
+                else -> emptyList()
+            }
+
+        // Replace the typed "@query"/"%query" with the chosen suggestion.
+        fun insertMention(mm: MentionMatch) {
+            val m = mention ?: return
+            val cursorEnd = (m.start + 1 + m.query.length).coerceAtMost(draft.length)
+            val inserted = if (mm.group) "%${mm.label}" else "@${mm.label}"
+            setDraft(draft.take(m.start) + inserted + " " + draft.substring(cursorEnd))
+            if (mm.group) {
+                setGroupMentions { it + (mm.label to mm.ref) }
+            } else {
+                setMentions { it + (mm.label to mm.seed) }
+            }
+            setMention(null)
+            setMentionSelected(0)
+        }
+
+        fun isMediaMime(type: String?): Boolean = type != null &&
+            (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/"))
+
+        // Upload a pasted/dropped file to nostr.build and append the URL to the draft.
+        fun handleMediaFile(file: dynamic) {
+            setUploadCount { it + 1 }
+            launchApp {
+                try {
+                    val url = uploadBlob(file)
+                    if (url != null) {
+                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                    }
+                } finally {
+                    setUploadCount { it - 1 }
+                }
+            }
+        }
+
+        fun send() {
+            var text = draft.trim()
+            if (text.isEmpty() || sending) return
+            // Resolve %group mentions to their nostr:naddr inline (native does this at send too);
+            // @user mentions are resolved by repo.sendMessage from the mentions map (+ p-tag).
+            groupMentions.forEach { (name, ref) -> text = text.replace("%$name", ref) }
+            val replyId = props.replyingToId
+            setSending(true)
+            launchApp {
+                val result = repo.sendMessage(props.groupId, text, mentions = mentions, replyToMessageId = replyId)
+                setSending(false)
+                if (result is Result.Success) {
+                    // Clear only after publish succeeded so a cancel/reject keeps the draft.
+                    setDraft("")
+                    setMentions(emptyMap())
+                    setGroupMentions(emptyMap())
+                    props.onSent()
+                }
+            }
+        }
+
+        useEffect(props.replyingToId) {
+            if (props.replyingToId != null) composerInputRef.current?.focus()
+        }
+        useEffect(draft) {
+            val el = composerInputRef.current ?: return@useEffect
+            // Reset before reading scrollHeight so the field can shrink when text
+            // is deleted — otherwise scrollHeight only grows.
+            el.style.height = "auto"
+            el.style.height = "${el.scrollHeight}px"
+        }
+
+        if (!props.canPost) {
+            // Not a member — prompt to join (or show pending) instead of the composer.
+            div {
+                className = ClassName("composer-join")
+                if (props.isPending) {
+                    span { +"Your request to join is pending approval." }
+                } else {
+                    span { +"Join the group to send messages" }
+                    button {
+                        className = ClassName("composer-join-btn")
+                        onClick = { props.onJoin() }
+                        icon(Ic.PersonAdd)
+                        span { +(if (!props.groupIsOpen) "Request to Join" else "Join Now") }
+                    }
+                }
+            }
+        } else {
+            // Reply banner (above the composer)
+            val parentName = props.replyParentName
+            if (props.replyingToId != null && parentName != null) {
+                div {
+                    className = ClassName("composer-reply")
+                    span {
+                        +"Replying to "
+                        span {
+                            className = ClassName("composer-reply-name")
+                            +parentName
+                        }
+                    }
+                    button {
+                        className = ClassName("composer-reply-close")
+                        onClick = { props.onCancelReply() }
+                        icon(Ic.Close)
+                    }
+                }
+            }
+
+            // Composer
+            div {
+                className = ClassName(if (props.replyingToId != null) "composer replying" else "composer")
+                UploadButton {
+                    cls = "composer-btn"
+                    icon = Ic.AttachFile
+                    onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
+                }
+                div {
+                    className = ClassName("composer-input-wrap")
+                    // Colored mirror painted behind the textarea: same text, but with
+                    // resolved @user / %group mentions tinted gold (native parity).
+                    div {
+                        className = ClassName("composer-highlight")
+                        ref = composerHighlightRef
+                        val tokens = mentions.keys.map { "@$it" } + groupMentions.keys.map { "%$it" }
+                        highlightSegments(draft, tokens).forEach { seg ->
+                            if (seg.mention) {
+                                span {
+                                    className = ClassName("msg-mention")
+                                    +seg.text
+                                }
+                            } else {
+                                +seg.text
+                            }
+                        }
+                    }
+                    textarea {
+                        ref = composerInputRef
+                        onScroll = {
+                            composerHighlightRef.current?.scrollTop =
+                                composerInputRef.current?.scrollTop ?: 0.0
+                        }
+                        className = ClassName("composer-input")
+                        placeholder = "Message $groupName"
+                        value = draft
+                        readOnly = sending
+                        rows = 1
+                        onChange = { event ->
+                            val v = event.currentTarget.value
+                            setDraft(v)
+                            val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
+                            setMention(detectMention(v, cursor))
+                            setMentionSelected(0)
+                        }
+                        onKeyDown = { event ->
+                            val hasMentions = mention != null && mentionMatches.isNotEmpty()
+                            when {
+                                hasMentions && event.key == "ArrowDown" -> {
+                                    event.preventDefault()
+                                    setMentionSelected { (it + 1).coerceAtMost(mentionMatches.size - 1) }
+                                }
+                                hasMentions && event.key == "ArrowUp" -> {
+                                    event.preventDefault()
+                                    setMentionSelected { (it - 1).coerceAtLeast(0) }
+                                }
+                                hasMentions && (event.key == "Enter" || event.key == "Tab") -> {
+                                    event.preventDefault()
+                                    insertMention(mentionMatches[mentionSelected.coerceIn(0, mentionMatches.size - 1)])
+                                }
+                                mention != null && event.key == "Escape" -> {
+                                    event.preventDefault()
+                                    setMention(null)
+                                }
+                                event.key == "Enter" && !event.shiftKey -> {
+                                    event.preventDefault()
+                                    send()
+                                }
+                            }
+                        }
+                        onBlur = { window.setTimeout({ setMention(null) }, 150) }
+                        onPaste = { event ->
+                            val items = event.asDynamic().clipboardData?.items
+                            val count = (items?.length as? Int) ?: 0
+                            for (i in 0 until count) {
+                                val item = items[i]
+                                val type = item.type.unsafeCast<String?>()
+                                if (item.kind == "file" && isMediaMime(type)) {
+                                    val file = item.getAsFile()
+                                    if (file != null) {
+                                        event.preventDefault()
+                                        handleMediaFile(file)
+                                    }
+                                }
+                            }
+                        }
+                        onDragOver = { it.preventDefault() }
+                        onDrop = { event ->
+                            val files = event.asDynamic().dataTransfer?.files
+                            val count = (files?.length as? Int) ?: 0
+                            if (count > 0) event.preventDefault()
+                            for (i in 0 until count) {
+                                val file = files[i]
+                                val type = file.type.unsafeCast<String?>()
+                                if (isMediaMime(type)) handleMediaFile(file)
+                            }
+                        }
+                    }
+                }
+                if (mention != null && mentionMatches.isNotEmpty()) {
+                    div {
+                        className = ClassName("mention-popup")
+                        div {
+                            className = ClassName("mention-header")
+                            +(if (mention.trigger == '%') "GROUPS" else "MEMBERS")
+                        }
+                        val sel = mentionSelected.coerceIn(0, mentionMatches.size - 1)
+                        mentionMatches.forEachIndexed { idx, mm ->
+                            div {
+                                key = mm.ref
+                                className = ClassName(if (idx == sel) "mention-row selected" else "mention-row")
+                                onMouseDown = { e ->
+                                    e.preventDefault()
+                                    insertMention(mm)
+                                }
+                                onMouseEnter = { setMentionSelected(idx) }
+                                WebAvatar {
+                                    url = mm.picture
+                                    seed = mm.seed
+                                    this.name = mm.label
+                                    kind = if (mm.group) AvatarKind.GROUP else AvatarKind.USER
+                                    cls = "mention-avatar"
+                                }
+                                div {
+                                    className = ClassName("mention-text")
+                                    span {
+                                        className = ClassName("mention-name")
+                                        +mm.label
+                                    }
+                                    span {
+                                        className = ClassName("mention-key")
+                                        +mm.sub
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                button {
+                    className = ClassName(if (emojiOpen) "composer-btn active" else "composer-btn")
+                    onClick = { setEmojiOpen(!emojiOpen) }
+                    icon(Ic.EmojiEmotions)
+                }
+                button {
+                    val uploading = uploadCount > 0
+                    val busy = uploading || sending
+                    className = ClassName(
+                        if (draft.isNotBlank() || busy) "composer-send active" else "composer-send",
+                    )
+                    disabled = (draft.isBlank() && !uploading) || sending || uploading
+                    onClick = { send() }
+                    if (busy) {
+                        span { className = ClassName("btn-spinner") }
+                    } else {
+                        icon(Ic.Send)
+                    }
+                }
+                if (emojiOpen) {
+                    div {
+                        className = ClassName("emoji-overlay")
+                        onClick = { setEmojiOpen(false) }
+                        EmojiPicker {
+                            onPick = { emoji -> setDraft { prev -> prev + emoji } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 /**
  * Chat view — real data port of the Compose GroupScreenDesktop: header + grouped messages
  * (live `messages` flow) + composer (`sendMessage`), members sidebar (`groupMembers` /
@@ -303,17 +671,6 @@ val ChatScreen =
             0
         }
 
-        val (draft, setDraft) = useState { "" }
-        // Tracks an in-flight sendMessage so we (a) don't double-send if the user
-        // mashes Enter, and (b) keep the draft visible until the signer + relay
-        // come back — clearing optimistically erased the message when a NIP-07
-        // cancel or relay reject killed the publish.
-        val (sending, setSending) = useState { false }
-        // Active media uploads in flight (paste / drag-and-drop). The send button
-        // shows a spinner instead of the Send icon while > 0 — without it the
-        // user can't tell that a freshly-pasted file is still uploading and might
-        // click Send before the URL appears in the draft.
-        val (uploadCount, setUploadCount) = useState { 0 }
         val (membersOpen, setMembersOpen) = useState { false }
         val (infoOpen, setInfoOpen) = useState { false }
         val (profilePubkey, setProfilePubkey) = useState<String?> { null }
@@ -323,100 +680,6 @@ val ChatScreen =
         val (memberQuery, setMemberQuery) = useState { "" }
         // The deep-linked message currently flashing (cleared after the highlight animation).
         val (highlightId, setHighlightId) = useState<String?> { null }
-        // Composer emoji picker open state.
-        val (emojiOpen, setEmojiOpen) = useState { false }
-        // Active @user / %group mention being typed in the composer.
-        val (mention, setMention) = useState<MentionCtx?> { null }
-        // displayName -> pubkeyHex for @user mentions chosen from the popup. Passed to
-        // repo.sendMessage, which rewrites "@name" -> "nostr:npub" and adds the p-tag,
-        // mirroring native MessageInput.mentions.
-        val (mentions, setMentions) = useState<Map<String, String>> { emptyMap() }
-        // groupName -> "nostr:naddr…" for %group mentions. Resolved into the content at send,
-        // mirroring native (GroupScreen replaces "%name" with the naddr before publishing).
-        val (groupMentions, setGroupMentions) = useState<Map<String, String>> { emptyMap() }
-        // Highlighted row in the mention popup, driven by ArrowUp/ArrowDown and hover.
-        val (mentionSelected, setMentionSelected) = useState { 0 }
-
-        // Autocomplete suggestions for the active mention (members for @, groups for %).
-        val mentionMatches: List<MentionMatch> =
-            when (mention?.trigger) {
-                '@' -> {
-                    val normalizedQuery = mention.query.normalizeForSearch()
-                    members.asSequence()
-                        .map { pk -> pk to displayName(pk, userMetadata[pk]) }
-                        .filter { (_, nm) -> mention.query.isBlank() || nm.normalizeForSearch().contains(normalizedQuery) }
-                        .take(6)
-                        .map { (pk, nm) ->
-                            MentionMatch(
-                                nm,
-                                userMetadata[pk]?.picture,
-                                pk,
-                                group = false,
-                                ref = "nostr:" + Nip19.encodeNpub(pk),
-                                sub = pk.take(8) + "…" + pk.takeLast(4),
-                            )
-                        }
-                        .toList()
-                }
-                '%' -> {
-                    val normalizedQuery = mention.query.normalizeForSearch()
-                    // All groups here live on the current relay (NIP-29 is relay-scoped), so the
-                    // subtitle is the current relay host — matching native's per-group relay line.
-                    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
-                    allGroups.asSequence()
-                        .filter { g -> mention.query.isBlank() || (g.name ?: g.id).normalizeForSearch().contains(normalizedQuery) }
-                        .take(6)
-                        .map { g ->
-                            val ref = "nostr:" + Nip19.encodeNaddr(g.id, relayUrl, 39000, relayMetadata[relayUrl]?.pubkey)
-                            MentionMatch(g.name ?: g.id, g.picture, g.id, group = true, ref = ref, sub = relayHost)
-                        }
-                        .toList()
-                }
-                else -> emptyList()
-            }
-
-        // Replace the typed "@query"/"%query" with the chosen suggestion: "@name" for users,
-        // "%name" for groups (like native). Both are recorded so the composer can tint them and
-        // send() can resolve them — @name to nostr:npub via repo, %name to nostr:naddr inline.
-        fun insertMention(mm: MentionMatch) {
-            val m = mention ?: return
-            val cursorEnd = (m.start + 1 + m.query.length).coerceAtMost(draft.length)
-            val inserted = if (mm.group) "%${mm.label}" else "@${mm.label}"
-            setDraft(draft.take(m.start) + inserted + " " + draft.substring(cursorEnd))
-            if (mm.group) {
-                setGroupMentions { it + (mm.label to mm.ref) }
-            } else {
-                setMentions { it + (mm.label to mm.seed) }
-            }
-            setMention(null)
-            setMentionSelected(0)
-        }
-
-        // Mirrors native's isSupportedMediaMime: image / video / audio go to
-        // nostr.build. Anything else is dropped — copying a .zip or .pdf from the
-        // file manager would otherwise upload bytes the relay can't render.
-        fun isMediaMime(type: String?): Boolean = type != null &&
-            (type.startsWith("image/") || type.startsWith("video/") || type.startsWith("audio/"))
-
-        // Shared between Ctrl/Cmd+V paste and drag-and-drop: upload the file to
-        // nostr.build, append the returned URL to the composer draft (matches
-        // the native ClipboardImageReader path — see ClipboardImage.jvm.kt).
-        // Tracks uploadCount via inc/dec so the send button can swap to a
-        // spinner while at least one upload is in flight (handles multi-file
-        // drops correctly — finishes are not necessarily in start order).
-        fun handleMediaFile(file: dynamic) {
-            setUploadCount { it + 1 }
-            launchApp {
-                try {
-                    val url = uploadBlob(file)
-                    if (url != null) {
-                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
-                    }
-                } finally {
-                    setUploadCount { it - 1 }
-                }
-            }
-        }
         // moderation modal: edit | share | members | addmember | invite | requests | subgroup | children
         val (modal, setModal) = useState<String?> { null }
         // Message id pending delete confirmation. Native pops an AlertDialog
@@ -463,27 +726,6 @@ val ChatScreen =
             } else {
                 messages.count { it.createdAt > lastReadSnapshot && it.pubkey != myPubkey }
             }
-
-        // Composer textarea ref. Two effects ride on it: (1) auto-focus when the
-        // user stages a reply (matches native's keyboard-up behaviour), and (2)
-        // auto-grow with the content — the field starts at one line and expands up
-        // to the CSS `max-height` cap before scrolling. Required because the old
-        // <input> just clipped long messages to the visible width with no signal
-        // that the rest of the text was still there.
-        val composerInputRef = useRef<HTMLTextAreaElement>(null)
-        // Colored mirror behind the textarea (gold @mentions). Its scroll is kept in
-        // sync with the textarea so glyphs stay aligned once the field scrolls.
-        val composerHighlightRef = useRef<HTMLDivElement>(null)
-        useEffect(replyingToId) {
-            if (replyingToId != null) composerInputRef.current?.focus()
-        }
-        useEffect(draft) {
-            val el = composerInputRef.current ?: return@useEffect
-            // Reset before reading scrollHeight so the field can shrink when text
-            // is deleted — otherwise scrollHeight only grows.
-            el.style.height = "auto"
-            el.style.height = "${el.scrollHeight}px"
-        }
 
         // Load messages + author/member metadata when the group (or its rosters)
         // change. Re-firing covers three race windows during account swap:
@@ -691,29 +933,6 @@ val ChatScreen =
                 window.setTimeout({ setHighlightId(null) }, 3_000)
             } else if (messages.isNotEmpty() && hasMore && !isLoadingMore) {
                 launchApp { repo.loadMoreMessages(group.id) }
-            }
-        }
-
-        fun send() {
-            var text = draft.trim()
-            if (text.isEmpty() || sending) return
-            // Resolve %group mentions to their nostr:naddr inline (native does this at send too);
-            // @user mentions are resolved by repo.sendMessage from the mentions map (+ p-tag).
-            groupMentions.forEach { (name, ref) -> text = text.replace("%$name", ref) }
-            val replyId = replyingToId
-            setSending(true)
-            launchApp {
-                val result = repo.sendMessage(group.id, text, mentions = mentions, replyToMessageId = replyId)
-                setSending(false)
-                if (result is Result.Success) {
-                    // Clear only after publish succeeded. NIP-07 cancel / signer
-                    // failure / relay reject all return Result.Error and the draft
-                    // stays so the user can retry without retyping.
-                    setDraft("")
-                    setMentions(emptyMap())
-                    setGroupMentions(emptyMap())
-                    setReplyingToId(null)
-                }
             }
         }
 
@@ -1116,238 +1335,23 @@ val ChatScreen =
                     }
                 }
 
-                if (!canPost) {
-                    // Not a member — prompt to join (or show pending) instead of the composer.
-                    div {
-                        className = ClassName("composer-join")
-                        if (isPending) {
-                            span { +"Your request to join is pending approval." }
-                        } else {
-                            span { +"Join the group to send messages" }
-                            button {
-                                className = ClassName("composer-join-btn")
-                                onClick = { join() }
-                                icon(Ic.PersonAdd)
-                                span { +(if (!group.isOpen) "Request to Join" else "Join Now") }
-                            }
-                        }
-                    }
-                } else {
-                    // Reply banner (above the composer)
-                    replyingToId?.let { id ->
-                        messagesById[id]?.let { parent ->
-                            div {
-                                className = ClassName("composer-reply")
-                                span {
-                                    +"Replying to "
-                                    span {
-                                        className = ClassName("composer-reply-name")
-                                        +displayName(parent.pubkey, userMetadata[parent.pubkey])
-                                    }
-                                }
-                                button {
-                                    className = ClassName("composer-reply-close")
-                                    onClick = { setReplyingToId(null) }
-                                    icon(Ic.Close)
-                                }
-                            }
-                        }
-                    }
-
-                    // Composer
-                    div {
-                        className = ClassName(if (replyingToId != null) "composer replying" else "composer")
-                        UploadButton {
-                            cls = "composer-btn"
-                            icon = Ic.AttachFile
-                            onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
-                        }
-                        div {
-                            className = ClassName("composer-input-wrap")
-                            // Colored mirror painted behind the textarea: same text, but with
-                            // resolved @user / %group mentions tinted gold (native parity).
-                            // pointer-events:none in CSS keeps the textarea fully interactive.
-                            div {
-                                className = ClassName("composer-highlight")
-                                ref = composerHighlightRef
-                                val tokens = mentions.keys.map { "@$it" } + groupMentions.keys.map { "%$it" }
-                                highlightSegments(draft, tokens).forEach { seg ->
-                                    if (seg.mention) {
-                                        span {
-                                            className = ClassName("msg-mention")
-                                            +seg.text
-                                        }
-                                    } else {
-                                        +seg.text
-                                    }
-                                }
-                            }
-                            textarea {
-                                ref = composerInputRef
-                                // Keep the mirror's scroll aligned with the textarea once it scrolls.
-                                onScroll = {
-                                    composerHighlightRef.current?.scrollTop =
-                                        composerInputRef.current?.scrollTop ?: 0.0
-                                }
-                                className = ClassName("composer-input")
-                                placeholder = "Message $groupName"
-                                value = draft
-                                // Lock typing while a send is in flight (e.g. a slow
-                                // NIP-46 signer round-trip). readOnly, not disabled, so
-                                // the field keeps focus for the next message. The draft
-                                // stays visible and is cleared only on success.
-                                readOnly = sending
-                                rows = 1
-                                onChange = { event ->
-                                    val v = event.currentTarget.value
-                                    setDraft(v)
-                                    val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
-                                    setMention(detectMention(v, cursor))
-                                    setMentionSelected(0)
-                                }
-                                onKeyDown = { event ->
-                                    val hasMentions = mention != null && mentionMatches.isNotEmpty()
-                                    when {
-                                        // Arrow keys move the highlight (clamped, like native).
-                                        hasMentions && event.key == "ArrowDown" -> {
-                                            event.preventDefault()
-                                            setMentionSelected { (it + 1).coerceAtMost(mentionMatches.size - 1) }
-                                        }
-                                        hasMentions && event.key == "ArrowUp" -> {
-                                            event.preventDefault()
-                                            setMentionSelected { (it - 1).coerceAtLeast(0) }
-                                        }
-                                        // Enter / Tab confirm the highlighted suggestion.
-                                        hasMentions && (event.key == "Enter" || event.key == "Tab") -> {
-                                            event.preventDefault()
-                                            insertMention(mentionMatches[mentionSelected.coerceIn(0, mentionMatches.size - 1)])
-                                        }
-                                        mention != null && event.key == "Escape" -> {
-                                            event.preventDefault()
-                                            setMention(null)
-                                        }
-                                        // Plain Enter sends; Shift+Enter inserts a newline
-                                        // (default textarea behaviour, no preventDefault).
-                                        event.key == "Enter" && !event.shiftKey -> {
-                                            event.preventDefault()
-                                            send()
-                                        }
-                                    }
-                                }
-                                onBlur = { window.setTimeout({ setMention(null) }, 150) }
-                                // Ctrl/Cmd+V of any image/video/audio file: upload to
-                                // nostr.build and append the URL to the draft. Matches
-                                // native ClipboardImageReader, which handles both raw
-                                // image bytes AND file references from the file manager.
-                                onPaste = { event ->
-                                    val items = event.asDynamic().clipboardData?.items
-                                    val count = (items?.length as? Int) ?: 0
-                                    for (i in 0 until count) {
-                                        val item = items[i]
-                                        val type = item.type.unsafeCast<String?>()
-                                        if (item.kind == "file" && isMediaMime(type)) {
-                                            val file = item.getAsFile()
-                                            if (file != null) {
-                                                event.preventDefault()
-                                                handleMediaFile(file)
-                                            }
-                                        }
-                                    }
-                                }
-                                // Drag a file from the OS file manager onto the composer:
-                                // same upload path as paste. dragover.preventDefault is
-                                // required to make the textarea a valid drop target —
-                                // browsers reject the drop otherwise. (Native gets this
-                                // via the OS clipboard; web needs the explicit gesture.)
-                                onDragOver = { it.preventDefault() }
-                                onDrop = { event ->
-                                    val files = event.asDynamic().dataTransfer?.files
-                                    val count = (files?.length as? Int) ?: 0
-                                    if (count > 0) event.preventDefault()
-                                    for (i in 0 until count) {
-                                        val file = files[i]
-                                        val type = file.type.unsafeCast<String?>()
-                                        if (isMediaMime(type)) handleMediaFile(file)
-                                    }
-                                }
-                            }
-                        }
-                        if (mention != null && mentionMatches.isNotEmpty()) {
-                            div {
-                                className = ClassName("mention-popup")
-                                div {
-                                    className = ClassName("mention-header")
-                                    +(if (mention.trigger == '%') "GROUPS" else "MEMBERS")
-                                }
-                                val sel = mentionSelected.coerceIn(0, mentionMatches.size - 1)
-                                mentionMatches.forEachIndexed { idx, mm ->
-                                    div {
-                                        key = mm.ref
-                                        className = ClassName(if (idx == sel) "mention-row selected" else "mention-row")
-                                        // mousedown (before blur) + preventDefault keeps input focus.
-                                        onMouseDown = { e ->
-                                            e.preventDefault()
-                                            insertMention(mm)
-                                        }
-                                        onMouseEnter = { setMentionSelected(idx) }
-                                        WebAvatar {
-                                            url = mm.picture
-                                            seed = mm.seed
-                                            this.name = mm.label
-                                            kind = if (mm.group) AvatarKind.GROUP else AvatarKind.USER
-                                            cls = "mention-avatar"
-                                        }
-                                        div {
-                                            className = ClassName("mention-text")
-                                            span {
-                                                className = ClassName("mention-name")
-                                                +mm.label
-                                            }
-                                            span {
-                                                className = ClassName("mention-key")
-                                                +mm.sub
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        button {
-                            className = ClassName(if (emojiOpen) "composer-btn active" else "composer-btn")
-                            onClick = { setEmojiOpen(!emojiOpen) }
-                            icon(Ic.EmojiEmotions)
-                        }
-                        button {
-                            val uploading = uploadCount > 0
-                            // Spinner while an upload OR the publish is in flight. The publish
-                            // window covers the NIP-46 remote-signer round-trip (e.g. Amber),
-                            // which can take a second or two — without feedback the user thinks
-                            // Enter did nothing. Reuses the upload spinner; native already shows
-                            // this via isSending in MessageInput.
-                            val busy = uploading || sending
-                            // Keep the button on its active background while busy so the spinner
-                            // is visible against it.
-                            className = ClassName(
-                                if (draft.isNotBlank() || busy) "composer-send active" else "composer-send",
-                            )
-                            disabled = (draft.isBlank() && !uploading) || sending || uploading
-                            onClick = { send() }
-                            if (busy) {
-                                span { className = ClassName("btn-spinner") }
-                            } else {
-                                icon(Ic.Send)
-                            }
-                        }
-                        if (emojiOpen) {
-                            div {
-                                className = ClassName("emoji-overlay")
-                                onClick = { setEmojiOpen(false) }
-                                EmojiPicker {
-                                    onPick = { emoji -> setDraft { prev -> prev + emoji } }
-                                }
-                            }
-                        }
-                    }
+                ChatComposer {
+                    this.groupId = group.id
+                    this.groupName = groupName
+                    this.groupIsOpen = group.isOpen
+                    this.canPost = canPost
+                    this.isPending = isPending
+                    this.members = members
+                    this.allGroups = allGroups
+                    this.userMetadata = userMetadata
+                    this.relayUrl = relayUrl
+                    this.relayPubkey = relayMetadata[relayUrl]?.pubkey
+                    this.replyingToId = replyingToId
+                    this.replyParentName =
+                        replyingToId?.let { id -> messagesById[id]?.let { p -> displayName(p.pubkey, userMetadata[p.pubkey]) } }
+                    this.onCancelReply = { setReplyingToId(null) }
+                    this.onSent = { setReplyingToId(null) }
+                    this.onJoin = { join() }
                 }
             }
 
