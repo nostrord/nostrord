@@ -1736,6 +1736,16 @@ private val MessageRow =
         val touchStartY = useRef(0.0)
         val swiping = useRef(false)
         val swipeArmed = useRef(false)
+        // Long-press to open the context menu on touch (mirrors the Android app). The
+        // menu opens when the finger is LIFTED after a stationary hold — not mid-hold —
+        // so the page never jumps and the ensuing synthesized click can be suppressed
+        // (otherwise it lands on the overlay and instantly closes the menu).
+        val longPressTimer = useRef(0)
+        // True once the press has been held long enough (and hasn't moved) to count as
+        // a long-press; the menu opens on touchend while this is set.
+        val longPressReady = useRef(false)
+        // Timestamp (ms) of a touch-opened menu, to swallow the trailing ghost click.
+        val menuOpenedAt = useRef(0.0)
 
         // Place the fixed context menu at its anchor, flipping left/up when it would overflow.
         useEffect(menuOpen) {
@@ -1773,9 +1783,13 @@ private val MessageRow =
             // by the .ctx-overlay below (which does not preventDefault). Right-click
             // off any message keeps the browser default untouched.
             onContextMenu = { event ->
+                // Always suppress the browser's native menu/callout on a message; open
+                // ours at the cursor when none is open yet. (When our menu is open the
+                // .ctx-overlay sits on top, so this only fires while it's closed.)
+                event.preventDefault()
                 if (!menuOpen) {
-                    event.preventDefault()
                     setReactOpen(false)
+                    menuOpenedAt.current = 0.0 // mouse/right-click: no ghost click to swallow
                     setMenuAt(event.clientX.toInt() to event.clientY.toInt())
                     setMenuFromCursor(true)
                     setMenuOpen(true)
@@ -1787,11 +1801,28 @@ private val MessageRow =
                 touchStartY.current = t.clientY as Double
                 swiping.current = false
                 swipeArmed.current = false
+                longPressReady.current = false
+                window.clearTimeout(longPressTimer.current ?: 0)
+                // Arm the long-press after a stationary hold; the menu itself opens on
+                // touchend (below) so the page can't jump while the finger is down. A
+                // light haptic signals that releasing now will open the menu.
+                longPressTimer.current = window.setTimeout({
+                    if (swiping.current != true) {
+                        longPressReady.current = true
+                        val nav = window.navigator.asDynamic()
+                        if (nav.vibrate != null) nav.vibrate(15)
+                    }
+                }, 380)
             }
             onTouchMove = { event ->
                 val t = event.asDynamic().touches[0]
                 val dx = (t.clientX as Double) - (touchStartX.current ?: 0.0)
                 val dy = (t.clientY as Double) - (touchStartY.current ?: 0.0)
+                // Any real movement means this is a scroll/swipe, not a long-press.
+                if (abs(dx) > 10.0 || abs(dy) > 10.0) {
+                    window.clearTimeout(longPressTimer.current ?: 0)
+                    longPressReady.current = false
+                }
                 if (swiping.current != true && abs(dx) > 10.0 && abs(dx) > abs(dy)) {
                     swiping.current = true
                 }
@@ -1818,28 +1849,55 @@ private val MessageRow =
                     }
                 }
             }
-            onTouchEnd = {
-                val el = rowRef.current?.asDynamic()
-                if (el != null) {
-                    el.style.transition = "transform 0.15s ease"
-                    el.style.transform = "translateX(0)"
-                    window.setTimeout({
-                        el.style.transition = ""
-                        el.style.transform = ""
-                    }, 180)
+            onTouchEnd = { event ->
+                window.clearTimeout(longPressTimer.current ?: 0)
+                // Open the menu at the finger if the press was a stationary long-press
+                // and didn't land on something interactive (link, avatar, badge, ...).
+                val tgt = event.target.asDynamic()
+                val onInteractive = tgt != null &&
+                    tgt.closest("a, button, img, video, input, textarea, .clickable, .mention") != null
+                val openMenu = longPressReady.current == true &&
+                    swiping.current != true &&
+                    !onInteractive &&
+                    !menuOpen
+                if (openMenu) {
+                    // Suppress the synthesized mouse/click sequence so it can't hit the
+                    // overlay and immediately close the menu we're about to open.
+                    event.preventDefault()
+                    setReactOpen(false)
+                    menuOpenedAt.current = kotlin.js.Date.now()
+                    setMenuAt((touchStartX.current ?: 0.0).toInt() to (touchStartY.current ?: 0.0).toInt())
+                    setMenuFromCursor(true)
+                    setMenuOpen(true)
                 }
-                val iconStyle = swipeIconRef.current?.asDynamic()?.style
-                if (iconStyle != null) {
-                    iconStyle.transition = "opacity 0.15s ease, transform 0.15s ease"
-                    iconStyle.opacity = "0"
-                    iconStyle.transform = "translateY(-50%) scale(1.0)"
-                    window.setTimeout({
-                        iconStyle.transition = ""
-                    }, 180)
+                // Animate the row back ONLY if it was actually swiped. Giving the row a
+                // transform otherwise (even translateX(0)) makes it the containing block
+                // for the position:fixed context menu, which would yank the menu out of
+                // place the moment it opens.
+                if (swiping.current == true) {
+                    val el = rowRef.current?.asDynamic()
+                    if (el != null) {
+                        el.style.transition = "transform 0.15s ease"
+                        el.style.transform = "translateX(0)"
+                        window.setTimeout({
+                            el.style.transition = ""
+                            el.style.transform = ""
+                        }, 180)
+                    }
+                    val iconStyle = swipeIconRef.current?.asDynamic()?.style
+                    if (iconStyle != null) {
+                        iconStyle.transition = "opacity 0.15s ease, transform 0.15s ease"
+                        iconStyle.opacity = "0"
+                        iconStyle.transform = "translateY(-50%) scale(1.0)"
+                        window.setTimeout({
+                            iconStyle.transition = ""
+                        }, 180)
+                    }
                 }
-                if (swipeArmed.current == true) props.onReply()
+                if (!openMenu && swipeArmed.current == true) props.onReply()
                 swiping.current = false
                 swipeArmed.current = false
+                longPressReady.current = false
             }
 
             // Swipe-to-reply icon (revealed under the row as it slides left). Sits
@@ -1987,7 +2045,16 @@ private val MessageRow =
             if (menuOpen) {
                 div {
                     className = ClassName("ctx-overlay")
-                    onClick = { setMenuOpen(false) }
+                    // Don't let overlay/menu touches reach the row's swipe + long-press
+                    // handlers (they would transform the row and yank this fixed menu).
+                    onTouchStart = { it.stopPropagation() }
+                    onTouchMove = { it.stopPropagation() }
+                    onTouchEnd = { it.stopPropagation() }
+                    onClick = {
+                        // Ignore the synthesized click that trails a touch-open
+                        // (it would otherwise close the menu the instant it opens).
+                        if (kotlin.js.Date.now() - (menuOpenedAt.current ?: 0.0) > 400.0) setMenuOpen(false)
+                    }
                     // Second right-click (this overlay is now on top): close our menu
                     // and let the browser show its native menu, since we don't
                     // preventDefault here. Matches Telegram's two-stage behavior.
@@ -1996,6 +2063,9 @@ private val MessageRow =
                 div {
                     ref = menuRef
                     className = ClassName("ctx-menu")
+                    onTouchStart = { it.stopPropagation() }
+                    onTouchMove = { it.stopPropagation() }
+                    onTouchEnd = { it.stopPropagation() }
                     // Quick-reactions row (one tap to react) + an affordance to open
                     // the full picker. Mirrors the native menu's QuickReactionsRow.
                     div {

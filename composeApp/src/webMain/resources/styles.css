@@ -2764,6 +2764,17 @@ body {
     background: var(--color-message-hover);
 }
 
+/* On touch devices, press-and-hold opens the context menu (Android parity), so
+   suppress the native text-selection / long-press callout on a message. Desktop
+   keeps normal text selection. Copy Text lives in the menu. */
+@media (hover: none) {
+    .msg {
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+}
+
 /* Reply icon revealed under the row during swipe-to-reply. Sits absolutely on
    the right edge; the .msg's flex children render *on top* of it because they
    come later in the DOM, so the row slides left over the icon as in native. */
