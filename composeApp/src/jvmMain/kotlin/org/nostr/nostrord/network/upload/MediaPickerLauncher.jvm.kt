@@ -82,16 +82,14 @@ actual fun rememberMediaPickerLauncher(
 
                 dialog.isVisible = true // blocks the EDT until the native dialog closes
 
-                // Some Linux WMs hand focus to the launching terminal (or another background
-                // window) after a native dialog closes. Re-assert the app window: toFront +
-                // requestFocus alone is often dropped, so a brief always-on-top toggle forces
-                // the WM to raise and refocus it. Posted after the dialog teardown.
+                // Gently re-assert the app window after the dialog closes. Toggling the app
+                // window's always-on-top here was forceful enough to make GNOME/Mutter flag
+                // the NEXT dialog as a focus-steal (it then opened behind with a "ready"
+                // notification), so keep it to a plain toFront + requestFocus.
                 owner?.let { w ->
                     SwingUtilities.invokeLater {
                         w.toFront()
                         w.requestFocus()
-                        w.isAlwaysOnTop = true
-                        w.isAlwaysOnTop = false
                     }
                 }
 
