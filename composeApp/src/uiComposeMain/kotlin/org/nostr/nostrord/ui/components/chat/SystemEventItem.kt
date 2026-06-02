@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -51,6 +52,7 @@ fun SystemEventItem(
     metadata: UserMetadata? = null,
     additionalUsers: List<String> = emptyList(),
     allUserMetadata: Map<String, UserMetadata> = emptyMap(),
+    onAvatarClick: (String) -> Unit = {},
 ) {
     val totalUsers = 1 + additionalUsers.size
     val accentColor =
@@ -103,6 +105,7 @@ fun SystemEventItem(
                 additionalPubkeys = additionalUsers,
                 allMetadata = allUserMetadata,
                 maxVisible = 4,
+                onAvatarClick = onAvatarClick,
             )
             Spacer(modifier = Modifier.width(10.dp))
         } else {
@@ -111,6 +114,7 @@ fun SystemEventItem(
                 pubkey = pubkey,
                 metadata = metadata,
                 size = 20,
+                onClick = { onAvatarClick(pubkey) },
             )
             Spacer(modifier = Modifier.width(8.dp))
         }
@@ -176,6 +180,7 @@ private fun StackedAvatars(
     additionalPubkeys: List<String>,
     allMetadata: Map<String, UserMetadata>,
     maxVisible: Int = 4,
+    onAvatarClick: (String) -> Unit = {},
 ) {
     val allPubkeys = listOf(primaryPubkey) + additionalPubkeys
     val visiblePubkeys = allPubkeys.take(maxVisible)
@@ -191,6 +196,7 @@ private fun StackedAvatars(
                 Modifier
                     .size(24.dp)
                     .clip(CircleShape)
+                    .clickable { onAvatarClick(pk) }
                     .background(NostrordColors.Background)
                     .padding(1.dp),
             ) {
@@ -224,8 +230,10 @@ private fun MiniAvatar(
     pubkey: String,
     metadata: UserMetadata?,
     size: Int = 20,
+    onClick: (() -> Unit)? = null,
 ) {
     val pictureUrl = metadata?.picture?.takeIf { it.isNotBlank() }
+    val clickModifier = if (onClick != null) Modifier.clickable { onClick() } else Modifier
 
     if (pictureUrl != null) {
         val context = LocalPlatformContext.current
@@ -238,7 +246,8 @@ private fun MiniAvatar(
             modifier =
             Modifier
                 .size(size.dp)
-                .clip(CircleShape),
+                .clip(CircleShape)
+                .then(clickModifier),
             contentAlignment = Alignment.Center,
         ) {
             if (imageState is AsyncImagePainter.State.Error) {
@@ -274,7 +283,8 @@ private fun MiniAvatar(
             modifier =
             Modifier
                 .size(size.dp)
-                .clip(CircleShape),
+                .clip(CircleShape)
+                .then(clickModifier),
             contentAlignment = Alignment.Center,
         ) {
             Jdenticon(value = pubkey, size = size.dp)
