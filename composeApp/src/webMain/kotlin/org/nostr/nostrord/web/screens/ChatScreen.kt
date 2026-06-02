@@ -2030,8 +2030,11 @@ private val MessageRow =
                         // read as a snap rather than a colour change in isolation.
                         // Keep the translateY(-50%) from the base CSS or the icon
                         // jumps off vertical center when the JS overrides transform.
-                        iconStyle.transform =
-                            if (armed) "translateY(-50%) scale(1.15)" else "translateY(-50%) scale(1.0)"
+                        // The icon is a child of the row, so the row's translateX would
+                        // drag it left with the content; counter-translate by -off so it
+                        // stays pinned to the right edge as the row slides (Android parity).
+                        val scale = if (armed) "scale(1.15)" else "scale(1.0)"
+                        iconStyle.transform = "translateX(${-off}px) translateY(-50%) $scale"
                     }
                 }
             }
