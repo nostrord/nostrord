@@ -1,12 +1,9 @@
 package org.nostr.nostrord.ui.components.chat
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -17,17 +14,11 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
-import androidx.compose.material.icons.outlined.Bolt
-import androidx.compose.material.icons.outlined.EmojiEmotions
-import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -40,16 +31,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -60,9 +54,7 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.zap.ZapBadge
 import org.nostr.nostrord.ui.components.zap.ZapController
-import org.nostr.nostrord.ui.theme.NostrordAnimation
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.formatTime
@@ -70,11 +62,11 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Enhanced message item with grouping support and hover actions.
+ * Enhanced message item with grouping support.
  *
  * Interaction behavior:
- * - Desktop: hover shows action toolbar; right-click opens context menu
- * - Mobile (Android / touch web): single tap opens the context menu directly
+ * - Desktop: right-click opens the context menu at the cursor
+ * - Mobile (Android / touch): single tap opens the context menu; swipe left to reply
  *
  * Spacing:
  * - 72dp total left column (16dp padding + 40dp avatar + 16dp gap)
@@ -99,7 +91,6 @@ fun MessageItem(
     onReplyClick: () -> Unit = {},
     onReactionClick: () -> Unit = {},
     onReactionBadgeClick: (emoji: String) -> Unit = {},
-    onMoreClick: () -> Unit = {},
     onCopyText: () -> Unit = {},
     onCopyLink: () -> Unit = {},
     onShareLink: () -> Unit = {},
@@ -118,6 +109,7 @@ fun MessageItem(
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnReactionClick by rememberUpdatedState(onReactionClick)
+    val currentOnReactionBadgeClick by rememberUpdatedState(onReactionBadgeClick)
     val currentOnCopyText by rememberUpdatedState(onCopyText)
     val currentOnCopyLink by rememberUpdatedState(onCopyLink)
     val currentOnShareLink by rememberUpdatedState(onShareLink)
@@ -205,20 +197,11 @@ fun MessageItem(
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
 
-    // Delayed hover state for actions toolbar (50ms delay). This is a desktop-only
-    // pointer affordance: on touch/compact layouts (Android, iOS, narrow web) a tap
-    // would otherwise register as a press and trip it. Those layouts use tap (context
-    // menu) and swipe (reply) instead, so the toolbar is suppressed there — gated by
-    // swipeToReplyEnabled, the same compact-layout signal.
-    var showActions by remember { mutableStateOf(false) }
-    LaunchedEffect(isHovered, isPressed, swipeToReplyEnabled) {
-        if (!swipeToReplyEnabled && (isHovered || isPressed)) {
-            delay(NostrordAnimation.hoverActionsDelay.toLong())
-            showActions = true
-        } else {
-            showActions = false
-        }
-    }
+    // Where to open the context menu, in px relative to this row's top-left.
+    // Set from the right-click / tap position so the menu appears at the cursor (web parity).
+    var menuAnchorPx by remember { mutableStateOf<Offset?>(null) }
+    // Row size in px, so the position provider can offset relative to the row.
+    var rowSizePx by remember { mutableStateOf(IntSize.Zero) }
 
     var highlightActive by remember(isHighlighted) { mutableStateOf(isHighlighted) }
     LaunchedEffect(isHighlighted) {
@@ -264,12 +247,13 @@ fun MessageItem(
             modifier =
             Modifier
                 .fillMaxWidth()
+                .onGloballyPositioned { rowSizePx = it.size }
                 .hoverable(interactionSource)
                 // Tap (mobile) / right-click (desktop) opens the context menu directly.
                 // Closing is handled by the menu's full-screen scrim (see MessageContextMenu).
                 .then(
-                    rightClickContextMenuModifier {
-                        showActions = false // Hide hover actions immediately
+                    rightClickContextMenuModifier { clickOffset ->
+                        menuAnchorPx = clickOffset // open at the cursor (web parity)
                         onContextMenuOpenChange(true)
                     },
                 ).then(
@@ -461,42 +445,17 @@ fun MessageItem(
                 }
             }
 
-            // Overlay layer for hover actions - uses matchParentSize to not affect layout
-            // This Box matches parent size exactly, then positions content inside
-            Box(
-                modifier =
-                Modifier
-                    .matchParentSize() // Critical: doesn't affect parent measurement
-                    .padding(end = Spacing.sm),
-                contentAlignment = Alignment.TopEnd,
-            ) {
-                // Hover actions - fade in/out without affecting layout
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = showActions && !isContextMenuOpen,
-                    enter = fadeIn(animationSpec = tween(NostrordAnimation.actionsAppear)),
-                    exit = fadeOut(animationSpec = tween(NostrordAnimation.actionsDisappear)),
-                ) {
-                    // DisableSelection prevents toolbar from being part of text selection
-                    DisableSelection {
-                        MessageActions(
-                            onReplyClick = currentOnReplyClick,
-                            onReactionClick = currentOnReactionClick,
-                            onMoreClick = { onContextMenuOpenChange(true) },
-                            canZap = canZap,
-                            onZapClick = { ZapController.request(message.pubkey, message.id) },
-                        )
-                    }
-                }
-            }
-
-            // Context menu - appears on right-click or "More" click
+            // Context menu - appears on right-click (desktop) or tap (touch)
             // This is a Popup so it floats outside the layout tree
             MessageContextMenu(
                 visible = isContextMenuOpen,
+                anchorOffsetPx = menuAnchorPx,
+                anchorWidthPx = rowSizePx.width,
                 onDismiss = { onContextMenuOpenChange(false) },
                 onAction = { action ->
                     when (action) {
                         MessageContextAction.AddReaction -> currentOnReactionClick()
+                        is MessageContextAction.QuickReact -> currentOnReactionBadgeClick(action.emoji)
                         MessageContextAction.Reply -> currentOnReplyClick()
                         MessageContextAction.CopyText -> currentOnCopyText()
                         MessageContextAction.CopyMessageLink -> currentOnCopyLink()
@@ -511,113 +470,6 @@ fun MessageItem(
                 isAdmin = isAdmin,
                 canZap = canZap,
             )
-        }
-    }
-}
-
-/**
- * Hover actions toolbar for messages.
- *
- * Behavior:
- * - Positioned at top-right, overlapping message slightly
- * - Appears with 100ms fade in after 50ms hover delay
- * - Disappears immediately (50ms fade out)
- * - Order: Reaction, Reply, More
- */
-@Composable
-private fun MessageActions(
-    onReplyClick: () -> Unit,
-    onReactionClick: () -> Unit,
-    onMoreClick: () -> Unit,
-    canZap: Boolean,
-    onZapClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier =
-        modifier
-            .padding(end = Spacing.sm)
-            .clip(NostrordShapes.messageActionsShape)
-            .background(NostrordColors.SurfaceVariant)
-            .padding(horizontal = Spacing.xs),
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
-    ) {
-        // 1. Add Reaction (emoji)
-        ActionButton(
-            icon = {
-                Icon(
-                    Icons.Outlined.EmojiEmotions,
-                    contentDescription = "React",
-                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs), // 16dp
-                )
-            },
-            onClick = onReactionClick,
-        )
-        // 2. Reply
-        ActionButton(
-            icon = {
-                Icon(
-                    Icons.AutoMirrored.Outlined.Reply,
-                    contentDescription = "Reply",
-                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs), // 16dp
-                )
-            },
-            onClick = onReplyClick,
-        )
-        // 3. Zap (when the author has a Lightning address) — highlights amber on hover
-        if (canZap) {
-            ActionButton(
-                icon = { isHovered ->
-                    Icon(
-                        Icons.Outlined.Bolt,
-                        contentDescription = "Zap",
-                        tint = if (isHovered) NostrordColors.Warning else NostrordColors.TextSecondary,
-                        modifier = Modifier.size(Spacing.iconSm + Spacing.xs), // 16dp
-                    )
-                },
-                onClick = onZapClick,
-            )
-        }
-        // 4. More (three dots)
-        ActionButton(
-            icon = {
-                Icon(
-                    Icons.Outlined.MoreVert,
-                    contentDescription = "More options",
-                    modifier = Modifier.size(Spacing.iconSm + Spacing.xs), // 16dp
-                )
-            },
-            onClick = onMoreClick,
-        )
-    }
-}
-
-/**
- * Individual action button in the hover toolbar.
- */
-@Composable
-private fun ActionButton(
-    icon: @Composable (isHovered: Boolean) -> Unit,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
-
-    Box(
-        modifier =
-        Modifier
-            .size(Spacing.messageActionButtonSize)
-            .clip(NostrordShapes.channelItemShape)
-            .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
-            .hoverable(interactionSource)
-            .clickable(onClick = onClick)
-            .pointerHoverIcon(PointerIcon.Hand),
-        contentAlignment = Alignment.Center,
-    ) {
-        CompositionLocalProvider(
-            LocalContentColor provides if (isHovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
-        ) {
-            icon(isHovered)
         }
     }
 }

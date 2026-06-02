@@ -15,6 +15,7 @@ import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupLoadingState
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.emoji.QuickReactions
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.formatTime
@@ -1719,6 +1720,9 @@ private val MessageRow =
         }
         // Anchor (viewport x,y) for the context menu; positioned/flipped by the effect below.
         val (menuAt, setMenuAt) = useState<Pair<Int, Int>?> { null }
+        // Right-click opens the menu to the right of the cursor; the ⋯ button hangs it
+        // off the button's right edge (opens leftward). Drives the flip math below.
+        val (menuFromCursor, setMenuFromCursor) = useState { false }
         val menuRef = useRef<HTMLDivElement>(null)
 
         // Swipe-to-reply (touch): drag the row left past a threshold to reply (mirrors native).
@@ -1742,9 +1746,11 @@ private val MessageRow =
             val h = el.offsetHeight as Int
             val vw = window.innerWidth
             val vh = window.innerHeight
-            var left = anchor.first - w
-            if (left < 8) left = 8
+            // Cursor anchor opens rightward (left = x); button anchor opens leftward
+            // (left = x - w). Either way, clamp into the viewport with an 8px margin.
+            var left = if (menuFromCursor) anchor.first else anchor.first - w
             if (left + w > vw - 8) left = (vw - 8 - w).coerceAtLeast(8)
+            if (left < 8) left = 8
             var top = anchor.second
             if (top + h > vh - 8) top = (anchor.second - h).coerceAtLeast(8)
             el.style.left = "${left}px"
@@ -1761,10 +1767,20 @@ private val MessageRow =
                         (if (props.highlighted) " highlight" else ""),
                 )
             ref = rowRef
-            // Right-click is left to the browser's default menu (copy / inspect /
-            // etc.) — feels foreign to override it on a web page. The .msg-actions
-            // toolbar's ⋯ More button still opens the same .ctx-menu, so the
-            // moderation actions stay reachable from the hover toolbar.
+            // Two-stage right-click (Telegram-style): the first right-click on a
+            // message opens our app menu at the cursor and suppresses the browser's
+            // native menu. A second right-click escapes to the native menu, handled
+            // by the .ctx-overlay below (which does not preventDefault). Right-click
+            // off any message keeps the browser default untouched.
+            onContextMenu = { event ->
+                if (!menuOpen) {
+                    event.preventDefault()
+                    setReactOpen(false)
+                    setMenuAt(event.clientX.toInt() to event.clientY.toInt())
+                    setMenuFromCursor(true)
+                    setMenuOpen(true)
+                }
+            }
             onTouchStart = { event ->
                 val t = event.asDynamic().touches[0]
                 touchStartX.current = t.clientX as Double
@@ -1967,60 +1983,50 @@ private val MessageRow =
                 }
             }
 
-            // Hover action toolbar (top-right)
-            div {
-                className = ClassName("msg-actions")
-                button {
-                    className = ClassName("msg-action-btn")
-                    title = "Add reaction"
-                    onClick = { setReactOpen(true) }
-                    icon(Ic.EmojiEmotions)
-                }
-                button {
-                    className = ClassName("msg-action-btn")
-                    title = "Reply"
-                    onClick = { props.onReply() }
-                    icon(Ic.Reply)
-                }
-                if (props.canZap) {
-                    button {
-                        className = ClassName("msg-action-btn zap")
-                        title = "Zap"
-                        onClick = { props.onZap() }
-                        icon(Ic.Bolt)
-                    }
-                }
-                button {
-                    className = ClassName("msg-action-btn")
-                    title = "More"
-                    onClick = { event ->
-                        val r = event.currentTarget.getBoundingClientRect()
-                        setMenuAt(r.right.toInt() to r.bottom.toInt())
-                        setMenuOpen(!menuOpen)
-                    }
-                    icon(Ic.MoreVert)
-                }
-            }
-
-            // Context menu (right-click or the ⋯ button)
+            // Context menu (right-click / long-press)
             if (menuOpen) {
                 div {
                     className = ClassName("ctx-overlay")
                     onClick = { setMenuOpen(false) }
+                    // Second right-click (this overlay is now on top): close our menu
+                    // and let the browser show its native menu, since we don't
+                    // preventDefault here. Matches Telegram's two-stage behavior.
+                    onContextMenu = { setMenuOpen(false) }
                 }
                 div {
                     ref = menuRef
                     className = ClassName("ctx-menu")
-                    ctxItem(Ic.EmojiEmotions, "Add Reaction") {
-                        setMenuOpen(false)
-                        setReactOpen(true)
+                    // Quick-reactions row (one tap to react) + an affordance to open
+                    // the full picker. Mirrors the native menu's QuickReactionsRow.
+                    div {
+                        className = ClassName("ctx-reactions")
+                        for (emoji in QuickReactions) {
+                            button {
+                                className = ClassName("ctx-reaction")
+                                onClick = {
+                                    react(emoji)
+                                    setMenuOpen(false)
+                                }
+                                +emoji
+                            }
+                        }
+                        button {
+                            className = ClassName("ctx-reaction ctx-reaction-more")
+                            title = "Add reaction"
+                            onClick = {
+                                setMenuOpen(false)
+                                setReactOpen(true)
+                            }
+                            icon(Ic.EmojiEmotions)
+                        }
                     }
+                    div { className = ClassName("ctx-divider") }
                     ctxItem(Ic.Reply, "Reply") {
                         props.onReply()
                         setMenuOpen(false)
                     }
                     if (props.canZap) {
-                        ctxItem(Ic.Bolt, "Zap") {
+                        ctxItem(Ic.Bolt, "Zap", zap = true) {
                             props.onZap()
                             setMenuOpen(false)
                         }
@@ -2064,9 +2070,16 @@ private val MessageRow =
         }
     }
 
-private fun ChildrenBuilder.ctxItem(ic: Ic, label: String, danger: Boolean = false, onSelect: () -> Unit) {
+private fun ChildrenBuilder.ctxItem(ic: Ic, label: String, danger: Boolean = false, zap: Boolean = false, onSelect: () -> Unit) {
     div {
-        className = ClassName(if (danger) "ctx-item danger" else "ctx-item")
+        className =
+            ClassName(
+                when {
+                    danger -> "ctx-item danger"
+                    zap -> "ctx-item zap"
+                    else -> "ctx-item"
+                },
+            )
         onClick = { onSelect() }
         span {
             className = ClassName("ctx-item-icon")

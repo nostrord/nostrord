@@ -2788,45 +2788,6 @@ body {
     height: 18px;
 }
 
-/* Hover action toolbar (top-right of a message) */
-.msg-actions {
-    position: absolute;
-    top: -10px;
-    right: 16px;
-    display: none;
-    gap: 2px;
-    padding: 2px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-divider);
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    z-index: 2;
-}
-
-.msg:hover .msg-actions,
-.msg.menu-open .msg-actions {
-    display: flex;
-}
-
-.msg-action-btn {
-    width: 30px;
-    height: 30px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 15px;
-    color: var(--color-text-secondary);
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-}
-
-.msg-action-btn:hover {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-}
-
 /* Message context menu */
 .ctx-overlay {
     position: fixed;
@@ -2871,6 +2832,11 @@ body {
     background: rgba(237, 66, 69, 0.15);
 }
 
+/* Zap highlights amber on hover. */
+.ctx-item.zap:hover {
+    color: var(--color-warning-orange);
+}
+
 .ctx-item-icon {
     width: 18px;
     text-align: center;
@@ -2881,6 +2847,40 @@ body {
     height: 1px;
     margin: 6px 4px;
     background: var(--color-divider);
+}
+
+/* Quick-reactions row on top of the context menu (Telegram-style one-tap reactions). */
+.ctx-reactions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+}
+
+.ctx-reaction {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.1s ease, transform 0.1s ease;
+}
+
+.ctx-reaction:hover {
+    background: var(--color-hover);
+    transform: scale(1.15);
+}
+
+.ctx-reaction-more {
+    color: var(--color-text-muted);
+    font-size: 14px;
 }
 
 /* Hairline above each grouped (same-author) message, aligned with content (after the gutter). */
@@ -6221,10 +6221,6 @@ body {
 .zap-badge-bolt {
     font-size: 12px;
 }
-.msg-action-btn.zap:hover {
-    color: var(--color-warning-orange);
-}
-
 /* ===== Emoji picker ===== */
 .emoji-overlay {
     position: fixed;

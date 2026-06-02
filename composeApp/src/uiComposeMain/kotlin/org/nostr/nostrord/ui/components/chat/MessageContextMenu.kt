@@ -1,18 +1,21 @@
 package org.nostr.nostrord.ui.components.chat
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Reply
@@ -33,22 +36,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import org.nostr.nostrord.ui.components.emoji.QuickReactions
 import org.nostr.nostrord.ui.theme.NostrordAnimation
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 import org.nostr.nostrord.utils.supportsNativeShare
 
 /**
@@ -64,6 +77,9 @@ import org.nostr.nostrord.utils.supportsNativeShare
  */
 sealed class MessageContextAction {
     data object AddReaction : MessageContextAction()
+
+    /** One-tap reaction from the quick-reactions row on top of the menu. */
+    data class QuickReact(val emoji: String) : MessageContextAction()
 
     data object Reply : MessageContextAction()
 
@@ -101,6 +117,8 @@ fun MessageContextMenu(
     visible: Boolean,
     onDismiss: () -> Unit,
     onAction: (MessageContextAction) -> Unit,
+    anchorOffsetPx: Offset? = null,
+    anchorWidthPx: Int = 0,
     isAuthor: Boolean = false,
     isAdmin: Boolean = false,
     canZap: Boolean = false,
@@ -108,9 +126,19 @@ fun MessageContextMenu(
 ) {
     // Only render Popup when visible to avoid layout participation
     if (visible) {
+        val marginPx = with(LocalDensity.current) { 8.dp.roundToPx() }
+        // Open at the click position (web parity); fall back to the row's
+        // top-right when there's no cursor anchor (the hover More button).
+        val positionProvider =
+            remember(anchorOffsetPx, anchorWidthPx, marginPx) {
+                MessageMenuPositionProvider(anchorOffsetPx, anchorWidthPx, marginPx)
+            }
+        // Grow from the cursor (top-left) when opened at a click, from the
+        // top-right when hung off the More button.
+        val transformOrigin =
+            if (anchorOffsetPx != null) TransformOrigin(0f, 0f) else TransformOrigin(1f, 0f)
         Popup(
-            alignment = Alignment.TopEnd,
-            offset = IntOffset(x = -8, y = 0),
+            popupPositionProvider = positionProvider,
             onDismissRequest = onDismiss,
             properties =
             PopupProperties(
@@ -132,13 +160,13 @@ fun MessageContextMenu(
                         scaleIn(
                             animationSpec = tween(NostrordAnimation.popupEnter),
                             initialScale = 0.9f,
-                            transformOrigin = TransformOrigin(1f, 0f),
+                            transformOrigin = transformOrigin,
                         ),
                     exit =
                     fadeOut(animationSpec = tween(NostrordAnimation.popupExit)) +
                         scaleOut(
                             animationSpec = tween(NostrordAnimation.popupExit),
-                            transformOrigin = TransformOrigin(1f, 0f),
+                            transformOrigin = transformOrigin,
                         ),
                 ) {
                     ContextMenuContent(
@@ -151,6 +179,43 @@ fun MessageContextMenu(
                 }
             }
         }
+    }
+}
+
+/**
+ * Positions the context-menu popup at the click point, flipping it back into the
+ * viewport when it would overflow. Mirrors the web menu's positioning effect:
+ * a cursor anchor opens rightward/downward from the click; a null anchor (the
+ * hover More button) hangs the menu off the row's right edge (opens leftward).
+ */
+private class MessageMenuPositionProvider(
+    private val anchorOffsetPx: Offset?,
+    private val anchorWidthPx: Int,
+    private val marginPx: Int,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val w = popupContentSize.width
+        val h = popupContentSize.height
+
+        var x =
+            if (anchorOffsetPx != null) {
+                anchorBounds.left + anchorOffsetPx.x.toInt()
+            } else {
+                anchorBounds.left + anchorWidthPx - w
+            }
+        if (x + w > windowSize.width - marginPx) x = (windowSize.width - marginPx - w).coerceAtLeast(marginPx)
+        if (x < marginPx) x = marginPx
+
+        var y = anchorBounds.top + (anchorOffsetPx?.y?.toInt() ?: 0)
+        if (y + h > windowSize.height - marginPx) y = (y - h).coerceAtLeast(marginPx)
+        if (y < marginPx) y = marginPx
+
+        return IntOffset(x, y)
     }
 }
 
@@ -168,29 +233,38 @@ private fun ContextMenuContent(
     Column(
         modifier =
         Modifier
-            .width(Spacing.channelSidebarWidth * 0.75f) // ~180dp
+            // 210dp + 6dp padding + 1dp border, mirroring the web `.ctx-menu`.
+            .width(210.dp)
             .shadow(
-                elevation = 8.dp,
-                shape = NostrordShapes.menuShape,
-                ambientColor = Color.Black.copy(alpha = 0.3f),
-                spotColor = Color.Black.copy(alpha = 0.3f),
-            ).clip(NostrordShapes.menuShape)
+                elevation = 12.dp,
+                shape = NostrordShapes.shapeMedium,
+                ambientColor = Color.Black.copy(alpha = 0.4f),
+                spotColor = Color.Black.copy(alpha = 0.4f),
+            ).clip(NostrordShapes.shapeMedium)
             .background(NostrordColors.Surface)
-            .padding(vertical = Spacing.xs)
+            .border(
+                width = Spacing.dividerThickness,
+                color = NostrordColors.Divider,
+                shape = NostrordShapes.shapeMedium,
+            ).padding(6.dp)
             // Consume pointer events to prevent them from reaching underlying content
             .pointerInput(Unit) {
                 detectTapGestures { /* consume */ }
             },
     ) {
-        // Add Reaction
-        ContextMenuItem(
-            icon = Icons.Outlined.EmojiEmotions,
-            label = "Add Reaction",
-            onClick = {
+        // Quick reactions row (one tap to react) + an affordance to open the full picker.
+        QuickReactionsRow(
+            onQuickReact = { emoji ->
+                onAction(MessageContextAction.QuickReact(emoji))
+                onDismiss()
+            },
+            onOpenPicker = {
                 onAction(MessageContextAction.AddReaction)
                 onDismiss()
             },
         )
+
+        ContextMenuDivider()
 
         // Reply
         ContextMenuItem(
@@ -211,6 +285,7 @@ private fun ContextMenuContent(
                     onAction(MessageContextAction.ZapMessage)
                     onDismiss()
                 },
+                isZap = true,
             )
         }
 
@@ -290,6 +365,74 @@ private fun ContextMenuContent(
 }
 
 /**
+ * Horizontal row of one-tap reactions on top of the menu, ending in an
+ * affordance that opens the full emoji picker. Mirrors the web menu's
+ * `.ctx-reactions` row.
+ */
+@Composable
+private fun QuickReactionsRow(
+    onQuickReact: (String) -> Unit,
+    onOpenPicker: () -> Unit,
+) {
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = Spacing.xxs),
+        // Spread the buttons across the full width and let them shrink to fit,
+        // matching the web `.ctx-reactions` flex row.
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // NotoColorEmoji so the glyphs render in color on Skia (desktop/iOS);
+        // the system SansSerif lacks color emoji. Same as ReactionBadges.
+        val emojiFont = rememberEmojiFontFamily()
+        QuickReactions.forEach { emoji ->
+            QuickReactionButton(onClick = { onQuickReact(emoji) }) {
+                Text(text = emoji, fontFamily = emojiFont, fontSize = 18.sp)
+            }
+        }
+        QuickReactionButton(onClick = onOpenPicker) {
+            Icon(
+                imageVector = Icons.Outlined.EmojiEmotions,
+                contentDescription = "Add Reaction",
+                tint = NostrordColors.TextSecondary,
+                modifier = Modifier.size(Spacing.iconMd - Spacing.xs),
+            )
+        }
+    }
+}
+
+/**
+ * A single 30dp quick-reaction button. Mirrors the web `.ctx-reaction`: it
+ * tints its background and scales to 1.15x on hover.
+ */
+@Composable
+private fun QuickReactionButton(
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val scale by animateFloatAsState(targetValue = if (isHovered) 1.15f else 1f)
+
+    Box(
+        modifier =
+        Modifier
+            .size(26.dp)
+            .scale(scale)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
+    }
+}
+
+/**
  * Individual context menu item.
  */
 @Composable
@@ -298,6 +441,7 @@ private fun ContextMenuItem(
     label: String,
     onClick: () -> Unit,
     isDestructive: Boolean = false,
+    isZap: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
@@ -305,12 +449,15 @@ private fun ContextMenuItem(
     val textColor =
         when {
             isDestructive -> NostrordColors.Error
+            // Zap highlights amber on hover, matching the hover toolbar's zap button.
+            isZap && isHovered -> NostrordColors.Warning
             else -> NostrordColors.TextContent
         }
 
     val iconColor =
         when {
             isDestructive -> NostrordColors.Error
+            isZap && isHovered -> NostrordColors.Warning
             else -> NostrordColors.TextSecondary
         }
 
@@ -320,12 +467,15 @@ private fun ContextMenuItem(
         modifier =
         Modifier
             .fillMaxWidth()
+            // Rounded, inset hover highlight (web `.ctx-item` has border-radius 4px
+            // inside the menu's 6px padding).
+            .clip(NostrordShapes.menuShape)
             .height(Spacing.channelItemHeight + Spacing.xs) // 36dp
             .background(backgroundColor)
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(horizontal = Spacing.sm),
+            .padding(horizontal = Spacing.md - Spacing.xxs), // 10dp
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -335,7 +485,7 @@ private fun ContextMenuItem(
             modifier = Modifier.size(Spacing.iconMd - Spacing.xs), // 20dp
         )
 
-        Spacer(modifier = Modifier.width(Spacing.sm))
+        Spacer(modifier = Modifier.width(Spacing.md - Spacing.xxs)) // 10dp gap
 
         Text(
             text = label,
@@ -351,7 +501,8 @@ private fun ContextMenuItem(
 @Composable
 private fun ContextMenuDivider() {
     HorizontalDivider(
-        modifier = Modifier.padding(vertical = Spacing.xs),
+        // Web `.ctx-divider` has margin 6px 4px.
+        modifier = Modifier.padding(horizontal = Spacing.xs, vertical = 6.dp),
         thickness = Spacing.dividerThickness,
         color = NostrordColors.Divider,
     )
