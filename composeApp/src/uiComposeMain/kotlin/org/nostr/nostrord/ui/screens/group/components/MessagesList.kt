@@ -267,17 +267,27 @@ fun MessagesList(
         internalScrollTarget = null
     }
 
-    // Entering reply mode grows the composer with the reply bar; if the feed was
-    // pinned at the bottom, re-scroll so the replied-to last message stays visible
-    // instead of sliding behind the bar (web parity).
+    // Whether the feed is pinned at the bottom, tracked continuously and ignoring transient
+    // empty layouts (during recomposition layoutInfo can be momentarily empty). Reading
+    // layoutInfo at the instant reply mode toggles was racy — an empty read skipped the
+    // re-pin and let the bar hide the last message. This holds the last known-good state.
+    val pinnedAtBottom = remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()?.index
+            val total = info.totalItemsCount
+            if (last == null || total == 0) null else last >= total - 2
+        }.collect { atBottom -> if (atBottom != null) pinnedAtBottom.value = atBottom }
+    }
+
+    // Entering reply mode grows the composer with the reply bar; if the feed was pinned at
+    // the bottom, re-scroll so the replied-to last message stays visible instead of sliding
+    // behind the bar (web parity). Uses the tracked flag, not a one-shot layoutInfo read.
     LaunchedEffect(isReplying) {
-        if (!isReplying) return@LaunchedEffect
-        val layoutInfo = listState.layoutInfo
-        val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-        val total = layoutInfo.totalItemsCount
-        if (total > 0 && lastVisible >= total - 2) {
-            listState.animateScrollToItem(total - 1)
-        }
+        if (!isReplying || !pinnedAtBottom.value) return@LaunchedEffect
+        val total = listState.layoutInfo.totalItemsCount
+        if (total > 0) listState.animateScrollToItem(total - 1)
     }
 
     // hasMoreMessages and isLoadingMore are keys so the effect re-fires on the
