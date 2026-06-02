@@ -217,6 +217,7 @@ private val ProfilePanel =
         val (lud16, setLud16) = useState { meta?.lud16 ?: "" }
         val (website, setWebsite) = useState { meta?.website ?: "" }
         val (busy, setBusy) = useState { false }
+        val (uploadError, setUploadError) = useState<String?> { null }
         val (saved, setSaved) = useState { false }
 
         div {
@@ -243,8 +244,14 @@ private val ProfilePanel =
                 setSaved(false)
             }
             settingsTextarea("About", "Tell us about yourself", about) { setAbout(it) }
-            settingsUploadField("Avatar URL", "https://example.com/avatar.jpg", picture) { setPicture(it) }
-            settingsUploadField("Banner URL", "https://example.com/banner.jpg", banner) { setBanner(it) }
+            settingsUploadField("Avatar URL", "https://example.com/avatar.jpg", picture, { setPicture(it) }) { setUploadError(it) }
+            settingsUploadField("Banner URL", "https://example.com/banner.jpg", banner, { setBanner(it) }) { setUploadError(it) }
+            uploadError?.let { err ->
+                div {
+                    className = ClassName("settings-status-line error")
+                    +err
+                }
+            }
             settingsField("Nostr Address (NIP-05)", "you@example.com", nip05) { setNip05(it) }
             settingsField("Lightning Address", "you@walletofsatoshi.com", lud16) { setLud16(it) }
             settingsField("Website", "https://example.com", website) { setWebsite(it) }
@@ -706,6 +713,7 @@ private fun react.ChildrenBuilder.settingsUploadField(
     placeholder: String,
     value: String,
     onChange: (String) -> Unit,
+    onError: (String) -> Unit,
 ) {
     div {
         className = ClassName("settings-field")
@@ -724,7 +732,8 @@ private fun react.ChildrenBuilder.settingsUploadField(
             UploadButton {
                 cls = "upload-btn"
                 icon = Ic.Upload
-                onUploaded = onChange
+                onUploaded = { onChange(it.url) }
+                this.onError = onError
             }
         }
     }

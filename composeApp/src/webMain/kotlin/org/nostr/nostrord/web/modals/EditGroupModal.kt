@@ -130,7 +130,8 @@ val EditGroupModal =
                     UploadButton {
                         cls = "upload-btn"
                         icon = Ic.Upload
-                        onUploaded = { setPicture(it) }
+                        onUploaded = { setPicture(it.url) }
+                        onError = { setError(it) }
                     }
                 }
 

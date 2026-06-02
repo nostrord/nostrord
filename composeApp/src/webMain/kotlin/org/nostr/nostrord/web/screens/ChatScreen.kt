@@ -14,6 +14,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupLoadingState
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
 import org.nostr.nostrord.utils.Result
@@ -54,6 +55,7 @@ import react.ChildrenBuilder
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.a
+import react.dom.html.ReactHTML.br
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.code
 import react.dom.html.ReactHTML.div
@@ -249,6 +251,13 @@ private val ChatComposer =
         // Active media uploads in flight (paste / drag-and-drop). The send button
         // shows a spinner instead of the Send icon while > 0.
         val (uploadCount, setUploadCount) = useState { 0 }
+        // Successful uploads pending attachment. Their NIP-68 imeta tags ride along
+        // on the next sendMessage so dimensions / sha256 / video poster propagate
+        // (parity with native GroupScreen.pendingUploads).
+        val (pendingUploads, setPendingUploads) = useState<List<UploadResult>> { emptyList() }
+        // Last upload failure (too large, unsupported, auth/server). Shown in a
+        // dialog instead of being swallowed silently, matching the native picker.
+        val (uploadError, setUploadError) = useState<String?> { null }
         // Composer emoji picker open state.
         val (emojiOpen, setEmojiOpen) = useState { false }
         // Active @user / %group mention being typed in the composer.
@@ -340,9 +349,13 @@ private val ChatComposer =
             setUploadCount { it + 1 }
             launchApp {
                 try {
-                    val url = uploadBlob(file)
-                    if (url != null) {
-                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                    when (val r = uploadBlob(file)) {
+                        is Result.Success -> {
+                            val url = r.data.url
+                            setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                            setPendingUploads { it + r.data }
+                        }
+                        is Result.Error -> setUploadError(r.error.message)
                     }
                 } finally {
                     setUploadCount { it - 1 }
@@ -357,15 +370,25 @@ private val ChatComposer =
             // @user mentions are resolved by repo.sendMessage from the mentions map (+ p-tag).
             groupMentions.forEach { (name, ref) -> text = text.replace("%$name", ref) }
             val replyId = props.replyingToId
+            // NIP-68 imeta for any media uploaded into this draft (native parity).
+            val imetaTags = pendingUploads.map { it.toImetaTag() }
             setSending(true)
             launchApp {
-                val result = repo.sendMessage(props.groupId, text, mentions = mentions, replyToMessageId = replyId)
+                val result =
+                    repo.sendMessage(
+                        props.groupId,
+                        text,
+                        mentions = mentions,
+                        replyToMessageId = replyId,
+                        extraTags = imetaTags,
+                    )
                 setSending(false)
                 if (result is Result.Success) {
                     // Clear only after publish succeeded so a cancel/reject keeps the draft.
                     setDraft("")
                     setMentions(emptyMap())
                     setGroupMentions(emptyMap())
+                    setPendingUploads(emptyList())
                     props.onSent()
                 }
             }
@@ -425,7 +448,12 @@ private val ChatComposer =
                 UploadButton {
                     cls = "composer-btn"
                     icon = Ic.AttachFile
-                    onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
+                    onUploaded = { upload ->
+                        val url = upload.url
+                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                        setPendingUploads { it + upload }
+                    }
+                    onError = { setUploadError(it) }
                 }
                 div {
                     className = ClassName("composer-input-wrap")
@@ -585,6 +613,9 @@ private val ChatComposer =
                         }
                     }
                 }
+            }
+            uploadError?.let { error ->
+                uploadErrorDialog(error) { setUploadError(null) }
             }
         }
     }
@@ -1630,6 +1661,40 @@ private fun ChildrenBuilder.deleteMessageErrorDialog(message: String, onDismiss:
             div {
                 className = ClassName("modal-subtitle tight")
                 +message
+            }
+            div {
+                className = ClassName("modal-footer")
+                button {
+                    className = ClassName("btn-primary")
+                    onClick = { onDismiss() }
+                    +"OK"
+                }
+            }
+        }
+    }
+}
+
+/** Error dialog shown when a media upload is rejected (too large, unsupported
+ *  format, or an auth/server failure). Single OK button — mirrors the native
+ *  "Upload Failed" AlertDialog at MessageUploadButton.kt:70-82. The message can
+ *  carry newlines (the supported-formats list), so render it line by line. */
+private fun ChildrenBuilder.uploadErrorDialog(message: String, onDismiss: () -> Unit) {
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onDismiss() }
+        div {
+            className = ClassName("modal-card sm")
+            onClick = { it.stopPropagation() }
+            div {
+                className = ClassName("modal-title")
+                +"Upload Failed"
+            }
+            div {
+                className = ClassName("modal-subtitle tight")
+                message.split("\n").forEachIndexed { i, line ->
+                    if (i > 0) br {}
+                    +line
+                }
             }
             div {
                 className = ClassName("modal-footer")
