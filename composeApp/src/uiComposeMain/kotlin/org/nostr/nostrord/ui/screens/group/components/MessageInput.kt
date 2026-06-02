@@ -510,6 +510,7 @@ fun MessageInput(
                         .clip(NostrordShapes.inputShape)
                         .background(NostrordColors.SurfaceVariant)
                         .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     MessageUploadButton(
@@ -723,7 +724,7 @@ fun MessageInput(
                                 } else {
                                     NostrordColors.TextMuted
                                 },
-                                modifier = Modifier.size(Spacing.iconMd),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
@@ -737,7 +738,7 @@ fun MessageInput(
                     ) {
                         if (isSending) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(Spacing.iconMd),
+                                modifier = Modifier.size(20.dp),
                                 color = NostrordColors.Primary,
                                 strokeWidth = 2.dp,
                             )
@@ -750,7 +751,7 @@ fun MessageInput(
                                 } else {
                                     NostrordColors.TextMuted
                                 },
-                                modifier = Modifier.size(Spacing.iconMd),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
