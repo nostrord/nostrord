@@ -3707,6 +3707,10 @@ body {
        caret-color keeps the cursor visible. */
     position: relative;
     z-index: 1;
+    /* block (not the textarea default inline-block) removes the baseline
+       descender gap that made the wrap taller than the textarea and pushed
+       the absolute .composer-highlight mirror out of vertical alignment. */
+    display: block;
     width: 100%;
     min-width: 0;
     min-height: 22px;
