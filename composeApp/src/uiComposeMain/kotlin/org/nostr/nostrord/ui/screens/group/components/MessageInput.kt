@@ -496,13 +496,19 @@ fun MessageInput(
             }
 
             Box(
-                modifier = Modifier.fillMaxWidth(),
+                // Inset the composer from the window edges and round it into a single
+                // surface "pill" (web .composer parity: margin 0 16px 16px, radius 8px).
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.lg)
+                    .padding(bottom = Spacing.lg),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(NostrordShapes.inputShape)
                         .background(NostrordColors.SurfaceVariant)
-                        .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     MessageUploadButton(
@@ -683,8 +689,10 @@ fun MessageInput(
                                 }
                             },
                         colors = TextFieldDefaults.colors(
-                            focusedContainerColor = NostrordColors.InputBackground,
-                            unfocusedContainerColor = NostrordColors.InputBackground,
+                            // Transparent so the input blends into the single composer
+                            // pill (web parity), instead of a separate inner input box.
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
                             focusedTextColor = Color.White,
                             unfocusedTextColor = Color.White,
                             cursorColor = Color.White,
