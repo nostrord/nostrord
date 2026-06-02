@@ -94,13 +94,25 @@ external interface ChatScreenProps : Props {
 // Window (seconds) for grouping consecutive messages from the same author.
 private const val GROUP_WINDOW = 5 * 60
 
-/** Parent message id of a reply — the "q" tag with a 64-char hex event id (kind 9 only). */
+/**
+ * Parent message id of a reply (kind 9 only). Nostrord tags replies with "q"; other clients
+ * may use the NIP-10 reply marker ["e", id, relay?, "reply"], which native also honors
+ * (getReplyParentId). The plain unmarked "e" fallback is intentionally not used here — it is
+ * ambiguous (root vs mention vs inline quote) without the content embed-check native does.
+ */
 private fun parentMessageOf(message: org.nostr.nostrord.network.NostrGroupClient.NostrMessage): String? {
     if (message.kind != 9) return null
+    fun isHexId(s: String) = s.length == 64 && s.all { it.isLetterOrDigit() }
+    message.tags.firstOrNull { it.size >= 2 && it[0] == "q" && isHexId(it[1]) }?.let { return it[1] }
     return message.tags
-        .firstOrNull { it.size >= 2 && it[0] == "q" && it[1].length == 64 && it[1].all { c -> c.isLetterOrDigit() } }
+        .firstOrNull { it.size >= 4 && it[0] == "e" && it[3] == "reply" && isHexId(it[1]) }
         ?.get(1)
 }
+
+/** Plain-text preview of a parent message for a reply chip/banner: mentions resolved,
+ *  newlines flattened, trimmed, and capped at [max] chars. */
+private fun replyPreviewText(content: String, userMetadata: Map<String, UserMetadata>, max: Int): String =
+    processMentions(content, userMetadata).replace('\n', ' ').trim().take(max)
 
 /** Reply-preview payload: author name, plain-text body, and the parent event's tags for emoji resolution. */
 data class ReplyPreviewData(
@@ -1336,10 +1348,7 @@ val ChatScreen =
                                                 parent?.let {
                                                     ReplyPreviewData(
                                                         author = displayName(it.pubkey, userMetadata[it.pubkey]),
-                                                        content = processMentions(it.content, userMetadata)
-                                                            .replace('\n', ' ')
-                                                            .trim()
-                                                            .take(120),
+                                                        content = replyPreviewText(it.content, userMetadata, 120),
                                                         tags = it.tags,
                                                     )
                                                 }
@@ -1451,9 +1460,7 @@ val ChatScreen =
                         replyingToId?.let { id -> messagesById[id]?.let { p -> displayName(p.pubkey, userMetadata[p.pubkey]) } }
                     this.replyParentContent =
                         replyingToId?.let { id ->
-                            messagesById[id]?.let { p ->
-                                processMentions(p.content, userMetadata).replace('\n', ' ').trim().take(80)
-                            }
+                            messagesById[id]?.let { p -> replyPreviewText(p.content, userMetadata, 80) }
                         }
                     this.onCancelReply = { setReplyingToId(null) }
                     this.onSent = { setReplyingToId(null) }
