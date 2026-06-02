@@ -111,8 +111,7 @@ private fun parentMessageOf(message: org.nostr.nostrord.network.NostrGroupClient
 
 /** Plain-text preview of a parent message for a reply chip/banner: mentions resolved,
  *  newlines flattened, trimmed, and capped at [max] chars. */
-private fun replyPreviewText(content: String, userMetadata: Map<String, UserMetadata>, max: Int): String =
-    processMentions(content, userMetadata).replace('\n', ' ').trim().take(max)
+private fun replyPreviewText(content: String, userMetadata: Map<String, UserMetadata>, max: Int): String = processMentions(content, userMetadata).replace('\n', ' ').trim().take(max)
 
 /** Reply-preview payload: author name, plain-text body, and the parent event's tags for emoji resolution. */
 data class ReplyPreviewData(
