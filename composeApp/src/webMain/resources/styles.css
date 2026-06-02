@@ -3542,7 +3542,7 @@ body {
 .composer-reply {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     margin: 0 16px;
     padding: 6px 12px;
     font-size: 13px;
@@ -3552,9 +3552,32 @@ body {
     border-bottom: 1px solid var(--color-background);
 }
 
+/* Accent bar mirroring the native ReplyingToBar. */
+.composer-reply-bar {
+    flex-shrink: 0;
+    width: 3px;
+    align-self: stretch;
+    min-height: 24px;
+    background: var(--color-primary);
+    border-radius: 2px;
+}
+
+.composer-reply-body {
+    flex: 1;
+    min-width: 0;
+}
+
 .composer-reply-name {
-    color: var(--color-text-primary);
+    color: var(--color-primary);
     font-weight: 600;
+}
+
+/* Single-line content preview of the message being replied to. */
+.composer-reply-text {
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .composer-reply-close {

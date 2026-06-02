@@ -217,9 +217,11 @@ private external interface ChatComposerProps : Props {
     var relayUrl: String
     var relayPubkey: String?
 
-    /** Id of the message being replied to (null = no reply), plus the parent's display name for the banner. */
+    /** Id of the message being replied to (null = no reply), plus the parent's display name and a
+     *  content preview for the banner (native ReplyingToBar shows both). */
     var replyingToId: String?
     var replyParentName: String?
+    var replyParentContent: String?
     var onCancelReply: () -> Unit
 
     /** Cleared after a successful publish so the parent can drop the reply target. */
@@ -427,11 +429,18 @@ private val ChatComposer =
             if (props.replyingToId != null && parentName != null) {
                 div {
                     className = ClassName("composer-reply")
-                    span {
-                        +"Replying to "
-                        span {
+                    div { className = ClassName("composer-reply-bar") }
+                    div {
+                        className = ClassName("composer-reply-body")
+                        div {
                             className = ClassName("composer-reply-name")
-                            +parentName
+                            +"Replying to $parentName"
+                        }
+                        props.replyParentContent?.takeIf { it.isNotBlank() }?.let { preview ->
+                            div {
+                                className = ClassName("composer-reply-text")
+                                +preview
+                            }
                         }
                     }
                     button {
@@ -1424,6 +1433,12 @@ val ChatScreen =
                     this.replyingToId = replyingToId
                     this.replyParentName =
                         replyingToId?.let { id -> messagesById[id]?.let { p -> displayName(p.pubkey, userMetadata[p.pubkey]) } }
+                    this.replyParentContent =
+                        replyingToId?.let { id ->
+                            messagesById[id]?.let { p ->
+                                processMentions(p.content, userMetadata).replace('\n', ' ').trim().take(80)
+                            }
+                        }
                     this.onCancelReply = { setReplyingToId(null) }
                     this.onSent = { setReplyingToId(null) }
                     this.onJoin = { join() }
