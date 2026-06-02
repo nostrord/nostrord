@@ -528,6 +528,7 @@ fun MessagesList(
                                             metadata = userMetadata[item.pubkey],
                                             additionalUsers = item.additionalUsers,
                                             allUserMetadata = userMetadata,
+                                            onAvatarClick = currentOnUsernameClick,
                                         )
                                     is ChatItem.Message ->
                                         MessageItem(
