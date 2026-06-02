@@ -3,6 +3,7 @@ package org.nostr.nostrord.ui.screens.group.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -22,6 +23,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -709,20 +712,26 @@ fun MessageInput(
                     )
 
                     if (showEmojiButton) {
+                        val emojiInteraction = remember { MutableInteractionSource() }
+                        val emojiHovered by emojiInteraction.collectIsHoveredAsState()
                         IconButton(
                             onClick = {
                                 showEmojiPicker = !showEmojiPicker
                                 if (showEmojiPicker) showMentionPopup = false
                             },
-                            modifier = Modifier.size(32.dp),
+                            interactionSource = emojiInteraction,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             Icon(
                                 Icons.Outlined.EmojiEmotions,
                                 contentDescription = "Emoji picker",
-                                tint = if (showEmojiPicker) {
-                                    NostrordColors.Primary
-                                } else {
-                                    NostrordColors.TextMuted
+                                // Hover brightens to TextContent (web .composer-btn:hover).
+                                tint = when {
+                                    showEmojiPicker -> NostrordColors.Primary
+                                    emojiHovered -> NostrordColors.TextContent
+                                    else -> NostrordColors.TextMuted
                                 },
                                 modifier = Modifier.size(20.dp),
                             )

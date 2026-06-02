@@ -1,5 +1,7 @@
 package org.nostr.nostrord.ui.components.upload
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
@@ -41,6 +43,8 @@ fun MessageUploadButton(
     var isUploading by remember { mutableStateOf(false) }
     var uploadError by remember { mutableStateOf<String?>(null) }
     val busy = isUploading || externalBusy
+    val interaction = remember { MutableInteractionSource() }
+    val isHovered by interaction.collectIsHoveredAsState()
 
     val picker =
         rememberMediaPickerLauncher(
@@ -88,6 +92,7 @@ fun MessageUploadButton(
     IconButton(
         onClick = { picker.launch() },
         enabled = !busy,
+        interactionSource = interaction,
         modifier =
         modifier
             .size(32.dp)
@@ -103,7 +108,8 @@ fun MessageUploadButton(
             Icon(
                 imageVector = Icons.Default.AttachFile,
                 contentDescription = "Attach image",
-                tint = NostrordColors.TextMuted,
+                // Hover brightens to TextContent (web .composer-btn:hover).
+                tint = if (isHovered) NostrordColors.TextContent else NostrordColors.TextMuted,
                 modifier = Modifier.size(20.dp),
             )
         }
