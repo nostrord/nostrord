@@ -67,11 +67,6 @@ actual fun rememberMediaPickerLauncher(
                 val dialog =
                     FileDialog(owner, "Select File", FileDialog.LOAD).apply {
                         isMultipleMode = false
-                        // Always-on-top so the picker opens in front of the app even right
-                        // after a previous pick (the focus-restore toggle below briefly
-                        // raises the app window, which otherwise let the next dialog open
-                        // behind it).
-                        isAlwaysOnTop = true
                         // Honored by the GTK chooser; ignored on some platforms, where the
                         // post-selection extension check below enforces the same rule.
                         filenameFilter =
@@ -80,18 +75,12 @@ actual fun rememberMediaPickerLauncher(
                             }
                     }
 
+                // Do NOT toFront/requestFocus/alwaysOnTop the app window before or after the
+                // dialog. AWT issues those activations with a zero _NET_WM_USER_TIME, which
+                // resets the app's user-activity association so GNOME/Mutter then treats the
+                // NEXT dialog as a focus-steal and opens it behind with a "ready" notice.
+                // Each open is user-initiated (the click), so Mutter raises it on its own.
                 dialog.isVisible = true // blocks the EDT until the native dialog closes
-
-                // Gently re-assert the app window after the dialog closes. Toggling the app
-                // window's always-on-top here was forceful enough to make GNOME/Mutter flag
-                // the NEXT dialog as a focus-steal (it then opened behind with a "ready"
-                // notification), so keep it to a plain toFront + requestFocus.
-                owner?.let { w ->
-                    SwingUtilities.invokeLater {
-                        w.toFront()
-                        w.requestFocus()
-                    }
-                }
 
                 val name = dialog.file ?: return@invokeLater // cancelled
                 val dir = dialog.directory ?: return@invokeLater
