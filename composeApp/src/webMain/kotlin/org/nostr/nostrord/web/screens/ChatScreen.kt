@@ -781,6 +781,15 @@ val ChatScreen =
         val (scrollKey, setScrollKey) = useState<String?> { null }
         val (jumpNonce, setJumpNonce) = useState { 0 }
 
+        // Entering reply mode grows the composer with the reply banner; if the feed
+        // was at the bottom, the last message would slide behind it. Re-pin to the
+        // bottom so the replied-to message stays visible (native parity).
+        useEffect(replyingToId) {
+            if (replyingToId != null && atBottom.current == true) {
+                setJumpNonce { it + 1 }
+            }
+        }
+
         // "New messages" divider snapshot. Captured once on group entry, then
         // cleared the first time the user scrolls up and back down to the bottom
         // (issue #83 — divider sticks around after the user has clearly read them).

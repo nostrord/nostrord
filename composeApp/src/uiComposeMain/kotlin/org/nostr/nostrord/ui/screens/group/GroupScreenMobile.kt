@@ -249,6 +249,7 @@ fun GroupScreenMobile(
                             pendingReactions = pendingReactions,
                             currentUserPubkey = currentUserPubkey,
                             isJoined = isJoined,
+                            isReplying = replyingToMessage != null,
                             isInitialLoading = isInitialLoading,
                             isPendingApproval = isPendingApproval,
                             isGroupRestricted = isGroupRestricted,
