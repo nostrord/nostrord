@@ -3687,7 +3687,10 @@ body {
     position: absolute;
     inset: 0;
     z-index: 0;
-    padding: 4px 0;
+    /* 5.5px keeps a single line's box at 32px (21px line + 11px), matching the
+       button height so the text optically centers with the icons. Must equal
+       .composer-input's padding so the mirror stays glyph-aligned. */
+    padding: 5.5px 0;
     line-height: 1.4;
     font-size: 15px;
     font-family: inherit;
@@ -3713,9 +3716,12 @@ body {
     display: block;
     width: 100%;
     min-width: 0;
-    min-height: 22px;
+    /* 32px one-line box + 5.5px vertical padding centers the text against the
+       32px buttons (the row is align-items:flex-end). Keep in sync with
+       .composer-highlight's padding. */
+    min-height: 32px;
     max-height: 140px;
-    padding: 4px 0;
+    padding: 5.5px 0;
     line-height: 1.4;
     background: transparent;
     border: none;
