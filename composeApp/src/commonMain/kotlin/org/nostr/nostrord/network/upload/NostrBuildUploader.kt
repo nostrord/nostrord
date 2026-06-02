@@ -18,6 +18,13 @@ const val SUPPORTED_FORMATS_MESSAGE =
 
 internal fun isBlobRef(s: String) = s.startsWith("nostrord-blob|")
 
+/** Still-image extensions (avatars / banners). Single source for native pickers. */
+internal val SUPPORTED_IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "avif")
+
+/** All upload extensions (image + video + audio). Keep in sync with mimeTypeForFilename. */
+internal val SUPPORTED_MEDIA_EXTENSIONS =
+    SUPPORTED_IMAGE_EXTENSIONS + setOf("mp4", "mov", "webm", "mp3", "ogg", "wav", "flac", "m4a", "aac", "opus")
+
 internal val SUPPORTED_UPLOAD_MIMES =
     setOf(
         "image/jpeg",

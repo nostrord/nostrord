@@ -17,13 +17,6 @@ actual class MediaPickerLauncher(
     actual fun launch() = doLaunch()
 }
 
-private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "avif")
-private val ALL_EXTENSIONS =
-    IMAGE_EXTENSIONS + setOf(
-        "mp4", "mov", "webm",
-        "mp3", "ogg", "wav", "flac", "m4a", "aac", "opus",
-    )
-
 /**
  * Native file picker via LWJGL tinyfd, which on Linux shells out to zenity/kdialog as a
  * subprocess. That subprocess window is managed by the WM independently of the JVM, so it
@@ -46,8 +39,8 @@ actual fun rememberMediaPickerLauncher(
     val currentOnFilePicked = rememberUpdatedState(onFilePicked)
     val allowedSet =
         when (accept) {
-            MediaAccept.Images -> IMAGE_EXTENSIONS
-            MediaAccept.ImagesVideosAudio -> ALL_EXTENSIONS
+            MediaAccept.Images -> SUPPORTED_IMAGE_EXTENSIONS
+            MediaAccept.ImagesVideosAudio -> SUPPORTED_MEDIA_EXTENSIONS
         }
 
     return remember {
