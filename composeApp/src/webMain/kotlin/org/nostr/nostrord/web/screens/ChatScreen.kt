@@ -589,7 +589,9 @@ private val ChatComposer =
                     }
                 }
                 button {
-                    className = ClassName(if (emojiOpen) "composer-btn active" else "composer-btn")
+                    // composer-emoji is hidden on touch/mobile (CSS @media pointer:coarse),
+                    // where the OS keyboard already provides emoji (native parity).
+                    className = ClassName(if (emojiOpen) "composer-btn composer-emoji active" else "composer-btn composer-emoji")
                     onClick = { setEmojiOpen(!emojiOpen) }
                     icon(Ic.EmojiEmotions)
                 }

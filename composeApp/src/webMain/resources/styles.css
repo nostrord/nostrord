@@ -3673,6 +3673,15 @@ body {
     color: var(--color-text-content);
 }
 
+/* On touch / mobile the OS keyboard provides emoji, so hide the in-app emoji
+   picker button (the native composer hides it on Android / iOS for the same
+   reason). display:none also collapses its flex slot, so no gap is left. */
+@media (pointer: coarse) {
+    .composer-emoji {
+        display: none;
+    }
+}
+
 /* Holds the textarea and its colored mirror so @mentions can be tinted gold
    (a plain textarea can't style part of its text). */
 .composer-input-wrap {
