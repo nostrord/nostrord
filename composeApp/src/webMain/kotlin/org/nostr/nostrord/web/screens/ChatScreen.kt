@@ -1862,20 +1862,23 @@ private val MessageRow =
             ref = rowRef
             // Two-stage right-click (Telegram-style): the first right-click on a
             // message opens our app menu at the cursor and suppresses the browser's
-            // native menu. A second right-click escapes to the native menu, handled
-            // by the .ctx-overlay below (which does not preventDefault). Right-click
+            // native menu. A second right-click escapes to the native menu. Right-click
             // off any message keeps the browser default untouched.
             onContextMenu = { event ->
-                // Always suppress the browser's native menu/callout on a message; open
-                // ours at the cursor when none is open yet. (When our menu is open the
-                // .ctx-overlay sits on top, so this only fires while it's closed.)
-                event.preventDefault()
                 if (!menuOpen) {
+                    // First right-click: open ours at the cursor and suppress native.
+                    event.preventDefault()
                     setReactOpen(false)
                     menuOpenedAt.current = 0.0 // mouse/right-click: no ghost click to swallow
                     setMenuAt(event.clientX.toInt() to event.clientY.toInt())
                     setMenuFromCursor(true)
                     setMenuOpen(true)
+                } else {
+                    // Second right-click: our menu is open and the row sits above the
+                    // overlay (.msg.menu-open z-index 60 > .ctx-overlay 50), so the
+                    // event lands here, not on the overlay. Close ours and do NOT
+                    // preventDefault, so the browser shows its native menu.
+                    setMenuOpen(false)
                 }
             }
             onTouchStart = { event ->
