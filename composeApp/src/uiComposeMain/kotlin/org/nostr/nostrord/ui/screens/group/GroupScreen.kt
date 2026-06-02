@@ -403,6 +403,16 @@ fun GroupScreen(
         vm.requestGroupMessages(selectedChannel)
     }
 
+    // Fetch kind:0 for every message author (plus members), mirroring the web
+    // ChatScreen. The repository auto-requests metadata for members, reactors and
+    // quoted events, but not plain message authors who aren't members. Without
+    // their profile the Zap action (gated on lud16/lud06) never appears for them,
+    // so the native menu was missing Zap where the web one showed it.
+    LaunchedEffect(groupId, messages.size, memberPubkeys.size) {
+        val pubkeys = (memberPubkeys + messages.map { it.pubkey }).toSet()
+        if (pubkeys.isNotEmpty()) AppModule.nostrRepository.requestUserMetadata(pubkeys)
+    }
+
     // Re-request messages when connection is restored so the open group reloads after
     // a reconnect, even if it wasn't in the joined list or messages cache.
     LaunchedEffect(connectionState) {
