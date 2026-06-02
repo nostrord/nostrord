@@ -3,6 +3,7 @@ package org.nostr.nostrord.network.upload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -46,6 +47,14 @@ actual fun rememberMediaPickerLauncher(
     onFilePicked: (ByteArray, String) -> Unit,
 ): MediaPickerLauncher {
     val scope = rememberCoroutineScope()
+    // The launcher is remembered once, so capture the latest callbacks via
+    // rememberUpdatedState (like the Android picker). Without this the picker keeps
+    // the first composition's onFilePicked, which closes over a stale textFieldValue
+    // state — the upload then writes the URL to an orphaned field and the visible
+    // input never updates after a recomposition (e.g. switching groups).
+    val currentOnPickStart = rememberUpdatedState(onPickStart)
+    val currentOnError = rememberUpdatedState(onError)
+    val currentOnFilePicked = rememberUpdatedState(onFilePicked)
     return remember {
         MediaPickerLauncher {
             val deferred = CompletableDeferred<Pair<ByteArray, String>?>()
@@ -147,10 +156,10 @@ actual fun rememberMediaPickerLauncher(
 
                     val selected = chooser.selectedFile
                     if (selected != null && selected.extension.lowercase() in allowedSet) {
-                        scope.launch { onPickStart() }
+                        scope.launch { currentOnPickStart.value() }
                         if (selected.length() > MAX_UPLOAD_BYTES) {
                             deferred.complete(null)
-                            scope.launch { onError("File is too large. The maximum upload size is 20 MB.") }
+                            scope.launch { currentOnError.value("File is too large. The maximum upload size is 20 MB.") }
                         } else {
                             scope.launch(Dispatchers.IO) {
                                 deferred.complete(selected.readBytes() to selected.name)
@@ -160,7 +169,7 @@ actual fun rememberMediaPickerLauncher(
                         deferred.complete(null)
                         if (selected != null) {
                             val ext = selected.extension.ifEmpty { "unknown" }
-                            scope.launch { onError("\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE") }
+                            scope.launch { currentOnError.value("\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE") }
                         }
                     }
                 } finally {
@@ -173,7 +182,7 @@ actual fun rememberMediaPickerLauncher(
                 try {
                     val result = deferred.await()
                     if (result != null) {
-                        withContext(Dispatchers.Main) { onFilePicked(result.first, result.second) }
+                        withContext(Dispatchers.Main) { currentOnFilePicked.value(result.first, result.second) }
                     }
                 } catch (_: Throwable) {
                 }
