@@ -713,6 +713,11 @@ val ChatScreen =
         // silently so the user thought the message was deleted when it
         // wasn't.
         val (deleteError, setDeleteError) = useState<String?> { null }
+        // Relay rejected a kind:7 reaction (e.g., "kind 7 not allowed", or an
+        // "unknown member" needing to join). Mirrors native's reactionError flow
+        // (GroupViewModel.kt:148-157 + GroupScreen.kt:620-665) — the web used to
+        // swallow it, so the reaction just blinked away with no explanation.
+        val (reactionError, setReactionError) = useState<String?> { null }
 
         // Scroll/pagination bookkeeping (refs so they don't trigger re-render).
         //
@@ -1311,7 +1316,20 @@ val ChatScreen =
                                                 onUser = { setProfilePubkey(it) }
                                                 onReply = { setReplyingToId(message.id) }
                                                 onReact = { emoji ->
-                                                    repo.sendReaction(group.id, message.id, message.pubkey, emoji)
+                                                    // Surface a relay rejection (e.g. "kind 7 not allowed")
+                                                    // instead of letting the reaction silently blink away.
+                                                    when (val result = repo.sendReaction(group.id, message.id, message.pubkey, emoji)) {
+                                                        is Result.Error -> {
+                                                            val raw = result.error.cause?.message ?: result.error.toString()
+                                                            setReactionError(
+                                                                raw
+                                                                    .removePrefix("blocked: ")
+                                                                    .removePrefix("error: ")
+                                                                    .replaceFirstChar { it.uppercaseChar() },
+                                                            )
+                                                        }
+                                                        is Result.Success -> Unit
+                                                    }
                                                 }
                                                 onDelete = { setMessageToDelete(message.id) }
                                             }
@@ -1580,6 +1598,19 @@ val ChatScreen =
             deleteError?.let { error ->
                 deleteMessageErrorDialog(error) { setDeleteError(null) }
             }
+            // Relay rejected the kind:7 reaction — explain it instead of the
+            // reaction just blinking away. Mirrors native's "Cannot React" /
+            // "Join Required" dialog (GroupScreen.kt:620-665).
+            reactionError?.let { error ->
+                reactionErrorDialog(
+                    message = error,
+                    onDismiss = { setReactionError(null) },
+                    onJoin = {
+                        setReactionError(null)
+                        join()
+                    },
+                )
+            }
         }
     }
 
@@ -1606,6 +1637,58 @@ private fun ChildrenBuilder.deleteMessageErrorDialog(message: String, onDismiss:
                     className = ClassName("btn-primary")
                     onClick = { onDismiss() }
                     +"OK"
+                }
+            }
+        }
+    }
+}
+
+/** Dialog shown when the relay rejects a kind:7 reaction. Mirrors the native
+ *  AlertDialog at GroupScreen.kt:620-665: a "Join Required" variant (offers Join)
+ *  when the relay says we're an unknown member, otherwise "Cannot React" + OK. */
+private fun ChildrenBuilder.reactionErrorDialog(message: String, onDismiss: () -> Unit, onJoin: () -> Unit) {
+    val isUnknownMember = message.contains("unknown member", ignoreCase = true)
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onDismiss() }
+        div {
+            className = ClassName("modal-card sm")
+            onClick = { it.stopPropagation() }
+            div {
+                className = ClassName("modal-title")
+                +(if (isUnknownMember) "Join Required" else "Cannot React")
+            }
+            div {
+                className = ClassName("modal-subtitle tight")
+                if (isUnknownMember) {
+                    +"You need to join this group before you can react to messages."
+                } else {
+                    div { +"This relay does not support reactions." }
+                    div {
+                        className = ClassName("modal-reason")
+                        +message
+                    }
+                }
+            }
+            div {
+                className = ClassName("modal-footer")
+                if (isUnknownMember) {
+                    button {
+                        className = ClassName("btn-text")
+                        onClick = { onDismiss() }
+                        +"Cancel"
+                    }
+                    button {
+                        className = ClassName("btn-primary")
+                        onClick = { onJoin() }
+                        +"Join Group"
+                    }
+                } else {
+                    button {
+                        className = ClassName("btn-primary")
+                        onClick = { onDismiss() }
+                        +"OK"
+                    }
                 }
             }
         }

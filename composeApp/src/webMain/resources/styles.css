@@ -1819,6 +1819,12 @@ body {
     margin-bottom: 16px;
 }
 
+/* The relay's raw rejection reason, shown under the main explanation line. */
+.modal-reason {
+    margin-top: 8px;
+    color: var(--color-text-secondary);
+}
+
 .modal-close {
     flex-shrink: 0;
     width: 32px;
