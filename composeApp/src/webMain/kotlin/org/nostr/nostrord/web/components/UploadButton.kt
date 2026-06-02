@@ -16,6 +16,7 @@ import react.FC
 import react.Props
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.label
+import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
 import web.html.InputType
@@ -50,7 +51,11 @@ val UploadButton =
 
         label {
             className = ClassName(props.cls)
-            if (busy) +"…" else icon(props.icon)
+            if (busy) {
+                span { className = ClassName("upload-spinner") }
+            } else {
+                icon(props.icon)
+            }
             input {
                 className = ClassName("upload-file-input")
                 type = InputType.file

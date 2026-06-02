@@ -284,6 +284,20 @@ body {
     flex-shrink: 0;
 }
 
+/* Spinner for the attach/upload button. Inherits the button's text color via
+   currentColor so it stays visible on the muted/transparent backgrounds where
+   the white .btn-spinner would vanish (native CircularProgressIndicator parity). */
+.upload-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
 .login-primary:disabled {
     opacity: 0.5;
     cursor: default;
