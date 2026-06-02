@@ -511,6 +511,30 @@ body {
     font-size: 13px;
 }
 
+/* The QR image is itself a deep link to the installed signer (matches native,
+   where the QR is clickable). The anchor must not add underline/spacing around
+   the image. */
+.qr-link {
+    display: inline-flex;
+    text-decoration: none;
+}
+
+/* "Tap to open in signer app" caption under the QR. Only meaningful on a touch
+   device (you can't scan the QR on the same phone), so it is hidden by default
+   and revealed on coarse-pointer devices, mirroring native's Android-only hint. */
+.bunker-tap-hint {
+    display: none;
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+
+@media (pointer: coarse) {
+    .bunker-tap-hint {
+        display: block;
+    }
+}
+
 /* Trailing-icon button slot used by the URI copy, the add-relay +, and any
    other small affordance inside a .field-with-icon. */
 .field-action {
