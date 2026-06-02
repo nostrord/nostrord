@@ -4,21 +4,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.awt.Dialog
+import java.awt.FileDialog
+import java.awt.Frame
 import java.awt.KeyboardFocusManager
-import java.awt.Rectangle
-import java.awt.Toolkit
-import java.awt.Window
-import javax.swing.JDialog
-import javax.swing.JFileChooser
-import javax.swing.JFrame
+import java.io.File
+import java.io.FilenameFilter
 import javax.swing.SwingUtilities
-import javax.swing.UIManager
-import javax.swing.filechooser.FileNameExtensionFilter
 
 actual class MediaPickerLauncher(
     private val doLaunch: () -> Unit,
@@ -32,12 +26,12 @@ private val ALL_EXTENSIONS = IMAGE_EXTENSIONS + arrayOf("mp4", "mov", "webm") + 
 private val ALL_EXTENSIONS_SET = ALL_EXTENSIONS.toSet()
 private val IMAGE_EXTENSIONS_SET = IMAGE_EXTENSIONS.toSet()
 
-// UIManager is global state — apply system L&F only once.
-private var systemLafApplied = false
-
 /**
- * Uses JFileChooser inside a JDialog(APPLICATION_MODAL) so the JVM's EDT blocks
- * input to all other app windows, preventing z-order issues on Linux.
+ * Uses the native [FileDialog] (GTK file chooser on Linux) owned by the Compose window.
+ * The OS manages the dialog, so it can't fall behind the app and focus returns to the
+ * owner window on close — unlike a Swing JFileChooser in a throwaway JDialog, which left
+ * focus on a background window on some Linux WMs. Extension filtering is best-effort via
+ * FilenameFilter; the selection is validated again after the dialog closes.
  */
 @Composable
 actual fun rememberMediaPickerLauncher(
@@ -55,144 +49,51 @@ actual fun rememberMediaPickerLauncher(
     val currentOnPickStart = rememberUpdatedState(onPickStart)
     val currentOnError = rememberUpdatedState(onError)
     val currentOnFilePicked = rememberUpdatedState(onFilePicked)
+    val allowedSet =
+        when (accept) {
+            MediaAccept.Images -> IMAGE_EXTENSIONS_SET
+            MediaAccept.ImagesVideosAudio -> ALL_EXTENSIONS_SET
+        }
     return remember {
         MediaPickerLauncher {
-            val deferred = CompletableDeferred<Pair<ByteArray, String>?>()
-
             SwingUtilities.invokeLater {
-                if (!systemLafApplied) {
-                    runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
-                    systemLafApplied = true
-                }
-
-                val appWindow: Window? =
+                val owner =
                     KeyboardFocusManager
                         .getCurrentKeyboardFocusManager()
-                        .activeWindow
+                        .activeWindow as? Frame
 
-                val appBounds: Rectangle =
-                    appWindow?.bounds
-                        ?: Toolkit
-                            .getDefaultToolkit()
-                            .screenSize
-                            .let { Rectangle(0, 0, it.width, it.height) }
-
-                val monitorBounds: Rectangle =
-                    appWindow
-                        ?.graphicsConfiguration
-                        ?.bounds
-                        ?: appBounds
-
-                val anchor =
-                    JFrame().apply {
-                        isUndecorated = true
-                        isAlwaysOnTop = true
-                        setSize(1, 1)
-                        setLocation(
-                            appBounds.x + appBounds.width / 2,
-                            appBounds.y + appBounds.height / 2,
-                        )
-                        isVisible = true
-                    }
-
-                val (filterDesc, extensions, allowedSet) =
-                    when (accept) {
-                        MediaAccept.Images ->
-                            Triple("Images (jpg, png, gif, webp, avif)", IMAGE_EXTENSIONS, IMAGE_EXTENSIONS_SET)
-                        MediaAccept.ImagesVideosAudio ->
-                            Triple(
-                                "Images, Videos & Audio (jpg, png, gif, webp, avif, mp4, mov, webm, mp3, ogg, wav, flac, m4a, aac, opus)",
-                                ALL_EXTENSIONS,
-                                ALL_EXTENSIONS_SET,
-                            )
-                    }
-
-                val chooser =
-                    JFileChooser().apply {
-                        dialogTitle = "Select File"
-                        fileFilter = FileNameExtensionFilter(filterDesc, *extensions)
-                        isMultiSelectionEnabled = false
-                        fileSelectionMode = JFileChooser.FILES_ONLY
-                    }
-
-                val pickerDialog =
-                    JDialog(
-                        anchor,
-                        "Select File",
-                        Dialog.ModalityType.APPLICATION_MODAL,
-                    ).apply {
-                        isAlwaysOnTop = true
-                        defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
-                        contentPane.add(chooser)
-                        pack()
-
-                        val dw = width
-                        val dh = height
-                        var dx = appBounds.x + (appBounds.width - dw) / 2
-                        var dy = appBounds.y + (appBounds.height - dh) / 2
-                        dx =
-                            dx.coerceIn(
-                                monitorBounds.x,
-                                monitorBounds.x + (monitorBounds.width - dw).coerceAtLeast(0),
-                            )
-                        dy =
-                            dy.coerceIn(
-                                monitorBounds.y,
-                                monitorBounds.y + (monitorBounds.height - dh).coerceAtLeast(0),
-                            )
-                        setLocation(dx, dy)
-                    }
-
-                chooser.addActionListener { e ->
-                    when (e.actionCommand) {
-                        JFileChooser.APPROVE_SELECTION,
-                        JFileChooser.CANCEL_SELECTION,
-                        -> pickerDialog.dispose()
-                    }
-                }
-
-                try {
-                    pickerDialog.isVisible = true // blocks EDT until dialog is disposed
-
-                    val selected = chooser.selectedFile
-                    if (selected != null && selected.extension.lowercase() in allowedSet) {
-                        scope.launch { currentOnPickStart.value() }
-                        if (selected.length() > MAX_UPLOAD_BYTES) {
-                            deferred.complete(null)
-                            scope.launch { currentOnError.value("File is too large. The maximum upload size is 20 MB.") }
-                        } else {
-                            scope.launch(Dispatchers.IO) {
-                                deferred.complete(selected.readBytes() to selected.name)
+                val dialog =
+                    FileDialog(owner, "Select File", FileDialog.LOAD).apply {
+                        isMultipleMode = false
+                        // Honored by the GTK chooser; ignored on some platforms, where the
+                        // post-selection extension check below enforces the same rule.
+                        filenameFilter =
+                            FilenameFilter { _, name ->
+                                name.substringAfterLast('.', "").lowercase() in allowedSet
                             }
-                        }
-                    } else {
-                        deferred.complete(null)
-                        if (selected != null) {
-                            val ext = selected.extension.ifEmpty { "unknown" }
-                            scope.launch { currentOnError.value("\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE") }
-                        }
                     }
-                } finally {
-                    anchor.dispose()
-                    // Return input focus to the Compose window after the modal + anchor
-                    // are fully torn down. A synchronous requestFocus() here is often
-                    // dropped by Linux window managers (focus stays on the file manager),
-                    // so re-post on the EDT and raise the window with toFront() once the
-                    // teardown has been processed.
-                    SwingUtilities.invokeLater {
-                        appWindow?.toFront()
-                        appWindow?.requestFocus()
-                    }
-                }
-            }
 
-            scope.launch {
-                try {
-                    val result = deferred.await()
-                    if (result != null) {
-                        withContext(Dispatchers.Main) { currentOnFilePicked.value(result.first, result.second) }
+                dialog.isVisible = true // blocks the EDT until the native dialog closes
+
+                val name = dialog.file ?: return@invokeLater // cancelled
+                val dir = dialog.directory ?: return@invokeLater
+                val file = File(dir, name)
+                val ext = file.extension.lowercase()
+
+                when {
+                    ext !in allowedSet ->
+                        currentOnError.value(
+                            "\".${ext.ifEmpty { "unknown" }}\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE",
+                        )
+                    file.length() > MAX_UPLOAD_BYTES ->
+                        currentOnError.value("File is too large. The maximum upload size is 20 MB.")
+                    else -> {
+                        currentOnPickStart.value()
+                        scope.launch(Dispatchers.IO) {
+                            val bytes = file.readBytes()
+                            withContext(Dispatchers.Main) { currentOnFilePicked.value(bytes, file.name) }
+                        }
                     }
-                } catch (_: Throwable) {
                 }
             }
         }
