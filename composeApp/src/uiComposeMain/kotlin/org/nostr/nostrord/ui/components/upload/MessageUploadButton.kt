@@ -90,7 +90,7 @@ fun MessageUploadButton(
         enabled = !busy,
         modifier =
         modifier
-            .size(40.dp)
+            .size(32.dp)
             .pointerHoverIcon(PointerIcon.Hand),
     ) {
         if (busy) {
