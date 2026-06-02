@@ -174,7 +174,15 @@ actual fun rememberMediaPickerLauncher(
                     }
                 } finally {
                     anchor.dispose()
-                    appWindow?.requestFocus()
+                    // Return input focus to the Compose window after the modal + anchor
+                    // are fully torn down. A synchronous requestFocus() here is often
+                    // dropped by Linux window managers (focus stays on the file manager),
+                    // so re-post on the EDT and raise the window with toFront() once the
+                    // teardown has been processed.
+                    SwingUtilities.invokeLater {
+                        appWindow?.toFront()
+                        appWindow?.requestFocus()
+                    }
                 }
             }
 
