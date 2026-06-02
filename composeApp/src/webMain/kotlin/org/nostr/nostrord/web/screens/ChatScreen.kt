@@ -523,6 +523,10 @@ private val ChatComposer =
                                     event.preventDefault()
                                     setMention(null)
                                 }
+                                props.replyingToId != null && event.key == "Escape" -> {
+                                    event.preventDefault()
+                                    props.onCancelReply()
+                                }
                                 event.key == "Enter" && !event.shiftKey -> {
                                     event.preventDefault()
                                     send()

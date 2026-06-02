@@ -577,6 +577,13 @@ fun MessageInput(
                                         groupMentionQuery = ""
                                         true
                                     }
+                                    // Esc exits reply mode once no popup/picker is open (desktop).
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Escape &&
+                                        replyingToMessage != null -> {
+                                        onCancelReply()
+                                        true
+                                    }
                                     event.type == KeyEventType.KeyDown &&
                                         event.key == Key.DirectionUp &&
                                         showMentionPopup &&
