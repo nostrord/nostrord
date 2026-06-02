@@ -33,10 +33,14 @@ import org.nostr.nostrord.utils.Result
 fun MessageUploadButton(
     onUploadComplete: (UploadResult) -> Unit,
     modifier: Modifier = Modifier,
+    // Upload owned by the caller (paste / drag-and-drop) that doesn't go through
+    // this button's picker. When true, the spinner shows here on the attach icon.
+    externalBusy: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     var isUploading by remember { mutableStateOf(false) }
     var uploadError by remember { mutableStateOf<String?>(null) }
+    val busy = isUploading || externalBusy
 
     val picker =
         rememberMediaPickerLauncher(
@@ -83,13 +87,13 @@ fun MessageUploadButton(
 
     IconButton(
         onClick = { picker.launch() },
-        enabled = !isUploading,
+        enabled = !busy,
         modifier =
         modifier
             .size(40.dp)
             .pointerHoverIcon(PointerIcon.Hand),
     ) {
-        if (isUploading) {
+        if (busy) {
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 color = NostrordColors.Primary,

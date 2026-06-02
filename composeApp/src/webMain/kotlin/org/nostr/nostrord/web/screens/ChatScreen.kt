@@ -448,6 +448,9 @@ private val ChatComposer =
                 UploadButton {
                     cls = "composer-btn"
                     icon = Ic.AttachFile
+                    // Paste / drag-and-drop uploads run through handleMediaFile and are
+                    // tracked by uploadCount; surface their spinner on the attach icon.
+                    busy = uploadCount > 0
                     onUploaded = { upload ->
                         val url = upload.url
                         setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
@@ -592,13 +595,15 @@ private val ChatComposer =
                 }
                 button {
                     val uploading = uploadCount > 0
-                    val busy = uploading || sending
+                    // The upload spinner now lives on the attach icon; the send button
+                    // only spins for an in-flight send, but stays disabled while a paste
+                    // upload finishes so its URL can land in the draft first.
                     className = ClassName(
-                        if (draft.isNotBlank() || busy) "composer-send active" else "composer-send",
+                        if (draft.isNotBlank() || sending) "composer-send active" else "composer-send",
                     )
                     disabled = (draft.isBlank() && !uploading) || sending || uploading
                     onClick = { send() }
-                    if (busy) {
+                    if (sending) {
                         span { className = ClassName("btn-spinner") }
                     } else {
                         icon(Ic.Send)

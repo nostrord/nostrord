@@ -506,6 +506,7 @@ fun MessageInput(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     MessageUploadButton(
+                        externalBusy = isUploadingPaste,
                         onUploadComplete = { uploadResult ->
                             val url = uploadResult.url
                             val current = textFieldValue.text
@@ -726,10 +727,12 @@ fun MessageInput(
 
                     IconButton(
                         onClick = { submit() },
+                        // Disabled while a paste upload finishes (its URL must land in
+                        // the draft first), but the spinner now shows on the attach icon.
                         enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
                         modifier = Modifier.size(40.dp),
                     ) {
-                        if (isSending || isUploadingPaste) {
+                        if (isSending) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(Spacing.iconMd),
                                 color = NostrordColors.Primary,

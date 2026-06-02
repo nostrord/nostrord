@@ -36,6 +36,13 @@ external interface UploadButtonProps : Props {
 
     /** Idle icon shown when not uploading. */
     var icon: Ic
+
+    /**
+     * Optional external busy flag. When the caller owns an upload that does not go
+     * through this button's file input (paste / drag-and-drop), set this true so the
+     * spinner shows here on the attach icon instead of elsewhere.
+     */
+    var busy: Boolean?
 }
 
 /**
@@ -47,7 +54,10 @@ external interface UploadButtonProps : Props {
  */
 val UploadButton =
     FC<UploadButtonProps> { props ->
-        val (busy, setBusy) = useState { false }
+        val (picking, setPicking) = useState { false }
+        // Either an in-progress file pick (owned here) or a paste/drop upload the
+        // caller signals via props.busy shows the spinner on this attach icon.
+        val busy = picking || (props.busy == true)
 
         label {
             className = ClassName(props.cls)
@@ -66,7 +76,7 @@ val UploadButton =
                     val fileList = target.asDynamic().files
                     val f = if (fileList != null && (fileList.length as Int) > 0) fileList[0] else null
                     if (f != null) {
-                        setBusy(true)
+                        setPicking(true)
                         launchApp {
                             try {
                                 when (val r = uploadBlob(f)) {
@@ -74,7 +84,7 @@ val UploadButton =
                                     is Result.Error -> props.onError(r.error.message)
                                 }
                             } finally {
-                                setBusy(false)
+                                setPicking(false)
                                 target.asDynamic().value = ""
                             }
                         }
