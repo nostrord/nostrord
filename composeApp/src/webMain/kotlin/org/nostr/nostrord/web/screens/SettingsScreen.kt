@@ -732,6 +732,7 @@ private fun react.ChildrenBuilder.settingsUploadField(
             UploadButton {
                 cls = "upload-btn"
                 icon = Ic.Upload
+                imagesOnly = true
                 onUploaded = { onChange(it.url) }
                 this.onError = onError
             }

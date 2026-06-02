@@ -227,6 +227,7 @@ val CreateGroupModal =
                     UploadButton {
                         cls = "upload-btn"
                         icon = Ic.Upload
+                        imagesOnly = true
                         onUploaded = { setPicture(it.url) }
                         onError = { setError(it) }
                     }

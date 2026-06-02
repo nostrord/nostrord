@@ -43,6 +43,19 @@ external interface UploadButtonProps : Props {
      * spinner shows here on the attach icon instead of elsewhere.
      */
     var busy: Boolean?
+
+    /**
+     * Optional callback fired with true when a file-pick upload starts and false when it
+     * settles. Lets the caller block its send button while a picked file is uploading (the
+     * picked URL hasn't landed in the draft yet) — paste/drop already do this via uploadCount.
+     */
+    var onBusyChange: ((Boolean) -> Unit)?
+
+    /**
+     * Restrict to still images only (avatars / banners / group pictures), matching native's
+     * MediaAccept.Images. Defaults to the full image/video/audio set used by the composer.
+     */
+    var imagesOnly: Boolean?
 }
 
 /**
@@ -69,7 +82,7 @@ val UploadButton =
             input {
                 className = ClassName("upload-file-input")
                 type = InputType.file
-                accept = "image/*,video/*,audio/*"
+                accept = if (props.imagesOnly == true) "image/*" else "image/*,video/*,audio/*"
                 disabled = busy
                 onChange = { event ->
                     val target = event.currentTarget
@@ -77,14 +90,16 @@ val UploadButton =
                     val f = if (fileList != null && (fileList.length as Int) > 0) fileList[0] else null
                     if (f != null) {
                         setPicking(true)
+                        props.onBusyChange?.invoke(true)
                         launchApp {
                             try {
-                                when (val r = uploadBlob(f)) {
+                                when (val r = uploadBlob(f, props.imagesOnly == true)) {
                                     is Result.Success -> props.onUploaded(r.data)
                                     is Result.Error -> props.onError(r.error.message)
                                 }
                             } finally {
                                 setPicking(false)
+                                props.onBusyChange?.invoke(false)
                                 target.asDynamic().value = ""
                             }
                         }
@@ -101,7 +116,7 @@ val UploadButton =
  * [UploadResult] (URL + NIP-68 metadata) so callers can build imeta tags, or a
  * [Result.Error] to surface. Reusable by the file picker and Ctrl+V paste / drag-and-drop.
  */
-suspend fun uploadBlob(file: dynamic): Result<UploadResult> {
+suspend fun uploadBlob(file: dynamic, imagesOnly: Boolean = false): Result<UploadResult> {
     val name = (file.name.unsafeCast<String?>())?.takeIf { it.isNotBlank() } ?: "file"
     val size = (file.size.unsafeCast<Double?>())?.toLong() ?: 0L
     if (size > MAX_UPLOAD_BYTES) {
@@ -116,9 +131,17 @@ suspend fun uploadBlob(file: dynamic): Result<UploadResult> {
         } else {
             (file.type.unsafeCast<String?>())?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
         }
-    if (!isSupportedUploadMime(mime)) {
+    // imagesOnly callers (avatars / banners) accept still images only, matching native.
+    val supported = isSupportedUploadMime(mime) && (!imagesOnly || mime.startsWith("image/"))
+    if (!supported) {
         val ext = name.substringAfterLast('.', "").ifEmpty { "unknown" }
-        return Result.Error(AppError.Unknown("\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE"))
+        val message =
+            if (imagesOnly) {
+                "\".$ext\" files are not supported.\nChoose an image: jpg, png, gif, webp, avif."
+            } else {
+                "\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE"
+            }
+        return Result.Error(AppError.Unknown(message))
     }
     val bytes = readFileBytes(file)
     if (bytes.isEmpty()) return Result.Error(AppError.Unknown("Could not read the selected file."))

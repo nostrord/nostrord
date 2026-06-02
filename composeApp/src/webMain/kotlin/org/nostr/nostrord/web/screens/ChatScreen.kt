@@ -460,6 +460,9 @@ private val ChatComposer =
                     // Paste / drag-and-drop uploads run through handleMediaFile and are
                     // tracked by uploadCount; surface their spinner on the attach icon.
                     busy = uploadCount > 0
+                    // Count a file-pick upload in uploadCount too, so the send button is
+                    // disabled until the picked URL lands in the draft (it isn't sent empty).
+                    onBusyChange = { b -> setUploadCount { if (b) it + 1 else it - 1 } }
                     onUploaded = { upload ->
                         val url = upload.url
                         setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
