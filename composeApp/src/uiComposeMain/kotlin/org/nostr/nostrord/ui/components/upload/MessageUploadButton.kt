@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.components.upload
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
@@ -45,6 +46,7 @@ fun MessageUploadButton(
     val busy = isUploading || externalBusy
     val interaction = remember { MutableInteractionSource() }
     val isHovered by interaction.collectIsHoveredAsState()
+    val isPressed by interaction.collectIsPressedAsState()
 
     val picker =
         rememberMediaPickerLauncher(
@@ -108,8 +110,13 @@ fun MessageUploadButton(
             Icon(
                 imageVector = Icons.Default.AttachFile,
                 contentDescription = "Attach image",
-                // Hover brightens to TextContent (web .composer-btn:hover).
-                tint = if (isHovered) NostrordColors.TextContent else NostrordColors.TextMuted,
+                // Press shows white (tap feedback on Android, which has no hover);
+                // hover brightens to TextContent (web .composer-btn:hover).
+                tint = when {
+                    isPressed -> NostrordColors.TextPrimary
+                    isHovered -> NostrordColors.TextContent
+                    else -> NostrordColors.TextMuted
+                },
                 modifier = Modifier.size(20.dp),
             )
         }
