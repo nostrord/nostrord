@@ -70,8 +70,15 @@ actual fun rememberMediaPickerLauncher(
                         }
                     else -> {
                         withContext(Dispatchers.Main) { currentOnPickStart.value() }
-                        val bytes = file.readBytes()
-                        withContext(Dispatchers.Main) { currentOnFilePicked.value(bytes, file.name) }
+                        // readBytes can throw (file vanished, permission, special file). Surface
+                        // it via onError so the caller's busy/spinner state is reset (onPickStart
+                        // already flipped it on) instead of leaving the attach button stuck.
+                        try {
+                            val bytes = file.readBytes()
+                            withContext(Dispatchers.Main) { currentOnFilePicked.value(bytes, file.name) }
+                        } catch (e: Throwable) {
+                            withContext(Dispatchers.Main) { currentOnError.value("Could not read the selected file.") }
+                        }
                     }
                 }
             }
