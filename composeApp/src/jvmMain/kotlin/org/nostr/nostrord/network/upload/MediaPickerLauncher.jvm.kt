@@ -67,6 +67,11 @@ actual fun rememberMediaPickerLauncher(
                 val dialog =
                     FileDialog(owner, "Select File", FileDialog.LOAD).apply {
                         isMultipleMode = false
+                        // Always-on-top so the picker opens in front of the app even right
+                        // after a previous pick (the focus-restore toggle below briefly
+                        // raises the app window, which otherwise let the next dialog open
+                        // behind it).
+                        isAlwaysOnTop = true
                         // Honored by the GTK chooser; ignored on some platforms, where the
                         // post-selection extension check below enforces the same rule.
                         filenameFilter =
