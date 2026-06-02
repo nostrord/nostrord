@@ -57,10 +57,12 @@ actual fun rememberMediaPickerLauncher(
     return remember {
         MediaPickerLauncher {
             SwingUtilities.invokeLater {
+                // The dialog owner is what focus should return to on close. activeWindow is
+                // usually the Compose window; fall back to the first showing app frame so we
+                // never pass null (a null owner lets the WM hand focus to a background window).
                 val owner =
-                    KeyboardFocusManager
-                        .getCurrentKeyboardFocusManager()
-                        .activeWindow as? Frame
+                    (KeyboardFocusManager.getCurrentKeyboardFocusManager().activeWindow as? Frame)
+                        ?: Frame.getFrames().firstOrNull { it.isShowing && it.isFocusableWindow }
 
                 val dialog =
                     FileDialog(owner, "Select File", FileDialog.LOAD).apply {
@@ -74,6 +76,19 @@ actual fun rememberMediaPickerLauncher(
                     }
 
                 dialog.isVisible = true // blocks the EDT until the native dialog closes
+
+                // Some Linux WMs hand focus to the launching terminal (or another background
+                // window) after a native dialog closes. Re-assert the app window: toFront +
+                // requestFocus alone is often dropped, so a brief always-on-top toggle forces
+                // the WM to raise and refocus it. Posted after the dialog teardown.
+                owner?.let { w ->
+                    SwingUtilities.invokeLater {
+                        w.toFront()
+                        w.requestFocus()
+                        w.isAlwaysOnTop = true
+                        w.isAlwaysOnTop = false
+                    }
+                }
 
                 val name = dialog.file ?: return@invokeLater // cancelled
                 val dir = dialog.directory ?: return@invokeLater
