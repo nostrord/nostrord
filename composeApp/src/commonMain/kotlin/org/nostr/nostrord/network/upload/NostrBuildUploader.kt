@@ -18,6 +18,13 @@ const val SUPPORTED_FORMATS_MESSAGE =
 
 internal fun isBlobRef(s: String) = s.startsWith("nostrord-blob|")
 
+/** Still-image extensions (avatars / banners). Single source for native pickers. */
+internal val SUPPORTED_IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "avif")
+
+/** All upload extensions (image + video + audio). Keep in sync with mimeTypeForFilename. */
+internal val SUPPORTED_MEDIA_EXTENSIONS =
+    SUPPORTED_IMAGE_EXTENSIONS + setOf("mp4", "mov", "webm", "mp3", "ogg", "wav", "flac", "m4a", "aac", "opus")
+
 internal val SUPPORTED_UPLOAD_MIMES =
     setOf(
         "image/jpeg",
@@ -86,50 +93,22 @@ object NostrBuildUploader {
         buildAuthHeader: suspend (url: String, method: String) -> String?,
     ): Result<UploadResult> {
         val isCached = isBlobRef(filename)
-        val displayName = if (isCached) filename.split("|").getOrNull(2) ?: filename else filename
-        val sizeDesc =
-            if (isCached) {
-                "clipboard cache"
-            } else {
-                val kb = bytes.size / 1024
-                "${bytes.size}B (${kb / 1024}.${((kb % 1024) * 100 / 1024).toString().padStart(2, '0')}MB)"
-            }
-        println("[Upload] START  file=$displayName  size=$sizeDesc  mime=$mimeType  url=$UPLOAD_URL")
 
-        val authHeader = buildAuthHeader(UPLOAD_URL, "POST")
-        if (authHeader == null) {
-            println("[Upload] ERROR  auth header is null – not authenticated")
-            return Result.Error(AppError.Auth.NotAuthenticated)
-        }
-        println("[Upload] AUTH   header obtained (length=${authHeader.length})")
+        val authHeader =
+            buildAuthHeader(UPLOAD_URL, "POST")
+                ?: return Result.Error(AppError.Auth.NotAuthenticated)
 
         // Blob-ref uploads can't be retried — the JS cache entry is consumed on first use
         val maxAttempts = if (isCached) 1 else 3
         var lastException: Throwable? = null
         repeat(maxAttempts) { attempt ->
-            println("[Upload] ATTEMPT ${attempt + 1}/$maxAttempts  file=$displayName")
             try {
-                val result = doUpload(bytes, filename, mimeType, authHeader)
-                println(
-                    "[Upload] DONE   file=$displayName  result=${
-                        when (result) {
-                            is Result.Success -> "SUCCESS url=${result.data.url}"
-                            is Result.Error -> "SERVER_ERROR ${result.error.message}"
-                        }
-                    }",
-                )
-                return result
+                return doUpload(bytes, filename, mimeType, authHeader)
             } catch (e: Throwable) {
-                println("[Upload] EXCEPTION attempt=${attempt + 1}  type=${e::class.simpleName}  msg=${e.message}")
-                e.cause?.let { println("[Upload]   cause: ${it::class.simpleName}: ${it.message}") }
                 lastException = e
-                if (attempt < maxAttempts - 1) {
-                    println("[Upload] RETRY in 500ms…")
-                    delay(500)
-                }
+                if (attempt < maxAttempts - 1) delay(500)
             }
         }
-        println("[Upload] FAILED after $maxAttempts attempts  file=$displayName  lastError=${lastException?.message}")
         return Result.Error(AppError.Unknown("Upload failed: ${lastException?.message}", lastException))
     }
 
@@ -141,11 +120,7 @@ object NostrBuildUploader {
         mimeType: String,
         authHeader: String,
     ): Result<UploadResult> {
-        println("[Upload] SEND   submitting multipart to $UPLOAD_URL")
         val (statusCode, text) = executeUpload(UPLOAD_URL, bytes, filename, mimeType, authHeader)
-
-        println("[Upload] RESPONSE  status=$statusCode")
-        println("[Upload] BODY  (${text.length} chars): ${text.take(500)}${if (text.length > 500) "…" else ""}")
 
         if (statusCode !in 200..299) {
             val msg =

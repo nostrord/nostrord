@@ -1,5 +1,8 @@
 package org.nostr.nostrord.ui.components.upload
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
@@ -33,10 +36,17 @@ import org.nostr.nostrord.utils.Result
 fun MessageUploadButton(
     onUploadComplete: (UploadResult) -> Unit,
     modifier: Modifier = Modifier,
+    // Upload owned by the caller (paste / drag-and-drop) that doesn't go through
+    // this button's picker. When true, the spinner shows here on the attach icon.
+    externalBusy: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     var isUploading by remember { mutableStateOf(false) }
     var uploadError by remember { mutableStateOf<String?>(null) }
+    val busy = isUploading || externalBusy
+    val interaction = remember { MutableInteractionSource() }
+    val isHovered by interaction.collectIsHoveredAsState()
+    val isPressed by interaction.collectIsPressedAsState()
 
     val picker =
         rememberMediaPickerLauncher(
@@ -83,13 +93,14 @@ fun MessageUploadButton(
 
     IconButton(
         onClick = { picker.launch() },
-        enabled = !isUploading,
+        enabled = !busy,
+        interactionSource = interaction,
         modifier =
         modifier
-            .size(40.dp)
+            .size(32.dp)
             .pointerHoverIcon(PointerIcon.Hand),
     ) {
-        if (isUploading) {
+        if (busy) {
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 color = NostrordColors.Primary,
@@ -99,7 +110,13 @@ fun MessageUploadButton(
             Icon(
                 imageVector = Icons.Default.AttachFile,
                 contentDescription = "Attach image",
-                tint = NostrordColors.TextMuted,
+                // Press shows white (tap feedback on Android, which has no hover);
+                // hover brightens to TextContent (web .composer-btn:hover).
+                tint = when {
+                    isPressed -> NostrordColors.TextPrimary
+                    isHovered -> NostrordColors.TextContent
+                    else -> NostrordColors.TextMuted
+                },
                 modifier = Modifier.size(20.dp),
             )
         }

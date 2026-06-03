@@ -3,21 +3,13 @@ package org.nostr.nostrord.network.upload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.CompletableDeferred
+import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.awt.Dialog
-import java.awt.KeyboardFocusManager
-import java.awt.Rectangle
-import java.awt.Toolkit
-import java.awt.Window
-import javax.swing.JDialog
-import javax.swing.JFileChooser
-import javax.swing.JFrame
-import javax.swing.SwingUtilities
-import javax.swing.UIManager
-import javax.swing.filechooser.FileNameExtensionFilter
+import org.lwjgl.system.MemoryStack
+import org.lwjgl.util.tinyfd.TinyFileDialogs
+import java.io.File
 
 actual class MediaPickerLauncher(
     private val doLaunch: () -> Unit,
@@ -25,18 +17,12 @@ actual class MediaPickerLauncher(
     actual fun launch() = doLaunch()
 }
 
-private val IMAGE_EXTENSIONS = arrayOf("jpg", "jpeg", "png", "gif", "webp", "avif")
-private val AUDIO_EXTENSIONS = arrayOf("mp3", "ogg", "wav", "flac", "m4a", "aac", "opus")
-private val ALL_EXTENSIONS = IMAGE_EXTENSIONS + arrayOf("mp4", "mov", "webm") + AUDIO_EXTENSIONS
-private val ALL_EXTENSIONS_SET = ALL_EXTENSIONS.toSet()
-private val IMAGE_EXTENSIONS_SET = IMAGE_EXTENSIONS.toSet()
-
-// UIManager is global state — apply system L&F only once.
-private var systemLafApplied = false
-
 /**
- * Uses JFileChooser inside a JDialog(APPLICATION_MODAL) so the JVM's EDT blocks
- * input to all other app windows, preventing z-order issues on Linux.
+ * Native file picker via LWJGL tinyfd, which on Linux shells out to zenity/kdialog as a
+ * subprocess. That subprocess window is managed by the WM independently of the JVM, so it
+ * always opens in front and focus returns to the app on close — no AWT `_NET_WM_USER_TIME`
+ * focus-stealing dance (java.awt.FileDialog) and no dbus-java on the classpath (FileKit),
+ * which would clash with java-keyring's Secret Service and break the OS keychain.
  */
 @Composable
 actual fun rememberMediaPickerLauncher(
@@ -46,138 +32,66 @@ actual fun rememberMediaPickerLauncher(
     onFilePicked: (ByteArray, String) -> Unit,
 ): MediaPickerLauncher {
     val scope = rememberCoroutineScope()
+    // Capture the latest callbacks: the launcher is remembered once, and a stale
+    // onFilePicked would write the uploaded URL into an orphaned composer field.
+    val currentOnPickStart = rememberUpdatedState(onPickStart)
+    val currentOnError = rememberUpdatedState(onError)
+    val currentOnFilePicked = rememberUpdatedState(onFilePicked)
+    val allowedSet =
+        when (accept) {
+            MediaAccept.Images -> SUPPORTED_IMAGE_EXTENSIONS
+            MediaAccept.ImagesVideosAudio -> SUPPORTED_MEDIA_EXTENSIONS
+        }
+
     return remember {
         MediaPickerLauncher {
-            val deferred = CompletableDeferred<Pair<ByteArray, String>?>()
-
-            SwingUtilities.invokeLater {
-                if (!systemLafApplied) {
-                    runCatching { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()) }
-                    systemLafApplied = true
-                }
-
-                val appWindow: Window? =
-                    KeyboardFocusManager
-                        .getCurrentKeyboardFocusManager()
-                        .activeWindow
-
-                val appBounds: Rectangle =
-                    appWindow?.bounds
-                        ?: Toolkit
-                            .getDefaultToolkit()
-                            .screenSize
-                            .let { Rectangle(0, 0, it.width, it.height) }
-
-                val monitorBounds: Rectangle =
-                    appWindow
-                        ?.graphicsConfiguration
-                        ?.bounds
-                        ?: appBounds
-
-                val anchor =
-                    JFrame().apply {
-                        isUndecorated = true
-                        isAlwaysOnTop = true
-                        setSize(1, 1)
-                        setLocation(
-                            appBounds.x + appBounds.width / 2,
-                            appBounds.y + appBounds.height / 2,
-                        )
-                        isVisible = true
-                    }
-
-                val (filterDesc, extensions, allowedSet) =
-                    when (accept) {
-                        MediaAccept.Images ->
-                            Triple("Images (jpg, png, gif, webp, avif)", IMAGE_EXTENSIONS, IMAGE_EXTENSIONS_SET)
-                        MediaAccept.ImagesVideosAudio ->
-                            Triple(
-                                "Images, Videos & Audio (jpg, png, gif, webp, avif, mp4, mov, webm, mp3, ogg, wav, flac, m4a, aac, opus)",
-                                ALL_EXTENSIONS,
-                                ALL_EXTENSIONS_SET,
+            // tinyfd blocks (waits on the zenity subprocess), so run it off the UI thread.
+            scope.launch(Dispatchers.IO) {
+                val path = openNativeFileDialog(allowedSet) ?: return@launch // cancelled
+                val file = File(path)
+                val ext = file.extension.lowercase()
+                when {
+                    ext !in allowedSet ->
+                        withContext(Dispatchers.Main) {
+                            currentOnError.value(
+                                "\".${ext.ifEmpty { "unknown" }}\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE",
                             )
-                    }
-
-                val chooser =
-                    JFileChooser().apply {
-                        dialogTitle = "Select File"
-                        fileFilter = FileNameExtensionFilter(filterDesc, *extensions)
-                        isMultiSelectionEnabled = false
-                        fileSelectionMode = JFileChooser.FILES_ONLY
-                    }
-
-                val pickerDialog =
-                    JDialog(
-                        anchor,
-                        "Select File",
-                        Dialog.ModalityType.APPLICATION_MODAL,
-                    ).apply {
-                        isAlwaysOnTop = true
-                        defaultCloseOperation = JDialog.DISPOSE_ON_CLOSE
-                        contentPane.add(chooser)
-                        pack()
-
-                        val dw = width
-                        val dh = height
-                        var dx = appBounds.x + (appBounds.width - dw) / 2
-                        var dy = appBounds.y + (appBounds.height - dh) / 2
-                        dx =
-                            dx.coerceIn(
-                                monitorBounds.x,
-                                monitorBounds.x + (monitorBounds.width - dw).coerceAtLeast(0),
-                            )
-                        dy =
-                            dy.coerceIn(
-                                monitorBounds.y,
-                                monitorBounds.y + (monitorBounds.height - dh).coerceAtLeast(0),
-                            )
-                        setLocation(dx, dy)
-                    }
-
-                chooser.addActionListener { e ->
-                    when (e.actionCommand) {
-                        JFileChooser.APPROVE_SELECTION,
-                        JFileChooser.CANCEL_SELECTION,
-                        -> pickerDialog.dispose()
-                    }
-                }
-
-                try {
-                    pickerDialog.isVisible = true // blocks EDT until dialog is disposed
-
-                    val selected = chooser.selectedFile
-                    if (selected != null && selected.extension.lowercase() in allowedSet) {
-                        scope.launch { onPickStart() }
-                        if (selected.length() > MAX_UPLOAD_BYTES) {
-                            deferred.complete(null)
-                            scope.launch { onError("File is too large. The maximum upload size is 20 MB.") }
-                        } else {
-                            scope.launch(Dispatchers.IO) {
-                                deferred.complete(selected.readBytes() to selected.name)
-                            }
                         }
-                    } else {
-                        deferred.complete(null)
-                        if (selected != null) {
-                            val ext = selected.extension.ifEmpty { "unknown" }
-                            scope.launch { onError("\".$ext\" files are not supported.\n\n$SUPPORTED_FORMATS_MESSAGE") }
+                    file.length() > MAX_UPLOAD_BYTES ->
+                        withContext(Dispatchers.Main) {
+                            currentOnError.value("File is too large. The maximum upload size is 20 MB.")
+                        }
+                    else -> {
+                        withContext(Dispatchers.Main) { currentOnPickStart.value() }
+                        // readBytes can throw (file vanished, permission, special file). Surface
+                        // it via onError so the caller's busy/spinner state is reset (onPickStart
+                        // already flipped it on) instead of leaving the attach button stuck.
+                        try {
+                            val bytes = file.readBytes()
+                            withContext(Dispatchers.Main) { currentOnFilePicked.value(bytes, file.name) }
+                        } catch (e: Throwable) {
+                            withContext(Dispatchers.Main) { currentOnError.value("Could not read the selected file.") }
                         }
                     }
-                } finally {
-                    anchor.dispose()
-                    appWindow?.requestFocus()
-                }
-            }
-
-            scope.launch {
-                try {
-                    val result = deferred.await()
-                    if (result != null) {
-                        withContext(Dispatchers.Main) { onFilePicked(result.first, result.second) }
-                    }
-                } catch (_: Throwable) {
                 }
             }
         }
+    }
+}
+
+/** Open the native single-file picker, restricted to [allowedSet] extensions. Returns the
+ *  chosen path, or null if cancelled. Blocks until the dialog closes. */
+private fun openNativeFileDialog(allowedSet: Set<String>): String? {
+    MemoryStack.stackPush().use { stack ->
+        val patterns = stack.mallocPointer(allowedSet.size)
+        allowedSet.forEach { patterns.put(stack.UTF8("*.$it")) }
+        patterns.flip()
+        return TinyFileDialogs.tinyfd_openFileDialog(
+            "Select File",
+            null,
+            patterns,
+            "Images, videos & audio",
+            false,
+        )
     }
 }

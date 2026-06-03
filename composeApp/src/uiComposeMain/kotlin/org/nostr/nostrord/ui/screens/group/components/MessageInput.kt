@@ -3,9 +3,10 @@ package org.nostr.nostrord.ui.screens.group.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
@@ -20,7 +21,10 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -496,16 +500,24 @@ fun MessageInput(
             }
 
             Box(
-                modifier = Modifier.fillMaxWidth(),
+                // Inset the composer from the window edges and round it into a single
+                // surface "pill" (web .composer parity: margin 0 16px 16px, radius 8px).
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.lg)
+                    .padding(bottom = Spacing.lg),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .clip(NostrordShapes.inputShape)
                         .background(NostrordColors.SurfaceVariant)
-                        .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     MessageUploadButton(
+                        externalBusy = isUploadingPaste,
                         onUploadComplete = { uploadResult ->
                             val url = uploadResult.url
                             val current = textFieldValue.text
@@ -516,7 +528,7 @@ fun MessageInput(
                         },
                     )
 
-                    TextField(
+                    BasicTextField(
                         value = textFieldValue,
                         onValueChange = { handleTextFieldValueChange(it) },
                         // Typing is locked while a send is in flight inside
@@ -525,16 +537,9 @@ fun MessageInput(
                         // behaves inconsistently across platforms. The handler is
                         // the single source of truth for the in-flight lock.
                         interactionSource = textFieldInteractionSource,
-                        placeholder = {
-                            Text(
-                                "Message ${groupName ?: selectedChannel}",
-                                style = NostrordTypography.InputPlaceholder,
-                                color = NostrordColors.TextMuted,
-                            )
-                        },
+                        cursorBrush = SolidColor(Color.White),
                         modifier = Modifier
                             .weight(1f)
-                            .clip(NostrordShapes.inputShape)
                             .focusRequester(focusRequester)
                             .onFocusChanged { focusState ->
                                 // On Android the focus transiently drops while the IME
@@ -570,6 +575,13 @@ fun MessageInput(
                                         showGroupMentionPopup = false
                                         groupMentionStartIndex = -1
                                         groupMentionQuery = ""
+                                        true
+                                    }
+                                    // Esc exits reply mode once no popup/picker is open (desktop).
+                                    event.type == KeyEventType.KeyDown &&
+                                        event.key == Key.Escape &&
+                                        replyingToMessage != null -> {
+                                        onCancelReply()
                                         true
                                     }
                                     event.type == KeyEventType.KeyDown &&
@@ -681,57 +693,68 @@ fun MessageInput(
                                     else -> false
                                 }
                             },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = NostrordColors.InputBackground,
-                            unfocusedContainerColor = NostrordColors.InputBackground,
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White,
-                            cursorColor = Color.White,
-                            selectionColors = TextSelectionColors(
-                                handleColor = Color.White,
-                                backgroundColor = Color.White.copy(alpha = 0.3f),
-                            ),
-                            focusedPlaceholderColor = NostrordColors.TextMuted,
-                            unfocusedPlaceholderColor = NostrordColors.TextMuted,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                        ),
-                        textStyle = NostrordTypography.Input,
-                        shape = NostrordShapes.inputShape,
+                        textStyle = NostrordTypography.Input.copy(color = Color.White),
                         singleLine = false,
                         maxLines = 4,
                         visualTransformation = mentionVisualTransformation,
+                        decorationBox = { innerTextField ->
+                            // BasicTextField has no built-in placeholder/container; show
+                            // the placeholder when empty and let the small vertical padding
+                            // drive a compact one-line height (web parity) instead of the
+                            // Material TextField's fixed ~56dp minimum.
+                            Box(
+                                contentAlignment = Alignment.CenterStart,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            ) {
+                                if (textFieldValue.text.isEmpty()) {
+                                    Text(
+                                        "Message ${groupName ?: selectedChannel}",
+                                        style = NostrordTypography.InputPlaceholder,
+                                        color = NostrordColors.TextMuted,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
                     )
 
                     if (showEmojiButton) {
+                        val emojiInteraction = remember { MutableInteractionSource() }
+                        val emojiHovered by emojiInteraction.collectIsHoveredAsState()
                         IconButton(
                             onClick = {
                                 showEmojiPicker = !showEmojiPicker
                                 if (showEmojiPicker) showMentionPopup = false
                             },
-                            modifier = Modifier.size(40.dp),
+                            interactionSource = emojiInteraction,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             Icon(
                                 Icons.Outlined.EmojiEmotions,
                                 contentDescription = "Emoji picker",
-                                tint = if (showEmojiPicker) {
-                                    NostrordColors.Primary
-                                } else {
-                                    NostrordColors.TextMuted
+                                // Hover brightens to TextContent (web .composer-btn:hover).
+                                tint = when {
+                                    showEmojiPicker -> NostrordColors.Primary
+                                    emojiHovered -> NostrordColors.TextContent
+                                    else -> NostrordColors.TextMuted
                                 },
-                                modifier = Modifier.size(Spacing.iconMd),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }
 
                     IconButton(
                         onClick = { submit() },
+                        // Disabled while a paste upload finishes (its URL must land in
+                        // the draft first), but the spinner now shows on the attach icon.
                         enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
-                        if (isSending || isUploadingPaste) {
+                        if (isSending) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(Spacing.iconMd),
+                                modifier = Modifier.size(20.dp),
                                 color = NostrordColors.Primary,
                                 strokeWidth = 2.dp,
                             )
@@ -744,7 +767,7 @@ fun MessageInput(
                                 } else {
                                     NostrordColors.TextMuted
                                 },
-                                modifier = Modifier.size(Spacing.iconMd),
+                                modifier = Modifier.size(20.dp),
                             )
                         }
                     }

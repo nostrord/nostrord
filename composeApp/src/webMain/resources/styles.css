@@ -284,6 +284,20 @@ body {
     flex-shrink: 0;
 }
 
+/* Spinner for the attach/upload button. Inherits the button's text color via
+   currentColor so it stays visible on the muted/transparent backgrounds where
+   the white .btn-spinner would vanish (native CircularProgressIndicator parity). */
+.upload-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: app-spin 0.8s linear infinite;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
 .login-primary:disabled {
     opacity: 0.5;
     cursor: default;
@@ -3552,7 +3566,7 @@ body {
 .composer-reply {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     margin: 0 16px;
     padding: 6px 12px;
     font-size: 13px;
@@ -3562,9 +3576,32 @@ body {
     border-bottom: 1px solid var(--color-background);
 }
 
+/* Accent bar mirroring the native ReplyingToBar. */
+.composer-reply-bar {
+    flex-shrink: 0;
+    width: 3px;
+    align-self: stretch;
+    min-height: 24px;
+    background: var(--color-primary);
+    border-radius: 2px;
+}
+
+.composer-reply-body {
+    flex: 1;
+    min-width: 0;
+}
+
 .composer-reply-name {
-    color: var(--color-text-primary);
+    color: var(--color-primary);
     font-weight: 600;
+}
+
+/* Single-line content preview of the message being replied to. */
+.composer-reply-text {
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .composer-reply-close {
@@ -3683,6 +3720,15 @@ body {
     color: var(--color-text-content);
 }
 
+/* On touch / mobile the OS keyboard provides emoji, so hide the in-app emoji
+   picker button (the native composer hides it on Android / iOS for the same
+   reason). display:none also collapses its flex slot, so no gap is left. */
+@media (pointer: coarse) {
+    .composer-emoji {
+        display: none;
+    }
+}
+
 /* Holds the textarea and its colored mirror so @mentions can be tinted gold
    (a plain textarea can't style part of its text). */
 .composer-input-wrap {
@@ -3697,7 +3743,10 @@ body {
     position: absolute;
     inset: 0;
     z-index: 0;
-    padding: 4px 0;
+    /* 5.5px keeps a single line's box at 32px (21px line + 11px), matching the
+       button height so the text optically centers with the icons. Must equal
+       .composer-input's padding so the mirror stays glyph-aligned. */
+    padding: 5.5px 0;
     line-height: 1.4;
     font-size: 15px;
     font-family: inherit;
@@ -3717,11 +3766,18 @@ body {
        caret-color keeps the cursor visible. */
     position: relative;
     z-index: 1;
+    /* block (not the textarea default inline-block) removes the baseline
+       descender gap that made the wrap taller than the textarea and pushed
+       the absolute .composer-highlight mirror out of vertical alignment. */
+    display: block;
     width: 100%;
     min-width: 0;
-    min-height: 22px;
+    /* 32px one-line box + 5.5px vertical padding centers the text against the
+       32px buttons (the row is align-items:flex-end). Keep in sync with
+       .composer-highlight's padding. */
+    min-height: 32px;
     max-height: 140px;
-    padding: 4px 0;
+    padding: 5.5px 0;
     line-height: 1.4;
     background: transparent;
     border: none;

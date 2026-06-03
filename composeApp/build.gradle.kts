@@ -152,6 +152,23 @@ kotlin {
             // native-library matrix that JavaFX Media relies on.
             implementation("javazoom:jlayer:1.0.1")
             implementation("com.github.javakeyring:java-keyring:1.0.3")
+            // Native file picker (zenity/kdialog subprocess on Linux) via LWJGL tinyfd.
+            // Chosen over java.awt.FileDialog (GNOME focus-stealing on repeat opens) and
+            // over FileKit (its dbus-java 5.x clashes with java-keyring's Secret Service
+            // dbus-java 3.x, breaking the OS keychain). tinyfd pulls no dbus-java.
+            val lwjglVersion = "3.3.4"
+            val osArch = System.getProperty("os.arch")
+            val lwjglNatives =
+                when {
+                    os.isLinux -> if (osArch.startsWith("aarch64")) "natives-linux-arm64" else "natives-linux"
+                    os.isMacOsX -> if (osArch.startsWith("aarch64")) "natives-macos-arm64" else "natives-macos"
+                    os.isWindows -> "natives-windows"
+                    else -> "natives-linux"
+                }
+            implementation("org.lwjgl:lwjgl:$lwjglVersion")
+            implementation("org.lwjgl:lwjgl-tinyfd:$lwjglVersion")
+            runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
+            runtimeOnly("org.lwjgl:lwjgl-tinyfd:$lwjglVersion:$lwjglNatives")
         }
 
         jsMain.dependencies {

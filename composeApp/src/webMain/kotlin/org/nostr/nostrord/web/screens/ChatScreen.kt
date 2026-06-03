@@ -14,6 +14,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupLoadingState
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
 import org.nostr.nostrord.utils.Result
@@ -54,6 +55,7 @@ import react.ChildrenBuilder
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.a
+import react.dom.html.ReactHTML.br
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.code
 import react.dom.html.ReactHTML.div
@@ -92,13 +94,24 @@ external interface ChatScreenProps : Props {
 // Window (seconds) for grouping consecutive messages from the same author.
 private const val GROUP_WINDOW = 5 * 60
 
-/** Parent message id of a reply — the "q" tag with a 64-char hex event id (kind 9 only). */
+/**
+ * Parent message id of a reply (kind 9 only). Nostrord tags replies with "q"; other clients
+ * may use the NIP-10 reply marker ["e", id, relay?, "reply"], which native also honors
+ * (getReplyParentId). The plain unmarked "e" fallback is intentionally not used here — it is
+ * ambiguous (root vs mention vs inline quote) without the content embed-check native does.
+ */
 private fun parentMessageOf(message: org.nostr.nostrord.network.NostrGroupClient.NostrMessage): String? {
     if (message.kind != 9) return null
+    fun isHexId(s: String) = s.length == 64 && s.all { it.isLetterOrDigit() }
+    message.tags.firstOrNull { it.size >= 2 && it[0] == "q" && isHexId(it[1]) }?.let { return it[1] }
     return message.tags
-        .firstOrNull { it.size >= 2 && it[0] == "q" && it[1].length == 64 && it[1].all { c -> c.isLetterOrDigit() } }
+        .firstOrNull { it.size >= 4 && it[0] == "e" && it[3] == "reply" && isHexId(it[1]) }
         ?.get(1)
 }
+
+/** Plain-text preview of a parent message for a reply chip/banner: mentions resolved,
+ *  newlines flattened, trimmed, and capped at [max] chars. */
+private fun replyPreviewText(content: String, userMetadata: Map<String, UserMetadata>, max: Int): String = processMentions(content, userMetadata).replace('\n', ' ').trim().take(max)
 
 /** Reply-preview payload: author name, plain-text body, and the parent event's tags for emoji resolution. */
 data class ReplyPreviewData(
@@ -215,9 +228,11 @@ private external interface ChatComposerProps : Props {
     var relayUrl: String
     var relayPubkey: String?
 
-    /** Id of the message being replied to (null = no reply), plus the parent's display name for the banner. */
+    /** Id of the message being replied to (null = no reply), plus the parent's display name and a
+     *  content preview for the banner (native ReplyingToBar shows both). */
     var replyingToId: String?
     var replyParentName: String?
+    var replyParentContent: String?
     var onCancelReply: () -> Unit
 
     /** Cleared after a successful publish so the parent can drop the reply target. */
@@ -249,6 +264,13 @@ private val ChatComposer =
         // Active media uploads in flight (paste / drag-and-drop). The send button
         // shows a spinner instead of the Send icon while > 0.
         val (uploadCount, setUploadCount) = useState { 0 }
+        // Successful uploads pending attachment. Their NIP-68 imeta tags ride along
+        // on the next sendMessage so dimensions / sha256 / video poster propagate
+        // (parity with native GroupScreen.pendingUploads).
+        val (pendingUploads, setPendingUploads) = useState<List<UploadResult>> { emptyList() }
+        // Last upload failure (too large, unsupported, auth/server). Shown in a
+        // dialog instead of being swallowed silently, matching the native picker.
+        val (uploadError, setUploadError) = useState<String?> { null }
         // Composer emoji picker open state.
         val (emojiOpen, setEmojiOpen) = useState { false }
         // Active @user / %group mention being typed in the composer.
@@ -340,9 +362,13 @@ private val ChatComposer =
             setUploadCount { it + 1 }
             launchApp {
                 try {
-                    val url = uploadBlob(file)
-                    if (url != null) {
-                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                    when (val r = uploadBlob(file)) {
+                        is Result.Success -> {
+                            val url = r.data.url
+                            setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                            setPendingUploads { it + r.data }
+                        }
+                        is Result.Error -> setUploadError(r.error.message)
                     }
                 } finally {
                     setUploadCount { it - 1 }
@@ -357,15 +383,25 @@ private val ChatComposer =
             // @user mentions are resolved by repo.sendMessage from the mentions map (+ p-tag).
             groupMentions.forEach { (name, ref) -> text = text.replace("%$name", ref) }
             val replyId = props.replyingToId
+            // NIP-68 imeta for any media uploaded into this draft (native parity).
+            val imetaTags = pendingUploads.map { it.toImetaTag() }
             setSending(true)
             launchApp {
-                val result = repo.sendMessage(props.groupId, text, mentions = mentions, replyToMessageId = replyId)
+                val result =
+                    repo.sendMessage(
+                        props.groupId,
+                        text,
+                        mentions = mentions,
+                        replyToMessageId = replyId,
+                        extraTags = imetaTags,
+                    )
                 setSending(false)
                 if (result is Result.Success) {
                     // Clear only after publish succeeded so a cancel/reject keeps the draft.
                     setDraft("")
                     setMentions(emptyMap())
                     setGroupMentions(emptyMap())
+                    setPendingUploads(emptyList())
                     props.onSent()
                 }
             }
@@ -404,11 +440,18 @@ private val ChatComposer =
             if (props.replyingToId != null && parentName != null) {
                 div {
                     className = ClassName("composer-reply")
-                    span {
-                        +"Replying to "
-                        span {
+                    div { className = ClassName("composer-reply-bar") }
+                    div {
+                        className = ClassName("composer-reply-body")
+                        div {
                             className = ClassName("composer-reply-name")
-                            +parentName
+                            +"Replying to $parentName"
+                        }
+                        props.replyParentContent?.takeIf { it.isNotBlank() }?.let { preview ->
+                            div {
+                                className = ClassName("composer-reply-text")
+                                +preview
+                            }
                         }
                     }
                     button {
@@ -425,7 +468,18 @@ private val ChatComposer =
                 UploadButton {
                     cls = "composer-btn"
                     icon = Ic.AttachFile
-                    onUploaded = { url -> setDraft { prev -> if (prev.isBlank()) url else "$prev $url" } }
+                    // Paste / drag-and-drop uploads run through handleMediaFile and are
+                    // tracked by uploadCount; surface their spinner on the attach icon.
+                    busy = uploadCount > 0
+                    // Count a file-pick upload in uploadCount too, so the send button is
+                    // disabled until the picked URL lands in the draft (it isn't sent empty).
+                    onBusyChange = { b -> setUploadCount { if (b) it + 1 else it - 1 } }
+                    onUploaded = { upload ->
+                        val url = upload.url
+                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                        setPendingUploads { it + upload }
+                    }
+                    onError = { setUploadError(it) }
                 }
                 div {
                     className = ClassName("composer-input-wrap")
@@ -482,6 +536,10 @@ private val ChatComposer =
                                 mention != null && event.key == "Escape" -> {
                                     event.preventDefault()
                                     setMention(null)
+                                }
+                                props.replyingToId != null && event.key == "Escape" -> {
+                                    event.preventDefault()
+                                    props.onCancelReply()
                                 }
                                 event.key == "Enter" && !event.shiftKey -> {
                                     event.preventDefault()
@@ -558,19 +616,23 @@ private val ChatComposer =
                     }
                 }
                 button {
-                    className = ClassName(if (emojiOpen) "composer-btn active" else "composer-btn")
+                    // composer-emoji is hidden on touch/mobile (CSS @media pointer:coarse),
+                    // where the OS keyboard already provides emoji (native parity).
+                    className = ClassName(if (emojiOpen) "composer-btn composer-emoji active" else "composer-btn composer-emoji")
                     onClick = { setEmojiOpen(!emojiOpen) }
                     icon(Ic.EmojiEmotions)
                 }
                 button {
                     val uploading = uploadCount > 0
-                    val busy = uploading || sending
+                    // The upload spinner now lives on the attach icon; the send button
+                    // only spins for an in-flight send, but stays disabled while a paste
+                    // upload finishes so its URL can land in the draft first.
                     className = ClassName(
-                        if (draft.isNotBlank() || busy) "composer-send active" else "composer-send",
+                        if (draft.isNotBlank() || sending) "composer-send active" else "composer-send",
                     )
                     disabled = (draft.isBlank() && !uploading) || sending || uploading
                     onClick = { send() }
-                    if (busy) {
+                    if (sending) {
                         span { className = ClassName("btn-spinner") }
                     } else {
                         icon(Ic.Send)
@@ -585,6 +647,9 @@ private val ChatComposer =
                         }
                     }
                 }
+            }
+            uploadError?.let { error ->
+                uploadErrorDialog(error) { setUploadError(null) }
             }
         }
     }
@@ -729,6 +794,15 @@ val ChatScreen =
         // scrollKey jumps to a row (deep-link / reply), jumpNonce jumps to bottom.
         val (scrollKey, setScrollKey) = useState<String?> { null }
         val (jumpNonce, setJumpNonce) = useState { 0 }
+
+        // Entering reply mode grows the composer with the reply banner; if the feed
+        // was at the bottom, the last message would slide behind it. Re-pin to the
+        // bottom so the replied-to message stays visible (native parity).
+        useEffect(replyingToId) {
+            if (replyingToId != null && atBottom.current == true) {
+                setJumpNonce { it + 1 }
+            }
+        }
 
         // "New messages" divider snapshot. Captured once on group entry, then
         // cleared the first time the user scrolls up and back down to the bottom
@@ -1273,10 +1347,7 @@ val ChatScreen =
                                                 parent?.let {
                                                     ReplyPreviewData(
                                                         author = displayName(it.pubkey, userMetadata[it.pubkey]),
-                                                        content = processMentions(it.content, userMetadata)
-                                                            .replace('\n', ' ')
-                                                            .trim()
-                                                            .take(120),
+                                                        content = replyPreviewText(it.content, userMetadata, 120),
                                                         tags = it.tags,
                                                     )
                                                 }
@@ -1386,6 +1457,10 @@ val ChatScreen =
                     this.replyingToId = replyingToId
                     this.replyParentName =
                         replyingToId?.let { id -> messagesById[id]?.let { p -> displayName(p.pubkey, userMetadata[p.pubkey]) } }
+                    this.replyParentContent =
+                        replyingToId?.let { id ->
+                            messagesById[id]?.let { p -> replyPreviewText(p.content, userMetadata, 80) }
+                        }
                     this.onCancelReply = { setReplyingToId(null) }
                     this.onSent = { setReplyingToId(null) }
                     this.onJoin = { join() }
@@ -1630,6 +1705,40 @@ private fun ChildrenBuilder.deleteMessageErrorDialog(message: String, onDismiss:
             div {
                 className = ClassName("modal-subtitle tight")
                 +message
+            }
+            div {
+                className = ClassName("modal-footer")
+                button {
+                    className = ClassName("btn-primary")
+                    onClick = { onDismiss() }
+                    +"OK"
+                }
+            }
+        }
+    }
+}
+
+/** Error dialog shown when a media upload is rejected (too large, unsupported
+ *  format, or an auth/server failure). Single OK button — mirrors the native
+ *  "Upload Failed" AlertDialog at MessageUploadButton.kt:70-82. The message can
+ *  carry newlines (the supported-formats list), so render it line by line. */
+private fun ChildrenBuilder.uploadErrorDialog(message: String, onDismiss: () -> Unit) {
+    div {
+        className = ClassName("modal-overlay")
+        onClick = { onDismiss() }
+        div {
+            className = ClassName("modal-card sm")
+            onClick = { it.stopPropagation() }
+            div {
+                className = ClassName("modal-title")
+                +"Upload Failed"
+            }
+            div {
+                className = ClassName("modal-subtitle tight")
+                message.split("\n").forEachIndexed { i, line ->
+                    if (i > 0) br {}
+                    +line
+                }
             }
             div {
                 className = ClassName("modal-footer")
@@ -1930,8 +2039,11 @@ private val MessageRow =
                         // read as a snap rather than a colour change in isolation.
                         // Keep the translateY(-50%) from the base CSS or the icon
                         // jumps off vertical center when the JS overrides transform.
-                        iconStyle.transform =
-                            if (armed) "translateY(-50%) scale(1.15)" else "translateY(-50%) scale(1.0)"
+                        // The icon is a child of the row, so the row's translateX would
+                        // drag it left with the content; counter-translate by -off so it
+                        // stays pinned to the right edge as the row slides (Android parity).
+                        val scale = if (armed) "scale(1.15)" else "scale(1.0)"
+                        iconStyle.transform = "translateX(${-off}px) translateY(-50%) $scale"
                     }
                 }
             }
