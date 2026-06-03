@@ -183,6 +183,23 @@ fun String.toRelayUrl(): String {
     return "$scheme://$trimmed"
 }
 
+/**
+ * Build the web deep-link query for a group: `?relay=host&group=id[&e=eventId]`.
+ *
+ * Single source of truth for the deep-link contract shared by the web notification
+ * payload (jsMain), the in-app URL writer (`searchFor`), the cold-boot history seed,
+ * and the query parser. `host` is the relay authority with the ws(s):// scheme stripped,
+ * matching what the URL-sync effect writes and what the parser reads back. The optional
+ * `eventId` is a transient scroll target, not part of the canonical (shareable) URL, so
+ * callers that own the address bar omit it.
+ */
+fun groupDeepLinkQuery(relayUrl: String, groupId: String, eventId: String? = null): String {
+    val host = relayUrl.removePrefix("wss://").removePrefix("ws://")
+    val sb = StringBuilder("?relay=").append(host).append("&group=").append(groupId)
+    if (!eventId.isNullOrBlank()) sb.append("&e=").append(eventId)
+    return sb.toString()
+}
+
 fun isValidRelayUrl(url: String): Boolean {
     val trimmed = url.trim()
     val afterScheme = when {

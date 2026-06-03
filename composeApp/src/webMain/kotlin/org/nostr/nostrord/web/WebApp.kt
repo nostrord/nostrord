@@ -31,6 +31,7 @@ val WebApp =
         val repo = AppModule.nostrRepository
         val initialized = useStateFlow(repo.isInitialized)
         val loggedIn = useStateFlow(repo.isLoggedIn)
+        val verifyingBunker = useStateFlow(repo.isBunkerVerifying)
 
         useEffectOnce {
             // Track tab focus so notifications/unread are suppressed while the app is visible
@@ -70,6 +71,14 @@ val WebApp =
             // and only fades out once data-app-ready is set above.
             !initialized -> null
             loggedIn -> AppShell()
+            // A bunker signer is still being (re)connected on cold start: hold the loading
+            // shell instead of flashing LoginScreen during the async handshake. This is the
+            // only restore path that completes after isInitialized (local/NIP-07 restore
+            // flips isLoggedIn before initialize() returns). isBunkerVerifying flips false
+            // when the signer connects (-> loggedIn -> AppShell) or fails (-> LoginScreen),
+            // so unlike gating on persisted-account existence it can never strand the user
+            // on a permanent spinner after logout or a failed restore.
+            verifyingBunker -> null
             else -> LoginScreen()
         }
     }
