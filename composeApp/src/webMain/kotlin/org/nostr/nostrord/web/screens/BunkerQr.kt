@@ -14,6 +14,7 @@ import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.qrDataUrl
 import react.FC
 import react.Props
+import react.dom.html.ReactHTML.a
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
@@ -127,11 +128,29 @@ val BunkerQr =
                         div { className = ClassName("qr-spinner") }
                     }
                 else ->
-                    img {
-                        className = ClassName("qr-img")
-                        src = qrDataUrl(uri)
-                        alt = "nostrconnect QR code"
+                    // The QR image itself is the deep link (matches native, where the
+                    // QR is clickable and calls uriHandler.openUri). On the same phone
+                    // you can't scan it, so tapping hands the nostrconnect:// URI to
+                    // the installed signer (Amber, etc.).
+                    a {
+                        className = ClassName("qr-link")
+                        href = uri
+                        img {
+                            className = ClassName("qr-img")
+                            src = qrDataUrl(uri)
+                            alt = "nostrconnect QR code"
+                        }
                     }
+            }
+
+            // Tap-to-open caption below the QR (matches native's "Tap to open in
+            // signer app", which it only shows on Android). Hidden on desktop and
+            // revealed on coarse-pointer devices via CSS.
+            if (uri != null) {
+                p {
+                    className = ClassName("bunker-tap-hint")
+                    +"Tap to open in signer app"
+                }
             }
 
             // URI + copy input (matches native OutlinedTextField with copy trailing icon).
