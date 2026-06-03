@@ -2862,6 +2862,8 @@ body {
     border: 1px solid var(--color-divider);
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .ctx-item {
