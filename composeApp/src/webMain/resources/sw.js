@@ -78,6 +78,40 @@ self.addEventListener('activate', (event) => {
     );
 });
 
+// Notification click - reuse an already-open app tab when possible.
+// Notifications are shown via registration.showNotification with a deep link in
+// data.url (?relay=&group=&e=). On click we focus an existing tab and post the
+// deep link to it so the SPA routes in place; only when no tab exists do we open
+// a new one. This avoids the "wrong tab / duplicate tab / never navigates" bugs
+// of page-context Notification + window.focus().
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    const data = event.notification.data || {};
+    const targetUrl = new URL(data.url || '', self.registration.scope).href;
+    const scopePath = new URL(self.registration.scope).pathname;
+
+    event.waitUntil((async () => {
+        const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        // Only reuse tabs that belong to this app (handles GitHub Pages subpaths).
+        const appClients = allClients.filter(c => new URL(c.url).pathname.startsWith(scopePath));
+        // matchAll order is not focus/recency ordered, so with several app tabs open prefer
+        // the focused one, then a visible one, else the first — don't yank an arbitrary tab.
+        const client = appClients.find(c => c.focused) ||
+                       appClients.find(c => c.visibilityState === 'visible') ||
+                       appClients[0];
+        if (client) {
+            client.postMessage({ type: 'notification-click', url: targetUrl });
+            if ('focus' in client) {
+                await client.focus();
+            }
+            return;
+        }
+        if (self.clients.openWindow) {
+            await self.clients.openWindow(targetUrl);
+        }
+    })());
+});
+
 // Fetch event - route requests to appropriate cache strategy
 self.addEventListener('fetch', (event) => {
     const url = new URL(event.request.url);

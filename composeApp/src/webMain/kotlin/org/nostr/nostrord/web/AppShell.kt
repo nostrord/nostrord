@@ -17,6 +17,7 @@ import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearLastGroupForRelay
 import org.nostr.nostrord.storage.getLastGroupForRelay
 import org.nostr.nostrord.storage.saveLastGroupForRelay
+import org.nostr.nostrord.utils.groupDeepLinkQuery
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.auth.WebAuth
 import org.nostr.nostrord.web.bridge.launchApp
@@ -63,14 +64,11 @@ private fun authMethodLabel(method: AuthMethod): String = when (method) {
 }
 
 /** Build the URL query that reflects the current navigation (round-trips with main.kt). */
-private fun searchFor(relay: String, groupId: String?, notifications: Boolean): String {
-    val host = relay.removePrefix("wss://").removePrefix("ws://")
-    return when {
-        notifications -> "?view=notifications"
-        groupId != null && relay.isNotBlank() -> "?relay=$host&group=$groupId"
-        relay.isNotBlank() -> "?relay=$host"
-        else -> ""
-    }
+private fun searchFor(relay: String, groupId: String?, notifications: Boolean): String = when {
+    notifications -> "?view=notifications"
+    groupId != null && relay.isNotBlank() -> groupDeepLinkQuery(relay, groupId)
+    relay.isNotBlank() -> "?relay=${relay.removePrefix("wss://").removePrefix("ws://")}"
+    else -> ""
 }
 
 private fun parseSearch(search: String): Map<String, String> = search.removePrefix("?").split("&").filter { it.isNotEmpty() }.associate { part ->
@@ -213,6 +211,12 @@ val AppShell =
         // Groups sidebar search query (filters My Groups + Other Groups by name/id, like native).
         val (groupQuery, setGroupQuery) = useState { "" }
         val firstNav = useRef(true)
+        // Set while a browser back/forward (popstate) settles. The browser already owns the
+        // target entry, so the URL-sync effect must NOT write history during the async
+        // relay/group catch-up (any push/replace then would add a phantom forward entry or
+        // overwrite the popstate target). It clears itself once the settled state matches the
+        // current URL, so it cannot get stuck and corrupt a later genuine navigation.
+        val suppressSync = useRef(false)
         // Native saves the last-active group per relay (SecureStorage.saveLastGroupForRelay)
         // so cold-booting onto a bare URL restores the user where they left off. The web
         // wasn't doing this — entering localhost:8080/ landed on the relay home even when
@@ -267,12 +271,33 @@ val AppShell =
                 is ExternalLaunchContext.OpenRelay ->
                     launchApp { repo.switchRelay(ctx.relayUrl) }
                 is ExternalLaunchContext.OpenGroup -> {
-                    launchApp {
-                        ctx.relayUrl?.let { repo.switchRelay(it) }
-                        if (!ctx.inviteCode.isNullOrBlank()) repo.joinGroup(ctx.groupId, ctx.inviteCode)
+                    val relayUrl = ctx.relayUrl
+                    val gid = ctx.groupId
+                    val msg = ctx.messageId?.takeIf { it.isNotBlank() }
+                    val invite = ctx.inviteCode
+                    // Seed a same-document back target (the relay home) SYNCHRONOUSLY, before
+                    // the async switchRelay. Without this the deep-link load is the only
+                    // history entry, so Back leaves the document — a full reload that lands on
+                    // Login while the session re-initializes. Seeding here (not after
+                    // switchRelay) guarantees the back target exists immediately, even if the
+                    // relay is slow to connect. suppressSync holds the URL-sync effect off the
+                    // address bar until the (relay, group) state settles to match this seed, so
+                    // the in-flight transient (persisted relay / null group) can't push a bogus
+                    // entry over it; firstNav is cleared so the first genuine nav still pushes.
+                    relayUrl?.let { url ->
+                        val path = window.location.pathname
+                        val host = url.removePrefix("wss://").removePrefix("ws://")
+                        window.history.replaceState(null, "", "$path?relay=$host")
+                        window.history.pushState(null, "", path + groupDeepLinkQuery(url, gid))
+                        firstNav.current = false
+                        suppressSync.current = true
                     }
-                    setSelectedGroupId(ctx.groupId)
-                    ctx.messageId?.takeIf { it.isNotBlank() }?.let { setScrollToEventId(it) }
+                    setSelectedGroupId(gid)
+                    msg?.let { setScrollToEventId(it) }
+                    launchApp {
+                        relayUrl?.let { repo.switchRelay(it) }
+                        if (!invite.isNullOrBlank()) repo.joinGroup(gid, invite)
+                    }
                 }
                 is ExternalLaunchContext.OpenNotifications -> {
                     ctx.relayUrl?.let { url -> launchApp { repo.switchRelay(url) } }
@@ -323,9 +348,31 @@ val AppShell =
         }
 
         // Keep the URL in sync with navigation so it's shareable and back/forward works.
-        useEffect(activeRelay, selectedGroupId, notificationsOpen) {
+        useEffect(activeRelay, selectedGroupId, notificationsOpen, groups) {
             val target = window.location.pathname + searchFor(activeRelay, selectedGroupId, notificationsOpen)
             val current = window.location.pathname + window.location.search
+
+            // Back/forward in flight: the browser already owns the target entry. Don't write
+            // history during the async relay/group catch-up (that would add a phantom forward
+            // entry or overwrite the popstate target). Release once the settled state matches
+            // the current URL — which compares group ids by value, so it never strands on a
+            // group whose metadata hasn't loaded.
+            if (suppressSync.current == true) {
+                if (target == current) suppressSync.current = false
+                return@useEffect
+            }
+
+            // Genuine in-app navigation. Skip the async cross-relay window where activeRelay
+            // has flipped to the new relay but selectedGroupId still points at the previous
+            // relay's group: writing then would record a group that doesn't live on this relay
+            // and corrupt Back. Detect it precisely (the id resolves on a DIFFERENT relay) so a
+            // not-yet-loaded group on the active relay still updates the URL instead of
+            // stranding it. `groups`/`groupsByRelay` are deps so this reconciles as lists load.
+            val staleFromOtherRelay = selectedGroupId != null &&
+                groups.none { it.id == selectedGroupId } &&
+                groupsByRelay.any { (relay, list) -> relay != activeRelay && list.any { it.id == selectedGroupId } }
+            if (staleFromOtherRelay) return@useEffect
+
             if (target != current) {
                 if (firstNav.current == true) {
                     window.history.replaceState(null, "", target)
@@ -336,19 +383,74 @@ val AppShell =
             firstNav.current = false
         }
 
-        // Browser back/forward → apply the URL to state.
+        // Apply a URL search string (?relay=&group=&e= / ?view=notifications) to in-app
+        // navigation state. Shared by browser back/forward and by service-worker
+        // notification clicks that focus this already-open tab. We never push history
+        // here: the URL-sync effect owns the address bar, so it produces exactly one
+        // clean entry per navigation and the back button keeps working. Crossing relays
+        // mirrors the relay-rail order (switchRelay first, then setSelectedGroupId) so
+        // neither the URL-sync nor the last-group save effect ever fires with the stale
+        // (oldRelay, newGroup) pair — the cause of "back lands on the previous relay
+        // still carrying the new group id". `e` (scroll target) stays out of the URL;
+        // it's transient intent, cleared once the message is reached.
+        val applyNavFromSearch: (String) -> Unit = { search ->
+            val params = parseSearch(search)
+            if (params["view"] == "notifications") {
+                setNotificationsOpen(true)
+            } else {
+                setNotificationsOpen(false)
+                val group = params["group"]?.takeIf { it.isNotBlank() }
+                val eventId = params["e"]?.takeIf { it.isNotBlank() }
+                val relay = params["relay"]?.takeIf { it.isNotBlank() }?.toRelayUrl()
+                if (relay != null && relay != repo.currentRelayUrl.value) {
+                    launchApp {
+                        repo.switchRelay(relay)
+                        setSelectedGroupId(group)
+                        eventId?.let { setScrollToEventId(it) }
+                    }
+                } else {
+                    setSelectedGroupId(group)
+                    eventId?.let { setScrollToEventId(it) }
+                }
+            }
+        }
+
+        // Browser back/forward → apply the URL to state. Mark suppressSync so the resulting
+        // async state change does NOT write history (the browser already owns this entry);
+        // suppressSync self-releases once state matches the URL.
         useEffectOnce {
             window.asDynamic().addEventListener("popstate") {
-                val params = parseSearch(window.location.search)
-                if (params["view"] == "notifications") {
-                    setNotificationsOpen(true)
-                } else {
-                    setNotificationsOpen(false)
-                    val relay = params["relay"]?.takeIf { it.isNotBlank() }?.toRelayUrl()
-                    if (relay != null && relay != repo.currentRelayUrl.value) {
-                        launchApp { repo.switchRelay(relay) }
+                suppressSync.current = true
+                applyNavFromSearch(window.location.search)
+            }
+        }
+
+        // Desktop-notification clicks: the service worker focuses this already-open tab
+        // and posts the deep link here so we route in place (correct relay + group)
+        // instead of reloading the page or letting a duplicate tab open.
+        useEffectOnce {
+            val sw = js("(typeof navigator !== 'undefined' && navigator.serviceWorker) ? navigator.serviceWorker : null")
+            if (sw != null) {
+                sw.addEventListener("message") { event: dynamic ->
+                    val msg = event.data
+                    val type = msg?.type as? String
+                    val url = msg?.url as? String
+                    if (type == "notification-click" && url != null) {
+                        val query = url.substringAfter("?", "")
+                        applyNavFromSearch(if (query.isEmpty()) "" else "?$query")
                     }
-                    setSelectedGroupId(params["group"]?.takeIf { it.isNotBlank() })
+                }
+            }
+        }
+
+        // Fallback path for browsers without an active service worker: NotificationService
+        // shows a page-context Notification whose click emits a NotificationClick instead of
+        // routing through sw.js. Route those the same way (one in-app pushState via the
+        // URL-sync effect) so the no-SW click still navigates rather than only focusing.
+        useEffectOnce {
+            launchApp {
+                AppModule.notificationService.notificationClicks.collect { click ->
+                    applyNavFromSearch(groupDeepLinkQuery(click.relayUrl, click.groupId, click.messageId))
                 }
             }
         }
