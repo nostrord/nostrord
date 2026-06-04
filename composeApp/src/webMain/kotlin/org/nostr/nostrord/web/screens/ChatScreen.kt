@@ -19,6 +19,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
+import org.nostr.nostrord.utils.formatDateTime
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.utils.normalizeForSearch
@@ -2645,6 +2646,8 @@ private fun ChildrenBuilder.renderEntities(
                         author = entity.author
                         localById = messagesById
                         onScrollTo = onEventRef
+                        this.onUser = onUser
+                        this.onGroupRef = onGroupRef
                     }
                 is Nip19.Entity.Note ->
                     QuotedEvent {
@@ -2653,6 +2656,8 @@ private fun ChildrenBuilder.renderEntities(
                         author = null
                         localById = messagesById
                         onScrollTo = onEventRef
+                        this.onUser = onUser
+                        this.onGroupRef = onGroupRef
                     }
                 is Nip19.Entity.Naddr ->
                     if (entity.kind == 39000) {
@@ -2692,6 +2697,8 @@ private external interface QuotedEventProps : Props {
     var author: String?
     var localById: Map<String, NostrGroupClient.NostrMessage>
     var onScrollTo: (String) -> Unit
+    var onUser: (String) -> Unit
+    var onGroupRef: (String, String?) -> Unit
 }
 
 /**
@@ -2709,6 +2716,8 @@ private val QuotedEvent =
         val cachedEv = cached[props.eventId]
         val pubkey = local?.pubkey ?: cachedEv?.pubkey ?: props.author
         val content = local?.content ?: cachedEv?.content
+        val createdAt = local?.createdAt ?: cachedEv?.createdAt
+        val quotedTags = local?.tags ?: cachedEv?.tags ?: emptyList()
 
         useEffectOnce {
             if (props.eventId !in cached && local == null) {
@@ -2721,10 +2730,32 @@ private val QuotedEvent =
                 launchApp { repo.requestUserMetadata(setOf(pk)) }
             }
         }
+        // Resolve names for pubkeys mentioned inside the quoted text (nostr:npub / nprofile).
+        useEffect(content) {
+            val c = content ?: return@useEffect
+            val missing =
+                NOSTR_URI_REGEX.findAll(c)
+                    .mapNotNull { m ->
+                        runCatching {
+                            when (val e = Nip19.decode(m.groupValues[1])) {
+                                is Nip19.Entity.Npub -> e.pubkey
+                                is Nip19.Entity.Nprofile -> e.pubkey
+                                else -> null
+                            }
+                        }.getOrNull()
+                    }
+                    .filter { userMetadata[it] == null }
+                    .toSet()
+            if (missing.isNotEmpty()) launchApp { repo.requestUserMetadata(missing) }
+        }
+
+        // Clickable only when the referenced event is a local message we can scroll to; an
+        // external nevent reference has nowhere to scroll, so it stays static (no pointer).
+        val scrollable = local != null
 
         div {
-            className = ClassName("quoted-event")
-            onClick = { props.onScrollTo(props.eventId) }
+            className = ClassName(if (scrollable) "quoted-event" else "quoted-event quoted-event-static")
+            if (scrollable) onClick = { props.onScrollTo(props.eventId) }
             if (content != null && pubkey != null) {
                 div {
                     className = ClassName("quoted-event-head")
@@ -2733,15 +2764,43 @@ private val QuotedEvent =
                         seed = pubkey
                         this.name = displayName(pubkey, userMetadata[pubkey])
                         cls = "quoted-event-avatar"
+                        onClick = { props.onUser(pubkey) }
                     }
                     span {
                         className = ClassName("quoted-event-author")
+                        onClick = { ev ->
+                            ev.stopPropagation()
+                            props.onUser(pubkey)
+                        }
                         +displayName(pubkey, userMetadata[pubkey])
+                    }
+                    if (createdAt != null) {
+                        span {
+                            className = ClassName("quoted-event-time")
+                            +formatDateTime(createdAt)
+                        }
+                    }
+                    a {
+                        className = ClassName("quoted-event-open")
+                        href = "https://jumble.social/notes/${Nip19.encodeNote(props.eventId)}"
+                        asDynamic().target = "_blank"
+                        rel = "noopener noreferrer"
+                        title = "Open in another client"
+                        onClick = { it.stopPropagation() }
+                        icon(Ic.OpenInNew)
                     }
                 }
                 div {
                     className = ClassName("quoted-event-content")
-                    +content.replace('\n', ' ').trim().take(280)
+                    renderMessageContent(
+                        content.trim(),
+                        quotedTags,
+                        userMetadata,
+                        props.localById,
+                        props.onUser,
+                        props.onScrollTo,
+                        props.onGroupRef,
+                    )
                 }
             } else {
                 span {

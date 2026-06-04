@@ -9,6 +9,7 @@ class IOSPlatform : Platform {
 actual fun getPlatform(): Platform = IOSPlatform()
 
 actual val isAndroid: Boolean = false
+actual val isLinuxDesktop: Boolean = false
 actual val isHandheldPlatform: Boolean = true
 actual val platformDisplayName: String = "Nostrord iOS"
 actual val autoFocusTextInput: Boolean = false

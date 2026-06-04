@@ -36,6 +36,14 @@ fun getDateLabel(timestamp: Long): String {
     }
 }
 
+/** Date label plus clock time, e.g. "Today 11:02", "23 May 11:02", "23 May 2025 11:02". */
+fun formatDateTime(timestamp: Long): String {
+    val dateTime = timestampToDateTime(timestamp)
+    val hour = dateTime.hour.toString().padStart(2, '0')
+    val minute = dateTime.minute.toString().padStart(2, '0')
+    return "${getDateLabel(timestamp)} $hour:$minute"
+}
+
 fun formatTime(timestamp: Long): String {
     val now = epochSeconds()
     val nowDateTime = timestampToDateTime(now)

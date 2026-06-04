@@ -69,7 +69,14 @@ val WebAvatar =
 
         div {
             className = ClassName("avatar-tile ${props.cls} avatar-stack" + if (kind == AvatarKind.GROUP) " group" else "")
-            props.onClick?.let { cb -> onClick = { cb() } }
+            // An avatar with its own handler opens the profile without also triggering the
+            // container it sits in (message row, quoted-event card).
+            props.onClick?.let { cb ->
+                onClick = { ev ->
+                    ev.stopPropagation()
+                    cb()
+                }
+            }
 
             // Fallback underneath while the photo loads. Removed once it has loaded so a
             // transparent avatar shows the tile's solid background instead of the

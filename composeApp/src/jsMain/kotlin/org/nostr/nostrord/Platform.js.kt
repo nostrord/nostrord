@@ -7,6 +7,7 @@ class JsPlatform : Platform {
 actual fun getPlatform(): Platform = JsPlatform()
 
 actual val isAndroid: Boolean = false
+actual val isLinuxDesktop: Boolean = false
 actual val isHandheldPlatform: Boolean = false
 actual val platformDisplayName: String = "Nostrord Web"
 
