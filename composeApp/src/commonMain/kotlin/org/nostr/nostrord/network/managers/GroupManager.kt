@@ -410,6 +410,9 @@ class GroupManager(
     private val _restrictedGroups = MutableStateFlow<Map<String, String>>(emptyMap())
     val restrictedGroups: StateFlow<Map<String, String>> = _restrictedGroups.asStateFlow()
 
+    // Lets clientForGroup reconnect a group's own relay on demand. Wired by NostrRepository.
+    var messageHandler: ((String, NostrGroupClient) -> Unit)? = null
+
     // Gate for the approval-recovery path: only fires when the user actually
     // sent kind:9021, never for historical events on already-joined groups.
     private val pendingApprovalSince = mutableMapOf<String, Long>()
@@ -559,23 +562,22 @@ class GroupManager(
 
     /**
      * Returns the WebSocket client for the relay that hosts [groupId].
-     * If the group's relay client exists but is disconnected, returns null — callers must
-     * not send subscriptions to dead sockets (send() silently no-ops on a closed session).
-     * Falls back to the primary only when the group's relay is completely unknown.
+     *
+     * A NIP-29 relay rejects a kind:9 ("blocked: group doesn't exist") if it does not
+     * host the group in the `h` tag, so once the group's relay is known this never falls
+     * back to the primary. A non-primary pool relay that was evicted is reconnected on
+     * demand; a relay that is down (or whose socket is dead) returns null so the send
+     * fails honestly instead of being misrouted.
      */
     private suspend fun clientForGroup(groupId: String): NostrGroupClient? {
         val relayUrl = getRelayForGroup(groupId)
-        return if (relayUrl != null) {
-            val client = connectionManager.getClientForRelay(relayUrl)
-            when {
-                client == null -> connectionManager.getPrimaryClient() // relay not in pool yet
-                client.isConnected() -> client // healthy pool client ✓
-                else -> {
-                    null // dead pool client — reconnect is pending, don't send to it
-                }
-            }
-        } else {
-            connectionManager.getPrimaryClient()
+            ?: return connectionManager.getPrimaryClient()
+        val client = connectionManager.getClientForRelay(relayUrl)
+        return when {
+            client != null && client.isConnected() -> client
+            relayUrl.normalizeRelayUrl() == connectionManager.currentRelayUrl.value.normalizeRelayUrl() -> null
+            client != null -> null
+            else -> messageHandler?.let { connectionManager.getOrConnectRelay(relayUrl, it) }
         }
     }
 
