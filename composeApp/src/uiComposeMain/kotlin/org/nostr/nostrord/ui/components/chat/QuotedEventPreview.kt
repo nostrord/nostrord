@@ -32,6 +32,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.formatDateTime
 
 /**
  * Data class representing a quoted event reference from a "q" tag.
@@ -132,7 +133,6 @@ fun QuotedEventPreview(
                 val processedContent =
                     remember(event.content, userMetadata) {
                         processMentionsInContent(event.content, userMetadata)
-                            .replace('\n', ' ')
                     }
 
                 // Author row with avatar
@@ -152,17 +152,22 @@ fun QuotedEventPreview(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    Text(
+                        text = formatDateTime(event.createdAt),
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption,
+                        maxLines = 1,
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(Spacing.xs))
 
-                // Content preview (truncated)
+                // Full event text, no truncation (mirrors the web quoted-event card)
                 Text(
                     text = processedContent,
                     color = NostrordColors.TextContent,
                     style = NostrordTypography.Quote,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
                 )
             } else {
                 // Loading state

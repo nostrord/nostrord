@@ -10,6 +10,9 @@ import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
@@ -56,6 +59,8 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.isAndroid
+import org.nostr.nostrord.isLinuxDesktop
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.OptimizedUserAvatar
@@ -69,6 +74,7 @@ import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
 import org.nostr.nostrord.ui.util.generateColorFromString
+import org.nostr.nostrord.utils.formatDateTime
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.getImageUrl
 import org.nostr.nostrord.utils.isAnimatedImageUrl
@@ -384,6 +390,7 @@ fun MessageContent(
                                 currentGroupId = currentGroupId,
                                 currentRelayUrl = currentRelayUrl,
                                 onNavigateToGroup = onNavigateToGroup,
+                                onMentionClick = onMentionClick,
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                         }
@@ -1139,6 +1146,7 @@ private fun QuotedEventBlock(
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onMentionClick: (String) -> Unit = {},
 ) {
     val entity = mention.reference.entity
 
@@ -1154,6 +1162,7 @@ private fun QuotedEventBlock(
                 currentGroupId = currentGroupId,
                 currentRelayUrl = currentRelayUrl,
                 onNavigateToGroup = onNavigateToGroup,
+                onMentionClick = onMentionClick,
             )
         }
         is Nip19.Entity.Note -> {
@@ -1167,6 +1176,7 @@ private fun QuotedEventBlock(
                 currentGroupId = currentGroupId,
                 currentRelayUrl = currentRelayUrl,
                 onNavigateToGroup = onNavigateToGroup,
+                onMentionClick = onMentionClick,
             )
         }
         is Nip19.Entity.Naddr -> {
@@ -1222,6 +1232,7 @@ fun ForwardedEventCard(
     onClick: () -> Unit,
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier,
+    onMentionClick: (String) -> Unit = {},
 ) {
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
@@ -1445,7 +1456,7 @@ fun ForwardedEventCard(
 
             // Message content
             Spacer(modifier = Modifier.height(Spacing.sm))
-            QuotedEventContent(content = event.content, tags = event.tags)
+            QuotedEventContent(content = event.content, tags = event.tags, onMentionClick = onMentionClick)
         }
     }
 }
@@ -1536,6 +1547,7 @@ private fun QuotedEvent(
     currentGroupId: String? = null,
     currentRelayUrl: String? = null,
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onMentionClick: (String) -> Unit = {},
 ) {
     val cachedEvents by AppModule.nostrRepository.cachedEvents.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
@@ -1619,6 +1631,7 @@ private fun QuotedEvent(
                     onClick = onClick,
                     onNavigateToGroup = onNavigateToGroup,
                     modifier = modifier,
+                    onMentionClick = onMentionClick,
                 )
                 return
             }
@@ -1749,19 +1762,20 @@ private fun QuotedEvent(
         return
     }
 
-    // Default rendering for other event kinds (clickable)
+    // Default rendering for other event kinds
     val metadata = userMetadata[event.pubkey]
     val authorName = metadata?.displayName ?: metadata?.name ?: event.pubkey.take(8) + "..."
+    val uriHandler = LocalUriHandler.current
     val copyToClipboard = rememberClipboardWriter()
-    var showMenu by remember { mutableStateOf(false) }
+    // Linux desktop (GNOME/Wayland) can't reliably raise the browser to the front, so copy the
+    // link there instead of opening it. macOS, Windows, mobile and web all focus fine and open.
 
     Row(
         modifier =
         modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(NostrordShapes.radiusMedium))
-            .background(NostrordColors.Surface)
-            .clickable(onClick = onClick),
+            .widthIn(max = 420.dp)
+            .clip(RoundedCornerShape(NostrordShapes.radiusSmall))
+            .background(NostrordColors.InputBackground),
     ) {
         Column(
             modifier =
@@ -1775,65 +1789,83 @@ private fun QuotedEvent(
                     pubkey = event.pubkey,
                     displayName = authorName,
                     size = 24.dp,
+                    modifier =
+                    Modifier
+                        .clickable { onMentionClick(event.pubkey) }
+                        .pointerHoverIcon(PointerIcon.Hand),
                 )
                 Spacer(modifier = Modifier.width(Spacing.sm))
-                Text(
-                    text = authorName,
-                    color = NostrordColors.TextSecondary,
-                    style = NostrordTypography.Caption,
-                    fontWeight = FontWeight.Medium,
+                Row(
                     modifier = Modifier.weight(1f),
-                )
-                // 3-dot menu button - wrapped in DisableSelection to avoid hierarchy conflict
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = authorName,
+                        color = NostrordColors.TextPrimary,
+                        style = NostrordTypography.Caption,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier =
+                        Modifier
+                            .weight(1f, fill = false)
+                            .clickable { onMentionClick(event.pubkey) }
+                            .pointerHoverIcon(PointerIcon.Hand),
+                    )
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    Text(
+                        text = formatDateTime(event.createdAt),
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption,
+                        maxLines = 1,
+                    )
+                }
+                Spacer(modifier = Modifier.width(Spacing.sm))
                 DisableSelection {
-                    Box {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        // Android only: open via the nostr: URI so the OS offers the user's
+                        // installed Nostr clients (desktop has no such handler).
+                        if (isAndroid) {
+                            Icon(
+                                imageVector = Icons.Filled.Apps,
+                                contentDescription = "Open in installed client",
+                                tint = NostrordColors.TextMuted,
+                                modifier =
+                                Modifier
+                                    .size(16.dp)
+                                    .clickable { onClick() }
+                                    .pointerHoverIcon(PointerIcon.Hand),
+                            )
+                            Spacer(modifier = Modifier.width(Spacing.md))
+                        }
+                        // Open the quoted event on the web (touch/web), or copy the link on
+                        // desktop where the browser can't be reliably brought to the front.
                         Icon(
-                            imageVector = Icons.Outlined.MoreVert,
-                            contentDescription = "More options",
+                            imageVector = if (isLinuxDesktop) Icons.Filled.ContentCopy else Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = if (isLinuxDesktop) "Copy link" else "Open on the web",
                             tint = NostrordColors.TextMuted,
                             modifier =
                             Modifier
-                                .size(20.dp)
-                                .clickable { showMenu = true }
+                                .size(16.dp)
+                                .clickable {
+                                    val url = "https://jumble.social/notes/${Nip19.encodeNote(event.id)}"
+                                    if (isLinuxDesktop) {
+                                        copyToClipboard(url)
+                                        AppModule.postSystemMessage("Link copied")
+                                    } else {
+                                        try {
+                                            uriHandler.openUri(url)
+                                        } catch (_: Exception) {
+                                        }
+                                    }
+                                }
                                 .pointerHoverIcon(PointerIcon.Hand),
                         )
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Copy Event JSON") },
-                                onClick = {
-                                    val json =
-                                        buildJsonObject {
-                                            put("id", event.id)
-                                            put("pubkey", event.pubkey)
-                                            put("created_at", event.createdAt)
-                                            put("kind", event.kind)
-                                            put(
-                                                "tags",
-                                                buildJsonArray {
-                                                    event.tags.forEach { tag ->
-                                                        add(
-                                                            buildJsonArray {
-                                                                tag.forEach { add(JsonPrimitive(it)) }
-                                                            },
-                                                        )
-                                                    }
-                                                },
-                                            )
-                                            put("content", event.content)
-                                        }.toString()
-                                    copyToClipboard(json)
-                                    showMenu = false
-                                },
-                            )
-                        }
                     }
                 }
             }
             Spacer(modifier = Modifier.height(Spacing.sm))
-            QuotedEventContent(content = event.content, tags = event.tags)
+            QuotedEventContent(content = event.content, tags = event.tags, onMentionClick = onMentionClick)
         }
     }
 }
@@ -1846,12 +1878,26 @@ private fun QuotedEventContent(
     content: String,
     tags: List<List<String>> = emptyList(),
     modifier: Modifier = Modifier,
+    onMentionClick: (String) -> Unit = {},
 ) {
     // Extract custom emoji map from NIP-30 tags
     val emojiMap = remember(tags) { MessageContentParser.extractEmojiMap(tags) }
     val parts = remember(content, emojiMap) { parseContent(content, emojiMap) }
     val uriHandler = LocalUriHandler.current
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+
+    // Resolve names for pubkeys mentioned inside the quoted text (nostr:npub / nprofile),
+    // so they render as @name instead of a truncated key (matches the web card). Keyed on
+    // content only: re-keying on userMetadata would re-request forever for keys that never resolve.
+    LaunchedEffect(content) {
+        val pubkeysToFetch =
+            extractPubkeysFromContent(content)
+                .filter { !userMetadata.containsKey(it) }
+                .toSet()
+        if (pubkeysToFetch.isNotEmpty()) {
+            AppModule.nostrRepository.requestUserMetadata(pubkeysToFetch)
+        }
+    }
 
     // Image viewer modal state — use shared state from MessagesList
     val sharedImageViewerUrl = LocalImageViewerUrl.current
@@ -1923,6 +1969,7 @@ private fun QuotedEventContent(
                         } catch (_: Exception) {
                         }
                     },
+                    onMentionClick = onMentionClick,
                 )
             }
         }
@@ -1939,6 +1986,7 @@ private fun QuotedInlineContentGroup(
     userMetadata: Map<String, org.nostr.nostrord.network.UserMetadata>,
     onLinkClick: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onMentionClick: (String) -> Unit = {},
 ) {
     // Check if this group contains any custom emojis
     val hasCustomEmojis =
@@ -2022,20 +2070,47 @@ private fun QuotedInlineContentGroup(
                         }
                         is MentionPart -> {
                             val displayText = getMentionDisplayText(part, userMetadata)
-                            withLink(
-                                LinkAnnotation.Url(
-                                    url = part.reference.uri,
-                                    styles =
-                                    TextLinkStyles(
-                                        style =
-                                        SpanStyle(
-                                            color = NostrordColors.MentionText,
-                                            fontWeight = FontWeight.Medium,
+                            // User mentions (npub/nprofile) open the profile; event/group refs have
+                            // no profile, so they keep the URL handler.
+                            val mentionPubkey =
+                                when (val mentionEntity = part.reference.entity) {
+                                    is Nip19.Entity.Npub -> mentionEntity.pubkey
+                                    is Nip19.Entity.Nprofile -> mentionEntity.pubkey
+                                    else -> null
+                                }
+                            if (mentionPubkey != null) {
+                                withLink(
+                                    LinkAnnotation.Clickable(
+                                        tag = "mention_$mentionPubkey",
+                                        styles =
+                                        TextLinkStyles(
+                                            style =
+                                            SpanStyle(
+                                                color = NostrordColors.MentionText,
+                                                fontWeight = FontWeight.Medium,
+                                            ),
+                                        ),
+                                        linkInteractionListener = { onMentionClick(mentionPubkey) },
+                                    ),
+                                ) {
+                                    append(displayText)
+                                }
+                            } else {
+                                withLink(
+                                    LinkAnnotation.Url(
+                                        url = part.reference.uri,
+                                        styles =
+                                        TextLinkStyles(
+                                            style =
+                                            SpanStyle(
+                                                color = NostrordColors.MentionText,
+                                                fontWeight = FontWeight.Medium,
+                                            ),
                                         ),
                                     ),
-                                ),
-                            ) {
-                                append(displayText)
+                                ) {
+                                    append(displayText)
+                                }
                             }
                         }
                         is CustomEmojiPart -> {
@@ -2058,7 +2133,6 @@ private fun QuotedInlineContentGroup(
                 color = NostrordColors.TextContent,
                 style = NostrordTypography.Caption,
                 inlineContent = inlineContentMap,
-                maxLines = 6,
                 modifier = modifier,
             )
         }
@@ -2067,7 +2141,6 @@ private fun QuotedInlineContentGroup(
             text = annotatedString,
             color = NostrordColors.TextContent,
             style = NostrordTypography.Caption,
-            maxLines = 6,
             modifier = modifier,
         )
     }
