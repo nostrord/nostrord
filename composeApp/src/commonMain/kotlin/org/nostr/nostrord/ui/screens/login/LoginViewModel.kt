@@ -8,13 +8,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.getNostrConnectRelays
 import org.nostr.nostrord.storage.saveNostrConnectRelays
 import org.nostr.nostrord.utils.toKotlinResult
 
+/**
+ * Screen logic for login, shared by the Compose UI (android/jvm/ios) and the React web
+ * UI. Lives in commonMain so all login modes (private key, NIP-46 bunker QR/URL, NIP-07
+ * extension) are written and tested once; each platform's screen is only layout. Compose
+ * obtains it via `viewModel { }`, web via `useViewModel { }`.
+ */
 class LoginViewModel(
     private val repo: NostrRepositoryApi,
 ) : ViewModel() {
@@ -59,6 +67,30 @@ class LoginViewModel(
         viewModelScope.launch {
             onResult(repo.loginSuspend(privKey, pubKey, isNewIdentity).toKotlinResult())
         }
+    }
+
+    /**
+     * Accepts a raw nsec or 64-char hex private key, derives the public key, and logs in.
+     * The parsing lives here (not per-UI) so Compose and web validate identically.
+     */
+    fun loginWithPrivateKeyInput(
+        input: String,
+        isNewIdentity: Boolean = false,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
+        val hex = parsePrivateKeyHex(input)
+        if (hex == null) {
+            onResult(Result.failure(IllegalArgumentException("Invalid private key")))
+            return
+        }
+        val pub =
+            try {
+                KeyPair.fromPrivateKeyHex(hex).publicKeyHex
+            } catch (e: Throwable) {
+                onResult(Result.failure(IllegalArgumentException("Invalid private key")))
+                return
+            }
+        loginWithPrivateKey(hex, pub, isNewIdentity, onResult)
     }
 
     fun loginWithNip07(
@@ -132,5 +164,19 @@ class LoginViewModel(
         qrJob?.cancel()
         qrClient?.disconnect()
         qrClient = null
+    }
+
+    private companion object {
+        const val HEX_CHARS = "0123456789abcdefABCDEF"
+
+        /** Accepts an nsec or a 64-char hex private key; returns the hex, or null if invalid. */
+        fun parsePrivateKeyHex(input: String): String? {
+            val s = input.trim()
+            return when {
+                s.startsWith("nsec1") -> (Nip19.decode(s) as? Nip19.Entity.Nsec)?.privkey
+                s.length == 64 && s.all { it in HEX_CHARS } -> s.lowercase()
+                else -> null
+            }
+        }
     }
 }
