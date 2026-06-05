@@ -6242,6 +6242,10 @@ body {
     flex-direction: column;
     gap: 12px;
 }
+/* Match the native zap glyph color (NostrordColors.Warning) on the modal title. */
+.zap-card .modal-title .ico {
+    color: #fee75c;
+}
 .zap-presets {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -6262,7 +6266,7 @@ body {
     border-color: var(--color-primary);
 }
 .zap-preset.selected {
-    color: var(--color-primary);
+    color: #ffffff;
     background: rgba(88, 101, 242, 0.18);
     border-color: var(--color-primary);
 }

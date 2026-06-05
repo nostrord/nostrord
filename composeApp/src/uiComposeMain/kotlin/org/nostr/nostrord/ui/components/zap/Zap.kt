@@ -276,7 +276,7 @@ private fun ZapAmountStep(
                         modifier = Modifier.weight(1f),
                         colors = ButtonDefaults.outlinedButtonColors(
                             containerColor = if (selected) NostrordColors.Primary.copy(alpha = 0.18f) else Color.Transparent,
-                            contentColor = if (selected) NostrordColors.Primary else NostrordColors.TextPrimary,
+                            contentColor = if (selected) Color.White else NostrordColors.TextPrimary,
                         ),
                     ) {
                         Text("$preset", fontSize = 13.sp)
