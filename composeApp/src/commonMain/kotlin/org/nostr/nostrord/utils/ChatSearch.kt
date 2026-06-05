@@ -44,6 +44,26 @@ object ChatSearch {
     }
 
     /**
+     * O(1) cursor resolution: [indexById] is a precomputed `id -> position` map for [matchIds] (build
+     * it once per result set with [indexById]). Prev/next navigation calls this on every recomposition,
+     * so the [List.indexOf] scan in the list-only overload is replaced by a map lookup. Behaviour is
+     * identical to [cursor]: an unknown / null anchor falls back to the LAST (most recent) match, and
+     * [Cursor.position] uses the same inverted 1-based numbering (1 = most recent).
+     */
+    fun cursor(matchIds: List<String>, indexById: Map<String, Int>, anchorId: String?): Cursor {
+        if (matchIds.isEmpty()) return Cursor(index = -1, currentId = null, position = 0)
+        val index = (anchorId?.let { indexById[it] } ?: -1).let { if (it >= 0) it else matchIds.lastIndex }
+        return Cursor(index = index, currentId = matchIds[index], position = matchIds.size - index)
+    }
+
+    /** `id -> position` map for a [matchIds] list, so [cursor] can resolve an anchor in O(1). */
+    fun indexById(matchIds: List<String>): Map<String, Int> {
+        val out = HashMap<String, Int>(matchIds.size)
+        matchIds.forEachIndexed { i, id -> out[id] = i }
+        return out
+    }
+
+    /**
      * Ids of the kind-9 messages whose searchable text matches [query], preserving the input list
      * order (chronological). Returns an empty list when the trimmed, normalized query is shorter
      * than [MIN_QUERY_LENGTH].

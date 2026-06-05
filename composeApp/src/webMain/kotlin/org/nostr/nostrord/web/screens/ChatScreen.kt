@@ -835,7 +835,10 @@ val ChatScreen =
             ChatSearch.matchingIds(messages, searchQuery) { searchTextById[it.id] ?: it.content }
         }
         // Cursor: anchored hit position, current id, and inverted 1-based display number (1 = newest).
-        val searchCursor = ChatSearch.cursor(searchMatchIds, anchoredHitId)
+        // indexById makes the anchor lookup O(1) so prev/next (which re-renders ChatScreen each press)
+        // never re-scans the match list to resolve the cursor (parity with native).
+        val searchIndexById = useMemo(searchMatchIds) { ChatSearch.indexById(searchMatchIds) }
+        val searchCursor = ChatSearch.cursor(searchMatchIds, searchIndexById, anchoredHitId)
         val searchClampedIndex = searchCursor.index
         val currentSearchHitId = searchCursor.currentId
         val searchHitIdSet = useMemo(searchMatchIds) { searchMatchIds.toSet() }

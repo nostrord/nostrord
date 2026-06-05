@@ -73,6 +73,21 @@ class ChatSearchTest {
     }
 
     @Test
+    fun indexedCursorMatchesListCursor() {
+        // The O(1) overload (indexById map) must resolve identically to the O(matches) list overload,
+        // including the most-recent fallback for a null / unknown anchor.
+        val ids = listOf("a", "b", "c")
+        val index = ChatSearch.indexById(ids)
+        assertEquals(ChatSearch.cursor(ids, null), ChatSearch.cursor(ids, index, null))
+        assertEquals(ChatSearch.cursor(ids, "a"), ChatSearch.cursor(ids, index, "a"))
+        assertEquals(ChatSearch.cursor(ids, "zzz"), ChatSearch.cursor(ids, index, "zzz"))
+        assertEquals(
+            ChatSearch.cursor(emptyList(), "a"),
+            ChatSearch.cursor(emptyList(), ChatSearch.indexById(emptyList()), "a"),
+        )
+    }
+
+    @Test
     fun searchableTextLeavesPlainContentUntouched() {
         // No nostr: references, so the resolvers are never consulted and the content is returned as is.
         val text = "just a plain message"

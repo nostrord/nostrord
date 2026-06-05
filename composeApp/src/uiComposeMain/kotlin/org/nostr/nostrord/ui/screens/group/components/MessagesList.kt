@@ -3,7 +3,6 @@ package org.nostr.nostrord.ui.screens.group.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -34,7 +33,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -85,33 +83,17 @@ import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 /**
- * Scroll [index] to the top at UserInput priority. Public scrollToItem / animateScrollToItem run at
- * Default priority, which a focused TextField's BringIntoView (its own Default scroll) cancels,
- * leaving the search jump a no-op. UserInput preempts that.
- *
- * The item may be far off-screen and not yet measured, so jump the estimated distance in one scrollBy
- * (items-away times the average measured item size); one or two passes refine the estimate as the
- * real heights come in, so it lands directly like the platform scrollToItem does internally.
+ * Jump so the match at [index] lands at the top of the viewport (just below the search-bar overlay,
+ * which the list reserves via its top contentPadding). This is the native analogue of the web's
+ * scrollIntoView: [requestScrollToItem] resolves the jump in a single measure pass, so it is
+ * virtualized (no intermediate rows are composed even when the match is thousands of items away) and
+ * is not cancelled by a focused field's BringIntoView. The previous pixel-estimation loop scrolled by
+ * an estimated distance and waited a frame between tries while holding the scroll lock; on a far jump
+ * with variable row heights it could thrash against that BringIntoView arbitration and saturate the
+ * frame loop, freezing the feed. A measure-time request has nothing to contend with.
  */
-private suspend fun LazyListState.scrollSearchHitToTop(index: Int) {
-    scroll(scrollPriority = MutatePriority.UserInput) {
-        repeat(8) {
-            val visible = layoutInfo.visibleItemsInfo
-            if (visible.isEmpty()) return@scroll
-            val target = visible.firstOrNull { it.index == index }
-            if (target != null) {
-                scrollBy(target.offset.toFloat())
-                return@scroll
-            }
-            val avgItem = (visible.sumOf { it.size } / visible.size).coerceAtLeast(1)
-            val anchor = if (index < visible.first().index) visible.first() else visible.last()
-            // scrollBy(d) moves an item at offset o to o - d, so to land the target at the top we
-            // scroll by its (estimated) current offset: anchor.offset + items-away * average size.
-            val estimate = anchor.offset + (index - anchor.index) * avgItem
-            if (scrollBy(estimate.toFloat()) == 0f) return@scroll
-            withFrameNanos { }
-        }
-    }
+private fun LazyListState.scrollSearchHitToTop(index: Int) {
+    requestScrollToItem(index)
 }
 
 /**
@@ -255,6 +237,11 @@ fun MessagesList(
     // Correct scroll position after pagination prepends items.
     val currentHasMore by rememberUpdatedState(hasMoreMessages)
     val currentIsLoadingMore by rememberUpdatedState(isLoadingMore)
+    // While search is open the scroll-to-top auto-pagination is suppressed (see the load-more trigger
+    // below): walking prev/next lands on the oldest-loaded matches near the top, which would otherwise
+    // trip that trigger on every press and snowball history loads (each new page also fans out a quote
+    // prefetch), freezing the feed. Deliberate digs go through the search bar's "search older" affordance.
+    val currentSearchActive by rememberUpdatedState(searchActive)
 
     ScrollPositionEffect(
         groupId = groupId,
@@ -446,7 +433,7 @@ fun MessagesList(
             val layoutInfo = listState.layoutInfo
             val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: Int.MAX_VALUE
             val totalItems = layoutInfo.totalItemsCount
-            Triple(firstVisibleItem, totalItems, currentHasMore && !currentIsLoadingMore && totalItems > 0)
+            Triple(firstVisibleItem, totalItems, currentHasMore && !currentIsLoadingMore && totalItems > 0 && !currentSearchActive)
         }.distinctUntilChanged()
             .filter { (firstVisible, _, canLoad) ->
                 firstVisible <= 5 && canLoad
