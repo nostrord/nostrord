@@ -9,11 +9,13 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.notifications.playNotificationSound
 import org.nostr.nostrord.settings.NotificationLevel
+import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.isValidRelayUrl
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
@@ -204,9 +206,9 @@ val SettingsScreen =
 
 private val ProfilePanel =
     FC<Props> {
-        val repo = AppModule.nostrRepository
-        val pubkey = repo.getPublicKey()
-        val userMetadata = useStateFlow(repo.userMetadata)
+        val vm = useViewModel { EditProfileViewModel(AppModule.nostrRepository) }
+        val pubkey = vm.getPublicKey()
+        val userMetadata = useStateFlow(vm.userMetadata)
         val meta = pubkey?.let { userMetadata[it] }
 
         val (name, setName) = useState { meta?.displayName ?: meta?.name ?: "" }
@@ -268,20 +270,18 @@ private val ProfilePanel =
                     disabled = busy
                     onClick = {
                         setBusy(true)
-                        launchApp {
-                            val result =
-                                repo.updateProfileMetadata(
-                                    displayName = name.trim().ifBlank { null },
-                                    name = name.trim().ifBlank { null },
-                                    about = about.trim().ifBlank { null },
-                                    picture = picture.trim().ifBlank { null },
-                                    banner = banner.trim().ifBlank { null },
-                                    nip05 = nip05.trim().ifBlank { null },
-                                    lud16 = lud16.trim().ifBlank { null },
-                                    website = website.trim().ifBlank { null },
-                                )
+                        vm.saveProfile(
+                            displayName = name.trim().ifBlank { null },
+                            name = name.trim().ifBlank { null },
+                            about = about.trim().ifBlank { null },
+                            picture = picture.trim().ifBlank { null },
+                            banner = banner.trim().ifBlank { null },
+                            nip05 = nip05.trim().ifBlank { null },
+                            lud16 = lud16.trim().ifBlank { null },
+                            website = website.trim().ifBlank { null },
+                        ) { result ->
                             setBusy(false)
-                            if (result is Result.Success) setSaved(true)
+                            if (result.isSuccess) setSaved(true)
                         }
                     }
                     +(if (busy) "Saving…" else "Save")
