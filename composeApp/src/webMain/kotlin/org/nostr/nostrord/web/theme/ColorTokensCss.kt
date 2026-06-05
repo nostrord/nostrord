@@ -35,6 +35,7 @@ fun applyColorTokens() {
     set("--color-divider", ColorTokens.Divider)
     set("--color-error", ColorTokens.Error)
     set("--color-success", ColorTokens.Success)
+    set("--color-warning", ColorTokens.Warning)
     set("--color-warning-orange", ColorTokens.WarningOrange)
     set("--color-message-hover", ColorTokens.MessageHover)
     set("--color-mention", ColorTokens.MentionText)
