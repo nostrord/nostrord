@@ -35,8 +35,10 @@ import coil3.compose.LocalPlatformContext
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.zap.ZapController
@@ -68,7 +70,11 @@ fun UserProfileModal(
     val npub = remember(pubkey) { Nip19.encodeNpub(pubkey) }
     val displayName = metadata?.displayName ?: metadata?.name ?: pubkey.take(8) + "..."
 
-    val canZap = !metadata?.lud16.isNullOrBlank() || !metadata?.lud06.isNullOrBlank()
+    // Zaps require signing a kind:9734 request, so only offer them when an account
+    // with a usable signer is active.
+    val activeSession by ActiveAccountManager.session.collectAsState()
+    val canZap = activeSession != null &&
+        Nip57.resolvePayEndpoint(metadata?.lud16, metadata?.lud06) != null
     val username = metadata?.name
 
     Dialog(

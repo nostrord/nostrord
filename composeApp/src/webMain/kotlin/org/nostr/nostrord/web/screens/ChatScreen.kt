@@ -7,6 +7,7 @@ import kotlinx.serialization.json.addJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrGroupClient
@@ -16,6 +17,7 @@ import org.nostr.nostrord.network.managers.GroupLoadingState
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
 import org.nostr.nostrord.utils.ChatSearch
 import org.nostr.nostrord.utils.Result
@@ -690,6 +692,9 @@ val ChatScreen =
         val connState = useStateFlow(repo.connectionState)
         val membersLoading = group.id in useStateFlow(repo.loadingMembers)
         val myPubkey = repo.getPublicKey()
+        // Zaps require signing a kind:9734 request, so only offer them when an account
+        // with a usable signer is active.
+        val canSign = useStateFlow(ActiveAccountManager.session) != null
         // Re-key effects that fire per-session work (requestGroupMessages,
         // metadata, polling) on activeAccountId too. Without this, switching
         // accounts while the same group is open leaves group.id unchanged, the
@@ -1664,8 +1669,9 @@ val ChatScreen =
                                                 onEventRef = { id -> scrollToMessage(id) }
                                                 onGroupRef = { gid, relay -> props.onNavigateGroup(gid, relay) }
                                                 canZap =
+                                                    canSign &&
                                                     message.pubkey != myPubkey &&
-                                                    (!authorMeta?.lud16.isNullOrBlank() || !authorMeta?.lud06.isNullOrBlank())
+                                                    Nip57.resolvePayEndpoint(authorMeta?.lud16, authorMeta?.lud06) != null
                                                 zapTotalMsats = zapInfo?.totalMsats ?: 0L
                                                 zapCount = zapInfo?.count ?: 0
                                                 zappedByMe = myPubkey != null && zapInfo != null && myPubkey in zapInfo.zappers
