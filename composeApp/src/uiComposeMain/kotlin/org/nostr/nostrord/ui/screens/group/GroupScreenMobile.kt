@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
@@ -50,6 +51,7 @@ import org.nostr.nostrord.ui.screens.group.components.InviteCodeJoinModal
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
 import org.nostr.nostrord.ui.screens.group.components.ShareGroupModal
+import org.nostr.nostrord.ui.screens.group.components.rememberChatSearchState
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -156,6 +158,15 @@ fun GroupScreenMobile(
     var showMemberSheet by remember { mutableStateOf(false) }
     val memberSheetState = rememberModalBottomSheetState()
 
+    val search = rememberChatSearchState(
+        groupId = groupId,
+        messages = messages,
+        userMetadata = userMetadata,
+        hasMoreMessages = hasMoreMessages,
+        isLoadingMore = isLoadingMore,
+        onLoadMore = onLoadMore,
+    )
+
     val parentHidden = LocalAnimatedImageHidden.current
     CompositionLocalProvider(LocalAnimatedImageHidden provides (parentHidden || showMemberSheet)) {
         Scaffold(
@@ -181,6 +192,7 @@ fun GroupScreenMobile(
                     pendingJoinRequestCount = pendingJoinRequestCount,
                     onJoinRequestsClick = onJoinRequestsClick,
                     onInviteCodesClick = onInviteCodesClick,
+                    onSearchClick = search.onToggle,
                     isClosed = isClosed,
                     initialInviteCode = initialInviteCode,
                 )
@@ -269,6 +281,13 @@ fun GroupScreenMobile(
                             onTargetConsumed = onTargetConsumed,
                             onFetchTargetById = onFetchTargetById,
                             swipeToReplyEnabled = true,
+                            // Already empty / null when search is inactive (query is "" → no matches),
+                            // so no searchActive guard is needed here (parity with web).
+                            searchHitIds = search.hitIds,
+                            currentSearchHitId = search.currentHitId,
+                            searchScrollNonce = search.scrollNonce,
+                            searchActive = search.active,
+                            searchBar = search.bar,
                         )
                     }
 
@@ -354,6 +373,7 @@ private fun MobileGroupTopBar(
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     onInviteCodesClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
     isClosed: Boolean = false,
     initialInviteCode: String? = null,
 ) {
@@ -440,6 +460,17 @@ private fun MobileGroupTopBar(
                         )
                     }
                 }
+            }
+
+            IconButton(
+                onClick = onSearchClick,
+                modifier = Modifier.size(Spacing.touchTargetMin),
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = "Search messages",
+                    tint = Color.White,
+                )
             }
 
             IconButton(

@@ -17,6 +17,7 @@ import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
+import org.nostr.nostrord.utils.ChatSearch
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.formatDateTime
@@ -67,6 +68,7 @@ import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useEffect
 import react.useEffectOnce
+import react.useMemo
 import react.useRef
 import react.useState
 import web.cssom.ClassName
@@ -785,6 +787,103 @@ val ChatScreen =
         // swallow it, so the reaction just blinked away with no explanation.
         val (reactionError, setReactionError) = useState<String?> { null }
 
+        // In-chat search (UI-local). matchIds is cheap to recompute per render; the current
+        // index walks it with wraparound and drives a scroll command to that row.
+        val (searchActive, setSearchActive) = useState { false }
+        val (searchQuery, setSearchQuery) = useState { "" }
+        // The cursor is anchored to a message id, not a position. "Search older messages" prepends
+        // older matches to searchMatchIds (oldest-first order), which would shift a positional index
+        // onto a different message; tracking by id keeps the selection on the row the user picked.
+        val (anchoredHitId, setAnchoredHitId) = useState<String?> { null }
+        // True while paginating older history on demand looking for a match (PR 2).
+        val (searchingOlder, setSearchingOlder) = useState { false }
+        // Bumped on every prev/next press so re-pressing scrolls back to the current match even when
+        // the anchored id does not change (e.g. a single match, or re-centering after scrolling away).
+        val (searchScrollNonce, setSearchScrollNonce) = useState { 0 }
+        // Anchor index captured when a "search older" dig starts; older matches prepend and push the
+        // anchor right, so the loop detects a new older match by the index growing past this.
+        val searchOlderBaseline = useRef(0)
+        // Pages loaded in the current dig, bounded so one click never drains all history.
+        val searchOlderPages = useRef(0)
+        // Debounce timer for the search input. The input is UNCONTROLLED (its DOM value is not
+        // bound to state) so keystrokes don't re-render ChatScreen — only the debounced commit
+        // below updates searchQuery, which is what re-runs the match scan + row highlights.
+        val searchDebounce = useRef(0)
+        // Memoized so unrelated flow emissions (reactions, zaps, metadata) that re-render
+        // ChatScreen don't re-scan every message. Recomputes only when the group's messages
+        // change, the committed query changes, or search is toggled.
+        //
+        // searchTextById enriches each message with what the user SEES: mentions resolved to
+        // @names and nevent/note quotes resolved to the referenced note's text (in-memory only).
+        // It is the expensive step, so it memoizes on messages + metadata + cache (only while
+        // search is open); the cheap per-keystroke match below then reuses it via the extractor.
+        val searchCachedEvents = useStateFlow(repo.cachedEvents)
+        val searchTextById = useMemo(messagesByGroup[group.id], userMetadata, searchCachedEvents, searchActive) {
+            if (!searchActive) {
+                emptyMap()
+            } else {
+                ChatSearch.buildSearchTextById(
+                    messages,
+                    resolveMention = { pubkey -> userMetadata[pubkey]?.let { it.displayName ?: it.name }?.takeIf(String::isNotBlank) },
+                    resolveCachedQuote = { id -> searchCachedEvents[id]?.content },
+                )
+            }
+        }
+        // searchTextById is already emptyMap() while inactive and matchingIds returns nothing for a
+        // sub-2-char query, so no extra searchActive guard is needed here (parity with native).
+        val searchMatchIds = useMemo(searchTextById, searchQuery) {
+            ChatSearch.matchingIds(messages, searchQuery) { searchTextById[it.id] ?: it.content }
+        }
+        // Cursor: anchored hit position, current id, and inverted 1-based display number (1 = newest).
+        // indexById makes the anchor lookup O(1) so prev/next (which re-renders ChatScreen each press)
+        // never re-scans the match list to resolve the cursor (parity with native).
+        val searchIndexById = useMemo(searchMatchIds) { ChatSearch.indexById(searchMatchIds) }
+        val searchCursor = ChatSearch.cursor(searchMatchIds, searchIndexById, anchoredHitId)
+        val searchClampedIndex = searchCursor.index
+        val currentSearchHitId = searchCursor.currentId
+        val searchHitIdSet = useMemo(searchMatchIds) { searchMatchIds.toSet() }
+        // Lock the anchor onto the resolved hit (the first match for a new query) so later list
+        // changes keep the cursor by identity. No-op once they agree, so this can't loop.
+        useEffect(currentSearchHitId) {
+            if (currentSearchHitId != null && currentSearchHitId != anchoredHitId) setAnchoredHitId(currentSearchHitId)
+        }
+        fun closeSearch() {
+            window.clearTimeout(searchDebounce.current ?: 0)
+            setSearchActive(false)
+            setSearchQuery("")
+            setAnchoredHitId(null)
+            setSearchingOlder(false)
+        }
+        fun gotoPrevMatch() {
+            if (searchMatchIds.isNotEmpty()) {
+                setAnchoredHitId(searchMatchIds[ChatSearch.step(searchClampedIndex, searchMatchIds.size, -1)])
+                setSearchScrollNonce { it + 1 }
+            }
+        }
+        fun gotoNextMatch() {
+            if (searchMatchIds.isNotEmpty()) {
+                setAnchoredHitId(searchMatchIds[ChatSearch.step(searchClampedIndex, searchMatchIds.size, +1)])
+                setSearchScrollNonce { it + 1 }
+            }
+        }
+
+        // Commit a new query: reset the match cursor and drop any older-history search in progress.
+        fun commitQuery(value: String) {
+            setSearchQuery(value)
+            setAnchoredHitId(null)
+            setSearchingOlder(false)
+        }
+        // Reset search on group switch (parity with native's remember(groupId)). The web ChatScreen
+        // instance is reused across groups, so without this the open bar, query and older-search loop
+        // would carry into the next group and scan / auto-paginate it under the prior group's intent.
+        useEffect(group.id) {
+            window.clearTimeout(searchDebounce.current ?: 0)
+            setSearchActive(false)
+            setSearchQuery("")
+            setAnchoredHitId(null)
+            setSearchingOlder(false)
+        }
+
         // Scroll/pagination bookkeeping (refs so they don't trigger re-render).
         //
         // Scroll + pagination (the latch, stall detection and scrollHeight-restore)
@@ -1035,6 +1134,66 @@ val ChatScreen =
             }
         }
 
+        // Scroll the current search match into view (reuses the list's scrollKey command). Keyed on
+        // the nonce too so prev/next re-scrolls to the same id (single match, or re-centering).
+        // Re-asserts over a short window: avatars / media / nevent quote cards settle their height
+        // after the first scroll and shift the row, so a single scrollIntoView often drifts off. The
+        // suspend effect is auto-cancelled when the target changes, so stale scrolls never linger.
+        useEffect(currentSearchHitId, searchScrollNonce) {
+            val id = currentSearchHitId ?: return@useEffect
+            repeat(12) {
+                setScrollKey("msg-$id")
+                delay(70)
+            }
+        }
+
+        // Prefetch quoted events referenced in loaded messages so their text is searchable even for
+        // messages not yet scrolled into view (a quote is otherwise cached only once its row renders).
+        useEffect(searchActive, messagesByGroup[group.id]) {
+            if (!searchActive) return@useEffect
+            launchApp {
+                val cached = repo.cachedEvents.value
+                for (ref in ChatSearch.quotedEventRefs(messages)) {
+                    if (ref.eventId !in cached) repo.requestEventById(ref.eventId, ref.relays, ref.author)
+                }
+            }
+        }
+
+        // On-demand "search older messages": page back through history ONLY until the next older
+        // match appears, then stop and jump to it. Detection is by the ANCHOR's index (older matches
+        // prepend and push the anchor right), so a new live match appended at the tail can't end the
+        // dig. Bounded by a page cap + a watchdog so one click never drains all history (which would
+        // flip hasMore false and hide the affordance) and the spinner can't stick if paging stalls.
+        // The 300ms pace lets the quote prefetch resolve nevent content before the next page loads;
+        // re-pinning the viewport to the current match keeps the feed from drifting while it digs.
+        useEffect(searchingOlder, hasMore, isLoadingMore, searchCursor.index) {
+            if (!searchingOlder) return@useEffect
+            val baseline = searchOlderBaseline.current ?: 0
+            when {
+                searchCursor.index > baseline -> {
+                    // The newest of the newly-found older matches sits just before the anchor's slot.
+                    setAnchoredHitId(searchMatchIds[searchCursor.index - baseline - 1])
+                    setSearchScrollNonce { it + 1 }
+                    setSearchingOlder(false)
+                }
+                !hasMore -> setSearchingOlder(false)
+                (searchOlderPages.current ?: 0) >= ChatSearch.MAX_SEARCH_OLDER_PAGES -> setSearchingOlder(false)
+                !isLoadingMore -> {
+                    delay(300)
+                    searchOlderPages.current = (searchOlderPages.current ?: 0) + 1
+                    setSearchScrollNonce { it + 1 }
+                    launchApp { repo.loadMoreMessages(group.id) }
+                }
+            }
+        }
+        // Watchdog: stop the dig if paging stops progressing, so the spinner can't stick and the
+        // affordance comes back. Cancelled the moment the dig ends on its own (key flips false).
+        useEffect(searchingOlder) {
+            if (!searchingOlder) return@useEffect
+            delay(10_000)
+            setSearchingOlder(false)
+        }
+
         fun join() {
             launchApp { repo.joinGroup(group.id) }
         }
@@ -1048,14 +1207,31 @@ val ChatScreen =
         }
 
         div {
-            className = ClassName(if (membersOpen) "chat members-open" else "chat")
+            // `searching` adds scroll-padding so scrollIntoView centers a hit below the floating
+            // search overlay instead of behind it (see .chat.searching .chat-messages-list).
+            className =
+                ClassName(
+                    buildString {
+                        append("chat")
+                        if (membersOpen) append(" members-open")
+                        if (searchActive) append(" searching")
+                    },
+                )
 
             // Main column: header + messages + composer
             div {
                 className = ClassName("chat-main")
 
                 // Header
+                //
+                // Every direct child of .chat-main carries a stable `key`. The search bar and
+                // the jump FAB are conditional siblings rendered BEFORE / around the message
+                // list; without keys React reconciles .chat-main's children by index, so
+                // toggling search shifted .chat-messages by one slot and REMOUNTED it — every
+                // row's avatar <img> reloaded, flashing to the Jdenticon fallback and back.
+                // (Same failure mode the loading pill hit one level down; see its key comment.)
                 div {
+                    key = "chat-header"
                     className = ClassName("chat-header")
                     // Mobile-only: opens the groups-sidebar drawer (the `≡` in native's header).
                     // CSS hides it on desktop where the sidebar is always visible.
@@ -1101,6 +1277,11 @@ val ChatScreen =
                                 +pendingJoinRequests.toString()
                             }
                         }
+                    }
+                    button {
+                        className = ClassName(if (searchActive) "chat-icon-btn active" else "chat-icon-btn")
+                        onClick = { if (searchActive) closeSearch() else setSearchActive(true) }
+                        icon(Ic.Search)
                     }
                     button {
                         className = ClassName("chat-members-btn")
@@ -1203,9 +1384,113 @@ val ChatScreen =
                     }
                 }
 
+                // In-chat search bar. Floats as an overlay anchored under the header (absolute
+                // inside .chat-main) so opening search does NOT shrink the .chat-messages viewport
+                // or force the scroller to recalculate. One keyed child of .chat-main (see the
+                // header key note); the bar + older affordance stack inside it.
+                if (searchActive) {
+                    div {
+                        key = "chat-search-overlay"
+                        className = ClassName("chat-search-overlay")
+                        div {
+                            className = ClassName("chat-search-bar")
+                            input {
+                                className = ClassName("chat-search-input")
+                                placeholder = "Search messages"
+                                // Uncontrolled (no `value`): the DOM owns the text so typing does NOT
+                                // re-render ChatScreen. A debounced commit updates searchQuery.
+                                autoFocus = true
+                                onChange = { event ->
+                                    val v = event.currentTarget.value
+                                    window.clearTimeout(searchDebounce.current ?: 0)
+                                    searchDebounce.current = window.setTimeout({ commitQuery(v) }, 160)
+                                }
+                                onKeyDown = { event ->
+                                    when {
+                                        event.key == "Escape" -> closeSearch()
+                                        event.key == "Enter" && event.shiftKey -> {
+                                            event.preventDefault()
+                                            gotoPrevMatch()
+                                        }
+                                        event.key == "Enter" -> {
+                                            event.preventDefault()
+                                            // Flush the debounce so a fresh query commits immediately;
+                                            // if it's unchanged, advance to the next match.
+                                            val v = event.currentTarget.value
+                                            if (v.trim() != searchQuery.trim()) {
+                                                window.clearTimeout(searchDebounce.current ?: 0)
+                                                commitQuery(v)
+                                            } else {
+                                                gotoNextMatch()
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            val counter =
+                                when {
+                                    searchQuery.trim().length < 2 -> ""
+                                    searchMatchIds.isEmpty() -> "No matches"
+                                    else -> "${searchCursor.position} / ${searchMatchIds.size}"
+                                }
+                            if (counter.isNotEmpty()) {
+                                span {
+                                    className = ClassName("chat-search-count")
+                                    +counter
+                                }
+                            }
+                            button {
+                                className = ClassName("chat-icon-btn")
+                                disabled = searchMatchIds.isEmpty()
+                                onClick = { gotoPrevMatch() }
+                                icon(Ic.ExpandLess)
+                            }
+                            button {
+                                className = ClassName("chat-icon-btn")
+                                disabled = searchMatchIds.isEmpty()
+                                onClick = { gotoNextMatch() }
+                                icon(Ic.ExpandMore)
+                            }
+                            button {
+                                className = ClassName("chat-icon-btn")
+                                onClick = { closeSearch() }
+                                icon(Ic.Close)
+                            }
+                        }
+                        // Older-history search affordance (PR 2): shown whenever there's a query and
+                        // the relay still has older history to page through (so older matches can be
+                        // found even when the loaded window already has some), or while a dig runs.
+                        if (searchingOlder || (searchQuery.trim().length >= 2 && hasMore)) {
+                            div {
+                                className = ClassName("chat-search-older")
+                                if (searchingOlder) {
+                                    span { className = ClassName("btn-spinner") }
+                                    span { +"Searching older messages" }
+                                    button {
+                                        className = ClassName("chat-search-older-btn")
+                                        onClick = { setSearchingOlder(false) }
+                                        +"Cancel"
+                                    }
+                                } else {
+                                    button {
+                                        className = ClassName("chat-search-older-btn")
+                                        onClick = {
+                                            searchOlderBaseline.current = searchCursor.index
+                                            searchOlderPages.current = 0
+                                            setSearchingOlder(true)
+                                        }
+                                        +"Search older messages"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Messages — non-scrolling flex wrapper; Virtuoso (below) owns the
                 // scroll, pagination and scroll anchoring.
                 div {
+                    key = "chat-messages"
                     className = ClassName("chat-messages")
                     if (isLoadingMore && messages.isNotEmpty()) {
                         div {
@@ -1284,6 +1569,9 @@ val ChatScreen =
                             this.hasMore = moreAvail
                             this.isLoadingMore = loadingMore
                             scrollToKey = scrollKey
+                            // Search lands the hit at the top (under the overlay, via scroll-padding),
+                            // matching Compose; reply / deep-link jumps stay centered.
+                            scrollToKeyBlock = if (searchActive) "start" else "center"
                             onScrolledToKey = { setScrollKey(null) }
                             this.jumpNonce = jumpNonce
                             onStartReached = { launchApp { repo.loadMoreMessages(group.id) } }
@@ -1359,6 +1647,8 @@ val ChatScreen =
                                                 key = message.id
                                                 domId = "msg-${message.id}"
                                                 highlighted = message.id == highlightId
+                                                searchHit = message.id in searchHitIdSet
+                                                searchCurrent = message.id == currentSearchHitId
                                                 pubkey = message.pubkey
                                                 name = displayName(message.pubkey, userMetadata[message.pubkey])
                                                 avatarUrl = userMetadata[message.pubkey]?.picture
@@ -1419,6 +1709,7 @@ val ChatScreen =
                 // skip them (click) or keep reading from the divider.
                 if (!atBottomState) {
                     button {
+                        key = "chat-jump-bottom"
                         // Lift the FAB above the reply banner so it never covers
                         // the banner's close (X) button on the right edge.
                         className = ClassName(
@@ -1445,6 +1736,7 @@ val ChatScreen =
                 }
 
                 ChatComposer {
+                    key = "chat-composer"
                     this.groupId = group.id
                     this.groupName = groupName
                     this.groupIsOpen = group.isOpen
@@ -1852,6 +2144,8 @@ private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false,
 external interface MessageRowProps : Props {
     var domId: String
     var highlighted: Boolean
+    var searchHit: Boolean
+    var searchCurrent: Boolean
     var pubkey: String
     var name: String
     var avatarUrl: String?
@@ -1967,7 +2261,16 @@ private val MessageRow =
                 ClassName(
                     (if (props.firstInGroup) "msg first" else "msg grouped") +
                         (if (menuOpen) " menu-open" else "") +
-                        (if (props.highlighted) " highlight" else ""),
+                        (if (props.highlighted) " highlight" else "") +
+                        (
+                            if (props.searchCurrent) {
+                                " search-current"
+                            } else if (props.searchHit) {
+                                " search-hit"
+                            } else {
+                                ""
+                            }
+                            ),
                 )
             ref = rowRef
             // Two-stage right-click (Telegram-style): the first right-click on a

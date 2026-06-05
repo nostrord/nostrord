@@ -36,13 +36,16 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
@@ -78,6 +81,20 @@ import org.nostr.nostrord.utils.rememberTextSharer
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
+
+/**
+ * Jump so the match at [index] lands at the top of the viewport (just below the search-bar overlay,
+ * which the list reserves via its top contentPadding). This is the native analogue of the web's
+ * scrollIntoView: [requestScrollToItem] resolves the jump in a single measure pass, so it is
+ * virtualized (no intermediate rows are composed even when the match is thousands of items away) and
+ * is not cancelled by a focused field's BringIntoView. The previous pixel-estimation loop scrolled by
+ * an estimated distance and waited a frame between tries while holding the scroll lock; on a far jump
+ * with variable row heights it could thrash against that BringIntoView arbitration and saturate the
+ * frame loop, freezing the feed. A measure-time request has nothing to contend with.
+ */
+private fun LazyListState.scrollSearchHitToTop(index: Int) {
+    requestScrollToItem(index)
+}
 
 /**
  * Messages list with infinite scroll pagination.
@@ -127,6 +144,20 @@ fun MessagesList(
     onTargetConsumed: () -> Unit = {},
     onFetchTargetById: (String) -> Unit = {},
     swipeToReplyEnabled: Boolean = false,
+    // In-chat search: ids of all matching messages (light tint) and the current match
+    // (stronger tint + scroll-into-view). Empty / null when search is inactive.
+    searchHitIds: Set<String> = emptySet(),
+    currentSearchHitId: String? = null,
+    // Bumped on every prev/next press so re-pressing scrolls back to the current match even when the
+    // id does not change (e.g. a single match, or re-centering after the user scrolled away).
+    searchScrollNonce: Int = 0,
+    // True while the in-chat search bar is shown. The bar renders as an OVERLAY over the top of the
+    // message area (drawn by `searchBar`), not as an in-flow sibling, so toggling it never resizes
+    // the LazyColumn viewport. That removes the relayout that made the FIRST programmatic
+    // search-scroll race and get dropped (web parity: there the bar is position:absolute). The list
+    // gets a matching top contentPadding so content rides below the bar instead of under it.
+    searchActive: Boolean = false,
+    searchBar: @Composable () -> Unit = {},
 ) {
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
@@ -206,6 +237,11 @@ fun MessagesList(
     // Correct scroll position after pagination prepends items.
     val currentHasMore by rememberUpdatedState(hasMoreMessages)
     val currentIsLoadingMore by rememberUpdatedState(isLoadingMore)
+    // While search is open the scroll-to-top auto-pagination is suppressed (see the load-more trigger
+    // below): walking prev/next lands on the oldest-loaded matches near the top, which would otherwise
+    // trip that trigger on every press and snowball history loads (each new page also fans out a quote
+    // prefetch), freezing the feed. Deliberate digs go through the search bar's "search older" affordance.
+    val currentSearchActive by rememberUpdatedState(searchActive)
 
     ScrollPositionEffect(
         groupId = groupId,
@@ -237,6 +273,44 @@ fun MessagesList(
     var seekScrollApplied by remember(groupId) { mutableStateOf(false) }
     var highlightedMessageId by remember(groupId) { mutableStateOf<String?>(null) }
     var internalScrollTarget by remember(groupId) { mutableStateOf<String?>(null) }
+
+    // Measured height of the search-bar overlay, used as the top contentPadding for the LazyColumn
+    // (content rides below the bar, never under it) and as the scroll offset so a matched row lands
+    // just below the bar instead of behind it. Zero while search is inactive.
+    var searchBarHeightPx by remember { mutableStateOf(0) }
+
+    // In-chat search: scroll the current match into view (parity with web's scrollIntoView; the
+    // search-current tint is the cue, no flash). searchScrollTarget holds the id to seek: armed from
+    // currentSearchHitId and re-armed by searchScrollNonce so re-pressing prev/next onto the same id
+    // scrolls again, and cleared one-shot once landed so later messages don't yank the view back.
+    var searchScrollTarget by remember(groupId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(currentSearchHitId, searchScrollNonce) {
+        if (currentSearchHitId != null) searchScrollTarget = currentSearchHitId
+    }
+    // Same seek shape as the deep-link / reply seeks below: keyed on the target plus the list size and
+    // pagination flags, so it pages older history when the match is not loaded yet. seekScrollApplied
+    // suppresses the pagination scroll-restore; the list's top contentPadding (the overlay bar height)
+    // drops the matched row just below the bar.
+    LaunchedEffect(searchScrollTarget, chatItems.size, hasMoreMessages, isLoadingMore) {
+        val id = searchScrollTarget ?: run {
+            seekScrollApplied = false
+            return@LaunchedEffect
+        }
+        val idx = chatItems.indexOfFirst { it is ChatItem.Message && it.message.id == id }
+        when {
+            idx >= 0 -> {
+                seekScrollApplied = true
+                // UserInput priority: the search TextField holds focus while typing, and a focused
+                // TextField's BringIntoView runs a Default-priority scroll that cancels a plain
+                // scrollToItem (also Default), leaving the jump a no-op (the tint moves but the feed
+                // does not). UserInput preempts it, the same way the user's own scroll gesture
+                // "unsticks" it. Pages toward the row, then nudges it to the top.
+                listState.scrollSearchHitToTop(idx)
+                searchScrollTarget = null
+            }
+            chatItems.isNotEmpty() && hasMoreMessages && !isLoadingMore -> currentOnLoadMore()
+        }
+    }
 
     LaunchedEffect(internalScrollTarget, chatItems.size, hasMoreMessages, isLoadingMore) {
         val id = internalScrollTarget ?: return@LaunchedEffect
@@ -359,7 +433,7 @@ fun MessagesList(
             val layoutInfo = listState.layoutInfo
             val firstVisibleItem = layoutInfo.visibleItemsInfo.firstOrNull()?.index ?: Int.MAX_VALUE
             val totalItems = layoutInfo.totalItemsCount
-            Triple(firstVisibleItem, totalItems, currentHasMore && !currentIsLoadingMore && totalItems > 0)
+            Triple(firstVisibleItem, totalItems, currentHasMore && !currentIsLoadingMore && totalItems > 0 && !currentSearchActive)
         }.distinctUntilChanged()
             .filter { (firstVisible, _, canLoad) ->
                 firstVisible <= 5 && canLoad
@@ -523,10 +597,17 @@ fun MessagesList(
             else -> {
                 MessageSelectionContainer {
                     Box(modifier = Modifier.fillMaxSize()) {
+                        // Top padding reserves space for the overlay search bar so the newest
+                        // messages aren't hidden under it. Stays at Spacing.sm when search is off.
+                        val topPadding =
+                            with(LocalDensity.current) {
+                                Spacing.sm + if (searchActive) searchBarHeightPx.toDp() else 0.dp
+                            }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(vertical = Spacing.sm),
+                            contentPadding =
+                            PaddingValues(top = topPadding, bottom = Spacing.sm),
                             verticalArrangement = Arrangement.spacedBy(0.dp),
                         ) {
                             itemsIndexed(
@@ -586,6 +667,8 @@ fun MessagesList(
                                             onScrollToMessage = { id -> internalScrollTarget = id },
                                             onNavigateToGroup = onNavigateToGroup,
                                             isHighlighted = item.message.id == highlightedMessageId,
+                                            isSearchHit = item.message.id in searchHitIds,
+                                            isCurrentSearchHit = item.message.id == currentSearchHitId,
                                             isContextMenuOpen = openContextMenuId == item.message.id,
                                             onContextMenuOpenChange = { open ->
                                                 val id = item.message.id
@@ -657,6 +740,26 @@ fun MessagesList(
                             }
                         }
 
+                        // Search bar overlay (web parity: position:absolute over the scroller). It is
+                        // drawn OVER the top of the list, not in-flow above it, so showing it never
+                        // resizes the LazyColumn viewport. Measuring its height feeds the list's top
+                        // contentPadding and the search-scroll offset above. Reset to 0 when search
+                        // closes so the padding collapses.
+                        if (searchActive) {
+                            Box(
+                                modifier =
+                                Modifier
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .zIndex(1f)
+                                    .onSizeChanged { searchBarHeightPx = it.height },
+                            ) {
+                                searchBar()
+                            }
+                        } else if (searchBarHeightPx != 0) {
+                            searchBarHeightPx = 0
+                        }
+
                         VerticalScrollbarWrapper(
                             listState = listState,
                             modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight(),
@@ -666,7 +769,12 @@ fun MessagesList(
                             visible = isLoadingMore && hasMoreMessages,
                             enter = fadeIn(),
                             exit = fadeOut(),
-                            modifier = Modifier.align(Alignment.TopCenter),
+                            // Sits below the search-bar overlay when search is active so the two
+                            // don't stack on top of each other at the top edge.
+                            modifier =
+                            Modifier
+                                .align(Alignment.TopCenter)
+                                .offset { IntOffset(0, if (searchActive) searchBarHeightPx else 0) },
                         ) {
                             Row(
                                 modifier =

@@ -10,6 +10,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
@@ -25,6 +27,7 @@ import org.nostr.nostrord.ui.components.sidebars.MemberSidebar
 import org.nostr.nostrord.ui.screens.group.components.GroupHeader
 import org.nostr.nostrord.ui.screens.group.components.MessageInput
 import org.nostr.nostrord.ui.screens.group.components.MessagesList
+import org.nostr.nostrord.ui.screens.group.components.rememberChatSearchState
 import org.nostr.nostrord.ui.screens.group.model.ChatItem
 import org.nostr.nostrord.ui.screens.group.model.GroupInfo
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
@@ -124,6 +127,15 @@ fun GroupScreenDesktop(
     onFetchTargetById: (String) -> Unit = {},
     onInputOverlayVisibilityChange: (Boolean) -> Unit = {},
 ) {
+    val search = rememberChatSearchState(
+        groupId = groupId,
+        messages = messages,
+        userMetadata = userMetadata,
+        hasMoreMessages = hasMoreMessages,
+        isLoadingMore = isLoadingMore,
+        onLoadMore = onLoadMore,
+    )
+
     Row(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier =
@@ -156,6 +168,7 @@ fun GroupScreenDesktop(
                 initialInviteCode = initialInviteCode,
                 pendingJoinRequestCount = pendingJoinRequestCount,
                 onJoinRequestsClick = onJoinRequestsClick,
+                onSearchClick = search.onToggle,
                 trailingIcon =
                 if (!showMemberSidebar) {
                     {
@@ -216,6 +229,13 @@ fun GroupScreenDesktop(
                     targetMessageId = targetMessageId,
                     onTargetConsumed = onTargetConsumed,
                     onFetchTargetById = onFetchTargetById,
+                    // Already empty / null when search is inactive (query is "" → no matches), so no
+                    // searchActive guard is needed here (parity with web).
+                    searchHitIds = search.hitIds,
+                    currentSearchHitId = search.currentHitId,
+                    searchScrollNonce = search.scrollNonce,
+                    searchActive = search.active,
+                    searchBar = search.bar,
                 )
             }
 

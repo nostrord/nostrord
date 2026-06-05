@@ -101,6 +101,9 @@ fun MessageItem(
     onScrollToMessage: (String) -> Unit = {},
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
     isHighlighted: Boolean = false,
+    // A search hit (query matches this message) gets a light tint; the current hit a stronger one.
+    isSearchHit: Boolean = false,
+    isCurrentSearchHit: Boolean = false,
     isContextMenuOpen: Boolean = false,
     onContextMenuOpenChange: (Boolean) -> Unit = {},
     swipeToReplyEnabled: Boolean = false,
@@ -304,6 +307,11 @@ fun MessageItem(
                 ).background(
                     when {
                         isContextMenuOpen -> NostrordColors.SurfaceVariant
+                        // Search-hit tints win over hover so the current-match cue survives the
+                        // pointer landing on the row (matches the web cascade, where .msg.search-*
+                        // is declared after .msg:hover at equal specificity).
+                        isCurrentSearchHit -> NostrordColors.Primary.copy(alpha = 0.30f)
+                        isSearchHit -> NostrordColors.Primary.copy(alpha = 0.12f)
                         // Hover tint is a desktop-only pointer affordance; a touch tap fires
                         // isPressed too, so suppress it in compact/touch layouts.
                         !swipeToReplyEnabled && (isHovered || isPressed) -> NostrordColors.MessageHover

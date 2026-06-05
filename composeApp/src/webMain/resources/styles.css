@@ -2406,6 +2406,10 @@ body {
 }
 
 .chat-main {
+    /* Single source of truth for the header height: .chat-header consumes it for its height and
+       .chat-search-overlay for its top offset, so the floating search bar stays pinned under the
+       header if the height ever changes. */
+    --chat-header-height: 56px;
     flex: 1;
     min-width: 0;
     display: flex;
@@ -2474,7 +2478,7 @@ body {
 .chat-header {
     position: relative;
     flex-shrink: 0;
-    height: 56px;
+    height: var(--chat-header-height);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -2560,6 +2564,14 @@ body {
     overflow-x: hidden;
     overflow-anchor: auto;
     padding: 16px 0;
+}
+/* While search is open, the floating .chat-search-overlay sits over the top of this scroller.
+   The search scroll uses scrollIntoView({block:"start"}); this padding (≈ the overlay height: the
+   ~48px search bar + the ~32px "Search older messages" row) lands the hit just BELOW the overlay
+   instead of behind it, matching Compose. It only affects programmatic scrolling, so the feed isn't
+   resized — the "no scroll recalc" intent of the floating overlay holds. */
+.chat.searching .chat-messages-list {
+    scroll-padding-top: 84px;
 }
 /* Inner content wrapper — its height = total rows height; a ResizeObserver on it
    re-pins to the bottom when content grows there (media/reactions) while following. */
@@ -6574,4 +6586,86 @@ body {
 }
 .msg.highlight {
     animation: msg-flash 2.4s ease-out;
+}
+
+/* In-chat search */
+.chat-icon-btn.active {
+    background: var(--color-surface-variant);
+    color: var(--color-text-primary);
+}
+.chat-icon-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+/* Floating search overlay: anchored directly under .chat-header inside the relatively-positioned
+   .chat-main. Because it is absolute it does not occupy column space, so opening search never
+   shrinks .chat-messages or shifts the scroll. The bar and the older-history affordance stack
+   inside it; the shadow lifts it off the feed. */
+.chat-search-overlay {
+    position: absolute;
+    top: var(--chat-header-height);
+    left: 0;
+    right: 0;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-background-dark);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+.chat-search-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+}
+.chat-search-input {
+    flex: 1;
+    min-width: 0;
+    height: 36px;
+    padding: 0 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-surface-variant);
+    border-radius: 8px;
+    color: var(--color-text-primary);
+    font-size: 14px;
+    outline: none;
+}
+.chat-search-input:focus {
+    border-color: var(--color-primary);
+}
+.chat-search-count {
+    flex-shrink: 0;
+    padding: 0 4px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    white-space: nowrap;
+}
+.msg.search-hit {
+    background: rgba(88, 101, 242, 0.12);
+}
+.msg.search-current {
+    background: rgba(88, 101, 242, 0.3);
+}
+.chat-search-older {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px 8px;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+}
+.chat-search-older-btn {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--color-primary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 6px;
+}
+.chat-search-older-btn:hover {
+    text-decoration: underline;
 }
