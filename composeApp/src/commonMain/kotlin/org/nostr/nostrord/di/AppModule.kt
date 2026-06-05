@@ -230,7 +230,6 @@ object AppModule {
         ZapManager(
             metadataManager = metadataManager,
             connectionManager = connectionManager,
-            outboxManager = outboxManager,
             scope = appScope,
         )
     }
