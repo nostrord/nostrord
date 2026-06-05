@@ -2,8 +2,9 @@ package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.ui.screens.home.HomeViewModel
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
@@ -36,16 +37,16 @@ external interface HomeScreenProps : Props {
  */
 val HomeScreen =
     FC<HomeScreenProps> { props ->
-        val repo = AppModule.nostrRepository
-        val currentRelay = useStateFlow(repo.currentRelayUrl)
-        val relayMetadata = useStateFlow(repo.relayMetadata)
-        val groupsByRelay = useStateFlow(repo.groupsByRelay)
-        val joinedByRelay = useStateFlow(repo.joinedGroupsByRelay)
-        val kind10009 = useStateFlow(repo.kind10009Relays)
-        val loadingRelays = useStateFlow(repo.loadingRelays)
-        val fullListFetched = useStateFlow(repo.fullGroupListFetchedRelays)
-        val connState = useStateFlow(repo.connectionState)
-        val orphanedByRelay = useStateFlow(repo.orphanedJoinedByRelay)
+        val vm = useViewModel { HomeViewModel(AppModule.nostrRepository) }
+        val currentRelay = useStateFlow(vm.currentRelayUrl)
+        val relayMetadata = useStateFlow(vm.relayMetadata)
+        val groupsByRelay = useStateFlow(vm.groupsByRelay)
+        val joinedByRelay = useStateFlow(vm.joinedGroupsByRelay)
+        val kind10009 = useStateFlow(vm.kind10009Relays)
+        val loadingRelays = useStateFlow(vm.loadingRelays)
+        val fullListFetched = useStateFlow(vm.fullGroupListFetchedRelays)
+        val connState = useStateFlow(vm.connectionState)
+        val orphanedByRelay = useStateFlow(vm.orphanedJoinedByRelay)
 
         val isRelaySaved = currentRelay in kind10009
         val groupsLoading = currentRelay in loadingRelays
@@ -80,7 +81,7 @@ val HomeScreen =
         // list fetch (the picker is the homescreen analogue of opening the sidebar's
         // OTHER GROUPS section). Without this, a lazy relay's Other tab stayed empty
         // until the user opened the sidebar section. Mirrors native HomeScreen.kt:171-175.
-        val isRelayLazy = repo.isGroupFetchLazy(currentRelay)
+        val isRelayLazy = vm.isGroupFetchLazy(currentRelay)
         val isConnected = connState is org.nostr.nostrord.network.managers.ConnectionManager.ConnectionState.Connected
         useEffect(filter, currentRelay, isRelayLazy, currentRelay in fullListFetched, isConnected) {
             if (filter == "Other" &&
@@ -89,7 +90,7 @@ val HomeScreen =
                 isConnected &&
                 currentRelay.isNotBlank()
             ) {
-                launchApp { repo.requestFullGroupListForRelay(currentRelay) }
+                vm.requestFullGroupList(currentRelay)
             }
         }
         val (search, setSearch) = useState { "" }
@@ -238,7 +239,7 @@ val HomeScreen =
                     button {
                         className = ClassName("home-relay-options")
                         onClick = {
-                            if (isRelaySaved) setManaging(true) else launchApp { repo.addRelay(currentRelay) }
+                            if (isRelaySaved) setManaging(true) else vm.addRelay(currentRelay)
                         }
                         if (isRelaySaved) icon(Ic.Settings) else icon(Ic.Add)
                     }
@@ -274,7 +275,7 @@ val HomeScreen =
                     button {
                         className = ClassName("home-relay-options home-relay-options-cog")
                         onClick = {
-                            if (isRelaySaved) setManaging(true) else launchApp { repo.addRelay(currentRelay) }
+                            if (isRelaySaved) setManaging(true) else vm.addRelay(currentRelay)
                         }
                         if (isRelaySaved) icon(Ic.Settings) else icon(Ic.Add)
                     }
@@ -363,7 +364,7 @@ val HomeScreen =
                                 group = group,
                                 isJoined = group.id in joined,
                                 onOpen = { props.onOpenGroup(group.id) },
-                                onJoin = { launchApp { repo.joinGroup(group.id) } },
+                                onJoin = { vm.joinGroup(group.id) },
                             )
                         }
                     }
@@ -392,7 +393,7 @@ val HomeScreen =
                 onConfirm = {
                     setConfirmRemove(false)
                     setManaging(false)
-                    launchApp { repo.removeRelay(currentRelay) }
+                    vm.removeRelay(currentRelay)
                 },
             )
         }
@@ -406,7 +407,7 @@ val HomeScreen =
                 onCancel = { setLeaveGroup(null) },
                 onConfirm = {
                     setLeaveGroup(null)
-                    launchApp { repo.leaveGroup(group.id) }
+                    vm.leaveGroup(group.id)
                 },
             )
         }

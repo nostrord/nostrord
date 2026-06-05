@@ -1,13 +1,11 @@
 package org.nostr.nostrord.web.screens
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.storage.SecureStorage
-import org.nostr.nostrord.storage.getNostrConnectRelays
-import org.nostr.nostrord.storage.saveNostrConnectRelays
+import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
@@ -22,7 +20,6 @@ import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useEffect
-import react.useRef
 import react.useState
 import web.cssom.ClassName
 
@@ -32,24 +29,20 @@ external interface BunkerQrProps : Props {
 }
 
 /**
- * NIP-46 nostrconnect (QR) login — real port of the native [QrCodeLoginContent]. Creates a
- * session for the user's nostrconnect relays (persisted via [SecureStorage]), shows the
- * `nostrconnect://` URI as a QR code AND as a read-only input with a copy button, and an
+ * NIP-46 nostrconnect (QR) login — layout over the shared LoginViewModel, same session
+ * logic as the native QrCodeLoginContent. Shows the VM's `nostrconnect://` URI as a QR
+ * code AND as a read-only input with a copy button, and an
  * Advanced section that lets the user override the relays and regenerate the QR — same
  * affordances the JVM build ships.
  */
 val BunkerQr =
     FC<BunkerQrProps> { props ->
-        val repo = AppModule.nostrRepository
-
-        // Applied (committed) relays — drives session creation. Loaded once from
-        // SecureStorage, falls back to the repo's defaults. Updating via setRelays
-        // is what `Apply & regenerate QR` does after persisting the new list.
-        val (relays, setRelays) = useState {
-            SecureStorage.getNostrConnectRelays() ?: repo.defaultNostrConnectRelays
-        }
-        val (sessionKey, setSessionKey) = useState { 0 }
-        val (uri, setUri) = useState<String?> { null }
+        // QR session logic lives in the shared LoginViewModel (commonMain), same as the
+        // Compose login. The VM owns the nostrconnect WebSocket session and the persisted
+        // relay list; this component is only layout + local edit state.
+        val vm = useViewModel { LoginViewModel(AppModule.nostrRepository) }
+        val relays = useStateFlow(vm.nostrConnectRelays)
+        val uri = useStateFlow(vm.qrUri)
         val (error, setError) = useState<String?> { null }
         val (copied, setCopied) = useState { false }
         val (expanded, setExpanded) = useState { false }
@@ -58,28 +51,17 @@ val BunkerQr =
         val (editable, setEditable) = useState { relays }
         val (newRelay, setNewRelay) = useState { "" }
 
-        // Cancel + restart the session whenever sessionKey or relays change. Using a
-        // jobRef instead of suspending the useEffect itself so the launchApp scope
-        // (already attached to the app lifecycle) keeps owning the coroutine.
-        val jobRef = useRef<Job>(null)
-        useEffect(sessionKey) {
-            jobRef.current?.cancel()
-            setUri(null)
+        // Start (or restart) the QR session. The VM cancels any previous session and
+        // reads the current relay list; on unmount useViewModel clears the VM, tearing
+        // the WebSocket session down (LoginViewModel.onCleared disconnects the client).
+        fun restartSession() {
             setError(null)
-            jobRef.current =
-                launchApp {
-                    try {
-                        val (connectUri, client) = repo.createNostrConnectSession(relays)
-                        setUri(connectUri)
-                        repo.completeNostrConnectLogin(client)
-                        props.onSuccess()
-                    } catch (c: CancellationException) {
-                        throw c
-                    } catch (e: Throwable) {
-                        setError("Connection failed: ${e.message}")
-                    }
-                }
+            vm.startQrSession(
+                onConnected = { props.onSuccess() },
+                onError = { message -> if (message != null) setError(message) },
+            )
         }
+        useEffect(vm) { restartSession() }
 
         fun copyUri(value: String) {
             copyToClipboard(value)
@@ -96,10 +78,9 @@ val BunkerQr =
             // generating against the previous valid set.
             val cleaned = editable.map { it.trim() }.filter { it.startsWith("wss://") }.distinct()
             if (cleaned.isEmpty()) return
-            SecureStorage.saveNostrConnectRelays(cleaned)
-            setRelays(cleaned)
+            vm.setNostrConnectRelays(cleaned)
             setEditable(cleaned)
-            setSessionKey(sessionKey + 1)
+            restartSession()
         }
 
         val dirty = editable != relays
@@ -179,7 +160,7 @@ val BunkerQr =
                 }
                 button {
                     className = ClassName("login-primary")
-                    onClick = { setSessionKey(sessionKey + 1) }
+                    onClick = { restartSession() }
                     icon(Ic.QrCode)
                     +"Try Again"
                 }

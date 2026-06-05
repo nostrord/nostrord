@@ -85,6 +85,11 @@ kotlin {
             // nothing on the js entry path uses `Res`, so DCE strips Skiko from the web
             // bundle anyway. Only the Compose targets actually render fonts/images.
             implementation(compose.components.resources)
+            // lifecycle-viewmodel (base, KMP, no Skiko) lives here as `api` so the shared
+            // screen ViewModels in commonMain — consumed by both the Compose UI and the
+            // React web UI — resolve their ViewModel / viewModelScope supertypes on every
+            // target, including js.
+            api(libs.androidx.lifecycle.viewmodel)
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
             implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")

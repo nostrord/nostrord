@@ -1,8 +1,9 @@
 package org.nostr.nostrord.web.screens
 
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip07
-import org.nostr.nostrord.web.auth.WebAuth
-import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.ui.screens.login.LoginViewModel
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.GeneratedKeyCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
@@ -58,6 +59,7 @@ private fun ChildrenBuilder.benefit(text: String) {
  */
 val LoginScreen =
     FC<Props> {
+        val vm = useViewModel { LoginViewModel(AppModule.nostrRepository) }
         val extensionAvailable = Nip07.isAvailable()
         val (tab, setTab) = useState { Tab.Key }
         val (privateKey, setPrivateKey) = useState { "" }
@@ -68,14 +70,15 @@ val LoginScreen =
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
 
-        // Run a login action; null result = success (the auth gate swaps to the shell).
-        fun runLogin(block: suspend () -> String?) {
+        // Run a VM login action. Success flips repo.isLoggedIn and the auth gate swaps to
+        // the shell; failure surfaces the error string. The VM launches on its own scope,
+        // so we just react to the callback.
+        fun runLogin(start: ((Result<Unit>) -> Unit) -> Unit) {
             setError(null)
             setBusy(true)
-            launchApp {
-                val err = block()
+            start { result ->
                 setBusy(false)
-                if (err != null) setError(err)
+                result.exceptionOrNull()?.let { setError(it.message ?: "Login failed") }
             }
         }
 
@@ -152,10 +155,11 @@ val LoginScreen =
                                     className = ClassName("login-primary")
                                     disabled = privateKey.isBlank() || busy
                                     onClick = {
-                                        runLogin {
-                                            WebAuth.loginWithPrivateKey(
+                                        runLogin { cb ->
+                                            vm.loginWithPrivateKeyInput(
                                                 privateKey,
                                                 isNewIdentity = generatedKey != null && privateKey == generatedKey,
+                                                onResult = cb,
                                             )
                                         }
                                     }
@@ -223,7 +227,7 @@ val LoginScreen =
                                         button {
                                             className = ClassName("login-primary")
                                             disabled = bunkerUrl.isBlank() || busy
-                                            onClick = { runLogin { WebAuth.loginWithBunker(bunkerUrl) } }
+                                            onClick = { runLogin { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) } }
                                             if (busy) {
                                                 span { className = ClassName("btn-spinner") }
                                             }
@@ -266,7 +270,7 @@ val LoginScreen =
                                     button {
                                         className = ClassName("login-primary")
                                         disabled = busy
-                                        onClick = { runLogin { WebAuth.loginWithExtension() } }
+                                        onClick = { runLogin { cb -> vm.loginWithNip07Extension(onResult = cb) } }
                                         // Native ExtensionLoginTab puts a small spinner
                                         // before the "Connecting..." label when busy
                                         // (BunkerLoginTab.kt:75-82). Mirror it here so
