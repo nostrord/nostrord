@@ -38,16 +38,14 @@ import org.nostr.nostrord.utils.epochMillis
 class ZapManager(
     private val metadataManager: MetadataManager,
     private val connectionManager: ConnectionManager,
-    private val outboxManager: OutboxManager,
     @Suppress("unused") private val scope: CoroutineScope,
 ) {
     private val http = createHttpClient()
 
     companion object {
         private const val HTTP_TIMEOUT_MS = 15_000L
-        private const val MAX_RECEIPT_RELAYS = 6
         private val DEFAULT_RELAYS =
-            listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.nostr.band")
+            listOf("wss://relay.damus.io", "wss://nos.lol")
     }
 
     /** Aggregated zaps for a target event id: total amount + distinct zappers. */
@@ -205,18 +203,17 @@ class ZapManager(
     }
 
     /**
-     * Relays to request the zap receipt be published to (the 9734 `relays` tag): the active
-     * group relay first (where the zapped message lives and where we read it back), then the
-     * account's NIP-65/NIP-29 relays, then well-known general relays for redundancy.
-     *
-     * Also the canonical set to read receipts back from — they are published here, not to the
-     * NIP-29 group relay (which rejects events without an `h` tag).
+     * Relays to request the zap receipt be published to (the 9734 `relays` tag), and the same
+     * set we read the receipt back from: the relay of the group where the zapped message lives,
+     * plus a few well-known general relays. A zap targets one group on one relay, so the single
+     * group relay is what is relevant, not every group relay the account belongs to. The general
+     * relays guarantee the receipt (kind 9735, no `h` tag) lands somewhere readable even if the
+     * NIP-29 group relay rejects events without an `h` tag.
      */
     fun receiptRelays(): List<String> {
         val relays = LinkedHashSet<String>()
         connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() }?.let { relays.add(it) }
-        relays.addAll(outboxManager.kind10009Relays.value)
         relays.addAll(DEFAULT_RELAYS)
-        return relays.take(MAX_RECEIPT_RELAYS).toList()
+        return relays.toList()
     }
 }
