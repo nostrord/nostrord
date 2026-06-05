@@ -790,12 +790,12 @@ val ChatScreen =
         // GroupScreen.kt:548-562 — the web used to swallow the failure
         // silently so the user thought the message was deleted when it
         // wasn't.
-        val (deleteError, setDeleteError) = useState<String?> { null }
+        val deleteError = useStateFlow(vm.deleteMessageError)
         // Relay rejected a kind:7 reaction (e.g., "kind 7 not allowed", or an
         // "unknown member" needing to join). Mirrors native's reactionError flow
         // (GroupViewModel.kt:148-157 + GroupScreen.kt:620-665) — the web used to
         // swallow it, so the reaction just blinked away with no explanation.
-        val (reactionError, setReactionError) = useState<String?> { null }
+        val reactionError = useStateFlow(vm.reactionError)
 
         // In-chat search (UI-local). matchIds is cheap to recompute per render; the current
         // index walks it with wraparound and drives a scroll command to that row.
@@ -1689,20 +1689,9 @@ val ChatScreen =
                                                 onUser = { setProfilePubkey(it) }
                                                 onReply = { setReplyingToId(message.id) }
                                                 onReact = { emoji ->
-                                                    // Surface a relay rejection (e.g. "kind 7 not allowed")
-                                                    // instead of letting the reaction silently blink away.
-                                                    when (val result = repo.sendReaction(group.id, message.id, message.pubkey, emoji)) {
-                                                        is Result.Error -> {
-                                                            val raw = result.error.cause?.message ?: result.error.toString()
-                                                            setReactionError(
-                                                                raw
-                                                                    .removePrefix("blocked: ")
-                                                                    .removePrefix("error: ")
-                                                                    .replaceFirstChar { it.uppercaseChar() },
-                                                            )
-                                                        }
-                                                        is Result.Success -> Unit
-                                                    }
+                                                    // Relay rejections (e.g. "kind 7 not allowed") surface via
+                                                    // vm.reactionError instead of the reaction blinking away.
+                                                    vm.sendReaction(message.id, message.pubkey, emoji)
                                                 }
                                                 onDelete = { setMessageToDelete(message.id) }
                                             }
@@ -1949,25 +1938,9 @@ val ChatScreen =
                     onCancel = { setMessageToDelete(null) },
                     onConfirm = {
                         setMessageToDelete(null)
-                        launchApp {
-                            // Mirrors GroupViewModel.kt:260-275: keep the
-                            // relay's reason for refusing the kind:5 and
-                            // surface it. The 'blocked:' / 'error:' prefix
-                            // the NIP-29 relay tacks on is stripped so the
-                            // user sees the bare reason capitalised.
-                            when (val result = repo.deleteMessage(group.id, msgId)) {
-                                is Result.Error -> {
-                                    val raw = result.error.cause?.message ?: result.error.toString()
-                                    val friendly =
-                                        raw
-                                            .removePrefix("blocked: ")
-                                            .removePrefix("error: ")
-                                            .replaceFirstChar { it.uppercaseChar() }
-                                    setDeleteError(friendly)
-                                }
-                                is Result.Success -> Unit
-                            }
-                        }
+                        // Relay rejection (kind:5 refused) surfaces via vm.deleteMessageError,
+                        // same 'blocked:'/'error:' stripping + capitalisation as before.
+                        vm.deleteMessage(msgId)
                     },
                 )
             }
@@ -1975,7 +1948,7 @@ val ChatScreen =
             // gone, group restricted) — show the reason instead of
             // silently swallowing.
             deleteError?.let { error ->
-                deleteMessageErrorDialog(error) { setDeleteError(null) }
+                deleteMessageErrorDialog(error) { vm.clearDeleteMessageError() }
             }
             // Relay rejected the kind:7 reaction — explain it instead of the
             // reaction just blinking away. Mirrors native's "Cannot React" /
@@ -1983,9 +1956,9 @@ val ChatScreen =
             reactionError?.let { error ->
                 reactionErrorDialog(
                     message = error,
-                    onDismiss = { setReactionError(null) },
+                    onDismiss = { vm.clearReactionError() },
                     onJoin = {
-                        setReactionError(null)
+                        vm.clearReactionError()
                         join()
                     },
                 )
