@@ -19,6 +19,7 @@ import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
+import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.utils.ChatSearch
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
@@ -28,6 +29,7 @@ import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.utils.normalizeForSearch
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.ChatImage
 import org.nostr.nostrord.web.components.ChatMessageList
@@ -670,28 +672,31 @@ val ChatScreen =
         val group = props.group
         val groupName = group.name?.takeIf { it.isNotBlank() } ?: "Group"
         val repo = AppModule.nostrRepository
+        // Shared screen logic. Keyed by group.id so the VM (and its scope) is recreated
+        // when the open group changes while this component stays mounted.
+        val vm = useViewModel(group.id) { GroupViewModel(AppModule.nostrRepository, group.id) }
 
-        val messagesByGroup = useStateFlow(repo.messages)
-        val membersByGroup = useStateFlow(repo.groupMembers)
-        val adminsByGroup = useStateFlow(repo.groupAdmins)
-        val joinedByRelay = useStateFlow(repo.joinedGroupsByRelay)
-        val userMetadata = useStateFlow(repo.userMetadata)
-        val reactionsByMsg = useStateFlow(repo.reactions)
-        val zapsByMsg = useStateFlow(repo.zaps)
-        val allGroups = useStateFlow(repo.groups)
-        val relayMetadata = useStateFlow(repo.relayMetadata)
-        val relayUrl = useStateFlow(repo.currentRelayUrl)
-        val isLoadingMore = useStateFlow(repo.isLoadingMore)[group.id] ?: false
-        val hasMore = useStateFlow(repo.hasMoreMessages)[group.id] ?: true
+        val messagesByGroup = useStateFlow(vm.messages)
+        val membersByGroup = useStateFlow(vm.groupMembers)
+        val adminsByGroup = useStateFlow(vm.groupAdmins)
+        val joinedByRelay = useStateFlow(vm.joinedGroupsByRelay)
+        val userMetadata = useStateFlow(vm.userMetadata)
+        val reactionsByMsg = useStateFlow(vm.reactions)
+        val zapsByMsg = useStateFlow(vm.zaps)
+        val allGroups = useStateFlow(vm.groups)
+        val relayMetadata = useStateFlow(vm.relayMetadata)
+        val relayUrl = useStateFlow(vm.currentRelayUrl)
+        val isLoadingMore = useStateFlow(vm.isLoadingMore)[group.id] ?: false
+        val hasMore = useStateFlow(vm.hasMoreMessages)[group.id] ?: true
         // Per-group GroupLoadingState. Only the Exhausted state means the relay
         // truly confirmed "no more messages" THIS session — the cached
         // `hasMore == false` from a prior visit doesn't. Used by the empty-
         // state gate below to avoid showing "No messages yet" before the
         // socket has even spoken on this open.
-        val groupLoadingState = useStateFlow(repo.groupStates)[group.id]
-        val connState = useStateFlow(repo.connectionState)
-        val membersLoading = group.id in useStateFlow(repo.loadingMembers)
-        val myPubkey = repo.getPublicKey()
+        val groupLoadingState = useStateFlow(vm.groupStates)[group.id]
+        val connState = useStateFlow(vm.connectionState)
+        val membersLoading = group.id in useStateFlow(vm.loadingMembers)
+        val myPubkey = vm.getPublicKey()
         // Zaps require signing a kind:9734 request, so only offer them when an account
         // with a usable signer is active.
         val canSign = useStateFlow(ActiveAccountManager.session) != null
@@ -729,7 +734,7 @@ val ChatScreen =
         // Restricted: relay returned a CLOSED "restricted" frame for this group.
         // Used to render the "Private group" UI in place of skeletons when the
         // account has no read access (NIP-29 private+closed group).
-        val restrictedGroups = useStateFlow(repo.restrictedGroups)
+        val restrictedGroups = useStateFlow(vm.restrictedGroups)
         val isGroupRestricted = group.id in restrictedGroups
         // Pending approval: joined a closed group, kind:39002 came back and
         // we're not in it. Only fires when we have DATA — !membersLoading
@@ -822,7 +827,7 @@ val ChatScreen =
         // @names and nevent/note quotes resolved to the referenced note's text (in-memory only).
         // It is the expensive step, so it memoizes on messages + metadata + cache (only while
         // search is open); the cheap per-keystroke match below then reuses it via the extractor.
-        val searchCachedEvents = useStateFlow(repo.cachedEvents)
+        val searchCachedEvents = useStateFlow(vm.cachedEvents)
         val searchTextById = useMemo(messagesByGroup[group.id], userMetadata, searchCachedEvents, searchActive) {
             if (!searchActive) {
                 emptyMap()
