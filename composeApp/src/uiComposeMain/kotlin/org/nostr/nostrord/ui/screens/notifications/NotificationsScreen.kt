@@ -27,6 +27,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
@@ -53,12 +54,13 @@ fun NotificationsScreen(
     onOpenGroupAtRelay: (groupId: String, groupName: String?, relayUrl: String, targetMessageId: String?) -> Unit,
     onOpenDrawer: (() -> Unit)? = null,
 ) {
-    val entries by AppModule.notificationHistoryStore.entries.collectAsState()
-    val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+    val vm = viewModel { NotificationsViewModel(AppModule.nostrRepository) }
+    val entries by vm.entries.collectAsState()
+    val userMetadata by vm.userMetadata.collectAsState()
     // Cross-relay group lookup. The `groups` flow is scoped to the active relay,
     // so notifications from background relays would fall back to a truncated id.
-    val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
-    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+    val groupsByRelay by vm.groupsByRelay.collectAsState()
+    val relayMetadata by vm.relayMetadata.collectAsState()
 
     val hasUnread = remember(entries) { entries.any { !it.read } }
     var overflowOpen by remember { mutableStateOf(false) }
@@ -83,7 +85,7 @@ fun NotificationsScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = { AppModule.notificationHistoryStore.markAllRead() },
+                        onClick = { vm.markAllRead() },
                         enabled = hasUnread,
                     ) {
                         Icon(
@@ -115,7 +117,7 @@ fun NotificationsScreen(
                                 enabled = entries.isNotEmpty(),
                                 onClick = {
                                     overflowOpen = false
-                                    AppModule.notificationHistoryStore.clearHistory()
+                                    vm.clearHistory()
                                 },
                             )
                         }
@@ -185,7 +187,7 @@ fun NotificationsScreen(
                             relayName = relayName,
                             relayIconUrl = relayInfo?.icon,
                             onClick = {
-                                AppModule.notificationHistoryStore.markRead(entry.id)
+                                vm.markRead(entry.id)
                                 onOpenGroupAtRelay(
                                     entry.groupId,
                                     groupName,
