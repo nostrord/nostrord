@@ -1205,7 +1205,7 @@ val ChatScreen =
         }
 
         fun join() {
-            launchApp { repo.joinGroup(group.id) }
+            vm.joinGroup()
         }
 
         // Scroll a loaded message into view and flash it (used by reply-preview clicks).
@@ -1315,7 +1315,7 @@ val ChatScreen =
                                     onClick = {
                                         val code = window.prompt("Enter invite code", "")?.trim()
                                         if (!code.isNullOrBlank()) {
-                                            launchApp { repo.joinGroup(group.id, code) }
+                                            vm.joinGroup(code)
                                         }
                                     }
                                     icon(Ic.Key)
