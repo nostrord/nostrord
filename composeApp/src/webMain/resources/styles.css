@@ -3392,26 +3392,28 @@ body {
 .profile-name-col {
     min-width: 0;
 }
+/* Mirror the native profile zap pill: solid neutral surface, white label, yellow bolt. */
 .profile-zap {
     display: inline-flex;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
-    padding: 5px 12px;
+    padding: 8px 12px;
     font-size: 13px;
     font-weight: 600;
-    color: var(--color-warning-orange);
-    background: rgba(255, 165, 0, 0.15);
-    border: 1px solid rgba(255, 165, 0, 0.4);
-    border-radius: 16px;
+    color: var(--color-text-primary);
+    background: var(--color-surface-variant);
+    border: none;
+    border-radius: 10px;
     cursor: pointer;
 }
 .profile-zap:hover {
-    background: rgba(255, 165, 0, 0.25);
+    background: #4a4f57;
 }
 .profile-zap .ico {
     width: 16px;
     height: 16px;
+    color: #fee75c;
 }
 
 /* Fenced code block + inline code (mirrors native CodeBlockContent / Monospace) */
@@ -6346,7 +6348,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 8px;
+    padding: 4px 8px;
     font-size: 12px;
     font-weight: 600;
     color: var(--color-text-secondary);
@@ -6356,9 +6358,9 @@ body {
     cursor: pointer;
 }
 .zap-badge.mine {
-    color: var(--color-warning-orange);
-    background: rgba(255, 165, 0, 0.18);
-    border-color: rgba(255, 165, 0, 0.4);
+    color: #fee75c;
+    background: rgba(254, 231, 92, 0.18);
+    border-color: transparent;
 }
 .zap-badge-bolt {
     font-size: 12px;
