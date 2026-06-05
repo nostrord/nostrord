@@ -372,6 +372,14 @@ when you next touch its screen is in-scope, not a separate task.
 - Stage files by name; never `git add -A` (the working tree often has untracked screenshots and planning docs that must not be versioned).
 - When asked to plan, show the plan inline in the chat. Do not write plans to files unless asked.
 - All user-facing strings must be in English. No Portuguese in UI text.
+- **Search online early for toolchain errors.** For anything about the external toolchain —
+  kotlin-wrappers / React, Gradle, Compose Multiplatform, Ktor, Kotlin/JS — use WebSearch /
+  WebFetch BEFORE guessing, and always before a *second* attempt at the same error. The web is
+  authoritative here and internal recall is unreliable for version-specific behavior, exact API
+  signatures, cryptic build errors, and icon/SVG paths. Don't wait to be asked; still verify the
+  answer by compiling. (Past misses where a search would have been faster: kotlin-wrappers
+  `useRef` signature, `Icons.Outlined.Bolt` path, the Kotlin/JS build-cache "Could not pack tree"
+  error.)
 
 ## Slash commands
 
