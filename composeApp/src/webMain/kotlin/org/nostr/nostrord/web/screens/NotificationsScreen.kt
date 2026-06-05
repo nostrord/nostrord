@@ -4,9 +4,10 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.notifications.NotificationEntry
 import org.nostr.nostrord.notifications.NotificationType
+import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
 import org.nostr.nostrord.utils.formatTimestamp
-import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
@@ -31,13 +32,12 @@ external interface NotificationsScreenProps : Props {
  */
 val NotificationsScreen =
     FC<NotificationsScreenProps> { props ->
-        val store = AppModule.notificationHistoryStore
-        val entries = useStateFlow(store.entries)
-        val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
+        val vm = useViewModel { NotificationsViewModel(AppModule.nostrRepository) }
+        val entries = useStateFlow(vm.entries)
+        val userMetadata = useStateFlow(vm.userMetadata)
 
         useEffect(entries.size) {
-            val actors = entries.map { it.actorPubkey }.toSet()
-            if (actors.isNotEmpty()) launchApp { AppModule.nostrRepository.requestUserMetadata(actors) }
+            vm.requestUserMetadata(entries.map { it.actorPubkey }.toSet())
         }
 
         div {
@@ -52,12 +52,12 @@ val NotificationsScreen =
                     className = ClassName("notif-actions")
                     button {
                         className = ClassName("notif-action-btn")
-                        onClick = { store.markAllRead() }
+                        onClick = { vm.markAllRead() }
                         +"Mark all as read"
                     }
                     button {
                         className = ClassName("notif-action-btn")
-                        onClick = { store.clearHistory() }
+                        onClick = { vm.clearHistory() }
                         +"Clear all"
                     }
                 }
@@ -76,7 +76,7 @@ val NotificationsScreen =
                 } else {
                     entries.forEach { entry ->
                         notifItem(entry, userMetadata[entry.actorPubkey]) {
-                            store.markRead(entry.id)
+                            vm.markRead(entry.id)
                             props.onOpen(entry.relayUrl, entry.groupId, entry.messageId)
                         }
                     }
