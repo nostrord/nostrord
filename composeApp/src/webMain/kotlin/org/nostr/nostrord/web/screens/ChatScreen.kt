@@ -979,7 +979,7 @@ val ChatScreen =
             // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
             // so the divider can anchor on the user's actual last-read message
             // through the session. Native does the same with remember(groupId).
-            setLastReadSnapshot(repo.getLastReadTimestamp(group.id))
+            setLastReadSnapshot(vm.getLastReadTimestamp())
             wasNotAtBottom.current = false
             // Reset atBottom to true on group entry. Without this, the ref
             // carries the PREVIOUS group's value across the ChatScreen re-
@@ -1102,7 +1102,7 @@ val ChatScreen =
         }
         useEffect(group.id, members.size, messages.size, activeAccountId) {
             val pubkeys = (members + messages.map { it.pubkey }).toSet()
-            if (pubkeys.isNotEmpty()) launchApp { repo.requestUserMetadata(pubkeys) }
+            if (pubkeys.isNotEmpty()) vm.requestUserMetadata(pubkeys)
         }
         // The full ordered row list (date separators, grouped messages, system rows,
         // the "new messages" divider) — fed to ChatMessageList as its data. Scroll,
@@ -1122,7 +1122,7 @@ val ChatScreen =
         // window, instead of paginating the whole history (mirrors native's fetchMessageById).
         useEffect(props.scrollToMessageId, group.id) {
             val target = props.scrollToMessageId ?: return@useEffect
-            launchApp { repo.fetchGroupMessageById(group.id, target) }
+            vm.fetchMessageById(target)
         }
         // Then seek to it: scroll into view + flash once it's loaded. While it's still missing and
         // older messages remain, paginate one page at a time until it appears (or history runs
@@ -1140,7 +1140,7 @@ val ChatScreen =
                 props.onScrolledToMessage()
                 window.setTimeout({ setHighlightId(null) }, 3_000)
             } else if (messages.isNotEmpty() && hasMore && !isLoadingMore) {
-                launchApp { repo.loadMoreMessages(group.id) }
+                vm.loadMoreMessages()
             }
         }
 
@@ -1192,7 +1192,7 @@ val ChatScreen =
                     delay(300)
                     searchOlderPages.current = (searchOlderPages.current ?: 0) + 1
                     setSearchScrollNonce { it + 1 }
-                    launchApp { repo.loadMoreMessages(group.id) }
+                    vm.loadMoreMessages()
                 }
             }
         }
@@ -1584,7 +1584,7 @@ val ChatScreen =
                             scrollToKeyBlock = if (searchActive) "start" else "center"
                             onScrolledToKey = { setScrollKey(null) }
                             this.jumpNonce = jumpNonce
-                            onStartReached = { launchApp { repo.loadMoreMessages(group.id) } }
+                            onStartReached = { vm.loadMoreMessages() }
                             onAtBottomChange = { ab ->
                                 atBottom.current = ab
                                 setAtBottomState(ab)
@@ -1592,7 +1592,7 @@ val ChatScreen =
                                     wasNotAtBottom.current = true
                                 } else {
                                     if (wasNotAtBottom.current == true && lastReadSnapshot != null) setLastReadSnapshot(null)
-                                    repo.markGroupAsRead(group.id)
+                                    vm.markAsRead()
                                 }
                             }
                             onRangeChange = { end ->
@@ -1604,7 +1604,7 @@ val ChatScreen =
                                     val ci = chatItems[i]
                                     if (ci is WebChatItem.Message && ci.message.createdAt > maxSeen) maxSeen = ci.message.createdAt
                                 }
-                                if (maxSeen > 0L) repo.markGroupAsReadUpTo(group.id, maxSeen)
+                                if (maxSeen > 0L) vm.markAsReadUpTo(maxSeen)
                             }
                             renderRow = { cb, itDyn ->
                                 val item = itDyn.unsafeCast<WebChatItem>()

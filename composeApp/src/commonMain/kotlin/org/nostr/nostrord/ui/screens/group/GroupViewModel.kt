@@ -302,7 +302,7 @@ class GroupViewModel(
         }
     }
 
-    fun loadMoreMessages(channel: String?) {
+    fun loadMoreMessages(channel: String? = null) {
         viewModelScope.launch { repo.loadMoreMessages(groupId, channel) }
     }
 
