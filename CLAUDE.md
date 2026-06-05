@@ -372,3 +372,4 @@ when you next touch its screen is in-scope, not a separate task.
 ## Skills
 
 - `nip29-expert` — implementing or debugging NIP-29 group functionality.
+- `ui-parity` — adding/porting/modifying any screen or UI component; keeps Compose and web in sync (screen↔file↔VM map + primitive/token mapping).
