@@ -345,6 +345,7 @@ class NostrRepository(
         }
 
         metadataManager.messageHandler = { msg, client -> enqueueToRelayPipeline(msg, client) }
+        groupManager.messageHandler = { msg, client -> enqueueToRelayPipeline(msg, client) }
 
         connectionManager.startNetworkMonitor()
 
