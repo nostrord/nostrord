@@ -2,9 +2,9 @@ package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip07
-import org.nostr.nostrord.web.auth.WebAuth
-import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.GeneratedKeyCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
@@ -39,6 +39,7 @@ private enum class AddBunkerMode { Qr, Url }
  */
 val AddAccountSheet =
     FC<AddAccountSheetProps> { props ->
+        val vm = useViewModel { LoginViewModel(AppModule.nostrRepository) }
         val (step, setStep) = useState { AddStep.Pick }
         val (privateKey, setPrivateKey) = useState { "" }
         val (showKey, setShowKey) = useState { false }
@@ -56,15 +57,15 @@ val AddAccountSheet =
                 ?: AppModule.accountStore.active?.label
                 ?: "your account"
 
-        // Run an add-account action; on success (null) the warm-swap activates the new
-        // account and the sheet closes, otherwise the error is shown.
-        fun runAdd(block: suspend () -> String?) {
+        // Run an add-account action via the shared LoginViewModel; on success the warm-swap
+        // activates the new account and the sheet closes, otherwise the error is shown.
+        fun runAdd(start: ((Result<Unit>) -> Unit) -> Unit) {
             setError(null)
             setBusy(true)
-            launchApp {
-                val err = block()
+            start { result ->
                 setBusy(false)
-                if (err == null) props.onClose() else setError(err)
+                val err = result.exceptionOrNull()
+                if (err == null) props.onClose() else setError(err.message ?: "Failed to add account")
             }
         }
 
@@ -161,10 +162,11 @@ val AddAccountSheet =
                                 className = ClassName("login-primary")
                                 disabled = privateKey.isBlank() || busy
                                 onClick = {
-                                    runAdd {
-                                        WebAuth.loginWithPrivateKey(
+                                    runAdd { cb ->
+                                        vm.loginWithPrivateKeyInput(
                                             privateKey,
                                             isNewIdentity = generatedKey != null && privateKey == generatedKey,
+                                            onResult = cb,
                                         )
                                     }
                                 }
@@ -224,7 +226,7 @@ val AddAccountSheet =
                                     button {
                                         className = ClassName("login-primary")
                                         disabled = bunkerUrl.isBlank() || busy
-                                        onClick = { runAdd { WebAuth.loginWithBunker(bunkerUrl) } }
+                                        onClick = { runAdd { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) } }
                                         +(if (busy) "Connecting…" else "Connect to Bunker")
                                     }
                                 }
@@ -249,7 +251,7 @@ val AddAccountSheet =
                                 button {
                                     className = ClassName("login-primary")
                                     disabled = busy
-                                    onClick = { runAdd { WebAuth.loginWithExtension() } }
+                                    onClick = { runAdd { cb -> vm.loginWithNip07Extension(onResult = cb) } }
                                     +(if (busy) "Connecting…" else "Connect Extension")
                                 }
                             }
