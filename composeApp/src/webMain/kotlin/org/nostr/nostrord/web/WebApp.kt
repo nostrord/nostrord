@@ -1,10 +1,10 @@
 package org.nostr.nostrord.web
 
-import kotlinx.coroutines.withTimeoutOrNull
+import org.nostr.nostrord.AppViewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.notifications.installPlatformFocusListeners
-import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.installGlobalModalFocusTrap
 import org.nostr.nostrord.web.screens.LoginScreen
 import react.FC
@@ -29,9 +29,12 @@ import web.dom.document
 val WebApp =
     FC<Props> {
         val repo = AppModule.nostrRepository
-        val initialized = useStateFlow(repo.isInitialized)
-        val loggedIn = useStateFlow(repo.isLoggedIn)
-        val verifyingBunker = useStateFlow(repo.isBunkerVerifying)
+        // Same screen logic as the Compose AppViewModel: its init{} runs initialize() with
+        // the 30s forceInitialized() fallback, and it exposes the gate flows.
+        val vm = useViewModel { AppViewModel(AppModule.nostrRepository) }
+        val initialized = useStateFlow(vm.isInitialized)
+        val loggedIn = useStateFlow(vm.isLoggedIn)
+        val verifyingBunker = useStateFlow(vm.isBunkerVerifying)
 
         useEffectOnce {
             // Track tab focus so notifications/unread are suppressed while the app is visible
@@ -50,9 +53,7 @@ val WebApp =
             document.asDynamic().addEventListener("visibilitychange") {
                 if (document.asDynamic().hidden as Boolean) repo.onBackground() else repo.onForeground()
             }
-            launchApp {
-                withTimeoutOrNull(30_000) { repo.initialize() } ?: repo.forceInitialized()
-            }
+            // initialize() with the 30s fallback is driven by AppViewModel.init{} above.
         }
 
         // Hand off the HTML loading shell to the React app once initialization
