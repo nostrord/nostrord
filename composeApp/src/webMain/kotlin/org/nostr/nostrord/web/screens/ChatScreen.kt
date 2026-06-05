@@ -255,7 +255,7 @@ private external interface ChatComposerProps : Props {
  */
 private val ChatComposer =
     FC<ChatComposerProps> { props ->
-        val repo = AppModule.nostrRepository
+        val vm = useViewModel(props.groupId) { GroupViewModel(AppModule.nostrRepository, props.groupId) }
         val members = props.members
         val userMetadata = props.userMetadata
         val allGroups = props.allGroups
@@ -387,31 +387,29 @@ private val ChatComposer =
             var text = draft.trim()
             if (text.isEmpty() || sending) return
             // Resolve %group mentions to their nostr:naddr inline (native does this at send too);
-            // @user mentions are resolved by repo.sendMessage from the mentions map (+ p-tag).
+            // @user mentions are resolved by sendMessage from the mentions map (+ p-tag).
             groupMentions.forEach { (name, ref) -> text = text.replace("%$name", ref) }
             val replyId = props.replyingToId
             // NIP-68 imeta for any media uploaded into this draft (native parity).
             val imetaTags = pendingUploads.map { it.toImetaTag() }
             setSending(true)
-            launchApp {
-                val result =
-                    repo.sendMessage(
-                        props.groupId,
-                        text,
-                        mentions = mentions,
-                        replyToMessageId = replyId,
-                        extraTags = imetaTags,
-                    )
-                setSending(false)
-                if (result is Result.Success) {
+            vm.sendMessage(
+                content = text,
+                channel = null,
+                mentions = mentions,
+                replyToId = replyId,
+                extraTags = imetaTags,
+                onSuccess = {
+                    setSending(false)
                     // Clear only after publish succeeded so a cancel/reject keeps the draft.
                     setDraft("")
                     setMentions(emptyMap())
                     setGroupMentions(emptyMap())
                     setPendingUploads(emptyList())
                     props.onSent()
-                }
-            }
+                },
+                onFailure = { setSending(false) },
+            )
         }
 
         useEffect(props.replyingToId) {
