@@ -282,12 +282,33 @@ client.send(message)  // suspend
 2. Delegate from `NostrRepository` (pass `signEvent` and `publishJoinedGroups` as lambdas).
 3. Expose in the UI via `AppModule.nostrRepository`.
 
-**Adding a new screen (native / Compose):**
-1. Add to the `Screen` sealed class (`commonMain/ui/Screen.kt`).
-2. Create `uiComposeMain/ui/screens/yourscreen/YourScreen.kt` (with desktop / mobile variants if layout differs).
-3. Wire into `App.kt` navigation switch (`uiComposeMain`).
+**Parity workflow — every UI feature (the default; do NOT do one side only):**
 
-**Adding a new screen (web / React):** add a `*Screen` component under `webMain/.../web/screens/` and wire it into `AppShell.kt`. The web UI is a separate render tree — adding a native screen does NOT add it to the web, and vice versa. Both consume the same `AppModule` repository/managers.
+Screen logic lives in a ViewModel in **commonMain**; each UI is only layout over it. This
+is what keeps web and Compose from drifting — behavior is written and tested once, not
+reimplemented per render tree.
+
+1. **commonMain** — put the state + actions in a `*ViewModel` under
+   `commonMain/ui/screens/<screen>/` (extends `androidx.lifecycle.ViewModel`, exposes
+   `StateFlow`s from the repo/managers, wraps actions in `viewModelScope.launch`). Add a
+   test in `commonTest` (it runs under jvmTest and now covers both UIs).
+2. **Compose** (`uiComposeMain`) — `Screen` sealed class entry (`commonMain/ui/Screen.kt`),
+   a `YourScreen.kt` that consumes the VM via `viewModel { }` + `collectAsState()`, wired
+   into `App.kt` (desktop / mobile variants if layout differs).
+3. **Web** (`webMain`) — a `*Screen` FC under `web/screens/` that consumes the SAME VM via
+   `useViewModel { }` + `useStateFlow(...)`, wired into `AppShell.kt`.
+4. **Tokens** — colors from `ColorTokens`, spacing/radius from `DimenTokens` (both in
+   `commonMain/ui/theme/`). Compose reads them via `NostrordColors` / `Spacing` /
+   `NostrordShapes`; web via `WebColors` and the injected `--color-*` / `--space-*` /
+   `--radius-*` vars. Never hardcode a hex or an off-scale px. (Typography is NOT a shared
+   token: the web type scale diverges by design and is per-platform.)
+5. Run `compileKotlinJvm` + `compileKotlinJs` + `:composeApp:jvmTest` before finishing.
+
+**Definition of done = two thin screens + one ViewModel + one test.** The two render trees
+are separate (Compose Skia vs React DOM) and both consume the same `AppModule`; adding a
+native screen does NOT add the web one, and vice versa. Never "I'll do the web later" —
+that is how the two diverge. Lifting a pre-existing Compose-only ViewModel into commonMain
+when you next touch its screen is in-scope, not a separate task.
 
 **Adding a new persisted setting (per-account):**
 1. Add the key + `saveXxxFor(pubkey, ...)` / `loadXxxFor(pubkey, ...)` extension in `storage/SecureStorage.kt`.
