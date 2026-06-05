@@ -22,22 +22,22 @@ object NostrordShapes {
     // ============================================
 
     /** No rounding - sharp corners */
-    val radiusNone: Dp = 0.dp
+    val radiusNone: Dp = DimenTokens.radiusNone.dp
 
     /** Minimal rounding - buttons, inputs, list items */
-    val radiusSmall: Dp = 4.dp
+    val radiusSmall: Dp = DimenTokens.radiusSmall.dp
 
     /** Standard rounding - cards, panels, modals */
-    val radiusMedium: Dp = 8.dp
+    val radiusMedium: Dp = DimenTokens.radiusMedium.dp
 
     /** Large rounding - major containers, images */
-    val radiusLarge: Dp = 12.dp
+    val radiusLarge: Dp = DimenTokens.radiusLarge.dp
 
     /** Extra large rounding - splash screens, special cards */
-    val radiusXLarge: Dp = 16.dp
+    val radiusXLarge: Dp = DimenTokens.radiusXLarge.dp
 
     /** Full circle - avatars, status dots */
-    val radiusFull: Dp = 999.dp
+    val radiusFull: Dp = DimenTokens.radiusFull.dp
 
     // ============================================
     // SERVER ICON RADII (Special hover/active behavior)

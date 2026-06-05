@@ -5,6 +5,8 @@ import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.WebApp
+import org.nostr.nostrord.web.theme.applyColorTokens
+import org.nostr.nostrord.web.theme.applyDimenTokens
 import react.create
 import react.dom.client.createRoot
 import web.dom.ElementId
@@ -71,6 +73,10 @@ private fun parseDeepLinkFromUrl() {
  * browser via CSS, so the old tiered Compose font-preloading is gone.
  */
 fun main() {
+    // Reconcile the web palette with the shared ColorTokens (commonMain) before render,
+    // overriding the cold-start fallback values in styles.css :root.
+    applyColorTokens()
+    applyDimenTokens()
     parseDeepLinkFromUrl()
     val container =
         document.getElementById(ElementId("composeApplication"))

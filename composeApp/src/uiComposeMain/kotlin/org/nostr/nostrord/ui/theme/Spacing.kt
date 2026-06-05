@@ -18,28 +18,28 @@ object Spacing {
     // ============================================
 
     /** 2dp - Minimal gaps, inline spacing */
-    val xxs: Dp = 2.dp
+    val xxs: Dp = DimenTokens.spaceXxs.dp
 
     /** 4dp - Icon margins, tight gaps */
-    val xs: Dp = 4.dp
+    val xs: Dp = DimenTokens.spaceXs.dp
 
     /** 8dp - Standard component internal padding */
-    val sm: Dp = 8.dp
+    val sm: Dp = DimenTokens.spaceSm.dp
 
     /** 12dp - Inter-component gaps */
-    val md: Dp = 12.dp
+    val md: Dp = DimenTokens.spaceMd.dp
 
     /** 16dp - Section padding, standard margins */
-    val lg: Dp = 16.dp
+    val lg: Dp = DimenTokens.spaceLg.dp
 
     /** 20dp - Large section breaks */
-    val xl: Dp = 20.dp
+    val xl: Dp = DimenTokens.spaceXl.dp
 
     /** 24dp - Page margins (mobile), major sections */
-    val xxl: Dp = 24.dp
+    val xxl: Dp = DimenTokens.spaceXxl.dp
 
     /** 32dp - Extra large gaps */
-    val xxxl: Dp = 32.dp
+    val xxxl: Dp = DimenTokens.spaceXxxl.dp
 
     // ============================================
     // SEMANTIC SPACING
