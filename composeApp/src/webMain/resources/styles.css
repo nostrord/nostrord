@@ -1,5 +1,9 @@
 /*
- * Web (React / DOM) styles — layout-first rebuild. Palette mirrors NostrordColors.
+ * Web (React / DOM) styles — layout-first rebuild.
+ *
+ * The --color-* values below are a cold-start fallback only (the spinner paints before
+ * the app bundle runs). The authoritative palette is ColorTokens in commonMain, injected
+ * over these at startup by applyColorTokens(). Edit colors in ColorTokens, not here.
  */
 
 :root {
