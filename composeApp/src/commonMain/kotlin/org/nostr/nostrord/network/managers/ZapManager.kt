@@ -123,14 +123,18 @@ class ZapManager(
                 }
 
                 // 2. Build + sign the zap request (kind 9734). Not published to a relay.
-                val cappedComment = if (params.commentAllowed > 0) comment.take(params.commentAllowed) else ""
+                // The zap comment belongs in the 9734 `content` per NIP-57, independent of the
+                // LNURL `commentAllowed` field (that governs the separate LNURL-pay `comment`
+                // query param, which zaps do not use). Gating on it drops the comment for wallets
+                // that report commentAllowed: 0.
+                val zapComment = comment.trim()
                 val request = Nip57.buildZapRequest(
                     senderPubkey = senderPubkey,
                     recipientPubkey = recipientPubkey,
                     amountMsats = amountMsats,
                     relays = receiptRelays(),
                     lnurlBech32 = lnurlBech32,
-                    comment = cappedComment,
+                    comment = zapComment,
                     eventId = eventId,
                     createdAt = epochMillis() / 1000,
                 )
@@ -157,7 +161,7 @@ class ZapManager(
                         amountMsats = amountMsats,
                         recipientPubkey = recipientPubkey,
                         eventId = eventId,
-                        comment = cappedComment,
+                        comment = zapComment,
                     ),
                 )
             }
