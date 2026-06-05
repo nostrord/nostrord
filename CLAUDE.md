@@ -39,6 +39,14 @@ Points `core.hooksPath` at the repo-tracked hooks (covers all worktrees of this 
 
 **Rule**: Always run `compileKotlinJvm` before finishing any task. It is the fastest cross-platform check.
 
+**Fast iteration**: incremental compilation is reliable — just run plain `compileKotlinJvm` /
+`compileKotlinJs`. Do NOT routinely add `--rerun-tasks` or `--no-build-cache` (they force slow
+full rebuilds). A second run reporting `UP-TO-DATE` means the prior run already compiled your
+change, not that it was missed. The Gradle build cache is on, but `compileKotlinJs` is excluded
+from it (build.gradle.kts) because packing its incremental IR intermittently failed and broke the
+build after a successful compile; if you hit that "Could not pack tree" error on another JS task,
+exclude it the same way — it's the cache, not your code.
+
 ## Module Map
 
 ```

@@ -502,3 +502,12 @@ tasks.register<Copy>("copyJsCompressedFiles") {
 tasks.matching { it.name == "jsBrowserDistribution" }.configureEach {
     finalizedBy("copyJsCompressedFiles", "stampJsBuildVersion")
 }
+
+// Exclude the Kotlin/JS compile from the Gradle build cache: storing its output
+// intermittently fails to pack the incremental IR (ir-translation-result.tab.values.at ->
+// "Could not get file mode"), which fails the build AFTER the compile already succeeded.
+// Incremental compilation still applies; only cross-build cache reuse is skipped for these.
+// JVM / Android tasks keep caching (where CI gets its reuse).
+tasks.matching { it.name == "compileKotlinJs" || it.name == "compileTestKotlinJs" }.configureEach {
+    outputs.cacheIf { false }
+}
