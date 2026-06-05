@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.*
@@ -71,6 +72,7 @@ fun GroupHeader(
     initialInviteCode: String? = null,
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
+    onSearchClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     navigationIcon: @Composable (() -> Unit)? = null,
     trailingIcon: @Composable (() -> Unit)? = null,
@@ -167,6 +169,18 @@ fun GroupHeader(
 
             if (trailingIcon != null) {
                 trailingIcon()
+            }
+
+            IconButton(
+                onClick = onSearchClick,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = "Search messages",
+                    tint = NostrordColors.TextSecondary,
+                    modifier = Modifier.size(20.dp),
+                )
             }
 
             if (isAdmin && pendingJoinRequestCount > 0) {

@@ -44,6 +44,10 @@ external interface ChatMessageListProps : Props {
     var scrollToKey: String?
     var onScrolledToKey: () -> Unit
 
+    /** scrollIntoView block alignment: "center" for reply/deep-link, "start" for search (lands the
+     *  hit just under the floating search overlay via scroll-padding-top, matching Compose). */
+    var scrollToKeyBlock: String?
+
     /** Bump to scroll to the newest row (the FAB). */
     var jumpNonce: Int
 }
@@ -149,7 +153,9 @@ val ChatMessageList =
         useEffect(props.scrollToKey, items.size) {
             val key = props.scrollToKey ?: return@useEffect
             val target = document.getElementById(key) ?: return@useEffect
-            target.asDynamic().scrollIntoView(js("({ behavior: 'auto', block: 'center' })"))
+            val opts = js("({ behavior: 'auto' })")
+            opts.block = props.scrollToKeyBlock ?: "center"
+            target.asDynamic().scrollIntoView(opts)
             props.onScrolledToKey()
         }
 

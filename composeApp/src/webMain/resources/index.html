@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- interactive-widget=resizes-content: the on-screen keyboard SHRINKS the layout viewport
+         (content reflows above it) instead of overlaying + panning the page, so the top header /
+         search bar can't scroll off and no dead gap opens above the keyboard. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
     <title>Nostrord</title>
     <link rel="icon" href="./favicon.ico" sizes="48x48">
     <link rel="icon" href="./icon-192.png" sizes="192x192" type="image/png">
@@ -29,20 +32,24 @@
       NotoColorEmoji via composeResources; the web doesn't reference it.
     -->
 
-    <!-- Visible-viewport height for mobile. dvh/svh aren't supported on every
-         engine (e.g. older Android WebView), so the layout would fall back to
-         100vh = the address-bar-hidden height and push the chat composer off
-         screen. window.innerHeight always reflects the *visible* area and the
-         resize event fires when the address bar shows/hides, so --app-height
-         keeps the shell exactly viewport-tall everywhere. -->
+    <!-- Visible-viewport height for mobile. visualViewport.height is the area NOT covered by the
+         on-screen keyboard (window.innerHeight usually is not — the keyboard overlays it), so the
+         shell stays exactly the visible height and the top chat header / search bar don't scroll
+         off above the keyboard. innerHeight is the fallback for engines without visualViewport
+         (e.g. older Android WebView); dvh/svh in CSS cover the very first paint. -->
     <script>
         (function () {
+            var vv = window.visualViewport;
             function setAppHeight() {
-                document.documentElement.style.setProperty('--app-height', window.innerHeight + 'px');
+                document.documentElement.style.setProperty('--app-height', (vv ? vv.height : window.innerHeight) + 'px');
             }
             setAppHeight();
             window.addEventListener('resize', setAppHeight);
             window.addEventListener('orientationchange', setAppHeight);
+            if (vv) {
+                vv.addEventListener('resize', setAppHeight);
+                vv.addEventListener('scroll', setAppHeight);
+            }
         })();
     </script>
 
