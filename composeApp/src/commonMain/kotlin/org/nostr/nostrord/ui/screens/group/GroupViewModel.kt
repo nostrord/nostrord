@@ -31,6 +31,9 @@ class GroupViewModel(
     val currentRelayUrl = repo.currentRelayUrl
     val relayMetadata = repo.relayMetadata
     val childrenByParent = repo.childrenByParent
+    val groupStates = repo.groupStates
+    val zaps = repo.zaps
+    val cachedEvents = repo.cachedEvents
 
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending
@@ -324,4 +327,33 @@ class GroupViewModel(
     }
 
     fun getLastReadTimestamp(): Long? = repo.getLastReadTimestamp(groupId)
+
+    fun resetGroupLoadingState() {
+        viewModelScope.launch { repo.resetGroupLoadingState(groupId) }
+    }
+
+    fun requestPendingJoinRequests() {
+        viewModelScope.launch { repo.requestPendingJoinRequests(groupId) }
+    }
+
+    fun requestUserMetadata(pubkeys: Set<String>) {
+        if (pubkeys.isEmpty()) return
+        viewModelScope.launch { repo.requestUserMetadata(pubkeys) }
+    }
+
+    fun requestEventById(
+        eventId: String,
+        relayHints: List<String> = emptyList(),
+        author: String? = null,
+    ) {
+        viewModelScope.launch { repo.requestEventById(eventId, relayHints, author) }
+    }
+
+    /** Preview a referenced group (the [previewGroupId] may differ from this VM's group). */
+    fun fetchGroupPreview(
+        previewGroupId: String,
+        relayUrl: String,
+    ) {
+        viewModelScope.launch { repo.fetchGroupPreview(previewGroupId, relayUrl) }
+    }
 }
