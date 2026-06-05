@@ -47,10 +47,12 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.zap.ZapBadge
 import org.nostr.nostrord.ui.components.zap.ZapController
@@ -136,8 +138,12 @@ fun MessageItem(
     // the current user), and surface the running total for this message.
     val zapTotals by AppModule.nostrRepository.zaps.collectAsState()
     val zapInfo = zapTotals[message.id]
-    val canZap = message.pubkey != currentUserPubkey &&
-        (!metadata?.lud16.isNullOrBlank() || !metadata?.lud06.isNullOrBlank())
+    // Zaps require signing a kind:9734 request, so only offer them when an account
+    // with a usable signer is active.
+    val activeSession by ActiveAccountManager.session.collectAsState()
+    val canZap = activeSession != null &&
+        message.pubkey != currentUserPubkey &&
+        Nip57.resolvePayEndpoint(metadata?.lud16, metadata?.lud06) != null
 
     // Look up parent via caller-provided resolver, then in cachedEvents
     val parentMessage =

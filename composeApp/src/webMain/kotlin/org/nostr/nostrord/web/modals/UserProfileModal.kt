@@ -1,7 +1,9 @@
 package org.nostr.nostrord.web.modals
 
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
@@ -46,7 +48,10 @@ val UserProfileModal =
                 ?: meta?.name?.takeIf { it.isNotBlank() }
                 ?: (npub.take(12) + "…")
         val handle = meta?.name?.takeIf { it.isNotBlank() }
-        val canZap = !meta?.lud16.isNullOrBlank() || !meta?.lud06.isNullOrBlank()
+        // Zaps require signing a kind:9734 request, so only offer them when an account
+        // with a usable signer is active.
+        val canSign = useStateFlow(ActiveAccountManager.session) != null
+        val canZap = canSign && Nip57.resolvePayEndpoint(meta?.lud16, meta?.lud06) != null
 
         useEffect(pubkey) {
             launchApp { AppModule.nostrRepository.requestUserMetadata(setOf(pubkey)) }
