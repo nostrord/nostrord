@@ -190,6 +190,7 @@ class NostrRepository(
     override val groups: StateFlow<List<GroupMetadata>> = groupManager.groups
     override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = groupManager.groupsByRelay
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = groupManager.messages
+    override val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>> = groupManager.messageStatus
     override val joinedGroups: StateFlow<Set<String>> = groupManager.joinedGroups
     override val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>> = groupManager.joinedGroupsByRelay
     override val loadingRelays: StateFlow<Set<String>> = groupManager.loadingRelays
@@ -1703,6 +1704,10 @@ class NostrRepository(
             signEvent = { sessionManager.signEvent(it) },
         )
     }
+
+    override fun retrySend(eventId: String) = groupManager.retrySend(eventId)
+
+    override fun dismissFailed(groupId: String, eventId: String) = groupManager.dismissFailed(groupId, eventId)
 
     override suspend fun addUser(groupId: String, targetPubkey: String, roles: List<String>): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()

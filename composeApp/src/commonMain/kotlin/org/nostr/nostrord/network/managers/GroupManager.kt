@@ -63,6 +63,16 @@ class GroupManager(
     private val json = Json { ignoreUnknownKeys = true }
     private val eventDeduplicator = EventDeduplicator()
 
+    init {
+        // The retry queue is the second half of optimistic send: when a queued
+        // message is finally accepted (or permanently fails) on reconnect, reflect
+        // that into the per-message status so the on-screen indicator resolves.
+        pendingEventManager?.onEventDelivered = { eventId -> markDelivered(eventId) }
+        pendingEventManager?.onEventPermanentlyFailed = { eventId, groupId, eventJson, reason ->
+            markFailed(eventId, groupId, eventJson, reason)
+        }
+    }
+
     /**
      * Collects incoming messages per group, then applies them to [_messages]
      * in a single sorted batch — reducing N StateFlow emissions to 1 during burst loads.
@@ -315,6 +325,27 @@ class GroupManager(
 
     private val _messages = MutableStateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>(emptyMap())
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages.asStateFlow()
+
+    /**
+     * Delivery status of the local user's own messages (optimistic send).
+     * Sending = the message is on screen and awaiting relay confirmation (or
+     * queued for auto-retry); Failed = the relay rejected it or retries were
+     * exhausted. A delivered message has NO entry here and renders without an
+     * indicator. Keyed by event id. [Failed] carries the signed JSON so the
+     * message can be re-sent without re-signing.
+     */
+    sealed interface MessageStatus {
+        data object Sending : MessageStatus
+
+        data class Failed(
+            val reason: String,
+            val groupId: String,
+            val eventJson: String,
+        ) : MessageStatus
+    }
+
+    private val _messageStatus = MutableStateFlow<Map<String, MessageStatus>>(emptyMap())
+    val messageStatus: StateFlow<Map<String, MessageStatus>> = _messageStatus.asStateFlow()
 
     // Per-relay joined groups cache — the single source of truth for membership.
     private val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
@@ -2156,9 +2187,6 @@ class GroupManager(
         extraTags: List<List<String>> = emptyList(),
         signEvent: suspend (Event) -> Event,
     ): Result<Unit> {
-        val currentClient = clientForGroup(groupId)
-            ?: return Result.Error(AppError.Network.Disconnected(""))
-
         return try {
             val tags = mutableListOf(listOf("h", groupId))
             if (channel != null && channel != "general") {
@@ -2215,26 +2243,94 @@ class GroupManager(
             val eventId = signedEvent.id
                 ?: return Result.Error(AppError.Group.SendFailed(groupId, Exception("Event ID not generated")))
 
-            val publishResult = currentClient.sendAndAwaitOk(message, eventId)
+            // Optimistic insert: show the message immediately with a Sending status,
+            // before the relay round-trip. The relay echo for this id is deduped by
+            // messageIdIndex so it never double-inserts; delivery is confirmed by the
+            // OK in deliverMessage(), not the echo.
+            insertOwnMessage(
+                groupId,
+                NostrGroupClient.NostrMessage(
+                    id = eventId,
+                    pubkey = signedEvent.pubkey,
+                    content = signedEvent.content,
+                    createdAt = signedEvent.createdAt,
+                    kind = signedEvent.kind,
+                    tags = signedEvent.tags,
+                ),
+            )
+            _messageStatus.update { it + (eventId to MessageStatus.Sending) }
 
-            when (publishResult) {
-                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
-                is org.nostr.nostrord.network.PublishResult.Rejected ->
-                    Result.Error(AppError.Group.MessageRejected(groupId, publishResult.reason))
-                is org.nostr.nostrord.network.PublishResult.Timeout -> {
-                    // Queue for retry on timeout
-                    pendingEventManager?.queueEvent(message, eventId, groupId)
-                    Result.Error(AppError.Group.SendTimeout(groupId))
-                }
-                is org.nostr.nostrord.network.PublishResult.Error -> {
-                    // Queue for retry on network error
-                    pendingEventManager?.queueEvent(message, eventId, groupId)
-                    Result.Error(AppError.Group.SendFailed(groupId, publishResult.exception))
-                }
-            }
+            // Deliver on the manager scope so a group switch or screen exit does not
+            // cancel the in-flight send (viewModelScope would). Status resolves async.
+            scope.launch { deliverMessage(groupId, message, eventId) }
+            Result.Success(Unit)
         } catch (e: Throwable) {
+            // Signing/build failure: no optimistic message was inserted yet, so
+            // surface this as a real error (the composer restores the draft).
             Result.Error(AppError.Group.SendFailed(groupId, e))
         }
+    }
+
+    /**
+     * Insert one of the local user's own messages into [_messages] immediately,
+     * reusing [messageIdIndex] so the relay's later echo of the same id is deduped.
+     */
+    private fun insertOwnMessage(groupId: String, message: NostrGroupClient.NostrMessage) {
+        _messages.update { currentMap ->
+            val current = currentMap[groupId] ?: emptyList()
+            val index = messageIdIndex.getOrPut(groupId) { current.mapTo(mutableSetOf()) { it.id } }
+            if (!index.add(message.id)) return@update currentMap
+            currentMap + (groupId to (current + message).sortedBy { it.createdAt })
+        }
+    }
+
+    /**
+     * Publish an optimistic message and resolve its status. On timeout/network
+     * error the message is queued for auto-retry and stays in [MessageStatus.Sending];
+     * only a relay rejection marks it [MessageStatus.Failed].
+     */
+    private suspend fun deliverMessage(groupId: String, eventJson: String, eventId: String) {
+        val client = clientForGroup(groupId)
+        if (client == null) {
+            // No socket yet: queue so it retries on reconnect; keep it Sending.
+            pendingEventManager?.queueEvent(eventJson, eventId, groupId)
+            return
+        }
+        when (val result = client.sendAndAwaitOk(eventJson, eventId)) {
+            is org.nostr.nostrord.network.PublishResult.Success -> markDelivered(eventId)
+            is org.nostr.nostrord.network.PublishResult.Rejected ->
+                markFailed(eventId, groupId, eventJson, result.reason)
+            is org.nostr.nostrord.network.PublishResult.Timeout ->
+                pendingEventManager?.queueEvent(eventJson, eventId, groupId)
+            is org.nostr.nostrord.network.PublishResult.Error ->
+                pendingEventManager?.queueEvent(eventJson, eventId, groupId)
+        }
+    }
+
+    private fun markDelivered(eventId: String) {
+        _messageStatus.update { it - eventId }
+    }
+
+    private fun markFailed(eventId: String, groupId: String, eventJson: String, reason: String) {
+        _messageStatus.update { it + (eventId to MessageStatus.Failed(reason, groupId, eventJson)) }
+    }
+
+    /** Re-send a previously failed own message using its stored signed JSON. */
+    fun retrySend(eventId: String) {
+        val failed = _messageStatus.value[eventId] as? MessageStatus.Failed ?: return
+        _messageStatus.update { it + (eventId to MessageStatus.Sending) }
+        scope.launch { deliverMessage(failed.groupId, failed.eventJson, eventId) }
+    }
+
+    /** Drop a failed own message from the chat (user dismissed it). */
+    fun dismissFailed(groupId: String, eventId: String) {
+        _messageStatus.update { it - eventId }
+        _messages.update { currentMap ->
+            val current = currentMap[groupId] ?: return@update currentMap
+            val filtered = current.filterNot { it.id == eventId }
+            if (filtered.size == current.size) currentMap else currentMap + (groupId to filtered)
+        }
+        messageIdIndex[groupId]?.remove(eventId)
     }
 
     /**
@@ -3161,6 +3257,7 @@ class GroupManager(
         // (not in clearForRelaySwitch) because relay switch must preserve the
         // user's message history for the active account.
         _messages.value = emptyMap()
+        _messageStatus.value = emptyMap()
         _latestMessageRelayByGroup.value = emptyMap()
         // Joined-group sets and restricted-group markers are pubkey-scoped.
         // Leaving them in place lets isJoined() / isRestricted() report the

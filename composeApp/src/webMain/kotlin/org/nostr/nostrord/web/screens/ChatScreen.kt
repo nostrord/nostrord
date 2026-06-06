@@ -687,6 +687,7 @@ val ChatScreen =
         val vm = useViewModel(group.id) { GroupViewModel(AppModule.nostrRepository, group.id) }
 
         val messagesByGroup = useStateFlow(vm.messages)
+        val messageStatus = useStateFlow(vm.messageStatus)
         val membersByGroup = useStateFlow(vm.groupMembers)
         val adminsByGroup = useStateFlow(vm.groupAdmins)
         val joinedByRelay = useStateFlow(vm.joinedGroupsByRelay)
@@ -1696,6 +1697,9 @@ val ChatScreen =
                                                 canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
                                                 messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
                                                 eventJson = eventJsonOf(message)
+                                                status = messageStatus[message.id]
+                                                onRetrySend = { vm.retrySend(message.id) }
+                                                onDismissFailed = { vm.dismissFailed(message.id) }
                                                 onUser = { setProfilePubkey(it) }
                                                 onReply = { setReplyingToId(message.id) }
                                                 onReact = { emoji ->
@@ -2167,6 +2171,11 @@ external interface MessageRowProps : Props {
     var zappedByMe: Boolean
     var messageLink: String
     var eventJson: String
+
+    // Optimistic-send delivery status for the author's own message. Null = delivered.
+    var status: GroupManager.MessageStatus?
+    var onRetrySend: () -> Unit
+    var onDismissFailed: () -> Unit
     var onUser: (String) -> Unit
     var onReply: () -> Unit
     var onReact: suspend (String) -> Unit
@@ -2479,6 +2488,30 @@ private val MessageRow =
                         props.onEventRef,
                         props.onGroupRef,
                     )
+                }
+                // Optimistic-send status (own messages only). Delivered = null = nothing.
+                val ownStatus = props.status
+                if (props.myPubkey != null && props.myPubkey == props.pubkey && ownStatus != null) {
+                    when (ownStatus) {
+                        is GroupManager.MessageStatus.Sending -> div {
+                            className = ClassName("msg-status sending")
+                            +"Sending..."
+                        }
+                        is GroupManager.MessageStatus.Failed -> div {
+                            className = ClassName("msg-status failed")
+                            span { +"Not delivered" }
+                            button {
+                                className = ClassName("msg-status-action")
+                                onClick = { props.onRetrySend() }
+                                +"Retry"
+                            }
+                            button {
+                                className = ClassName("msg-status-action dismiss")
+                                onClick = { props.onDismissFailed() }
+                                +"Dismiss"
+                            }
+                        }
+                    }
                 }
                 // Pending emojis still waiting on signEvent + relay; hide any
                 // that the optimistic update already merged into props.reactions

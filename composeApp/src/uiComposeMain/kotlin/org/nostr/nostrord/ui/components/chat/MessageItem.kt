@@ -109,6 +109,11 @@ fun MessageItem(
     isContextMenuOpen: Boolean = false,
     onContextMenuOpenChange: (Boolean) -> Unit = {},
     swipeToReplyEnabled: Boolean = false,
+    // Optimistic-send delivery status for the author's own message. Null = delivered
+    // (no indicator). Sending shows a clock; Failed shows a retry/dismiss row.
+    messageStatus: GroupManager.MessageStatus? = null,
+    onRetrySend: () -> Unit = {},
+    onDismissFailed: () -> Unit = {},
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
@@ -436,6 +441,16 @@ fun MessageItem(
                         onNavigateToGroup = onNavigateToGroup,
                     )
 
+                    // Optimistic-send status indicator (own messages only). Delivered
+                    // messages have a null status and render nothing.
+                    if (isAuthor && messageStatus != null) {
+                        MessageStatusIndicator(
+                            status = messageStatus,
+                            onRetry = onRetrySend,
+                            onDismiss = onDismissFailed,
+                        )
+                    }
+
                     // Reaction badges (plus spinner placeholders for in-flight reactions)
                     if (reactions.isNotEmpty() || pendingReactionEmojis.isNotEmpty()) {
                         ReactionBadges(
@@ -484,6 +499,54 @@ fun MessageItem(
                 isAdmin = isAdmin,
                 canZap = canZap,
             )
+        }
+    }
+}
+
+/**
+ * Optimistic-send status row shown under the author's own message.
+ * Sending: a muted "Sending..." hint. Failed: the reason plus Retry / Dismiss.
+ */
+@Composable
+private fun MessageStatusIndicator(
+    status: GroupManager.MessageStatus,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    when (status) {
+        is GroupManager.MessageStatus.Sending -> {
+            Text(
+                text = "Sending...",
+                color = NostrordColors.TextMuted,
+                style = NostrordTypography.Timestamp,
+                modifier = Modifier.padding(top = Spacing.xxs),
+            )
+        }
+        is GroupManager.MessageStatus.Failed -> {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = Spacing.xxs),
+            ) {
+                Text(
+                    text = "Not delivered",
+                    color = NostrordColors.Error,
+                    style = NostrordTypography.Timestamp,
+                )
+                Spacer(modifier = Modifier.width(Spacing.sm))
+                Text(
+                    text = "Retry",
+                    color = NostrordColors.Error,
+                    style = NostrordTypography.Timestamp,
+                    modifier = Modifier.clickable { onRetry() },
+                )
+                Spacer(modifier = Modifier.width(Spacing.sm))
+                Text(
+                    text = "Dismiss",
+                    color = NostrordColors.TextMuted,
+                    style = NostrordTypography.Timestamp,
+                    modifier = Modifier.clickable { onDismiss() },
+                )
+            }
         }
     }
 }

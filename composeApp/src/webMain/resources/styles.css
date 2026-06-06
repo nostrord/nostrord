@@ -3033,6 +3033,40 @@ body {
     white-space: pre-wrap;
 }
 
+/* Optimistic-send status under the author's own message. */
+.msg-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-top: var(--space-xxs);
+    font-size: 12px;
+}
+
+.msg-status.sending {
+    color: var(--color-text-muted);
+}
+
+.msg-status.failed {
+    color: var(--color-error);
+}
+
+.msg-status-action {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--color-error);
+}
+
+.msg-status-action.dismiss {
+    color: var(--color-text-muted);
+}
+
+.msg-status-action:hover {
+    text-decoration: underline;
+}
+
 .msg-link {
     color: var(--color-text-link);
     text-decoration: none;

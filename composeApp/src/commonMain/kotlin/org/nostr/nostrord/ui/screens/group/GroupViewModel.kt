@@ -14,6 +14,7 @@ class GroupViewModel(
     val groupId: String,
 ) : ViewModel() {
     val messages = repo.messages
+    val messageStatus = repo.messageStatus
     val connectionState = repo.connectionState
     val joinedGroups = repo.joinedGroups
     val joinedGroupsByRelay = repo.joinedGroupsByRelay
@@ -77,26 +78,15 @@ class GroupViewModel(
         _isSending.value = true
         _sendError.value = null
         viewModelScope.launch {
-            when (val result = repo.sendMessage(groupId, content, channel, mentions, replyToId, extraTags)) {
+            // Optimistic send: the message is placed on screen with a Sending status
+            // and delivered in the background, so the result here only signals whether
+            // the local build/sign step succeeded. Transient relay timeouts and network
+            // drops no longer surface as a toast; they resolve via the on-message status
+            // (clock -> delivered, or a Failed indicator with retry). Only a real
+            // build/sign failure (no optimistic message exists) restores the draft.
+            when (repo.sendMessage(groupId, content, channel, mentions, replyToId, extraTags)) {
                 is Result.Error -> {
-                    val raw = result.error.cause?.message ?: result.error.toString()
-                    val cleaned = raw.removePrefix("blocked: ").removePrefix("error: ")
-                    val friendly =
-                        when {
-                            cleaned.contains("unknown member", ignoreCase = true) ->
-                                "Your join request is pending admin approval. You cannot send messages until approved."
-                            cleaned.contains("Channel was cancelled", ignoreCase = true) ||
-                                cleaned.contains("not connected", ignoreCase = true) ||
-                                cleaned.contains("Disconnected", ignoreCase = true) -> {
-                                repo.triggerReconnect()
-                                "Connection lost. Reconnecting..."
-                            }
-                            cleaned.contains("timed out", ignoreCase = true) ||
-                                cleaned.contains("timeout", ignoreCase = true) ->
-                                "Message send timed out. It will be retried automatically."
-                            else -> cleaned.replaceFirstChar { it.uppercaseChar() }
-                        }
-                    _sendError.value = friendly
+                    _sendError.value = "Could not send message. Please try again."
                     onFailure()
                 }
                 is Result.Success -> onSuccess()
@@ -104,6 +94,10 @@ class GroupViewModel(
             _isSending.value = false
         }
     }
+
+    fun retrySend(eventId: String) = repo.retrySend(eventId)
+
+    fun dismissFailed(eventId: String) = repo.dismissFailed(groupId, eventId)
 
     fun joinGroup(inviteCode: String? = null) {
         viewModelScope.launch { repo.joinGroup(groupId, inviteCode) }

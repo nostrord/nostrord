@@ -82,6 +82,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val groups: StateFlow<List<GroupMetadata>> = _groups
     override val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>> = MutableStateFlow(emptyMap())
     override val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>> = _messages
+    val _messageStatus = MutableStateFlow<Map<String, GroupManager.MessageStatus>>(emptyMap())
+    override val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>> = _messageStatus
     val _joinedGroupsByRelay = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
     override val joinedGroups: StateFlow<Set<String>> = _joinedGroups
@@ -294,6 +296,14 @@ class FakeNostrRepository : NostrRepositoryApi {
         replyToMessageId: String?,
         extraTags: List<List<String>>,
     ): Result<Unit> = sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
+
+    var retrySendAction: (String) -> Unit = {}
+
+    override fun retrySend(eventId: String) = retrySendAction(eventId)
+
+    var dismissFailedAction: (String, String) -> Unit = { _, _ -> }
+
+    override fun dismissFailed(groupId: String, eventId: String) = dismissFailedAction(groupId, eventId)
 
     override suspend fun deleteMessage(
         groupId: String,

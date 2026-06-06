@@ -124,4 +124,37 @@ class GroupViewModelTest {
         assertEquals("chat-room", sentGroupId)
         assertEquals("hello", sentContent)
     }
+
+    // -------------------------------------------------------------------------
+    // Optimistic send: retry / dismiss delegate with the right ids
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `retrySend delegates the event id`() = runTest {
+        val fake = FakeNostrRepository()
+        var retried: String? = null
+        fake.retrySendAction = { retried = it }
+        val vm = GroupViewModel(fake, "chat-room")
+
+        vm.retrySend("evt-1")
+
+        assertEquals("evt-1", retried)
+    }
+
+    @Test
+    fun `dismissFailed delegates the screen groupId and event id`() = runTest {
+        val fake = FakeNostrRepository()
+        var dGroup: String? = null
+        var dEvent: String? = null
+        fake.dismissFailedAction = { gid, eid ->
+            dGroup = gid
+            dEvent = eid
+        }
+        val vm = GroupViewModel(fake, "chat-room")
+
+        vm.dismissFailed("evt-2")
+
+        assertEquals("chat-room", dGroup)
+        assertEquals("evt-2", dEvent)
+    }
 }
