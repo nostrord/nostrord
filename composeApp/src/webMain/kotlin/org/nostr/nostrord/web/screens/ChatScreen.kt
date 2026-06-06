@@ -245,6 +245,9 @@ private external interface ChatComposerProps : Props {
     /** Cleared after a successful publish so the parent can drop the reply target. */
     var onSent: () -> Unit
     var onJoin: () -> Unit
+
+    /** The screen's GroupViewModel (shared, not a second instance). */
+    var groupVm: GroupViewModel
 }
 
 /**
@@ -255,7 +258,7 @@ private external interface ChatComposerProps : Props {
  */
 private val ChatComposer =
     FC<ChatComposerProps> { props ->
-        val vm = useViewModel(props.groupId) { GroupViewModel(AppModule.nostrRepository, props.groupId) }
+        val vm = props.groupVm
         val members = props.members
         val userMetadata = props.userMetadata
         val allGroups = props.allGroups
@@ -1735,6 +1738,10 @@ val ChatScreen =
 
                 ChatComposer {
                     key = "chat-composer"
+                    // Share the screen's GroupViewModel — don't let the composer spin up a
+                    // second instance (separate viewModelScope + unobserved sendError) for
+                    // the same group.
+                    this.groupVm = vm
                     this.groupId = group.id
                     this.groupName = groupName
                     this.groupIsOpen = group.isOpen
