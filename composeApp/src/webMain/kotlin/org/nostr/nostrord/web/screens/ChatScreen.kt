@@ -672,6 +672,15 @@ val ChatScreen =
     FC<ChatScreenProps> { props ->
         val group = props.group
         val groupName = group.name?.takeIf { it.isNotBlank() } ?: "Group"
+        // `vm` owns reads + most actions (shared with Compose). `repo` is kept ONLY for the
+        // calls deliberately NOT routed through the VM:
+        //   - leaveGroup / deleteGroup: followed immediately by onLeave() (unmount), so they
+        //     need the app-lifetime launchApp scope to survive navigation — viewModelScope
+        //     would cancel them mid-publish.
+        //   - the entry loading/retry orchestration + pending-join poll: suspend calls awaited
+        //     in sequence (reading .value between), which the VM's fire-and-forget methods
+        //     can't express without a suspend variant.
+        // Everything else should go through `vm`.
         val repo = AppModule.nostrRepository
         // Shared screen logic. Keyed by group.id so the VM (and its scope) is recreated
         // when the open group changes while this component stays mounted.
