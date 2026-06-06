@@ -13,7 +13,13 @@ import org.w3c.dom.HTMLElement
  * styles.css keeps the same values only as a pre-bundle cold-start fallback (the spinner
  * paints before this bundle runs). Once this runs the live values always come from the
  * tokens, so editing the palette in one place (ColorTokens) updates Compose and the web
- * together. The var names here must match the `--color-*` names used in styles.css.
+ * together.
+ *
+ * DRIFT GUARD: this is a hand-maintained mirror with no compile-time check. The three
+ * lists must stay in sync — a `--color-*` name here, its declaration in styles.css `:root`,
+ * and the ColorTokens field. Adding a token without a `set(...)` line here leaves the web
+ * on the stale styles.css fallback while Compose moves; renaming a var only here makes the
+ * styles.css `var(--color-*)` references fall back. When you add/rename one, touch all three.
  */
 fun applyColorTokens() {
     val root = document.documentElement as? HTMLElement ?: return
@@ -47,6 +53,10 @@ fun applyColorTokens() {
  *
  * Existing CSS still uses ad-hoc literal px (see DimenTokens note); migrating those is a
  * separate visual-review task. This only publishes the canonical scale for new use.
+ *
+ * NOTE: no styles.css rule consumes `var(--space-*)` / `var(--radius-*)` yet — this is
+ * intentional forward-publish for that planned migration, not dead code. If that migration
+ * is dropped, delete this function and its main.kt call.
  */
 fun applyDimenTokens() {
     val root = document.documentElement as? HTMLElement ?: return

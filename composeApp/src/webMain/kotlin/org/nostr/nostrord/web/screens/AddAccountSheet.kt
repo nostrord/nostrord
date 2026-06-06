@@ -59,13 +59,15 @@ val AddAccountSheet =
 
         // Run an add-account action via the shared LoginViewModel; on success the warm-swap
         // activates the new account and the sheet closes, otherwise the error is shown.
-        fun runAdd(start: ((Result<Unit>) -> Unit) -> Unit) {
+        // [fallback] is the method-specific message used when the error carries none (mirrors
+        // the old WebAuth per-method strings, e.g. "Failed to connect to bunker").
+        fun runAdd(fallback: String, start: ((Result<Unit>) -> Unit) -> Unit) {
             setError(null)
             setBusy(true)
             start { result ->
                 setBusy(false)
                 val err = result.exceptionOrNull()
-                if (err == null) props.onClose() else setError(err.message ?: "Failed to add account")
+                if (err == null) props.onClose() else setError(err.message?.takeIf { it.isNotBlank() } ?: fallback)
             }
         }
 
@@ -162,7 +164,7 @@ val AddAccountSheet =
                                 className = ClassName("login-primary")
                                 disabled = privateKey.isBlank() || busy
                                 onClick = {
-                                    runAdd { cb ->
+                                    runAdd("Could not add account") { cb ->
                                         vm.loginWithPrivateKeyInput(
                                             privateKey,
                                             isNewIdentity = generatedKey != null && privateKey == generatedKey,
@@ -226,7 +228,7 @@ val AddAccountSheet =
                                     button {
                                         className = ClassName("login-primary")
                                         disabled = bunkerUrl.isBlank() || busy
-                                        onClick = { runAdd { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) } }
+                                        onClick = { runAdd("Failed to connect to bunker") { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) } }
                                         +(if (busy) "Connecting…" else "Connect to Bunker")
                                     }
                                 }
@@ -251,7 +253,7 @@ val AddAccountSheet =
                                 button {
                                     className = ClassName("login-primary")
                                     disabled = busy
-                                    onClick = { runAdd { cb -> vm.loginWithNip07Extension(onResult = cb) } }
+                                    onClick = { runAdd("Extension login failed") { cb -> vm.loginWithNip07Extension(onResult = cb) } }
                                     +(if (busy) "Connecting…" else "Connect Extension")
                                 }
                             }
