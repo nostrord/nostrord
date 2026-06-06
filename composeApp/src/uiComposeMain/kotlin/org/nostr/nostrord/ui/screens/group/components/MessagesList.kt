@@ -110,6 +110,10 @@ fun MessagesList(
     reactions: Map<String, Map<String, GroupManager.ReactionInfo>> = emptyMap(),
     // In-flight reactions keyed "$messageId|$emoji"; rendered as spinner placeholders.
     pendingReactions: Set<String> = emptySet(),
+    // Optimistic-send delivery status for own messages, keyed by event id.
+    messageStatus: Map<String, GroupManager.MessageStatus> = emptyMap(),
+    onRetrySend: (eventId: String) -> Unit = {},
+    onDismissFailed: (eventId: String) -> Unit = {},
     currentUserPubkey: String? = null,
     isJoined: Boolean,
     isInitialLoading: Boolean = false,
@@ -653,6 +657,9 @@ fun MessagesList(
                                                 .map { it.substringAfter('|') }
                                                 .toSet(),
                                             isAuthor = currentUserPubkey != null && item.message.pubkey == currentUserPubkey,
+                                            messageStatus = messageStatus[item.message.id],
+                                            onRetrySend = { onRetrySend(item.message.id) },
+                                            onDismissFailed = { onDismissFailed(item.message.id) },
                                             currentUserPubkey = currentUserPubkey,
                                             currentGroupId = groupId,
                                             currentRelayUrl = currentRelayUrl,

@@ -34,6 +34,9 @@ interface NostrRepositoryApi {
     val groups: StateFlow<List<GroupMetadata>>
     val groupsByRelay: StateFlow<Map<String, List<GroupMetadata>>>
     val messages: StateFlow<Map<String, List<NostrGroupClient.NostrMessage>>>
+
+    /** Per-message delivery status for the local user's own messages (optimistic send). */
+    val messageStatus: StateFlow<Map<String, GroupManager.MessageStatus>>
     val joinedGroups: StateFlow<Set<String>>
     val joinedGroupsByRelay: StateFlow<Map<String, Set<String>>>
     val loadingRelays: StateFlow<Set<String>>
@@ -349,6 +352,12 @@ interface NostrRepositoryApi {
         replyToMessageId: String? = null,
         extraTags: List<List<String>> = emptyList(),
     ): Result<Unit>
+
+    /** Re-send a previously failed own message (optimistic send) by its event id. */
+    fun retrySend(eventId: String)
+
+    /** Drop a failed own message from the chat. */
+    fun dismissFailed(groupId: String, eventId: String)
 
     suspend fun addUser(
         groupId: String,

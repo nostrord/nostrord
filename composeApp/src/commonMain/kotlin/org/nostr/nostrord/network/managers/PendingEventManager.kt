@@ -95,6 +95,15 @@ class PendingEventManager(
     val isRetrying: StateFlow<Boolean> = _isRetrying.asStateFlow()
 
     /**
+     * Terminal-outcome hooks for optimistic send. [onEventDelivered] fires when a
+     * queued event is finally accepted by the relay; [onEventPermanentlyFailed]
+     * fires when it is rejected or its retries are exhausted. Both are keyed by the
+     * nostr event id so the owner (GroupManager) can resolve the on-screen status.
+     */
+    var onEventDelivered: ((eventId: String) -> Unit)? = null
+    var onEventPermanentlyFailed: ((eventId: String, groupId: String, eventJson: String, reason: String) -> Unit)? = null
+
+    /**
      * Queue an event for later sending.
      * Called when send fails due to offline or network error.
      *
@@ -164,13 +173,13 @@ class PendingEventManager(
             for (event in events) {
                 if (!event.canRetry) {
                     // Mark as permanently failed
+                    val reason = event.lastError ?: "Max retries exceeded"
                     updateStatus(
                         event.id,
-                        PendingEventStatus.Failed(
-                            reason = event.lastError ?: "Max retries exceeded",
-                            canRetry = false,
-                        ),
+                        PendingEventStatus.Failed(reason = reason, canRetry = false),
                     )
+                    onEventPermanentlyFailed?.invoke(event.eventId, event.groupId, event.eventJson, reason)
+                    removeEvent(event.id)
                     continue
                 }
 
@@ -190,6 +199,7 @@ class PendingEventManager(
                     is PublishResult.Success -> {
                         // Remove from queue on success
                         updateStatus(event.id, PendingEventStatus.Sent(result))
+                        onEventDelivered?.invoke(event.eventId)
                         removeEvent(event.id)
                     }
                     is PublishResult.Rejected -> {
@@ -201,6 +211,7 @@ class PendingEventManager(
                                 canRetry = false,
                             ),
                         )
+                        onEventPermanentlyFailed?.invoke(event.eventId, event.groupId, event.eventJson, result.reason)
                         removeEvent(event.id)
                     }
                     is PublishResult.Timeout, is PublishResult.Error -> {
@@ -236,6 +247,7 @@ class PendingEventManager(
         when (result) {
             is PublishResult.Success -> {
                 updateStatus(event.id, PendingEventStatus.Sent(result))
+                onEventDelivered?.invoke(event.eventId)
                 removeEvent(event.id)
             }
             is PublishResult.Rejected -> {
@@ -246,6 +258,7 @@ class PendingEventManager(
                         canRetry = false,
                     ),
                 )
+                onEventPermanentlyFailed?.invoke(event.eventId, event.groupId, event.eventJson, result.reason)
                 removeEvent(event.id)
             }
             is PublishResult.Timeout, is PublishResult.Error -> {
@@ -318,13 +331,20 @@ class PendingEventManager(
             _pendingEvents.value = current.map { if (it.id == pendingId) updated else it }
 
             // Update status
-            val status =
-                if (updated.canRetry) {
-                    PendingEventStatus.Failed(reason = errorMsg, canRetry = true)
-                } else {
-                    PendingEventStatus.Failed(reason = "Max retries exceeded: $errorMsg", canRetry = false)
-                }
-            _eventStatuses.value = _eventStatuses.value + (pendingId to status)
+            if (updated.canRetry) {
+                _eventStatuses.value = _eventStatuses.value +
+                    (pendingId to PendingEventStatus.Failed(reason = errorMsg, canRetry = true))
+            } else {
+                // Retries exhausted: terminal failure. Notify the owner and drop it
+                // from the queue so the on-screen message resolves to Failed now
+                // instead of lingering as Sending until the next reconnect sweep.
+                val reason = "Max retries exceeded: $errorMsg"
+                _eventStatuses.value = _eventStatuses.value +
+                    (pendingId to PendingEventStatus.Failed(reason = reason, canRetry = false))
+                onEventPermanentlyFailed?.invoke(updated.eventId, updated.groupId, updated.eventJson, reason)
+                _pendingEvents.value = _pendingEvents.value.filter { it.id != pendingId }
+                _eventStatuses.value = _eventStatuses.value - pendingId
+            }
         }
     }
 
