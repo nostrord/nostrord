@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.screens.login
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -107,6 +108,8 @@ class LoginViewModel(
             try {
                 val pubkey = Nip07.getPublicKey() // platform call — can throw if extension unavailable
                 onResult(repo.loginWithNip07(pubkey).toKotlinResult())
+            } catch (c: CancellationException) {
+                throw c
             } catch (e: Exception) {
                 onResult(Result.failure(e))
             }
@@ -139,15 +142,16 @@ class LoginViewModel(
                     repo.completeNostrConnectLogin(client)
                     qrClient = null
                     onConnected()
+                } catch (c: CancellationException) {
+                    // Scope/job cancelled (screen left, Try Again, relay re-apply): tear the
+                    // socket down and propagate — never report it as a connection failure.
+                    qrClient?.disconnect()
+                    qrClient = null
+                    throw c
                 } catch (e: Exception) {
                     qrClient?.disconnect()
                     qrClient = null
-                    val message =
-                        when {
-                            e.message?.contains("cancelled", ignoreCase = true) == true -> null
-                            else -> "Connection failed: ${e.message}"
-                        }
-                    onError(message)
+                    onError("Connection failed: ${e.message}")
                 }
             }
     }
