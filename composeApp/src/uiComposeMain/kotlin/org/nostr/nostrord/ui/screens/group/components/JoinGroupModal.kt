@@ -38,7 +38,7 @@ fun JoinGroupModal(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Paste an invite link or a group address to join a group.",
+                    "Paste a wss://relay'id, a naddr, or a nostrord invite link.",
                     color = NostrordColors.TextSecondary,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -47,7 +47,7 @@ fun JoinGroupModal(
                 // placeholder structure (not Material's in-field floating label).
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        "Invite Link or Group Address",
+                        "Group address, naddr, or invite link",
                         color = NostrordColors.TextSecondary,
                         style = MaterialTheme.typography.labelSmall,
                     )

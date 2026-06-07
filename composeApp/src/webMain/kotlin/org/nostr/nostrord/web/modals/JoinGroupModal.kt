@@ -51,12 +51,12 @@ val JoinGroupModal =
                 }
                 div {
                     className = ClassName("modal-subtitle tight")
-                    +"Paste an invite link or a group address to join a group."
+                    +"Paste a wss://relay'id, a naddr, or a nostrord invite link."
                 }
 
                 div {
                     className = ClassName("field-label")
-                    +"Invite Link or Group Address"
+                    +"Group address, naddr, or invite link"
                 }
                 input {
                     className = ClassName("modal-input")
