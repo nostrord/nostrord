@@ -1,9 +1,6 @@
 package org.nostr.nostrord.web.modals
 
-import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.utils.Result
-import org.nostr.nostrord.utils.toRelayUrl
-import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.utils.parseGroupJoinInput
 import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
@@ -15,51 +12,28 @@ import web.cssom.ClassName
 
 external interface JoinGroupModalProps : Props {
     var onClose: () -> Unit
-}
-
-/** Parse a nostrord.com/open or nostrord:// invite link into (relayUrl, groupId, code?). */
-private fun parseInviteLink(input: String): Triple<String, String, String?>? {
-    val trimmed = input.trim()
-    val queryStart = trimmed.indexOf('?')
-    if (queryStart < 0) return null
-    val params =
-        trimmed.substring(queryStart + 1).split("&").associate { param ->
-            val idx = param.indexOf("=")
-            if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1) else param to ""
-        }
-    val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
-    val group = params["group"]?.takeIf { it.isNotBlank() } ?: return null
-    return Triple(relay.toRelayUrl(), group, params["code"]?.takeIf { it.isNotBlank() })
+    var onJoin: (relayUrl: String, groupId: String, inviteCode: String?) -> Unit
 }
 
 /**
- * Join-group modal — real port of the Compose [JoinGroupModal]: paste an invite link, parse
- * it, switch to its relay and join. Closes on success, shows the parse/join error otherwise.
+ * Join-group modal — mirrors the Compose flow (App.kt onJoin): paste an invite link or a NIP-29
+ * group address, parse it, then open the group. Joining is the user's decision inside the group
+ * screen (its Join button), not the modal's; only an explicit invite code auto-joins. The
+ * navigate + switch-relay + optional-join wiring lives in [onJoin] (AppShell).
  */
 val JoinGroupModal =
     FC<JoinGroupModalProps> { props ->
         val (link, setLink) = useState { "" }
-        val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
 
         fun submit() {
-            val parsed = parseInviteLink(link)
+            val parsed = parseGroupJoinInput(link)
             if (parsed == null) {
-                setError("Invalid link. Use a nostrord.com/open/ or nostrord:// invite link.")
+                setError("Invalid input. Use a wss://relay'groupId address or a nostrord invite link.")
                 return
             }
-            val (relayUrl, groupId, code) = parsed
-            setError(null)
-            setBusy(true)
-            launchApp {
-                AppModule.nostrRepository.switchRelay(relayUrl)
-                val result = AppModule.nostrRepository.joinGroup(groupId, code)
-                setBusy(false)
-                when (result) {
-                    is Result.Success -> props.onClose()
-                    is Result.Error -> setError(result.error.message.ifBlank { "Failed to join group." })
-                }
-            }
+            props.onJoin(parsed.relayUrl, parsed.groupId, parsed.inviteCode)
+            props.onClose()
         }
 
         useEscClose { props.onClose() }
@@ -77,16 +51,16 @@ val JoinGroupModal =
                 }
                 div {
                     className = ClassName("modal-subtitle tight")
-                    +"Paste an invite link to join a group."
+                    +"Paste an invite link or a group address to join a group."
                 }
 
                 div {
                     className = ClassName("field-label")
-                    +"Invite Link"
+                    +"Invite Link or Group Address"
                 }
                 input {
                     className = ClassName("modal-input")
-                    placeholder = "https://nostrord.com/open/?relay=...&group=..."
+                    placeholder = "wss://relay.com'groupId"
                     value = link
                     onChange = { event ->
                         setLink(event.currentTarget.value)
@@ -110,9 +84,9 @@ val JoinGroupModal =
                     }
                     button {
                         className = ClassName("btn-primary")
-                        disabled = link.isBlank() || busy
+                        disabled = link.isBlank()
                         onClick = { submit() }
-                        +(if (busy) "Joining…" else "Join")
+                        +"Open"
                     }
                 }
             }

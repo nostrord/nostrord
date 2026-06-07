@@ -1194,7 +1194,26 @@ val AppShell =
 
             when (modal) {
                 "create" -> CreateGroupModal { onClose = { setModal(null) } }
-                "join" -> JoinGroupModal { onClose = { setModal(null) } }
+                "join" ->
+                    JoinGroupModal {
+                        onClose = { setModal(null) }
+                        // Mirror Compose (App.kt): open the group and let the user decide there;
+                        // only an explicit invite code auto-joins. Cross-relay order matches the
+                        // deep-link path (switchRelay first, then setSelectedGroupId).
+                        onJoin = { relayUrl, groupId, inviteCode ->
+                            setNotificationsOpen(false)
+                            if (relayUrl != repo.currentRelayUrl.value) {
+                                launchApp {
+                                    repo.switchRelay(relayUrl)
+                                    setSelectedGroupId(groupId)
+                                    if (inviteCode != null) repo.joinGroup(groupId, inviteCode)
+                                }
+                            } else {
+                                setSelectedGroupId(groupId)
+                                if (inviteCode != null) launchApp { repo.joinGroup(groupId, inviteCode) }
+                            }
+                        }
+                    }
                 "relay" ->
                     AddRelayModal {
                         initialTab = relayTab

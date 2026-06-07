@@ -8,11 +8,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.utils.toRelayUrl
+import org.nostr.nostrord.utils.parseGroupJoinInput
 
 /**
- * Modal for joining a group by pasting an invite link.
+ * Modal for joining a group by pasting an invite link or a NIP-29 group address.
  * Accepts formats:
+ * - Group address: wss://relay.com'groupId
  * - Full URL: https://nostrord.com/open/?relay=X&group=Y&code=Z
  * - nostrord://open?relay=X&group=Y&code=Z
  */
@@ -23,32 +24,6 @@ fun JoinGroupModal(
 ) {
     var linkInput by remember { mutableStateOf("") }
     var parseError by remember { mutableStateOf<String?>(null) }
-
-    fun tryParseLink(input: String): Triple<String, String, String?>? {
-        if (input.isBlank()) return null
-        val trimmed = input.trim()
-
-        val queryStart = trimmed.indexOf('?')
-        if (queryStart < 0) return null
-
-        val query = trimmed.substring(queryStart + 1)
-        val params =
-            query.split("&").associate { param ->
-                val idx = param.indexOf("=")
-                if (idx >= 0) {
-                    param.substring(0, idx) to param.substring(idx + 1)
-                } else {
-                    param to ""
-                }
-            }
-
-        val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
-        val group = params["group"]?.takeIf { it.isNotBlank() } ?: return null
-        val relayUrl = relay.toRelayUrl()
-        val code = params["code"]?.takeIf { it.isNotBlank() }
-
-        return Triple(relayUrl, group, code)
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -63,31 +38,39 @@ fun JoinGroupModal(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    "Paste an invite link to join a group.",
+                    "Paste an invite link or a group address to join a group.",
                     color = NostrordColors.TextSecondary,
                     style = MaterialTheme.typography.bodySmall,
                 )
 
-                OutlinedTextField(
-                    value = linkInput,
-                    onValueChange = {
-                        linkInput = it
-                        parseError = null
-                    },
-                    placeholder = {
-                        Text(
-                            "https://nostrord.com/open/?relay=...&group=...",
-                            color = NostrordColors.TextMuted,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    },
-                    label = { Text("Invite Link", color = NostrordColors.TextSecondary) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = outlinedFieldColors(),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    shape = RoundedCornerShape(8.dp),
-                )
+                // Standalone label above the field, mirroring the web `field-label` +
+                // placeholder structure (not Material's in-field floating label).
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "Invite Link or Group Address",
+                        color = NostrordColors.TextSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    OutlinedTextField(
+                        value = linkInput,
+                        onValueChange = {
+                            linkInput = it
+                            parseError = null
+                        },
+                        placeholder = {
+                            Text(
+                                "wss://relay.com'groupId",
+                                color = NostrordColors.TextMuted,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = outlinedFieldColors(),
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        shape = RoundedCornerShape(8.dp),
+                    )
+                }
 
                 if (parseError != null) {
                     Text(
@@ -101,12 +84,12 @@ fun JoinGroupModal(
         confirmButton = {
             Button(
                 onClick = {
-                    val parsed = tryParseLink(linkInput)
+                    val parsed = parseGroupJoinInput(linkInput)
                     if (parsed == null) {
-                        parseError = "Invalid link. Use a nostrord.com/open/ or nostrord:// invite link."
+                        parseError = "Invalid input. Use a wss://relay'groupId address or a nostrord invite link."
                         return@Button
                     }
-                    onJoin(parsed.first, parsed.second, parsed.third)
+                    onJoin(parsed.relayUrl, parsed.groupId, parsed.inviteCode)
                 },
                 enabled = linkInput.isNotBlank(),
                 colors =
@@ -118,7 +101,7 @@ fun JoinGroupModal(
                 ),
                 shape = RoundedCornerShape(8.dp),
             ) {
-                Text("Join")
+                Text("Open")
             }
         },
         dismissButton = {

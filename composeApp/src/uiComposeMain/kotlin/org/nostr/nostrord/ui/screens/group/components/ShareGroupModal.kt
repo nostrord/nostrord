@@ -20,6 +20,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.buildGroupNaddr
 import org.nostr.nostrord.ui.util.buildShareGroupLink
+import org.nostr.nostrord.utils.buildGroupAddress
 import org.nostr.nostrord.utils.rememberClipboardWriter
 import org.nostr.nostrord.utils.rememberTextSharer
 import org.nostr.nostrord.utils.supportsNativeShare
@@ -35,6 +36,7 @@ fun ShareGroupModal(
 
     val link = buildShareGroupLink(relayUrl, groupId)
     val naddr = buildGroupNaddr(relayUrl, groupId, relayPubkey)
+    val address = buildGroupAddress(relayUrl, groupId)
     val copyToClipboard = rememberClipboardWriter()
     val shareText = rememberTextSharer()
 
@@ -57,6 +59,13 @@ fun ShareGroupModal(
                     actionIcon = if (supportsNativeShare) Icons.Default.Share else Icons.Default.ContentCopy,
                     actionLabel = if (supportsNativeShare) "Share" else "Copy",
                     onAction = { if (supportsNativeShare) shareText(link) else copyToClipboard(link) },
+                )
+                ShareRow(
+                    label = "Group Address",
+                    value = address,
+                    actionIcon = if (supportsNativeShare) Icons.Default.Share else Icons.Default.ContentCopy,
+                    actionLabel = if (supportsNativeShare) "Share" else "Copy",
+                    onAction = { if (supportsNativeShare) shareText(address) else copyToClipboard(address) },
                 )
                 ShareRow(
                     label = "Nostr Address (naddr)",
