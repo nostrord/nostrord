@@ -39,7 +39,9 @@ fun parseGroupJoinInput(input: String): GroupJoinTarget? {
         if (naddr.kind != 39000) return null
         val relay = naddr.relays.firstOrNull()?.takeIf { it.isNotBlank() } ?: return null
         val groupId = naddr.identifier.takeIf { it.isNotBlank() } ?: return null
-        return GroupJoinTarget(relay.toRelayUrl(), groupId)
+        val relayUrl = relay.toRelayUrl()
+        if (relayUrl.isEmpty()) return null
+        return GroupJoinTarget(relayUrl, groupId)
     }
 
     // NIP-29 group address takes priority: an apostrophe separates relay from group id, and the
@@ -64,5 +66,7 @@ fun parseGroupJoinInput(input: String): GroupJoinTarget? {
         }
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
     val group = params["group"]?.takeIf { it.isNotBlank() } ?: return null
-    return GroupJoinTarget(relay.toRelayUrl(), group, params["code"]?.takeIf { it.isNotBlank() })
+    val relayUrl = relay.toRelayUrl()
+    if (relayUrl.isEmpty()) return null
+    return GroupJoinTarget(relayUrl, group, params["code"]?.takeIf { it.isNotBlank() })
 }

@@ -86,4 +86,27 @@ class GroupLinkTest {
         val naddr = Nip19.encodeNaddr(identifier = "abc123", relay = "wss://relay.com", kind = 30023)
         assertNull(parseGroupJoinInput(naddr))
     }
+
+    @Test
+    fun `garbage naddr is rejected`() {
+        assertNull(parseGroupJoinInput("naddr1notvalidbech32"))
+    }
+
+    @Test
+    fun `address with userinfo relay is rejected`() {
+        // toRelayUrl rejects `@` userinfo (it could bypass loopback checks); none of the forms
+        // should let a blank relay slip through.
+        assertNull(parseGroupJoinInput("ws://localhost:7777@evil.com'abc123"))
+    }
+
+    @Test
+    fun `invite link with userinfo relay is rejected`() {
+        assertNull(parseGroupJoinInput("nostrord://open?relay=ws://localhost:7777@evil.com&group=abc123"))
+    }
+
+    @Test
+    fun `naddr with userinfo relay hint is rejected`() {
+        val naddr = Nip19.encodeNaddr(identifier = "abc123", relay = "ws://localhost:7777@evil.com", kind = 39000)
+        assertNull(parseGroupJoinInput(naddr))
+    }
 }
