@@ -1,5 +1,6 @@
 package org.nostr.nostrord.utils
 
+import org.nostr.nostrord.nostr.Nip19
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -60,5 +61,29 @@ class GroupLinkTest {
     @Test
     fun `buildGroupAddress adds scheme to bare host`() {
         assertEquals("wss://relay.com'abc123", buildGroupAddress("relay.com", "abc123"))
+    }
+
+    @Test
+    fun `parses group naddr with relay hint`() {
+        val naddr = Nip19.encodeNaddr(identifier = "abc123", relay = "wss://relay.com", kind = 39000)
+        assertEquals(GroupJoinTarget("wss://relay.com", "abc123"), parseGroupJoinInput(naddr))
+    }
+
+    @Test
+    fun `parses group naddr with nostr prefix`() {
+        val naddr = "nostr:" + Nip19.encodeNaddr(identifier = "abc123", relay = "wss://relay.com", kind = 39000)
+        assertEquals(GroupJoinTarget("wss://relay.com", "abc123"), parseGroupJoinInput(naddr))
+    }
+
+    @Test
+    fun `naddr without a relay hint is rejected`() {
+        val naddr = Nip19.encodeNaddr(identifier = "abc123", relay = "", kind = 39000)
+        assertNull(parseGroupJoinInput(naddr))
+    }
+
+    @Test
+    fun `non-group naddr kind is rejected`() {
+        val naddr = Nip19.encodeNaddr(identifier = "abc123", relay = "wss://relay.com", kind = 30023)
+        assertNull(parseGroupJoinInput(naddr))
     }
 }
