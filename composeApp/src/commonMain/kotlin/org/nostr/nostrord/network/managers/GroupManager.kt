@@ -2421,9 +2421,16 @@ class GroupManager(
     }
 
     /**
-     * Delete a message from a group (NIP-09: kind 5 deletion event).
-     * Sends the deletion event to the relay; the relay will broadcast it and
-     * handleDeletion() will remove it from local state when received back.
+     * Delete a message from a group.
+     *
+     * The deletion kind is chosen by who is deleting whose message:
+     * - Authors deleting their own message use kind 5 (NIP-09 standard deletion).
+     * - Admins deleting another member's message use kind 9005 (NIP-29
+     *   delete-event moderation action). NIP-29 relays only honor a kind 5 from
+     *   the author; removing someone else's message requires the admin kind 9005.
+     *
+     * Sends the deletion event to the relay; the relay broadcasts it and
+     * handleDeletion() removes it from local state when received back.
      */
     suspend fun deleteMessage(
         groupId: String,
@@ -2433,14 +2440,19 @@ class GroupManager(
     ): Result<Unit> {
         val currentClient = clientForGroup(groupId)
             ?: return Result.Error(AppError.Network.Disconnected(""))
+        val messageAuthor = _messages.value[groupId]?.firstOrNull { it.id == messageId }?.pubkey
+        val deletionKind = deletionKindFor(
+            isOwnMessage = messageAuthor == pubKey,
+            isAdmin = isGroupAdmin(groupId, pubKey),
+        )
         return try {
             val event = Event(
                 pubkey = pubKey,
                 createdAt = epochMillis() / 1000,
-                kind = 5,
+                kind = deletionKind,
                 tags = listOf(
-                    listOf("e", messageId),
                     listOf("h", groupId),
+                    listOf("e", messageId),
                 ),
                 content = "",
             )
@@ -3430,3 +3442,14 @@ class GroupManager(
         SecureStorage.clearMessagesForGroup(pubkey, groupId)
     }
 }
+
+/**
+ * Pick the deletion event kind for a group message.
+ *
+ * - Kind 5 (NIP-09) is the standard deletion an author issues for their own message.
+ * - Kind 9005 is the NIP-29 delete-event moderation action; NIP-29 relays only let an
+ *   admin remove another member's message through it, never through kind 5.
+ *
+ * An admin deleting their own message stays on kind 5 (they are the author).
+ */
+internal fun deletionKindFor(isOwnMessage: Boolean, isAdmin: Boolean): Int = if (!isOwnMessage && isAdmin) 9005 else 5
