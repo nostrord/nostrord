@@ -409,6 +409,8 @@ private val ChatComposer =
                     setMentions(emptyMap())
                     setGroupMentions(emptyMap())
                     setPendingUploads(emptyList())
+                    // Keep the mobile keyboard up and the cursor in the field for the next message.
+                    composerInputRef.current?.focus()
                     props.onSent()
                 },
                 onFailure = { setSending(false) },
@@ -517,7 +519,9 @@ private val ChatComposer =
                         className = ClassName("composer-input")
                         placeholder = "Message $groupName"
                         value = draft
-                        readOnly = sending
+                        // Intentionally NOT readOnly while sending: toggling readOnly on the
+                        // focused field dismisses the mobile virtual keyboard. The double-send
+                        // guard lives in send() (sending check) and the Send button's disabled.
                         rows = 1
                         onChange = { event ->
                             val v = event.currentTarget.value
@@ -639,6 +643,9 @@ private val ChatComposer =
                         if (draft.isNotBlank() || sending) "composer-send active" else "composer-send",
                     )
                     disabled = (draft.isBlank() && !uploading) || sending || uploading
+                    // preventDefault on mousedown keeps focus on the textarea so tapping Send
+                    // does not blur it and dismiss the mobile keyboard (same trick as mention rows).
+                    onMouseDown = { e -> e.preventDefault() }
                     onClick = { send() }
                     if (sending) {
                         span { className = ClassName("btn-spinner") }
