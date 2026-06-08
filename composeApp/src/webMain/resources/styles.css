@@ -3874,6 +3874,12 @@ body {
 
 .composer-input::placeholder {
     color: var(--color-text-muted);
+    /* Keep a long "Message <group name>" on one line with an ellipsis instead of
+       wrapping (which also grew the auto-resizing textarea to several rows). Only
+       the placeholder is clamped; typed multi-line messages still wrap normally. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .composer-send {
