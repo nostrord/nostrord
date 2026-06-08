@@ -2787,6 +2787,9 @@ private val URL_REGEX =
     Regex(
         "(data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)" +
             "|(https?://[^\\s]+)" +
+            // ws(s):// relay urls, incl. the NIP-29 group address `wss://relay'groupId`
+            // (mirrors native MessageContentParser so the apostrophe form renders a group card).
+            "|(wss?://[^\\s<>\"]+)" +
             "|(nostr:(?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]+)" +
             "|\\b((?:npub1|nprofile1|nevent1|note1|naddr1)[0-9a-z]{20,})",
     )
@@ -2969,6 +2972,19 @@ private fun ChildrenBuilder.renderEntities(
                 }
             }
             if (url.length < token.length) +token.substring(url.length)
+        } else if (token.startsWith("wss://") || token.startsWith("ws://")) {
+            // NIP-29 group address `wss://relay'groupId` renders as a tappable group card,
+            // mirroring native MessageContent (RelayPart). A bare relay url stays plain text.
+            val apostrophe = token.indexOf('\'')
+            if (apostrophe > 0) {
+                GroupLinkCard {
+                    groupId = token.substring(apostrophe + 1)
+                    relayUrl = token.substring(0, apostrophe)
+                    onNavigate = onGroupRef
+                }
+            } else {
+                +token
+            }
         } else {
             when (val entity = Nip19.decode(token.removePrefix("nostr:"))) {
                 is Nip19.Entity.Npub -> mentionSpan(entity.pubkey, userMetadata, onUser)

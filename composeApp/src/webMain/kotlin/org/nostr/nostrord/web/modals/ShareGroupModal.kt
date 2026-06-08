@@ -3,6 +3,7 @@ package org.nostr.nostrord.web.modals
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.utils.buildGroupAddress
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.copyToClipboard
@@ -35,6 +36,7 @@ val ShareGroupModal =
         // Author = the relay's own pubkey (NIP-11), like native; falls back to zero bytes inside encodeNaddr.
         val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
         val naddr = "nostr:" + Nip19.encodeNaddr(identifier = group.id, relay = relayUrl, kind = 39000, pubkeyHex = relayPubkey)
+        val address = buildGroupAddress(relayUrl, group.id)
 
         useEscClose { props.onClose() }
 
@@ -62,6 +64,7 @@ val ShareGroupModal =
                 }
 
                 shareField("Link", link)
+                shareField("Group Address", address)
                 shareField("Nostr Address (naddr)", naddr)
             }
         }
