@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web
 
 import kotlinx.browser.window
+import kotlinx.coroutines.delay
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.auth.removeAccountBusyLabel
@@ -101,6 +102,24 @@ val AppShell =
         val activeAccountId = useStateFlow(AppModule.accountStore.activeId)
         val notifUnread = useStateFlow(AppModule.notificationHistoryStore.entries).count { !it.read }
         val connState = useStateFlow(repo.connectionState)
+
+        // The reconnect loop cycles Reconnecting -> Connecting -> Error in quick succession, so
+        // gating the banner straight on connState made it blink (it hid on every transient
+        // Connecting between attempts). Drive it from sticky state instead: hide only once truly
+        // Connected, hold it visible across the Connecting blips of a retry, and require the
+        // trouble to persist past a short grace window so a normal cold-start connect never
+        // flashes a banner.
+        val (showConnBanner, setShowConnBanner) = useState(false)
+        useEffect(connState) {
+            when (connState) {
+                ConnectionManager.ConnectionState.Connected -> setShowConnBanner(false)
+                ConnectionManager.ConnectionState.Connecting -> Unit // keep current across retry blips
+                else -> {
+                    delay(1500)
+                    setShowConnBanner(true)
+                }
+            }
+        }
 
         val relayNames = relayMetadata.mapValues { it.value.name ?: "" }
         val relayList =
@@ -791,18 +810,21 @@ val AppShell =
             div {
                 className = ClassName("content")
 
-                // Connection status banner (disconnected / reconnecting / error)
-                if (hasRelays &&
-                    !notificationsOpen &&
-                    connState != ConnectionManager.ConnectionState.Connected &&
-                    connState != ConnectionManager.ConnectionState.Connecting
-                ) {
+                // Connection status banner (disconnected / reconnecting / error).
+                // Both children of `.content` carry a stable `key`: without one React matches
+                // siblings by position, so toggling this banner shifted `.content-screen` by an
+                // index and React remounted the whole screen from scratch. That reset every
+                // WebAvatar's `loaded` flag, flashing the identicon fallback and re-fetching the
+                // photo each time the banner appeared or hid — the avatars "blinking" with the bar.
+                if (hasRelays && !notificationsOpen && showConnBanner) {
                     div {
+                        key = "connection-banner"
                         className = ClassName("connection-banner")
                         span {
                             +when (val s = connState) {
                                 is ConnectionManager.ConnectionState.Reconnecting ->
                                     "Reconnecting (${s.attempt}/${s.maxAttempts})…"
+                                ConnectionManager.ConnectionState.Connecting -> "Reconnecting…"
                                 is ConnectionManager.ConnectionState.Error -> "Unable to connect to the relay."
                                 else -> "Disconnected from the relay."
                             }
@@ -816,6 +838,7 @@ val AppShell =
                 }
 
                 div {
+                    key = "content-screen"
                     className = ClassName("content-screen")
                     when {
                         notificationsOpen ->
