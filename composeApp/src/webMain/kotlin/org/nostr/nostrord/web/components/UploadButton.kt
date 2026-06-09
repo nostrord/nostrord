@@ -1,5 +1,6 @@
 package org.nostr.nostrord.web.components
 
+import kotlinx.coroutines.awaitCancellation
 import org.khronos.webgl.ArrayBuffer
 import org.khronos.webgl.Int8Array
 import org.khronos.webgl.get
@@ -17,8 +18,11 @@ import react.Props
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.label
 import react.dom.html.ReactHTML.span
+import react.useEffect
+import react.useRef
 import react.useState
 import web.cssom.ClassName
+import web.html.HTMLInputElement
 import web.html.InputType
 import web.html.file
 import kotlin.coroutines.resume
@@ -52,6 +56,14 @@ external interface UploadButtonProps : Props {
     var onBusyChange: ((Boolean) -> Unit)?
 
     /**
+     * Fired whenever the OS file dialog closes, whether a file was chosen OR the user
+     * cancelled. The native picker steals focus and collapses the mobile soft keyboard, so
+     * the caller uses this to refocus its input and re-open the keyboard, so tapping attach
+     * never strands the user without a keyboard.
+     */
+    var onPickerClosed: (() -> Unit)?
+
+    /**
      * Restrict to still images only (avatars / banners / group pictures), matching native's
      * MediaAccept.Images. Defaults to the full image/video/audio set used by the composer.
      */
@@ -72,6 +84,21 @@ val UploadButton =
         // caller signals via props.busy shows the spinner on this attach icon.
         val busy = picking || (props.busy == true)
 
+        val inputRef = useRef<HTMLInputElement>(null)
+        // `change` only fires when a file is chosen; `cancel` fires when the OS dialog is
+        // dismissed with no selection. Both mean the picker closed, so both refocus the
+        // composer. Without the cancel path, cancelling left the keyboard shut.
+        useEffect(Unit) {
+            val node = inputRef.current ?: return@useEffect
+            val onCancel: (dynamic) -> Unit = { props.onPickerClosed?.invoke() }
+            node.asDynamic().addEventListener("cancel", onCancel)
+            try {
+                awaitCancellation()
+            } finally {
+                node.asDynamic().removeEventListener("cancel", onCancel)
+            }
+        }
+
         label {
             className = ClassName(props.cls)
             if (busy) {
@@ -80,6 +107,7 @@ val UploadButton =
                 icon(props.icon)
             }
             input {
+                ref = inputRef
                 className = ClassName("upload-file-input")
                 type = InputType.file
                 accept = if (props.imagesOnly == true) "image/*" else "image/*,video/*,audio/*"
@@ -88,6 +116,9 @@ val UploadButton =
                     val target = event.currentTarget
                     val fileList = target.asDynamic().files
                     val f = if (fileList != null && (fileList.length as Int) > 0) fileList[0] else null
+                    // Picker closed with a selection: refocus the composer (cancel is handled
+                    // by the listener above) so the soft keyboard re-opens.
+                    props.onPickerClosed?.invoke()
                     if (f != null) {
                         setPicking(true)
                         props.onBusyChange?.invoke(true)

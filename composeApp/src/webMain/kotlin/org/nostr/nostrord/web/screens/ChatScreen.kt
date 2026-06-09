@@ -484,6 +484,13 @@ private val ChatComposer =
                     // Count a file-pick upload in uploadCount too, so the send button is
                     // disabled until the picked URL lands in the draft (it isn't sent empty).
                     onBusyChange = { b -> setUploadCount { if (b) it + 1 else it - 1 } }
+                    // The native file picker collapses the soft keyboard (no web API keeps it
+                    // open while the OS dialog is up). Refocus the composer the instant the
+                    // dialog closes, whether a file was chosen or cancelled, so the keyboard
+                    // re-opens and the user keeps typing. Fired from the file input's change /
+                    // cancel handlers, the closest point to the gesture, so Android re-pops the
+                    // keyboard; iOS Safari needs a live gesture and may not.
+                    onPickerClosed = { composerInputRef.current?.focus() }
                     onUploaded = { upload ->
                         val url = upload.url
                         setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
