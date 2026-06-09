@@ -149,6 +149,44 @@ val ChatMessageList =
             }
         }
 
+        // Keep the reading position anchored above the on-screen keyboard (mobile). The page
+        // shell is sized to visualViewport.height (index.html --app-height), so opening the
+        // keyboard shrinks the message list from the bottom. By default the browser holds the
+        // TOP of the view, so the rows being read slide down behind the keyboard. Native
+        // (adjustResize) keeps the BOTTOM anchored: the same rows stay just above the keyboard.
+        // Mirror that by pushing scrollTop down by the height the viewport lost (and back up by
+        // the height it regains on close). When following the feed, pin straight to the bottom.
+        val prevViewportHeight = useRef(0.0)
+        useEffect(Unit) {
+            val vv = window.asDynamic().visualViewport ?: return@useEffect
+            prevViewportHeight.current = vv.height.unsafeCast<Double>()
+            val onResize: (dynamic) -> Unit = {
+                val newHeight = vv.height.unsafeCast<Double>()
+                val delta = (prevViewportHeight.current ?: 0.0) - newHeight
+                prevViewportHeight.current = newHeight
+                if (delta != 0.0) {
+                    // Defer to the next frame so the list has reflowed to its new height before
+                    // we touch scrollTop (otherwise the shift fights the in-flight relayout).
+                    window.requestAnimationFrame {
+                        val node = el.current ?: return@requestAnimationFrame
+                        if (atBottom.current == true && loadingOlder.current != true) {
+                            node.scrollTop = node.scrollHeight.toDouble()
+                        } else {
+                            // delta > 0 when the keyboard opened (viewport shrank): scroll down
+                            // so the bottom-most visible row stays put; < 0 on close reverses it.
+                            node.scrollTop = node.scrollTop + delta
+                        }
+                    }
+                }
+            }
+            vv.addEventListener("resize", onResize)
+            try {
+                awaitCancellation()
+            } finally {
+                vv.removeEventListener("resize", onResize)
+            }
+        }
+
         // Deep-link / reply jump: scroll the row with the given DOM id into view.
         useEffect(props.scrollToKey, items.size) {
             val key = props.scrollToKey ?: return@useEffect
