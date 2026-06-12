@@ -143,6 +143,9 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         // ── Generate wizard ─────────────────────────────────────────────────
         wizardStep > 0 -> {
             Column {
+                // Errors render at the top, mirroring the web's .login-error
+                // placement under the tab strip (visible above the keyboard).
+                LoginErrorPanel(errorMessage)
                 if (protectApplicable) {
                     StepDots(current = wizardStep, total = 2)
                     Spacer(modifier = Modifier.height(16.dp))
@@ -311,13 +314,13 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                         )
                     }
                 }
-                LoginErrorPanel(errorMessage)
             }
         }
 
         // ── Login form ──────────────────────────────────────────────────────
         else -> {
             Column {
+                LoginErrorPanel(errorMessage)
                 FieldLabel("Private key (hex, nsec or ncryptsec)")
                 LoginField(
                     value = privateKey,
@@ -500,8 +503,6 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                     fullWidth = true,
                     icon = Icons.Default.AutoAwesome,
                 )
-
-                LoginErrorPanel(errorMessage)
             }
         }
     }
@@ -510,7 +511,6 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
 @Composable
 private fun LoginErrorPanel(message: String?) {
     message?.let {
-        Spacer(modifier = Modifier.height(12.dp))
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.shapeSmall,
@@ -523,6 +523,8 @@ private fun LoginErrorPanel(message: String?) {
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+        // Sits at the top of the form (web .login-error parity): space below, not above.
+        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
