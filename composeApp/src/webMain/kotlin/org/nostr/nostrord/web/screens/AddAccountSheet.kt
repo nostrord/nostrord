@@ -42,6 +42,7 @@ val AddAccountSheet =
         val vm = useViewModel { LoginViewModel(AppModule.nostrRepository) }
         val (step, setStep) = useState { AddStep.Pick }
         val (privateKey, setPrivateKey) = useState { "" }
+        val (keyPassword, setKeyPassword) = useState { "" }
         val (showKey, setShowKey) = useState { false }
         val (generatedKey, setGeneratedKey) = useState<String?> { null }
         val (bunkerMode, setBunkerMode) = useState { AddBunkerMode.Qr }
@@ -141,6 +142,9 @@ val AddAccountSheet =
                         }
 
                         AddStep.Key -> {
+                            val isEncrypted = vm.isEncryptedKeyInput(privateKey)
+                            // Same gating as LoginScreen: only a well-formed key enables the button.
+                            val canAdd = vm.isValidKeyInput(privateKey) && (!isEncrypted || keyPassword.isNotEmpty()) && !busy
                             div {
                                 className = ClassName("field-with-icon")
                                 span {
@@ -150,7 +154,7 @@ val AddAccountSheet =
                                 input {
                                     className = ClassName("login-input")
                                     type = if (showKey) InputType.text else InputType.password
-                                    placeholder = "Enter your private key (hex or nsec)"
+                                    placeholder = "hex, nsec1, ncryptsec1"
                                     value = privateKey
                                     onChange = { event -> setPrivateKey(event.currentTarget.value) }
                                 }
@@ -160,13 +164,34 @@ val AddAccountSheet =
                                     if (showKey) icon(Ic.VisibilityOff) else icon(Ic.Visibility)
                                 }
                             }
+                            if (isEncrypted) {
+                                div {
+                                    className = ClassName("field-with-icon")
+                                    span {
+                                        className = ClassName("field-icon")
+                                        icon(Ic.Lock)
+                                    }
+                                    input {
+                                        className = ClassName("login-input")
+                                        type = InputType.password
+                                        placeholder = "Key password"
+                                        value = keyPassword
+                                        onChange = { event -> setKeyPassword(event.currentTarget.value) }
+                                    }
+                                }
+                                p {
+                                    className = ClassName("login-hint")
+                                    +"This key is encrypted (NIP-49); enter its password to unlock it."
+                                }
+                            }
                             button {
                                 className = ClassName("login-primary")
-                                disabled = privateKey.isBlank() || busy
+                                disabled = !canAdd
                                 onClick = {
                                     runAdd("Could not add account") { cb ->
                                         vm.loginWithPrivateKeyInput(
                                             privateKey,
+                                            password = keyPassword.takeIf { isEncrypted },
                                             isNewIdentity = generatedKey != null && privateKey == generatedKey,
                                             onResult = cb,
                                         )

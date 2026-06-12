@@ -78,6 +78,16 @@ class LoginViewModel(
     fun isEncryptedKeyInput(input: String): Boolean = Nip49.isEncryptedKey(input)
 
     /**
+     * True when the input is a complete, well-formed key: 64-char hex, a decodable
+     * nsec, or a structurally valid ncryptsec. The UIs gate the Login button on this
+     * so partial or garbage input never produces an "Invalid private key" round trip.
+     */
+    fun isValidKeyInput(input: String): Boolean {
+        val s = input.trim()
+        return if (Nip49.isEncryptedKey(s)) Nip49.hasValidStructure(s) else parsePrivateKeyHex(s) != null
+    }
+
+    /**
      * Accepts a raw nsec, 64-char hex, or NIP-49 ncryptsec private key, derives the
      * public key, and logs in. ncryptsec requires [password]; scrypt runs on the
      * Default dispatcher because the default log_n = 16 costs real CPU and memory.

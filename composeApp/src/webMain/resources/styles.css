@@ -12,6 +12,7 @@
     --color-surface: #2f3136;
     --color-surface-variant: #40444b;
     --color-input: #383a40;
+    --color-input-hover: #3e3b49;
     --color-hover: #34373c;
     --color-floating: #131217;
     --color-primary: #7a5af8;
@@ -247,6 +248,10 @@ body {
     transition: background 0.15s ease;
 }
 
+.login-tab:not(.selected):hover {
+    color: var(--color-text-primary);
+}
+
 .login-tab.selected {
     background: var(--color-primary);
     color: #fff;
@@ -316,6 +321,10 @@ body {
     color: var(--color-text-muted);
 }
 
+.field-eye:hover {
+    color: var(--color-text-primary);
+}
+
 .login-primary {
     width: 100%;
     height: 48px;
@@ -331,6 +340,10 @@ body {
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
+}
+
+.login-primary:hover:not(:disabled) {
+    background: var(--color-primary-variant);
 }
 
 /* Inline spinner for buttons that show a working state (login Connect /
@@ -398,6 +411,10 @@ body {
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
+}
+
+.login-secondary:hover:not(:disabled) {
+    background: var(--color-input-hover);
 }
 
 .login-hint {
@@ -4600,10 +4617,6 @@ body {
 .settings-save:disabled {
     opacity: 0.5;
     cursor: default;
-}
-
-.settings-save:hover {
-    background: var(--color-hover);
 }
 
 .settings-key {

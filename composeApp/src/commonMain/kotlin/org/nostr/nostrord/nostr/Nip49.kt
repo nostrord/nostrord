@@ -24,6 +24,12 @@ object Nip49 {
     fun isEncryptedKey(input: String): Boolean = input.trim().lowercase().startsWith("${HRP}1")
 
     /**
+     * Structural validation without decrypting: bech32 checksum, payload size, version
+     * and log_n range. Cheap; the UIs gate the Login button on it.
+     */
+    fun hasValidStructure(ncryptsec: String): Boolean = parsePayload(ncryptsec) != null
+
+    /**
      * Decrypt an ncryptsec with the password. Returns the 32-byte private key, or null
      * when the string is malformed or the password is wrong (Poly1305 tag mismatch).
      */
@@ -31,16 +37,22 @@ object Nip49 {
         ncryptsec: String,
         password: String,
     ): ByteArray? {
-        val (hrp, payload) = Bech32.decode(ncryptsec.trim()) ?: return null
-        if (hrp != HRP || payload.size != PAYLOAD_SIZE || payload[0] != VERSION) return null
+        val payload = parsePayload(ncryptsec) ?: return null
         val logN = payload[1].toInt() and 0xFF
-        if (logN !in 1..22) return null
         val salt = payload.copyOfRange(2, 18)
         val nonce = payload.copyOfRange(18, 42)
         val securityByte = payload[42]
         val ciphertext = payload.copyOfRange(43, PAYLOAD_SIZE)
         val key = Scrypt.derive(nfkcNormalize(password).encodeToByteArray(), salt, logN, r = 8, p = 1, dkLen = 32)
         return XChaCha20Poly1305.decrypt(key, nonce, ciphertext, aad = byteArrayOf(securityByte))
+    }
+
+    /** Decode + structural checks; returns the 91-byte payload or null. */
+    private fun parsePayload(ncryptsec: String): ByteArray? {
+        val (hrp, payload) = Bech32.decode(ncryptsec.trim()) ?: return null
+        if (hrp != HRP || payload.size != PAYLOAD_SIZE || payload[0] != VERSION) return null
+        if ((payload[1].toInt() and 0xFF) !in 1..22) return null
+        return payload
     }
 
     /**

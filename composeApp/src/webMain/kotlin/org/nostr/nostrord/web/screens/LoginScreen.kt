@@ -139,7 +139,8 @@ val LoginScreen =
                         when (tab) {
                             Tab.Key -> {
                                 val isEncrypted = vm.isEncryptedKeyInput(privateKey)
-                                val canLogin = privateKey.isNotBlank() && (!isEncrypted || keyPassword.isNotEmpty()) && !busy
+                                // Only a complete, well-formed key (hex / nsec / ncryptsec) enables Login.
+                                val canLogin = vm.isValidKeyInput(privateKey) && (!isEncrypted || keyPassword.isNotEmpty()) && !busy
                                 val submitKeyLogin = {
                                     if (canLogin) {
                                         runLogin { cb ->
@@ -312,7 +313,7 @@ val LoginScreen =
                                     }
                                     p {
                                         className = ClassName("ext-desc")
-                                        +"Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostrame."
+                                        +"Connect using a NIP-07 compatible extension such as nos2x or Nostrame."
                                     }
                                     button {
                                         className = ClassName("login-primary")

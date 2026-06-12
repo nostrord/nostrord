@@ -21,6 +21,7 @@ object ColorTokens {
     const val Surface = 0xFF25242BL
     const val SurfaceVariant = 0xFF34323CL
     const val InputBackground = 0xFF31303AL
+    const val InputHover = 0xFF3E3B49L
     const val HoverBackground = 0xFF302F37L
     const val MessageHover = 0xFF2E2D35L
     const val BackgroundFloating = 0xFF131217L
@@ -101,6 +102,7 @@ data class ColorPalette(
     val surface: Long,
     val surfaceVariant: Long,
     val inputBackground: Long,
+    val inputHover: Long,
     val hoverBackground: Long,
     val messageHover: Long,
     val backgroundFloating: Long,
@@ -140,6 +142,7 @@ val DarkColorPalette =
         surface = ColorTokens.Surface,
         surfaceVariant = ColorTokens.SurfaceVariant,
         inputBackground = ColorTokens.InputBackground,
+        inputHover = ColorTokens.InputHover,
         hoverBackground = ColorTokens.HoverBackground,
         messageHover = ColorTokens.MessageHover,
         backgroundFloating = ColorTokens.BackgroundFloating,
@@ -186,6 +189,7 @@ val LightColorPalette =
         surface = 0xFFEFEDF5L, // bg-sidebar
         surfaceVariant = 0xFFE8E6F0L, // bg-input
         inputBackground = 0xFFE8E6F0L,
+        inputHover = 0xFFD4D0E2L, // bg-input-hover
         hoverBackground = 0xFFE3E1EBL, // bg-hover
         messageHover = 0xFFF5F4F9L, // bg-msg-hover
         backgroundFloating = 0xFFF4F3F8L, // bg-floating

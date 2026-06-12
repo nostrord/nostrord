@@ -1,5 +1,6 @@
 package org.nostr.nostrord.ui.screens.login.components
 
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -16,6 +17,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -25,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.components.buttons.rememberHoverColor
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -53,7 +57,8 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     var showKey by remember { mutableStateOf(false) }
 
     val isEncrypted = vm.isEncryptedKeyInput(privateKey)
-    val canLogin = privateKey.isNotBlank() && (!isEncrypted || keyPassword.isNotEmpty()) && !isLoading
+    // Only a complete, well-formed key (hex / nsec / ncryptsec) enables Login.
+    val canLogin = vm.isValidKeyInput(privateKey) && (!isEncrypted || keyPassword.isNotEmpty()) && !isLoading
 
     fun generatePrivateKey(): String {
         val bytes = Random.Default.nextBytes(32)
@@ -130,17 +135,22 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
 
         // Login button
+        val (loginInteraction, loginContainer) =
+            rememberHoverColor(NostrordColors.Primary, NostrordColors.PrimaryVariant)
         Button(
             onClick = { login() },
+            interactionSource = loginInteraction,
             modifier =
             Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .height(48.dp)
+                .hoverable(loginInteraction)
+                .pointerHoverIcon(if (canLogin) PointerIcon.Hand else PointerIcon.Default),
             enabled = canLogin,
             shape = NostrordShapes.buttonShape,
             colors =
             ButtonDefaults.buttonColors(
-                containerColor = NostrordColors.Primary,
+                containerColor = loginContainer,
                 contentColor = Color.White,
                 disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
                 disabledContentColor = Color.White.copy(alpha = 0.7f),
@@ -190,6 +200,8 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         // Generate new key button (prototype secondary: filled grey) — only
         // generates + populates + shows the warning card. Login is deferred to
         // the Login button so the user has time to copy/save the key.
+        val (generateInteraction, generateContainer) =
+            rememberHoverColor(NostrordColors.SurfaceVariant, NostrordColors.InputHover)
         Button(
             onClick = {
                 errorMessage = null
@@ -197,15 +209,18 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                 privateKey = newPrivateKey
                 generatedKey = newPrivateKey
             },
+            interactionSource = generateInteraction,
             modifier =
             Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .height(48.dp)
+                .hoverable(generateInteraction)
+                .pointerHoverIcon(if (!isLoading) PointerIcon.Hand else PointerIcon.Default),
             enabled = !isLoading,
             shape = NostrordShapes.buttonShape,
             colors =
             ButtonDefaults.buttonColors(
-                containerColor = NostrordColors.SurfaceVariant,
+                containerColor = generateContainer,
                 contentColor = NostrordColors.TextContent,
                 disabledContainerColor = NostrordColors.SurfaceVariant.copy(alpha = 0.5f),
                 disabledContentColor = NostrordColors.TextMuted,

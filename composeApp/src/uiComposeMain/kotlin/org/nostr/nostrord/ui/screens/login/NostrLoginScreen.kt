@@ -4,6 +4,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -19,6 +22,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import nostrord.composeapp.generated.resources.Res
@@ -141,13 +146,24 @@ fun NostrLoginScreen(
                                 val backgroundColor by animateColorAsState(
                                     if (isSelected) NostrordColors.Primary else Color.Transparent,
                                 )
+                                // Hover lifts the inactive tab's text to primary (web .login-tab:hover)
+                                val interactionSource = remember { MutableInteractionSource() }
+                                val isHovered by interactionSource.collectIsHoveredAsState()
+                                val contentColor =
+                                    when {
+                                        isSelected -> Color.White
+                                        isHovered -> NostrordColors.TextPrimary
+                                        else -> NostrordColors.TextMuted
+                                    }
 
                                 Surface(
                                     modifier =
                                     Modifier
                                         .weight(1f)
                                         .clip(NostrordShapes.shapeSmall)
-                                        .clickable { selectedTab = tab },
+                                        .hoverable(interactionSource)
+                                        .clickable { selectedTab = tab }
+                                        .pointerHoverIcon(PointerIcon.Hand),
                                     shape = NostrordShapes.shapeSmall,
                                     color = backgroundColor,
                                 ) {
@@ -160,13 +176,13 @@ fun NostrLoginScreen(
                                             imageVector = tab.icon,
                                             contentDescription = null,
                                             modifier = Modifier.size(18.dp),
-                                            tint = if (isSelected) Color.White else NostrordColors.TextMuted,
+                                            tint = contentColor,
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
                                             text = tab.title,
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = if (isSelected) Color.White else NostrordColors.TextMuted,
+                                            color = contentColor,
                                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                             maxLines = 1,
                                         )

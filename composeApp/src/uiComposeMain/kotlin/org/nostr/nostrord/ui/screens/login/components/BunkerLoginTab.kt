@@ -2,6 +2,9 @@ package org.nostr.nostrord.ui.screens.login.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -22,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
@@ -32,6 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.isAndroid
 import org.nostr.nostrord.ui.components.QrCode
+import org.nostr.nostrord.ui.components.buttons.rememberHoverColor
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -75,7 +81,7 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = NostrordShapes.shapeMedium,
-            color = NostrordColors.SurfaceVariant,
+            color = NostrordColors.BackgroundFloating,
         ) {
             Row(modifier = Modifier.padding(4.dp)) {
                 val modes =
@@ -89,12 +95,23 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
                     val bgColor by animateColorAsState(
                         if (isSelected) NostrordColors.Primary else Color.Transparent,
                     )
+                    // Hover lifts the inactive toggle's text to primary (web .login-tab:hover)
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val isHovered by interactionSource.collectIsHoveredAsState()
+                    val contentColor =
+                        when {
+                            isSelected -> Color.White
+                            isHovered -> NostrordColors.TextPrimary
+                            else -> NostrordColors.TextMuted
+                        }
                     Surface(
                         modifier =
                         Modifier
                             .weight(1f)
                             .clip(NostrordShapes.shapeSmall)
-                            .clickable { mode = m },
+                            .hoverable(interactionSource)
+                            .clickable { mode = m }
+                            .pointerHoverIcon(PointerIcon.Hand),
                         shape = NostrordShapes.shapeSmall,
                         color = bgColor,
                     ) {
@@ -107,13 +124,13 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
                                 imageVector = icon,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint = if (isSelected) Color.White else NostrordColors.TextMuted,
+                                tint = contentColor,
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = label,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (isSelected) Color.White else NostrordColors.TextMuted,
+                                color = contentColor,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             )
                         }
@@ -364,16 +381,21 @@ private fun QrCodeLoginContent(
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
+            val (retryInteraction, retryContainer) =
+                rememberHoverColor(NostrordColors.Primary, NostrordColors.PrimaryVariant)
             Button(
                 onClick = { sessionKey++ },
+                interactionSource = retryInteraction,
                 modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
+                    .height(48.dp)
+                    .hoverable(retryInteraction)
+                    .pointerHoverIcon(PointerIcon.Hand),
                 shape = NostrordShapes.buttonShape,
                 colors =
                 ButtonDefaults.buttonColors(
-                    containerColor = NostrordColors.Primary,
+                    containerColor = retryContainer,
                     contentColor = Color.White,
                 ),
             ) {
@@ -508,17 +530,22 @@ private fun NostrConnectRelaysSection(
             )
 
             Spacer(modifier = Modifier.height(8.dp))
+            val (applyInteraction, applyContainer) =
+                rememberHoverColor(NostrordColors.Primary, NostrordColors.PrimaryVariant)
             Button(
                 onClick = { onApply(editable) },
                 enabled = dirty && editable.isNotEmpty(),
+                interactionSource = applyInteraction,
                 modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(44.dp),
+                    .height(44.dp)
+                    .hoverable(applyInteraction)
+                    .pointerHoverIcon(if (dirty && editable.isNotEmpty()) PointerIcon.Hand else PointerIcon.Default),
                 shape = NostrordShapes.buttonShape,
                 colors =
                 ButtonDefaults.buttonColors(
-                    containerColor = NostrordColors.Primary,
+                    containerColor = applyContainer,
                     contentColor = Color.White,
                 ),
             ) {
@@ -605,6 +632,8 @@ private fun BunkerUrlLoginContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Connect button
+        val (connectInteraction, connectContainer) =
+            rememberHoverColor(NostrordColors.Primary, NostrordColors.PrimaryVariant)
         Button(
             onClick = {
                 isConnecting = true
@@ -622,15 +651,18 @@ private fun BunkerUrlLoginContent(
                     }
                 }
             },
+            interactionSource = connectInteraction,
             modifier =
             Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .height(48.dp)
+                .hoverable(connectInteraction)
+                .pointerHoverIcon(if (bunkerUrl.isNotBlank() && !isConnecting) PointerIcon.Hand else PointerIcon.Default),
             enabled = bunkerUrl.isNotBlank() && !isConnecting,
             shape = NostrordShapes.buttonShape,
             colors =
             ButtonDefaults.buttonColors(
-                containerColor = NostrordColors.Primary,
+                containerColor = connectContainer,
                 contentColor = Color.White,
                 disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
                 disabledContentColor = Color.White.copy(alpha = 0.7f),

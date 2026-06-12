@@ -52,6 +52,9 @@ object NostrordColors {
     /** Text input fields */
     val InputBackground: Color get() = Color(palette.inputBackground)
 
+    /** Secondary buttons on hover (prototype bg-input-hover) */
+    val InputHover: Color get() = Color(palette.inputHover)
+
     /** Hover state background - slightly lighter than surface */
     val HoverBackground: Color get() = Color(palette.hoverBackground)
 

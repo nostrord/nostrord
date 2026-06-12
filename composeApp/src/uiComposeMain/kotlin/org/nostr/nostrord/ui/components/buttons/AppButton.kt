@@ -55,3 +55,19 @@ fun AppButton(
         )
     }
 }
+
+/**
+ * Hover-aware container color, mirroring the web's `:hover` rules (prototype style:
+ * brand → brand-hover on primary, input → input-hover on secondary). Pass the returned
+ * interaction source to the control AND to `Modifier.hoverable(...)` so the hover
+ * state is tracked.
+ */
+@Composable
+fun rememberHoverColor(
+    base: Color,
+    hovered: Color,
+): Pair<MutableInteractionSource, Color> {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    return interactionSource to if (isHovered) hovered else base
+}
