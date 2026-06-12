@@ -151,18 +151,24 @@ val LoginScreen =
                                 when (bunkerMode) {
                                     BunkerMode.Qr -> BunkerQr { onSuccess = {} }
                                     BunkerMode.Url -> {
+                                        val submitBunker = {
+                                            if (bunkerUrl.isNotBlank() && !busy) {
+                                                runLogin { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) }
+                                            }
+                                        }
                                         iconInput(
                                             ic = Ic.Link,
                                             type = InputType.text,
                                             placeholder = "bunker://<pubkey>?relay=wss://...",
                                             value = bunkerUrl,
                                             onChange = { setBunkerUrl(it) },
+                                            onEnter = { submitBunker() },
                                         )
                                         formHint("Get your bunker URL from nsec.app, Amber, or other NIP-46 signers")
                                         button {
                                             className = ClassName("btn-primary btn-lg btn-full login-submit")
                                             disabled = bunkerUrl.isBlank() || busy
-                                            onClick = { runLogin { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) } }
+                                            onClick = { submitBunker() }
                                             if (busy) {
                                                 span { className = ClassName("btn-spinner") }
                                             }

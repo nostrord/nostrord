@@ -29,10 +29,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -119,6 +127,7 @@ fun AppTextField(
     enabled: Boolean = true,
     onDone: (() -> Unit)? = null,
 ) {
+    val focusManager = LocalFocusManager.current
     Column(modifier = modifier) {
         label?.let { FormLabel(it) }
         OutlinedTextField(
@@ -127,7 +136,28 @@ fun AppTextField(
             placeholder = { Text(placeholder, color = NostrordColors.TextMuted) },
             singleLine = maxLines == 1,
             maxLines = maxLines,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                // Desktop keyboard parity with the web: Tab / Shift+Tab move focus
+                // (Compose text fields consume Tab by default) and a hardware Enter
+                // submits whenever the field has an [onDone].
+                .onPreviewKeyEvent { event ->
+                    when {
+                        event.type != KeyEventType.KeyDown -> false
+                        event.key == Key.Tab -> {
+                            focusManager.moveFocus(
+                                if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next,
+                            )
+                            true
+                        }
+                        onDone != null && (event.key == Key.Enter || event.key == Key.NumPadEnter) -> {
+                            onDone()
+                            true
+                        }
+                        else -> false
+                    }
+                },
             textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent),
             leadingIcon =
             leadingIcon?.let {

@@ -167,17 +167,23 @@ val AddAccountSheet =
                                 AddBunkerMode.Qr -> BunkerQr { onSuccess = { props.onClose() } }
 
                                 AddBunkerMode.Url -> {
+                                    val submitBunker = {
+                                        if (bunkerUrl.isNotBlank() && !busy) {
+                                            runAdd("Failed to connect to bunker") { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) }
+                                        }
+                                    }
                                     iconInput(
                                         ic = Ic.Link,
                                         type = InputType.text,
                                         placeholder = "bunker://<pubkey>?relay=wss://...",
                                         value = bunkerUrl,
                                         onChange = { setBunkerUrl(it) },
+                                        onEnter = { submitBunker() },
                                     )
                                     button {
                                         className = ClassName("btn-primary btn-lg btn-full login-submit")
                                         disabled = bunkerUrl.isBlank() || busy
-                                        onClick = { runAdd("Failed to connect to bunker") { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) } }
+                                        onClick = { submitBunker() }
                                         +(if (busy) "Connecting…" else "Connect to Bunker")
                                     }
                                 }

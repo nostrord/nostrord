@@ -492,8 +492,26 @@ private fun BunkerUrlLoginContent(
         }
     }
 
+    fun connect() {
+        if (bunkerUrl.isBlank() || isConnecting) return
+        isConnecting = true
+        errorMessage = null
+        connectionStatus = "Connecting..."
+        vm.clearAuthUrl()
+        vm.loginWithBunker(bunkerUrl) { result ->
+            isConnecting = false
+            if (result.isSuccess) {
+                connectionStatus = "Connected!"
+                onLoginSuccess()
+            } else {
+                errorMessage = "Connection failed: ${result.exceptionOrNull()?.message}"
+                connectionStatus = null
+            }
+        }
+    }
+
     Column {
-        // Input field (shared form component)
+        // Input field (shared form component); Enter connects
         AppTextField(
             value = bunkerUrl,
             onValueChange = {
@@ -505,6 +523,7 @@ private fun BunkerUrlLoginContent(
             leadingIcon = Icons.Default.Link,
             maxLines = 3,
             enabled = !isConnecting,
+            onDone = { connect() },
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -512,22 +531,7 @@ private fun BunkerUrlLoginContent(
         // Connect button
         AppButton(
             text = if (isConnecting) "Connecting..." else "Connect to Bunker",
-            onClick = {
-                isConnecting = true
-                errorMessage = null
-                connectionStatus = "Connecting..."
-                vm.clearAuthUrl()
-                vm.loginWithBunker(bunkerUrl) { result ->
-                    isConnecting = false
-                    if (result.isSuccess) {
-                        connectionStatus = "Connected!"
-                        onLoginSuccess()
-                    } else {
-                        errorMessage = "Connection failed: ${result.exceptionOrNull()?.message}"
-                        connectionStatus = null
-                    }
-                }
-            },
+            onClick = { connect() },
             enabled = bunkerUrl.isNotBlank() && !isConnecting,
             size = AppButtonSize.Large,
             fullWidth = true,
