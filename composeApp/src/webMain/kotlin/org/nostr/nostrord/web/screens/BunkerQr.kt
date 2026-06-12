@@ -159,7 +159,7 @@ val BunkerQr =
                     +error
                 }
                 button {
-                    className = ClassName("login-primary")
+                    className = ClassName("btn-primary btn-lg btn-full login-submit")
                     onClick = { restartSession() }
                     icon(Ic.QrCode)
                     +"Try Again"
@@ -231,7 +231,7 @@ val BunkerQr =
                         }
                     }
                     button {
-                        className = ClassName("login-primary advanced-apply")
+                        className = ClassName("btn-primary btn-lg btn-full advanced-apply")
                         disabled = !dirty || editable.isEmpty()
                         onClick = { applyRelays() }
                         icon(Ic.QrCode)

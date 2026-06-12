@@ -37,7 +37,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.isAndroid
 import org.nostr.nostrord.ui.components.QrCode
-import org.nostr.nostrord.ui.components.buttons.rememberHoverColor
+import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -381,32 +382,13 @@ private fun QrCodeLoginContent(
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
-            val (retryInteraction, retryContainer) =
-                rememberHoverColor(NostrordColors.Primary, NostrordColors.PrimaryVariant)
-            Button(
+            AppButton(
+                text = "Try Again",
                 onClick = { sessionKey++ },
-                interactionSource = retryInteraction,
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-                    .hoverable(retryInteraction)
-                    .pointerHoverIcon(PointerIcon.Hand),
-                shape = NostrordShapes.buttonShape,
-                colors =
-                ButtonDefaults.buttonColors(
-                    containerColor = retryContainer,
-                    contentColor = Color.White,
-                ),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.QrCode,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Try Again", fontWeight = FontWeight.SemiBold)
-            }
+                size = AppButtonSize.Large,
+                fullWidth = true,
+                icon = Icons.Default.QrCode,
+            )
         }
     }
 }
@@ -530,33 +512,13 @@ private fun NostrConnectRelaysSection(
             )
 
             Spacer(modifier = Modifier.height(8.dp))
-            val (applyInteraction, applyContainer) =
-                rememberHoverColor(NostrordColors.Primary, NostrordColors.PrimaryVariant)
-            Button(
+            AppButton(
+                text = "Apply & regenerate QR",
                 onClick = { onApply(editable) },
                 enabled = dirty && editable.isNotEmpty(),
-                interactionSource = applyInteraction,
-                modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .height(44.dp)
-                    .hoverable(applyInteraction)
-                    .pointerHoverIcon(if (dirty && editable.isNotEmpty()) PointerIcon.Hand else PointerIcon.Default),
-                shape = NostrordShapes.buttonShape,
-                colors =
-                ButtonDefaults.buttonColors(
-                    containerColor = applyContainer,
-                    contentColor = Color.White,
-                ),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.QrCode,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Apply & regenerate QR", fontWeight = FontWeight.SemiBold)
-            }
+                fullWidth = true,
+                icon = Icons.Default.QrCode,
+            )
         }
     }
 }
@@ -632,9 +594,8 @@ private fun BunkerUrlLoginContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Connect button
-        val (connectInteraction, connectContainer) =
-            rememberHoverColor(NostrordColors.Primary, NostrordColors.PrimaryVariant)
-        Button(
+        AppButton(
+            text = if (isConnecting) "Connecting..." else "Connect to Bunker",
             onClick = {
                 isConnecting = true
                 errorMessage = null
@@ -651,41 +612,12 @@ private fun BunkerUrlLoginContent(
                     }
                 }
             },
-            interactionSource = connectInteraction,
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .hoverable(connectInteraction)
-                .pointerHoverIcon(if (bunkerUrl.isNotBlank() && !isConnecting) PointerIcon.Hand else PointerIcon.Default),
             enabled = bunkerUrl.isNotBlank() && !isConnecting,
-            shape = NostrordShapes.buttonShape,
-            colors =
-            ButtonDefaults.buttonColors(
-                containerColor = connectContainer,
-                contentColor = Color.White,
-                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
-                disabledContentColor = Color.White.copy(alpha = 0.7f),
-            ),
-        ) {
-            if (isConnecting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Connecting...", fontWeight = FontWeight.SemiBold)
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Link,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Connect to Bunker", fontWeight = FontWeight.SemiBold)
-            }
-        }
+            size = AppButtonSize.Large,
+            fullWidth = true,
+            loading = isConnecting,
+            icon = Icons.Default.Link,
+        )
 
         // Show auth URL if waiting for approval
         authUrl?.let { url ->

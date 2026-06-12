@@ -185,7 +185,7 @@ val AddAccountSheet =
                                 }
                             }
                             button {
-                                className = ClassName("login-primary")
+                                className = ClassName("btn-primary btn-lg btn-full login-submit")
                                 disabled = !canAdd
                                 onClick = {
                                     runAdd("Could not add account") { cb ->
@@ -204,7 +204,7 @@ val AddAccountSheet =
                                 span { +"or" }
                             }
                             button {
-                                className = ClassName("login-secondary")
+                                className = ClassName("btn-secondary btn-lg btn-full")
                                 onClick = { generate() }
                                 icon(Ic.AutoAwesome)
                                 +"Generate New Key"
@@ -251,7 +251,7 @@ val AddAccountSheet =
                                         }
                                     }
                                     button {
-                                        className = ClassName("login-primary")
+                                        className = ClassName("btn-primary btn-lg btn-full login-submit")
                                         disabled = bunkerUrl.isBlank() || busy
                                         onClick = { runAdd("Failed to connect to bunker") { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) } }
                                         +(if (busy) "Connecting…" else "Connect to Bunker")
@@ -276,7 +276,7 @@ val AddAccountSheet =
                                     +"Connect using a NIP-07 compatible extension such as Alby, nos2x, or Nostrame."
                                 }
                                 button {
-                                    className = ClassName("login-primary")
+                                    className = ClassName("btn-primary btn-lg btn-full login-submit")
                                     disabled = busy
                                     onClick = { runAdd("Extension login failed") { cb -> vm.loginWithNip07Extension(onResult = cb) } }
                                     +(if (busy) "Connecting…" else "Connect Extension")

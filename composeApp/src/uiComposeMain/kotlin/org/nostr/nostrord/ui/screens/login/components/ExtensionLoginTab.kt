@@ -1,6 +1,5 @@
 package org.nostr.nostrord.ui.screens.login.components
 
-import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Extension
@@ -8,14 +7,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.ui.components.buttons.rememberHoverColor
+import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 
@@ -60,9 +57,8 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
             )
         }
 
-        val (connectInteraction, connectContainer) =
-            rememberHoverColor(NostrordColors.Primary, NostrordColors.PrimaryVariant)
-        Button(
+        AppButton(
+            text = if (isLoading) "Connecting..." else "Connect Extension",
             onClick = {
                 isLoading = true
                 errorMessage = null
@@ -76,29 +72,9 @@ fun ExtensionLoginTab(onLoginSuccess: () -> Unit) {
                 }
             },
             enabled = !isLoading,
-            interactionSource = connectInteraction,
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .hoverable(connectInteraction)
-                .pointerHoverIcon(if (!isLoading) PointerIcon.Hand else PointerIcon.Default),
-            colors =
-            ButtonDefaults.buttonColors(
-                containerColor = connectContainer,
-                contentColor = Color.White,
-                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.5f),
-                disabledContentColor = Color.White.copy(alpha = 0.7f),
-            ),
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-            Text(if (isLoading) "Connecting..." else "Connect Extension")
-        }
+            size = AppButtonSize.Large,
+            fullWidth = true,
+            loading = isLoading,
+        )
     }
 }

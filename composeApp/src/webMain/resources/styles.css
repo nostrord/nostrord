@@ -325,25 +325,10 @@ body {
     color: var(--color-text-primary);
 }
 
-.login-primary {
-    width: 100%;
-    height: 48px;
+/* Submit buttons inside login forms sit 16px below the field/hint above them
+   (layout class composed with the btn-* component classes). */
+.login-submit {
     margin-top: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: var(--color-primary);
-    color: #fff;
-    border: 0;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.login-primary:hover:not(:disabled) {
-    background: var(--color-primary-variant);
 }
 
 /* Inline spinner for buttons that show a working state (login Connect /
@@ -374,11 +359,6 @@ body {
     flex-shrink: 0;
 }
 
-.login-primary:disabled {
-    opacity: 0.5;
-    cursor: default;
-}
-
 .login-divider {
     display: flex;
     align-items: center;
@@ -394,27 +374,6 @@ body {
     flex: 1;
     height: 1px;
     background: var(--color-divider);
-}
-
-/* Prototype secondary button: filled grey, full width. */
-.login-secondary {
-    width: 100%;
-    height: 48px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: var(--color-surface-variant);
-    color: var(--color-text-content);
-    border: 0;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.login-secondary:hover:not(:disabled) {
-    background: var(--color-input-hover);
 }
 
 .login-hint {
@@ -782,10 +741,6 @@ body {
     margin: 0;
     font-size: 13px;
     color: var(--color-text-muted);
-}
-
-.ext-content .login-primary {
-    margin-top: 0;
 }
 
 /* ===================== Shell (logged in) ===================== */
@@ -2138,54 +2093,104 @@ body {
     background: var(--color-background-dark);
 }
 
-.btn-text {
-    padding: 9px 16px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--color-text-secondary);
-    background: transparent;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-.btn-text:hover {
-    color: var(--color-text-primary);
-}
-
-.btn-primary {
+/* ===== Buttons — component classes ==========================================
+   One class per role, composable with size/width modifiers in markup, e.g.
+   class="btn-primary btn-lg btn-full". Each variant is self-sufficient (no
+   separate base class to remember); variants and hovers mirror the prototype's
+   Button component and NostrordColors on the Compose side (AppButton). */
+.btn-text,
+.btn-ghost,
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-success {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     padding: 9px 18px;
     font-size: 14px;
     font-weight: 600;
-    color: #ffffff;
-    background: var(--color-primary);
     border: none;
     border-radius: 8px;
     cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
 }
 
-.btn-primary:hover {
-    background: var(--color-primary-variant);
-}
-
-.btn-primary:disabled {
+.btn-text:disabled,
+.btn-ghost:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled,
+.btn-success:disabled {
     opacity: 0.5;
     cursor: default;
 }
 
-.btn-danger {
-    padding: 9px 18px;
-    font-size: 14px;
-    font-weight: 600;
-    color: #ffffff;
-    background: var(--color-error);
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
+/* Ghost: transparent, text lifts on hover (.btn-text is its quiet alias). */
+.btn-text,
+.btn-ghost {
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    background: transparent;
 }
 
-.btn-danger:hover {
+.btn-text:hover:not(:disabled),
+.btn-ghost:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+}
+
+.btn-primary {
+    color: #ffffff;
+    background: var(--color-primary);
+}
+
+.btn-primary:hover:not(:disabled) {
+    background: var(--color-primary-variant);
+}
+
+.btn-secondary {
+    color: var(--color-text-content);
+    background: var(--color-surface-variant);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: var(--color-input-hover);
+}
+
+.btn-danger {
+    color: #ffffff;
+    background: var(--color-error);
+}
+
+.btn-danger:hover:not(:disabled) {
     background: #c93b3e;
+}
+
+.btn-success {
+    color: #0b1f12;
+    background: var(--color-success);
+}
+
+.btn-success:hover:not(:disabled) {
+    background: #46c46f;
+}
+
+/* Size and width modifiers */
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.btn-lg {
+    height: 48px;
+    padding: 12px 20px;
+    font-size: 15px;
+}
+
+.btn-full {
+    width: 100%;
 }
 
 /* Add-relay tabs */

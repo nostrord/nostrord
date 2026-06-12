@@ -208,7 +208,7 @@ val LoginScreen =
                                     }
                                 }
                                 button {
-                                    className = ClassName("login-primary")
+                                    className = ClassName("btn-primary btn-lg btn-full login-submit")
                                     disabled = !canLogin
                                     onClick = { submitKeyLogin() }
                                     if (busy) {
@@ -223,7 +223,7 @@ val LoginScreen =
                                     span { +"or" }
                                 }
                                 button {
-                                    className = ClassName("login-secondary")
+                                    className = ClassName("btn-secondary btn-lg btn-full")
                                     onClick = { generate() }
                                     icon(Ic.AutoAwesome)
                                     +"Generate New Key"
@@ -273,7 +273,7 @@ val LoginScreen =
                                             +"Get your bunker URL from nsec.app, Amber, or other NIP-46 signers"
                                         }
                                         button {
-                                            className = ClassName("login-primary")
+                                            className = ClassName("btn-primary btn-lg btn-full login-submit")
                                             disabled = bunkerUrl.isBlank() || busy
                                             onClick = { runLogin { cb -> vm.loginWithBunker(bunkerUrl, onResult = cb) } }
                                             if (busy) {
@@ -316,7 +316,7 @@ val LoginScreen =
                                         +"Connect using a NIP-07 compatible extension such as nos2x or Nostrame."
                                     }
                                     button {
-                                        className = ClassName("login-primary")
+                                        className = ClassName("btn-primary btn-lg btn-full")
                                         disabled = busy
                                         onClick = { runLogin { cb -> vm.loginWithNip07Extension(onResult = cb) } }
                                         // Native ExtensionLoginTab puts a small spinner
