@@ -2139,7 +2139,21 @@ class NostrRepository(
         pubKey: String,
         nip29Relays: List<String> = outboxManager.kind10009Relays.value.toList(),
     ): Result<Unit> {
-        val perRelay = groupManager.joinedGroupsByRelay.value
+        // The in-memory map can be partial early in a session (the storage restore and
+        // the kind:10009 fetch are async). An event published from a partial map drops
+        // the missing groups FOR GOOD: on restart the persisted timestamp guard ignores
+        // our own event, leaving only the (then clobbered) storage slots. Merge memory
+        // with the persisted per-relay slots so the published list is always a
+        // superset; removals stay correct because leave/removeRelay update storage
+        // before publishing.
+        val memory = groupManager.joinedGroupsByRelay.value
+        val storedRelays = SecureStorage.loadRelayListFor(pubKey).map { it.normalizeRelayUrl() }
+        val relays = (storedRelays + memory.keys.map { it.normalizeRelayUrl() }).distinct()
+        val perRelay =
+            relays
+                .associateWith { relay ->
+                    SecureStorage.getJoinedGroupsForRelay(pubKey, relay) + memory[relay].orEmpty()
+                }.filterValues { it.isNotEmpty() }
         return outboxManager.publishJoinedGroupsList(
             pubKey = pubKey,
             joinedGroupsByRelay = perRelay,
@@ -2256,6 +2270,7 @@ class NostrRepository(
                             }
                         },
                         messageHandler = { m, c -> enqueueToRelayPipeline(m, c) },
+                        isGroupDropped = { groupManager.isLocallyDropped(it) },
                     )
                 }
                 return
@@ -2637,6 +2652,7 @@ class NostrRepository(
                                 }
                             },
                             messageHandler = { m, c -> enqueueToRelayPipeline(m, c) },
+                            isGroupDropped = { groupManager.isLocallyDropped(it) },
                         )
                     }
                     return

@@ -452,6 +452,12 @@ class GroupManager(
     // the milliseconds after a leave, otherwise they re-populate the lists we
     // just cleared and the UI shows zombie members + a "you left" message.
     private val recentlyLeftAt = mutableMapOf<String, Long>()
+
+    /**
+     * True when the group was deleted or left on THIS device. Stale kind:10009
+     * merges skip these so a lagging relay cannot resurrect them.
+     */
+    fun isLocallyDropped(groupId: String): Boolean = groupId in deletedGroupIds || recentlyLeftAt.containsKey(groupId)
     private val LEFT_GROUP_GRACE_MS = 5_000L
 
     // Relay-of-origin per groupId, recorded from the WebSocket that delivered
@@ -888,7 +894,12 @@ class GroupManager(
     fun loadJoinedGroupsFromStorage(pubKey: String, relayUrl: String) {
         currentPubkey = pubKey
         val groups = SecureStorage.getJoinedGroupsForRelay(pubKey, relayUrl)
-        _joinedGroupsByRelay.update { it + (relayUrl.normalizeRelayUrl() to groups) }
+        // Additive: a join that landed before this async restore must not be wiped
+        // by the (older) persisted set.
+        _joinedGroupsByRelay.update { current ->
+            val key = relayUrl.normalizeRelayUrl()
+            current + (key to (current[key].orEmpty() + groups))
+        }
     }
 
     /**
@@ -900,7 +911,10 @@ class GroupManager(
             url.normalizeRelayUrl() to SecureStorage.getJoinedGroupsForRelay(pubKey, url)
         }.filter { (_, groups) -> groups.isNotEmpty() }
         if (updates.isNotEmpty()) {
-            _joinedGroupsByRelay.update { it + updates }
+            // Additive, like loadJoinedGroupsFromStorage: never wipe a fresher join.
+            _joinedGroupsByRelay.update { current ->
+                current + updates.mapValues { (relay, groups) -> current[relay].orEmpty() + groups }
+            }
         }
     }
 
@@ -978,10 +992,20 @@ class GroupManager(
 
             currentClient.send(message)
 
-            val relayGroups = _joinedGroupsByRelay.value[groupRelayUrl] ?: emptySet()
+            // Normalized key, like every other _joinedGroupsByRelay writer: a raw URL
+            // variant ("wss://x/" vs "wss://x") would start a parallel entry whose set
+            // lacks the relay's other groups, and the next kind:10009 publish/echo
+            // would read as the list being replaced instead of incremented.
+            // Merged with the persisted slot because the in-memory map can be partial
+            // early in a session (the storage restore is async): writing memory-only
+            // here would clobber the slot, and on restart the slot is the only truth
+            // (our own kind:10009 echo is dropped by the persisted timestamp guard).
+            val normalizedGroupRelay = groupRelayUrl.normalizeRelayUrl()
+            val stored = SecureStorage.getJoinedGroupsForRelay(pubKey, normalizedGroupRelay)
+            val relayGroups = (_joinedGroupsByRelay.value[normalizedGroupRelay] ?: emptySet()) + stored
             val updated = relayGroups + groupId
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updated)
-            _joinedGroupsByRelay.update { it + (groupRelayUrl to updated) }
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, normalizedGroupRelay, updated)
+            _joinedGroupsByRelay.update { it + (normalizedGroupRelay to updated) }
 
             publishJoinedGroups()
 
@@ -1081,10 +1105,15 @@ class GroupManager(
                 }.toString(),
             )
 
-            val relayGroups = _joinedGroupsByRelay.value[currentRelayUrl] ?: emptySet()
+            // Normalized key + merged with the persisted slot, for the same reasons as
+            // joinGroup: a raw URL variant forks a parallel relay entry, and a partial
+            // in-memory map would clobber the slot that restarts rely on.
+            val normalizedCreateRelay = currentRelayUrl.normalizeRelayUrl()
+            val storedAtCreate = SecureStorage.getJoinedGroupsForRelay(pubKey, normalizedCreateRelay)
+            val relayGroups = (_joinedGroupsByRelay.value[normalizedCreateRelay] ?: emptySet()) + storedAtCreate
             val updatedAfterCreate = relayGroups + confirmedGroupId
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, currentRelayUrl, updatedAfterCreate)
-            _joinedGroupsByRelay.update { it + (currentRelayUrl to updatedAfterCreate) }
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, normalizedCreateRelay, updatedAfterCreate)
+            _joinedGroupsByRelay.update { it + (normalizedCreateRelay to updatedAfterCreate) }
             publishJoinedGroups()
             currentClient.requestGroupMessages(confirmedGroupId)
 
@@ -1397,9 +1426,14 @@ class GroupManager(
 
             val idsToRemove = setOf(groupId)
             val normalizedGroupRelay = groupRelayUrl.normalizeRelayUrl()
-            val relayGroupsBefore = _joinedGroupsByRelay.value[normalizedGroupRelay] ?: emptySet()
+            // Merge memory with the persisted slot (the map can be partial early in a
+            // session), then remove. The slot key must be the normalized URL: storage
+            // slots hash the raw string, so a raw variant would write a parallel slot
+            // and the canonical one would resurrect the group on restart.
+            val storedBeforeLeave = SecureStorage.getJoinedGroupsForRelay(pubKey, normalizedGroupRelay)
+            val relayGroupsBefore = (_joinedGroupsByRelay.value[normalizedGroupRelay] ?: emptySet()) + storedBeforeLeave
             val updatedAfterLeave = relayGroupsBefore - idsToRemove
-            SecureStorage.saveJoinedGroupsForRelay(pubKey, groupRelayUrl, updatedAfterLeave)
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, normalizedGroupRelay, updatedAfterLeave)
             _joinedGroupsByRelay.update { it + (normalizedGroupRelay to updatedAfterLeave) }
             publishJoinedGroups()
 
