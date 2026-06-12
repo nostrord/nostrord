@@ -8,4 +8,4 @@ package org.nostr.nostrord.ui.components.emoji
  * Shared by the native (Compose) and web (React) context menus so both
  * platforms offer the same quick reactions.
  */
-val QuickReactions: List<String> = listOf("👍", "❤️", "😂", "😮", "😢", "🙏")
+val QuickReactions: List<String> = listOf("👍", "❤️", "🔥", "🚀", "😂")

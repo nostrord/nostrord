@@ -1263,7 +1263,7 @@ val ChatScreen =
                 // the jump FAB are conditional siblings rendered BEFORE / around the message
                 // list; without keys React reconciles .chat-main's children by index, so
                 // toggling search shifted .chat-messages by one slot and REMOUNTED it — every
-                // row's avatar <img> reloaded, flashing to the Jdenticon fallback and back.
+                // row's avatar <img> reloaded, flashing to the gradient fallback and back.
                 // (Same failure mode the loading pill hit one level down; see its key comment.)
                 div {
                     key = "chat-header"
@@ -1710,6 +1710,7 @@ val ChatScreen =
                                                 onReplyClick = { parent?.let { scrollToMessage(it.id) } }
                                                 canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
                                                 messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
+                                                nevent = Nip19.encodeNevent(message.id, authorHex = message.pubkey)
                                                 eventJson = eventJsonOf(message)
                                                 status = messageStatus[message.id]
                                                 onRetrySend = { vm.retrySend(message.id) }
@@ -2184,6 +2185,7 @@ external interface MessageRowProps : Props {
     var zapCount: Int
     var zappedByMe: Boolean
     var messageLink: String
+    var nevent: String
     var eventJson: String
 
     // Optimistic-send delivery status for the author's own message. Null = delivered.
@@ -2655,6 +2657,11 @@ private val MessageRow =
                     }
                     ctxItem(Ic.Link, "Copy Message Link") {
                         copyToClipboard(props.messageLink)
+                        setMenuOpen(false)
+                    }
+                    // Prototype: shareable NIP-19 event reference.
+                    ctxItem(Ic.Code, "Copy nevent") {
+                        copyToClipboard(props.nevent)
                         setMenuOpen(false)
                     }
                     ctxItem(Ic.Code, "Copy Event JSON") {

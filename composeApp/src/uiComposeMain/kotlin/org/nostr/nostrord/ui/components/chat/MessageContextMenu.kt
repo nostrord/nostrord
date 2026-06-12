@@ -91,6 +91,8 @@ sealed class MessageContextAction {
 
     data object ShareMessageLink : MessageContextAction()
 
+    data object CopyNevent : MessageContextAction()
+
     data object CopyEventJson : MessageContextAction()
 
     data object PinMessage : MessageContextAction()
@@ -234,7 +236,7 @@ private fun ContextMenuContent(
         modifier =
         Modifier
             // 210dp + 6dp padding + 1dp border, mirroring the web `.ctx-menu`.
-            .width(210.dp)
+            .width(214.dp)
             .shadow(
                 elevation = 12.dp,
                 shape = NostrordShapes.shapeMedium,
@@ -322,6 +324,16 @@ private fun ContextMenuContent(
                 },
             )
         }
+
+        // Copy nevent (prototype: shareable NIP-19 event reference)
+        ContextMenuItem(
+            icon = Icons.Outlined.Code,
+            label = "Copy nevent",
+            onClick = {
+                onAction(MessageContextAction.CopyNevent)
+                onDismiss()
+            },
+        )
 
         // Copy Event JSON
         ContextMenuItem(

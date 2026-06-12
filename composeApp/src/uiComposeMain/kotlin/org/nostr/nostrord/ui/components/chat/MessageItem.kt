@@ -52,6 +52,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.zap.ZapBadge
@@ -60,6 +61,7 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.formatTime
+import org.nostr.nostrord.utils.rememberClipboardWriter
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -116,6 +118,7 @@ fun MessageItem(
     onDismissFailed: () -> Unit = {},
 ) {
     // Use rememberUpdatedState to avoid recomposition when callbacks change reference
+    val copyToClipboard = rememberClipboardWriter()
     val currentOnUsernameClick by rememberUpdatedState(onUsernameClick)
     val currentOnReplyClick by rememberUpdatedState(onReplyClick)
     val currentOnReactionClick by rememberUpdatedState(onReactionClick)
@@ -489,6 +492,9 @@ fun MessageItem(
                         MessageContextAction.CopyText -> currentOnCopyText()
                         MessageContextAction.CopyMessageLink -> currentOnCopyLink()
                         MessageContextAction.ShareMessageLink -> currentOnShareLink()
+                        // Self-contained: the message in scope carries id + author.
+                        MessageContextAction.CopyNevent ->
+                            copyToClipboard(Nip19.encodeNevent(message.id, authorHex = message.pubkey))
                         MessageContextAction.CopyEventJson -> currentOnCopyJson()
                         MessageContextAction.PinMessage -> currentOnPinMessage()
                         MessageContextAction.DeleteMessage -> currentOnDeleteMessage()
