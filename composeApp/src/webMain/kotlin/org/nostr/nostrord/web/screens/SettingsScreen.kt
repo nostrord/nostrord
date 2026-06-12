@@ -8,6 +8,7 @@ import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.notifications.NotificationPermission
 import org.nostr.nostrord.notifications.playNotificationSound
+import org.nostr.nostrord.settings.AppTheme
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
 import org.nostr.nostrord.utils.Result
@@ -47,7 +48,7 @@ external interface SettingsScreenProps : Props {
 }
 
 private val sections =
-    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Media", "Notifications", "Security", "Experimental")
+    listOf("Profile", "Backup Keys", "Relays (NIP-65)", "Appearance", "Media", "Notifications", "Security", "Experimental")
 
 /**
  * Settings — real port of the Compose SettingsScreen: a full-screen overlay with a section
@@ -137,6 +138,7 @@ val SettingsScreen =
                     "Profile" -> ProfilePanel()
                     "Backup Keys" -> BackupPanel()
                     "Relays (NIP-65)" -> RelaysPanel()
+                    "Appearance" -> AppearancePanel()
                     "Media" -> MediaPanel()
                     "Notifications" -> NotificationsPanel()
                     "Security" -> SecurityPanel()
@@ -631,6 +633,50 @@ private val NotificationsPanel =
             }
         }
     }
+
+// ── Appearance ───────────────────────────────────────────────────────────────
+
+private val AppearancePanel =
+    FC<Props> {
+        val appearance = AppModule.appearanceSettings
+        val theme = useStateFlow(appearance.theme)
+
+        div {
+            className = ClassName("settings-card")
+            div {
+                className = ClassName("settings-section-head")
+                +"THEME"
+            }
+            div {
+                className = ClassName("theme-grid")
+                themeCard("Dark", AppTheme.DARK, theme) { appearance.setTheme(it) }
+                themeCard("Light", AppTheme.LIGHT, theme) { appearance.setTheme(it) }
+                themeCard("System", AppTheme.SYSTEM, theme) { appearance.setTheme(it) }
+            }
+        }
+    }
+
+private fun react.ChildrenBuilder.themeCard(
+    label: String,
+    theme: AppTheme,
+    selected: AppTheme,
+    onSelect: (AppTheme) -> Unit,
+) {
+    button {
+        className = ClassName(if (theme == selected) "theme-card selected" else "theme-card")
+        onClick = { onSelect(theme) }
+        div {
+            className = ClassName("theme-preview ${theme.name.lowercase()}")
+            div { className = ClassName("theme-preview-pill brand") }
+            div { className = ClassName("theme-preview-pill line") }
+        }
+        div {
+            className = ClassName("theme-card-label")
+            if (theme == selected) icon(Ic.Check)
+            +label
+        }
+    }
+}
 
 // ── Media ────────────────────────────────────────────────────────────────────
 

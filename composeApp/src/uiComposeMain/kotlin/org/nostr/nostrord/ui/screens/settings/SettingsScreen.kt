@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.screens.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -36,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusTarget
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -54,6 +56,7 @@ import org.nostr.nostrord.auth.logoutConfirmBody
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.outbox.Nip65Relay
 import org.nostr.nostrord.network.outbox.RelayListManager
+import org.nostr.nostrord.settings.AppTheme
 import org.nostr.nostrord.settings.NotificationLevel
 import org.nostr.nostrord.storage.PassphraseSettings
 import org.nostr.nostrord.ui.Screen
@@ -67,6 +70,8 @@ import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.upload.UploadImageField
 import org.nostr.nostrord.ui.navigation.PlatformBackHandler
 import org.nostr.nostrord.ui.screens.profile.EditProfileViewModel
+import org.nostr.nostrord.ui.theme.DarkColorPalette
+import org.nostr.nostrord.ui.theme.LightColorPalette
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -77,6 +82,7 @@ enum class SettingsSection(val label: String) {
     Profile("Profile"),
     BackupKeys("Backup Keys"),
     RelaysNip65("Relays (NIP-65)"),
+    Appearance("Appearance"),
     Media("Media"),
     Notifications("Notifications"),
     Security("Security"),
@@ -250,6 +256,14 @@ fun SettingsScreen(
         NotificationsPanelContent()
     }
 
+    val appTheme by AppModule.appearanceSettings.theme.collectAsState()
+    val appearanceContent: @Composable () -> Unit = {
+        AppearancePanelContent(
+            selectedTheme = appTheme,
+            onSelectTheme = { AppModule.appearanceSettings.setTheme(it) },
+        )
+    }
+
     val autoLoadMedia by AppModule.mediaSettings.autoLoadMedia.collectAsState()
     val mediaContent: @Composable () -> Unit = {
         MediaPanelContent(
@@ -315,6 +329,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                appearanceContent = appearanceContent,
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
@@ -330,6 +345,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                appearanceContent = appearanceContent,
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
                 securityContent = securityContent,
@@ -356,6 +372,7 @@ private fun DesktopSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
@@ -420,7 +437,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp),
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, mediaContent, notificationsContent, securityContent, experimentalContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, appearanceContent, mediaContent, notificationsContent, securityContent, experimentalContent)
                     }
                 }
 
@@ -446,6 +463,7 @@ private fun MobileSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
@@ -490,7 +508,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, mediaContent, notificationsContent, securityContent, experimentalContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, appearanceContent, mediaContent, notificationsContent, securityContent, experimentalContent)
             }
         }
     }
@@ -545,6 +563,9 @@ private fun SettingsSidebar(
     }
     SettingsNavItem("Relays (NIP-65)", activeSection == SettingsSection.RelaysNip65, compact = compact) {
         onSelectSection(SettingsSection.RelaysNip65)
+    }
+    SettingsNavItem("Appearance", activeSection == SettingsSection.Appearance, compact = compact) {
+        onSelectSection(SettingsSection.Appearance)
     }
     SettingsNavItem("Media", activeSection == SettingsSection.Media, compact = compact) {
         onSelectSection(SettingsSection.Media)
@@ -668,6 +689,7 @@ private fun SettingsPanel(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
     securityContent: @Composable () -> Unit,
@@ -688,6 +710,7 @@ private fun SettingsPanel(
             SettingsSection.Profile -> profileContent()
             SettingsSection.BackupKeys -> backupContent()
             SettingsSection.RelaysNip65 -> relaysContent()
+            SettingsSection.Appearance -> appearanceContent()
             SettingsSection.Media -> mediaContent()
             SettingsSection.Notifications -> notificationsContent()
             SettingsSection.Security -> securityContent()
@@ -1213,7 +1236,123 @@ private fun PermissionStatusRow(
     }
 }
 
-// ── Media panel content ───────────────────────────────────────────────────────
+// ── Appearance panel content ──────────────────────────────────────────────────
+
+@Composable
+private fun AppearancePanelContent(
+    selectedTheme: AppTheme,
+    onSelectTheme: (AppTheme) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.lg),
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.cardShape,
+            colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+        ) {
+            Column(modifier = Modifier.fillMaxWidth().padding(Spacing.xl)) {
+                Text(
+                    text = "THEME",
+                    color = NostrordColors.TextMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.padding(bottom = Spacing.md),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                    ThemeCard("Dark", AppTheme.DARK, selectedTheme, Modifier.weight(1f), onSelectTheme)
+                    ThemeCard("Light", AppTheme.LIGHT, selectedTheme, Modifier.weight(1f), onSelectTheme)
+                    ThemeCard("System", AppTheme.SYSTEM, selectedTheme, Modifier.weight(1f), onSelectTheme)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeCard(
+    label: String,
+    theme: AppTheme,
+    selectedTheme: AppTheme,
+    modifier: Modifier = Modifier,
+    onSelect: (AppTheme) -> Unit,
+) {
+    val isSelected = theme == selectedTheme
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val borderColor = when {
+        isSelected -> NostrordColors.Primary
+        isHovered -> NostrordColors.TextMuted
+        else -> NostrordColors.Divider
+    }
+
+    Column(
+        modifier = modifier
+            .clip(NostrordShapes.cardShape)
+            .border(1.dp, borderColor, NostrordShapes.cardShape)
+            .hoverable(interactionSource)
+            .clickable { onSelect(theme) }
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(Spacing.sm),
+    ) {
+        ThemePreview(theme)
+        Spacer(Modifier.height(Spacing.sm))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (isSelected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = NostrordColors.Primary,
+                    modifier = Modifier.size(13.dp),
+                )
+                Spacer(Modifier.width(Spacing.xs))
+            }
+            Text(label, color = NostrordColors.TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+@Composable
+private fun ThemePreview(theme: AppTheme) {
+    // Each card shows its own theme's surfaces from the fixed palettes, never the
+    // active NostrordColors (otherwise the Dark card would turn white in light mode).
+    // The pills are preview-only shades from the prototype, not palette tokens.
+    val darkSurface = Color(DarkColorPalette.background)
+    val lightSurface = Color(LightColorPalette.background)
+    val lightPill = Color(0xFFC4C9D0)
+    val darkPill = Color(0xFF4E5058)
+    val background = when (theme) {
+        AppTheme.DARK -> Brush.linearGradient(listOf(darkSurface, darkSurface))
+        AppTheme.LIGHT -> Brush.linearGradient(listOf(lightSurface, lightSurface))
+        AppTheme.SYSTEM -> Brush.linearGradient(listOf(darkSurface, lightSurface))
+    }
+    val pillShape = RoundedCornerShape(percent = 50)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(64.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .border(1.dp, NostrordColors.Divider, RoundedCornerShape(6.dp))
+            .background(background)
+            .padding(6.dp),
+    ) {
+        Box(Modifier.width(32.dp).height(8.dp).clip(pillShape).background(NostrordColors.Primary))
+        Spacer(Modifier.height(Spacing.xs))
+        Box(
+            Modifier.width(40.dp).height(6.dp).clip(pillShape)
+                .background(if (theme == AppTheme.LIGHT) lightPill else darkPill),
+        )
+    }
+}
+
+// ── Media panel content ──────────────────────────────────────────────────────
 
 @Composable
 private fun MediaPanelContent(

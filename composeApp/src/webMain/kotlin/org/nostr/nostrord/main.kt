@@ -1,12 +1,13 @@
 package org.nostr.nostrord
 
 import kotlinx.browser.window
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.WebApp
-import org.nostr.nostrord.web.theme.applyColorTokens
 import org.nostr.nostrord.web.theme.applyDimenTokens
+import org.nostr.nostrord.web.theme.applyTheme
 import react.create
 import react.dom.client.createRoot
 import web.dom.ElementId
@@ -73,9 +74,10 @@ private fun parseDeepLinkFromUrl() {
  * browser via CSS, so the old tiered Compose font-preloading is gone.
  */
 fun main() {
-    // Reconcile the web palette with the shared ColorTokens (commonMain) before render,
-    // overriding the cold-start fallback values in styles.css :root.
-    applyColorTokens()
+    // Reconcile the web palette with the shared tokens (commonMain) before render,
+    // overriding the cold-start fallback values in styles.css :root. Uses the persisted
+    // theme preference so a light-theme user doesn't get a dark first paint.
+    applyTheme(AppModule.appearanceSettings.theme.value)
     applyDimenTokens()
     parseDeepLinkFromUrl()
     val container =

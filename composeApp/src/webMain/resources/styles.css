@@ -13,7 +13,7 @@
     --color-surface-variant: #40444b;
     --color-input: #383a40;
     --color-hover: #34373c;
-    --color-primary: #5865f2;
+    --color-primary: #7a5af8;
     --color-primary-variant: #4752c4;
     --color-text-primary: #ffffff;
     --color-text-secondary: #99aab5;
@@ -33,6 +33,16 @@
 
 * {
     box-sizing: border-box;
+}
+
+/* Native form controls and media UI follow the active theme (data-theme is
+   stamped on <html> by applyColorTokens). */
+:root {
+    color-scheme: dark;
+}
+
+[data-theme="light"] {
+    color-scheme: light;
 }
 
 /* Scrollbars — thin, rounded, inset, matching the desktop/Compose look. */
@@ -59,6 +69,10 @@
 
 *::-webkit-scrollbar-thumb:hover {
     background-color: #16171a;
+}
+
+[data-theme="light"] *::-webkit-scrollbar-thumb:hover {
+    background-color: #c9c6d4;
 }
 
 *::-webkit-scrollbar-corner {
@@ -821,7 +835,7 @@ body {
     font-weight: 700;
 }
 .avatar-color-0 {
-    background: #5865f2;
+    background: #7a5af8;
 }
 .avatar-color-1 {
     background: #57f287;
@@ -4262,6 +4276,80 @@ body {
     font-size: 13px;
     line-height: 1.4;
     color: var(--color-text-secondary);
+}
+
+/* ===== Appearance panel ===== */
+.theme-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+.theme-card {
+    background: none;
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    padding: var(--space-sm);
+    cursor: pointer;
+}
+.theme-card:hover {
+    border-color: var(--color-text-muted);
+}
+.theme-card.selected {
+    border-color: var(--color-primary);
+}
+.theme-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    height: 64px;
+    padding: 6px;
+    margin-bottom: var(--space-sm);
+    border: 1px solid var(--color-divider);
+    border-radius: 6px;
+    overflow: hidden;
+}
+/* Each card shows its own theme's surfaces as fixed colors, never the live vars
+   (otherwise the Dark card would turn white in light mode). */
+.theme-preview.dark {
+    background: #2b2a32;
+}
+.theme-preview.light {
+    background: #ffffff;
+}
+.theme-preview.system {
+    background: linear-gradient(to bottom right, #2b2a32, #ffffff);
+}
+.theme-preview-pill {
+    border-radius: var(--radius-full);
+}
+.theme-preview-pill.brand {
+    width: 32px;
+    height: 8px;
+    background: var(--color-primary);
+}
+.theme-preview-pill.line {
+    width: 40px;
+    height: 6px;
+    background: #4e5058;
+}
+.theme-preview.light .theme-preview-pill.line {
+    background: #c4c9d0;
+}
+.theme-card-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+.theme-card-label .ico {
+    width: 13px;
+    height: 13px;
+    color: var(--color-primary);
 }
 
 /* ===== Relays (NIP-65) panel ===== */

@@ -2,6 +2,7 @@ package org.nostr.nostrord
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -16,10 +17,12 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isAltPressed
@@ -77,6 +80,7 @@ import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
 import org.nostr.nostrord.ui.screens.relay.AddRelayModal
 import org.nostr.nostrord.ui.screens.settings.SettingsScreen
+import org.nostr.nostrord.ui.theme.ColorTokens
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import kotlin.math.abs
@@ -115,7 +119,13 @@ fun App() {
             }
         }
 
-    MaterialTheme(colorScheme = NostrordDarkColorScheme) {
+    // Resolve the user's theme preference (Dark / Light / System) into the active
+    // palette before anything reads NostrordColors. Snapshot-state write, so every
+    // color usage below recomposes when the preference or the OS theme changes.
+    val appTheme by AppModule.appearanceSettings.theme.collectAsState()
+    NostrordColors.apply(appTheme, systemDark = isSystemInDarkTheme())
+
+    MaterialTheme(colorScheme = nostrordColorScheme()) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             val hasWindowControls = LocalDesktopWindowControls.current != null
 
@@ -179,7 +189,12 @@ fun App() {
     }
 }
 
-private val NostrordDarkColorScheme =
+/**
+ * Material scheme over the active NostrordColors palette. A function (not a cached val)
+ * so the snapshot reads happen inside composition and the scheme follows theme switches.
+ */
+@Composable
+private fun nostrordColorScheme() = if (NostrordColors.IsDark) {
     darkColorScheme(
         primary = NostrordColors.Primary,
         onPrimary = NostrordColors.TextPrimary,
@@ -195,6 +210,24 @@ private val NostrordDarkColorScheme =
         onError = NostrordColors.TextPrimary,
         outline = NostrordColors.Divider,
     )
+} else {
+    lightColorScheme(
+        primary = NostrordColors.Primary,
+        // White on brand violet, same as dark (the brand color does not change per theme)
+        onPrimary = Color(ColorTokens.TextPrimary),
+        primaryContainer = NostrordColors.PrimaryVariant,
+        onPrimaryContainer = Color(ColorTokens.TextPrimary),
+        background = NostrordColors.Background,
+        onBackground = NostrordColors.TextContent,
+        surface = NostrordColors.Surface,
+        onSurface = NostrordColors.TextContent,
+        surfaceVariant = NostrordColors.SurfaceVariant,
+        onSurfaceVariant = NostrordColors.TextSecondary,
+        error = NostrordColors.Error,
+        onError = Color(ColorTokens.TextPrimary),
+        outline = NostrordColors.Divider,
+    )
+}
 
 /** Plain background during bootstrap — HTML shell handles the spinner on web. */
 @Composable

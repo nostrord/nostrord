@@ -1,16 +1,21 @@
 package org.nostr.nostrord.web
 
+import kotlinx.browser.window
 import org.nostr.nostrord.AppViewModel
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.notifications.installPlatformFocusListeners
+import org.nostr.nostrord.ui.theme.paletteForTheme
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.installGlobalModalFocusTrap
 import org.nostr.nostrord.web.screens.LoginScreen
+import org.nostr.nostrord.web.theme.applyColorTokens
+import org.nostr.nostrord.web.theme.systemPrefersDark
 import react.FC
 import react.Props
 import react.useEffect
 import react.useEffectOnce
+import react.useState
 import web.dom.ElementId
 import web.dom.document
 
@@ -35,6 +40,21 @@ val WebApp =
         val initialized = useStateFlow(vm.isInitialized)
         val loggedIn = useStateFlow(vm.isLoggedIn)
         val verifyingBunker = useStateFlow(vm.isBunkerVerifying)
+
+        // Theme: re-inject the CSS custom properties whenever the preference or the OS
+        // theme changes (the latter resolves AppTheme.SYSTEM live). Mirrors native App.kt's
+        // NostrordColors.apply(...). The state change also re-renders the tree, so inline
+        // WebColors usages follow.
+        val appTheme = useStateFlow(AppModule.appearanceSettings.theme)
+        val (systemDark, setSystemDark) = useState { systemPrefersDark() }
+        useEffectOnce {
+            // The root component never unmounts; the listener lives for the page.
+            window.matchMedia("(prefers-color-scheme: dark)").asDynamic()
+                .addEventListener("change") { setSystemDark(systemPrefersDark()) }
+        }
+        useEffect(appTheme, systemDark) {
+            applyColorTokens(paletteForTheme(appTheme, systemDark))
+        }
 
         useEffectOnce {
             // Track tab focus so notifications/unread are suppressed while the app is visible
