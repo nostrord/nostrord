@@ -4,22 +4,23 @@ import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
+import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.IdentifierField
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.aboutMentionPubkeys
-import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.renderAboutText
 import org.nostr.nostrord.web.components.useEscClose
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
-import react.dom.html.ReactHTML.span
 import react.useEffect
 import react.useState
 import web.cssom.ClassName
@@ -109,17 +110,6 @@ val UserProfileModal =
                                 }
                             }
                         }
-                        if (canZap) {
-                            button {
-                                className = ClassName("profile-zap")
-                                onClick = {
-                                    WebZapController.request(pubkey)
-                                    props.onClose()
-                                }
-                                icon(Ic.Bolt)
-                                +"Zap"
-                            }
-                        }
                     }
 
                     if (!meta?.about.isNullOrBlank()) {
@@ -133,31 +123,38 @@ val UserProfileModal =
                         }
                     }
 
-                    div {
-                        className = ClassName("settings-section-head")
-                        +"PUBLIC KEY"
-                    }
-                    div {
-                        className = ClassName("info-id-row")
-                        span {
-                            className = ClassName("info-id")
-                            +npub
-                        }
-                        button {
-                            className = ClassName("info-copy")
-                            onClick = { copyToClipboard(npub) }
-                            icon(Ic.ContentCopy)
-                        }
+                    // Cycling identifier (prototype IdentifierField): npub / nprofile /
+                    // link / hex / nip-05 with swap + copy.
+                    IdentifierField {
+                        this.pubkey = pubkey
+                        nip05 = meta?.nip05
                     }
 
-                    if (!meta?.nip05.isNullOrBlank()) {
-                        div {
-                            className = ClassName("settings-section-head")
-                            +"NIP-05"
+                    // Prototype UserProfileCard: jump to the full profile page (#/u/npub).
+                    button {
+                        className = ClassName("btn-secondary profile-view-btn")
+                        onClick = {
+                            props.onClose()
+                            pushRoute(UserRoute(pubkey))
                         }
+                        +"View profile"
+                    }
+
+                    // Prototype UserProfileCard action list. Mention / mute / report and
+                    // the admin actions join the list when their backends land (composer
+                    // bridge, mute list, NIP-56 reports, group-scoped moderation).
+                    if (canZap) {
                         div {
-                            className = ClassName("info-about")
-                            +(meta?.nip05 ?: "")
+                            className = ClassName("profile-actions")
+                            button {
+                                className = ClassName("profile-action-row")
+                                onClick = {
+                                    WebZapController.request(pubkey)
+                                    props.onClose()
+                                }
+                                icon(Ic.Bolt)
+                                +"Send zap"
+                            }
                         }
                     }
                 }

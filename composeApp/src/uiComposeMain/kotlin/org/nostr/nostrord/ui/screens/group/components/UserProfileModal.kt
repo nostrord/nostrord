@@ -2,7 +2,9 @@ package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -10,7 +12,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,7 +25,6 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -39,13 +39,65 @@ import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
+import org.nostr.nostrord.ui.components.IdentifierField
 import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
+import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.zap.ZapController
+import org.nostr.nostrord.ui.navigation.LocalFrameNavigator
+import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.rememberClipboardWriter
+
+/** One row in the profile modal's action list (prototype ActionRow). */
+@Composable
+private fun ProfileActionRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (isHovered) NostrordColors.HoverBackground else Color.Transparent)
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(horizontal = Spacing.sm, vertical = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint =
+            when {
+                danger -> NostrordColors.Error
+                isHovered -> NostrordColors.TextPrimary
+                else -> NostrordColors.TextSecondary
+            },
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            label,
+            color =
+            when {
+                danger -> NostrordColors.Error
+                isHovered -> NostrordColors.TextPrimary
+                else -> NostrordColors.TextSecondary
+            },
+            fontSize = 14.sp,
+        )
+    }
+}
 
 /**
  * User profile modal displaying user details and banner image.
@@ -158,39 +210,6 @@ fun UserProfileModal(
                                     )
                                 }
                             }
-
-                            // Zap button — a discreet pill (when the user has a Lightning address)
-                            if (canZap) {
-                                Spacer(modifier = Modifier.width(Spacing.sm))
-                                Surface(
-                                    onClick = {
-                                        ZapController.request(pubkey, null)
-                                        onDismiss()
-                                    },
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = NostrordColors.SurfaceVariant,
-                                    modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Outlined.Bolt,
-                                            contentDescription = null,
-                                            tint = NostrordColors.Warning,
-                                            modifier = Modifier.size(16.dp),
-                                        )
-                                        Spacer(modifier = Modifier.width(Spacing.xs))
-                                        Text(
-                                            text = "Zap",
-                                            color = NostrordColors.TextPrimary,
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 13.sp,
-                                        )
-                                    }
-                                }
-                            }
                         }
 
                         Spacer(modifier = Modifier.height(Spacing.sm))
@@ -216,69 +235,40 @@ fun UserProfileModal(
                             )
                         }
 
-                        // npub with copy button
+                        // Cycling identifier (prototype IdentifierField): npub / nprofile /
+                        // link / hex / nip-05 with swap + copy.
                         Spacer(modifier = Modifier.height(Spacing.lg))
+                        IdentifierField(pubkey = pubkey, nip05 = metadata?.nip05)
 
-                        Text(
-                            text = "PUBLIC KEY",
-                            style = NostrordTypography.SectionHeader,
-                            color = NostrordColors.TextMuted,
-                        )
-
-                        Spacer(modifier = Modifier.height(Spacing.sm))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = npub,
-                                style = NostrordTypography.Caption,
-                                color = NostrordColors.TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-
-                            Spacer(modifier = Modifier.width(Spacing.sm))
-
-                            IconButton(
+                        // Prototype UserProfileCard: jump to the full profile page. Only
+                        // available inside the new-design frame (the navigator local is
+                        // absent under the legacy navigation).
+                        val frameNavigator = LocalFrameNavigator.current
+                        if (frameNavigator != null) {
+                            Spacer(modifier = Modifier.height(Spacing.lg))
+                            AppButton(
+                                text = "View profile",
                                 onClick = {
-                                    copyToClipboard(npub)
+                                    onDismiss()
+                                    frameNavigator(UserRoute(pubkey))
                                 },
-                                modifier =
-                                Modifier
-                                    .size(32.dp)
-                                    .pointerHoverIcon(PointerIcon.Hand),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy public key",
-                                    tint = NostrordColors.TextSecondary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
+                                variant = AppButtonVariant.Secondary,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
 
-                        // NIP-05 identifier (if available)
-                        if (!metadata?.nip05.isNullOrBlank()) {
+                        // Prototype UserProfileCard action list. Mention / mute / report and
+                        // the admin actions join the list when their backends land (composer
+                        // bridge, mute list, NIP-56 reports, group-scoped moderation).
+                        if (canZap) {
                             Spacer(modifier = Modifier.height(Spacing.lg))
-
-                            Text(
-                                text = "NIP-05",
-                                style = NostrordTypography.SectionHeader,
-                                color = NostrordColors.TextMuted,
-                            )
-
-                            Spacer(modifier = Modifier.height(Spacing.sm))
-
-                            Text(
-                                text = metadata?.nip05 ?: "",
-                                style = NostrordTypography.Caption,
-                                color = NostrordColors.Success,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            ProfileActionRow(
+                                icon = Icons.Outlined.Bolt,
+                                label = "Send zap",
+                            ) {
+                                ZapController.request(pubkey, null)
+                                onDismiss()
+                            }
                         }
                     }
                 }
