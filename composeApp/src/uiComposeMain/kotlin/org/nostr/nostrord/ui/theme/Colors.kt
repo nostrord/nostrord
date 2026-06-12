@@ -58,6 +58,10 @@ object NostrordColors {
     /** Message hover highlight */
     val MessageHover: Color get() = Color(palette.messageHover)
 
+    /** Full-page gradient corners (login/onboarding); Background sits in the middle */
+    val PageGradientFrom: Color get() = Color(palette.pageGradientFrom)
+    val PageGradientTo: Color get() = Color(palette.pageGradientTo)
+
     // ============================================
     // PRIMARY / BRAND COLORS
     // ============================================

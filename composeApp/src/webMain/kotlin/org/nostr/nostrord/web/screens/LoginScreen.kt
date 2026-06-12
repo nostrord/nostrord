@@ -96,22 +96,27 @@ val LoginScreen =
             div {
                 className = ClassName("login-inner")
 
-                img {
-                    className = ClassName("login-logo")
-                    src = "icon-192.png"
-                    alt = "Nostrord"
-                }
-                h1 {
-                    className = ClassName("login-title")
-                    +"Nostrord"
-                }
-                p {
-                    className = ClassName("login-subtitle")
-                    +"Connect to the Nostr network"
-                }
-
                 div {
                     className = ClassName(if (extensionAvailable) "login-card wide" else "login-card")
+
+                    // Header lives inside the card (prototype layout): logo on the
+                    // brand tile, app name, tagline.
+                    div {
+                        className = ClassName("login-head")
+                        img {
+                            className = ClassName("login-logo")
+                            src = "icon-192.png"
+                            alt = "Nostrord"
+                        }
+                        h1 {
+                            className = ClassName("login-title")
+                            +"Nostrord"
+                        }
+                        p {
+                            className = ClassName("login-subtitle")
+                            +"decentralized groups on nostr"
+                        }
+                    }
 
                     div {
                         className = ClassName("login-tabs")
@@ -286,10 +291,6 @@ val LoginScreen =
                     }
                 }
 
-                p {
-                    className = ClassName("login-footer")
-                    +"New to Nostr? Generate a key to get started instantly."
-                }
             }
         }
     }

@@ -60,6 +60,8 @@ fun applyColorTokens(palette: ColorPalette = DarkColorPalette) {
     set("--color-warning-orange", palette.warningOrange)
     set("--color-message-hover", palette.messageHover)
     set("--color-mention", palette.mentionText)
+    set("--page-grad-from", palette.pageGradientFrom)
+    set("--page-grad-to", palette.pageGradientTo)
 }
 
 /**

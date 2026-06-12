@@ -64,6 +64,10 @@ object ColorTokens {
     // Dividers
     const val Divider = 0xFF34323CL
 
+    // Full-page gradient corners (login/onboarding); Background sits in the middle
+    const val PageGradientFrom = 0xFF2A2740L
+    const val PageGradientTo = 0xFF16151EL
+
     /** Palette for generating avatar colors from strings. */
     val AvatarColors =
         listOf(
@@ -122,6 +126,8 @@ data class ColorPalette(
     val mentionAccent: Long,
     val statusOffline: Long,
     val divider: Long,
+    val pageGradientFrom: Long,
+    val pageGradientTo: Long,
 )
 
 val DarkColorPalette =
@@ -158,6 +164,8 @@ val DarkColorPalette =
         mentionAccent = ColorTokens.MentionAccent,
         statusOffline = ColorTokens.StatusOffline,
         divider = ColorTokens.Divider,
+        pageGradientFrom = ColorTokens.PageGradientFrom,
+        pageGradientTo = ColorTokens.PageGradientTo,
     )
 
 /**
@@ -201,6 +209,8 @@ val LightColorPalette =
         mentionAccent = 0xFFF5A524L, // alpha-bg base + idle dot stay amber in both themes
         statusOffline = 0xFF8B8896L,
         divider = 0xFFE3E1EAL, // line
+        pageGradientFrom = 0xFFE3DEF5L,
+        pageGradientTo = 0xFFF0EEF8L,
     )
 
 /** Resolve the user's theme preference to a concrete palette. */

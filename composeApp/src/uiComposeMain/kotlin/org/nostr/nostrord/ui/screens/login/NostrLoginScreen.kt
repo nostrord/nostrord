@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
@@ -63,12 +62,14 @@ fun NostrLoginScreen(
         modifier
             .fillMaxSize()
             .background(
-                Brush.verticalGradient(
+                // Theme-aware page gradient: corners around the main background
+                // (mirrors the web's .login-page / prototype page-gradient).
+                Brush.linearGradient(
                     colors =
                     listOf(
-                        NostrordColors.BackgroundDark,
+                        NostrordColors.PageGradientFrom,
                         NostrordColors.Background,
-                        NostrordColors.Background,
+                        NostrordColors.PageGradientTo,
                     ),
                 ),
             ),
@@ -78,49 +79,53 @@ fun NostrLoginScreen(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(24.dp),
+                .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            // Centers the card when it fits; the column still scrolls when taller.
+            verticalArrangement = Arrangement.Center,
         ) {
-            Spacer(modifier = Modifier.height(40.dp))
-
-            // Logo/Brand section
-            Image(
-                painter = painterResource(Res.drawable.nostrord_logo),
-                contentDescription = "Nostrord",
-                modifier = Modifier.size(100.dp),
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Nostrord",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-            )
-
-            Text(
-                text = "Connect to the Nostr network",
-                style = MaterialTheme.typography.bodyMedium,
-                color = NostrordColors.TextMuted,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-
-            Spacer(modifier = Modifier.height(40.dp))
-
             // Main login card — wider when 3 tabs are shown to prevent label cramming
-            val cardMaxWidth = if (tabs.size >= 3) 500.dp else 400.dp
+            val cardMaxWidth = if (tabs.size >= 3) 500.dp else 448.dp
             Card(
                 modifier =
                 Modifier
                     .widthIn(max = cardMaxWidth)
                     .fillMaxWidth(),
-                shape = NostrordShapes.shapeLarge,
+                shape = NostrordShapes.shapeXLarge,
                 colors = CardDefaults.cardColors(containerColor = NostrordColors.Surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             ) {
                 Column(
-                    modifier = Modifier.padding(20.dp),
+                    modifier = Modifier.padding(32.dp),
                 ) {
+                    // Card header: logo on the brand tile, app name, tagline
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Image(
+                            painter = painterResource(Res.drawable.nostrord_logo),
+                            contentDescription = "Nostrord",
+                            modifier =
+                            Modifier
+                                .size(56.dp)
+                                .clip(NostrordShapes.shapeXLarge)
+                                .background(NostrordColors.Primary),
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Nostrord",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = NostrordColors.TextPrimary,
+                        )
+                        Text(
+                            text = "decentralized groups on nostr",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = NostrordColors.TextMuted,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
                     // Tab selector
                     val tabHPad = if (tabs.size >= 3) 8.dp else 12.dp
                     Surface(
@@ -181,19 +186,6 @@ fun NostrLoginScreen(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Footer hint
-            Text(
-                text = "New to Nostr? Generate a key to get started instantly.",
-                style = MaterialTheme.typography.bodySmall,
-                color = NostrordColors.TextMuted,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = cardMaxWidth),
-            )
-
-            Spacer(modifier = Modifier.height(40.dp))
         }
     }
 }
