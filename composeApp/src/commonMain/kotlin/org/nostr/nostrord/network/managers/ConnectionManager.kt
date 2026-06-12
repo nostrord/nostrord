@@ -353,6 +353,12 @@ class ConnectionManager(
         reconnectAttempts = 0
         autoReconnectEnabled = true
 
+        // Detach onConnectionLost BEFORE disconnecting: the dying socket's close
+        // event fires asynchronously and would otherwise run handleConnectionLost
+        // AFTER connectPrimary installs the replacement client — killing the fresh
+        // connection and flipping the banner to "Unable to connect" (seen on every
+        // account switch, which reconnects through here).
+        primaryClient?.onConnectionLost = null
         primaryClient?.disconnect()
         primaryClient = null
 
@@ -379,6 +385,9 @@ class ConnectionManager(
         reconnectJob?.cancel()
         reconnectJob = null
 
+        // Same orphan-callback hazard as reconnect(): a late close event from this
+        // socket must not tear down whatever primary connects next.
+        primaryClient?.onConnectionLost = null
         primaryClient?.disconnect()
         primaryClient = null
         _connectionState.value = ConnectionState.Disconnected
