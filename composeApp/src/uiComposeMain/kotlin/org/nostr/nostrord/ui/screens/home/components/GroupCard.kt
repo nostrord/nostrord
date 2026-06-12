@@ -31,7 +31,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
-import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.avatars.GroupGradientAvatar
 import org.nostr.nostrord.ui.components.badges.UnreadBadge
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -152,10 +152,11 @@ private fun GroupAvatar(
                 imageState is AsyncImagePainter.State.Loading ||
                 imageState is AsyncImagePainter.State.Error
 
-        // Show Jdenticon when no URL, loading, or error
+        // Show the gradient fallback when no URL, loading, or error
         if (showPlaceholder) {
-            Jdenticon(
-                value = groupId,
+            GroupGradientAvatar(
+                seed = groupId,
+                name = groupName,
                 size = size,
             )
         }

@@ -394,8 +394,8 @@ private fun notificationTypeColor(type: NotificationType): Color = when (type) {
  * Small rounded square icon for groups and relays in the notification feed.
  * Loads the image whenever a URL is provided; falls back to a colored square with
  * the first letter of the label. Doesn't use [OptimizedSmallAvatar] because at
- * sizes below 24dp that helper skips image loading and renders a user-style
- * Jdenticon — wrong fallback for groups/relays, and hides real pictures.
+ * sizes below 24dp that helper skips image loading and only shows its gradient
+ * fallback — hiding real pictures.
  */
 @Composable
 private fun ContextIcon(

@@ -32,7 +32,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
-import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 /**
@@ -172,8 +172,8 @@ private fun JoinRequestItem(
                 .clip(CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Jdenticon(
-                value = request.pubkey,
+            UserGradientAvatar(
+                seed = request.pubkey,
                 size = 40.dp,
             )
             if (!metadata?.picture.isNullOrBlank()) {

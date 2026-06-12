@@ -34,7 +34,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip19
-import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
@@ -565,7 +565,7 @@ private fun AdminMemberAvatar(
                 imageState is AsyncImagePainter.State.Error
 
         if (showPlaceholder) {
-            Jdenticon(value = member.pubkey, size = size)
+            UserGradientAvatar(seed = member.pubkey, size = size)
         }
         if (!member.picture.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error) {
             AsyncImage(

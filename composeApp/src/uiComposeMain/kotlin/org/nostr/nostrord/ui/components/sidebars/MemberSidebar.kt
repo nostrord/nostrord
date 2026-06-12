@@ -52,7 +52,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.nostr.Nip19
-import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.components.loading.MemberSkeleton
 import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.components.AddMemberModal
@@ -479,10 +479,10 @@ private fun MemberAvatar(
                 imageState is AsyncImagePainter.State.Loading ||
                 imageState is AsyncImagePainter.State.Error
 
-        // Show Jdenticon when no picture, loading, or error
+        // Show the gradient fallback when no picture, loading, or error
         if (showPlaceholder) {
-            Jdenticon(
-                value = member.pubkey,
+            UserGradientAvatar(
+                seed = member.pubkey,
                 size = size,
                 modifier = Modifier.graphicsLayer { this.alpha = alpha },
             )

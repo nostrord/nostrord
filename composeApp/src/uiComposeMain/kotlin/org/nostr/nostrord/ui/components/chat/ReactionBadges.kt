@@ -46,7 +46,7 @@ import coil3.request.crossfade
 import coil3.size.Size
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.network.managers.GroupManager
-import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.theme.rememberEmojiFontFamily
@@ -321,8 +321,8 @@ private fun ReactorAvatarStack(
                         imageState is AsyncImagePainter.State.Error
 
                 if (showFallback) {
-                    Jdenticon(
-                        value = pubkey,
+                    UserGradientAvatar(
+                        seed = pubkey,
                         size = AVATAR_SIZE,
                     )
                 }

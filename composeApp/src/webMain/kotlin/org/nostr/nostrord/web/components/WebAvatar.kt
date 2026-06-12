@@ -1,5 +1,8 @@
 package org.nostr.nostrord.web.components
 
+import js.objects.unsafeJso
+import org.nostr.nostrord.ui.theme.AvatarGradients
+import org.nostr.nostrord.ui.theme.Hsl
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -8,6 +11,7 @@ import react.dom.html.ReactHTML.img
 import react.useEffect
 import react.useRef
 import react.useState
+import web.cssom.Background
 import web.cssom.ClassName
 import web.html.HTMLImageElement
 import kotlin.math.abs
@@ -27,7 +31,7 @@ external interface WebAvatarProps : Props {
     var seed: String?
 
     /**
-     * USER → Jdenticon identicon + circle; GROUP → initial letter on a deterministic colour +
+     * USER → duotone gradient + circle; GROUP → initial letter on a conic-swirl gradient +
      * rounded square; RELAY → initial letter on a colour (shape left to [cls]). Defaults to USER.
      */
     var kind: AvatarKind?
@@ -39,9 +43,10 @@ external interface WebAvatarProps : Props {
 
 /**
  * Avatar that always shows the fallback first and overlays the real picture once it loads (fading
- * in); if the image is missing or fails, the fallback stays. Users fall back to a Jdenticon
- * identicon (circle); groups and relays to an initial letter on a deterministic colour, with
- * groups forced to a rounded square — mirroring the native scheme.
+ * in); if the image is missing or fails, the fallback stays. Users fall back to a seeded duotone
+ * gradient (circle); groups to an initial letter on a seeded conic gradient, forced to a rounded
+ * square; relays to an initial letter on a deterministic colour — mirroring the native scheme
+ * (see AvatarGradients in commonMain).
  */
 val WebAvatar =
     FC<WebAvatarProps> { props ->
@@ -64,7 +69,7 @@ val WebAvatar =
         val kind = props.kind ?: AvatarKind.USER
         // RELAY: when NIP-11 didn't publish an icon, fall back to a bundled brand asset for
         // the relays the native UI ships (mirrors ui/util/RelayFallbacks.kt). Other kinds use
-        // the letter/identicon fallback below — only relays have a brand image worth seeding.
+        // the letter/gradient fallback below — only relays have a brand image worth seeding.
         val url = props.url ?: if (kind == AvatarKind.RELAY) bundledRelayFallback(seed) else null
 
         div {
@@ -80,12 +85,16 @@ val WebAvatar =
 
             // Fallback underneath while the photo loads. Removed once it has loaded so a
             // transparent avatar shows the tile's solid background instead of the
-            // identicon/letter bleeding through. Stays if the photo is missing or fails.
+            // gradient/letter bleeding through. Stays if the photo is missing or fails.
             if (!loaded) {
-                if (kind == AvatarKind.USER) {
-                    identicon(seed)
-                } else {
-                    letterAvatar(seed, props.name)
+                when (kind) {
+                    AvatarKind.USER ->
+                        div {
+                            className = ClassName("avatar-gradient")
+                            style = unsafeJso { background = userGradientCss(seed).unsafeCast<Background>() }
+                        }
+                    AvatarKind.GROUP -> letterAvatar(seed, props.name, background = groupGradientCss(seed))
+                    AvatarKind.RELAY -> letterAvatar(seed, props.name)
                 }
             }
 
@@ -118,8 +127,11 @@ private fun bundledRelayFallback(relayUrl: String): String? = when {
     else -> null
 }
 
-/** Initial-letter fallback on a deterministic colour — matches the native group avatar. */
-private fun ChildrenBuilder.letterAvatar(seed: String, name: String) {
+/**
+ * Initial-letter fallback. With [background] (a CSS gradient) the letter sits on it (groups);
+ * otherwise on a deterministic palette colour (relays).
+ */
+private fun ChildrenBuilder.letterAvatar(seed: String, name: String, background: String? = null) {
     val index = abs(seed.hashCode()) % AVATAR_COLOR_COUNT
     // Skip whitespace / invisible chars (some NIP-29 groups have a leading space or
     // zero-width char in `name`, which made `.take(1)` produce an empty pill); fall
@@ -130,7 +142,25 @@ private fun ChildrenBuilder.letterAvatar(seed: String, name: String) {
             ?: '?'
         ).uppercaseChar().toString()
     div {
-        className = ClassName("avatar-letter avatar-color-$index")
+        className = ClassName(if (background != null) "avatar-letter" else "avatar-letter avatar-color-$index")
+        if (background != null) {
+            style = unsafeJso { this.background = background.unsafeCast<Background>() }
+        }
         +letter
     }
+}
+
+private fun hsl(c: Hsl): String = "hsl(${c.hue} ${c.saturation}% ${c.lightness}%)"
+
+/** Prototype gradientAvatar: diagonal duotone + soft top sheen (math in AvatarGradients). */
+private fun userGradientCss(seed: String): String {
+    val g = AvatarGradients.user(seed)
+    return "radial-gradient(circle at ${g.sheenX}% 12%, hsl(0 0% 100% / 0.28) 0%, hsl(0 0% 100% / 0) 42%), " +
+        "linear-gradient(${g.angleDeg}deg, ${hsl(g.start)}, ${hsl(g.end)})"
+}
+
+/** Prototype gradientGroupAvatar: conic swirl seeded by the group id. */
+private fun groupGradientCss(seed: String): String {
+    val g = AvatarGradients.group(seed)
+    return "conic-gradient(from ${g.fromDeg}deg, ${hsl(g.c1)}, ${hsl(g.c2)}, ${hsl(g.c3)}, ${hsl(g.c1)})"
 }

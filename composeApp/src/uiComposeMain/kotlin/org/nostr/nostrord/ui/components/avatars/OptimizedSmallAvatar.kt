@@ -67,6 +67,7 @@ private fun Dp.toSizeCategory(): AvatarSizeCategory = when {
  * @param displayName Display name for generating initial letter
  * @param size Target display size
  * @param shape Shape of the avatar (CircleShape or RoundedCornerShape)
+ * @param isGroup Group avatars fall back to the conic swirl gradient, users to the duotone
  * @param modifier Modifier for the container
  */
 @Composable
@@ -76,6 +77,7 @@ fun OptimizedSmallAvatar(
     displayName: String,
     size: Dp,
     shape: Shape = CircleShape,
+    isGroup: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalPlatformContext.current
@@ -99,10 +101,12 @@ fun OptimizedSmallAvatar(
             },
         )
 
-    // For tiny sizes or no image, use Jdenticon
+    // For tiny sizes or no image, use the gradient fallback
     if (sizeCategory == AvatarSizeCategory.TINY || imageUrl.isNullOrBlank()) {
         SmallAvatarPlaceholder(
             identifier = identifier,
+            displayName = displayName,
+            isGroup = isGroup,
             edgeColor = edgeColor,
             size = size,
             shape = shape,
@@ -125,6 +129,8 @@ fun OptimizedSmallAvatar(
         if (showPlaceholder) {
             SmallAvatarPlaceholder(
                 identifier = identifier,
+                displayName = displayName,
+                isGroup = isGroup,
                 edgeColor = edgeColor,
                 size = size,
                 shape = shape,
@@ -179,11 +185,13 @@ fun OptimizedSmallAvatar(
 }
 
 /**
- * Placeholder for small avatars using Jdenticon.
+ * Placeholder for small avatars using the seeded gradient fallback.
  */
 @Composable
 private fun SmallAvatarPlaceholder(
     identifier: String,
+    displayName: String,
+    isGroup: Boolean,
     edgeColor: Color,
     size: Dp,
     shape: Shape,
@@ -203,10 +211,11 @@ private fun SmallAvatarPlaceholder(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Jdenticon(
-            value = identifier,
-            size = size,
-        )
+        if (isGroup) {
+            GroupGradientAvatar(seed = identifier, name = displayName, size = size)
+        } else {
+            UserGradientAvatar(seed = identifier, size = size)
+        }
     }
 }
 
@@ -250,6 +259,7 @@ fun OptimizedServerIcon(
         displayName = groupName,
         size = size,
         shape = RoundedCornerShape(cornerRadius),
+        isGroup = true,
         modifier = modifier,
     )
 }

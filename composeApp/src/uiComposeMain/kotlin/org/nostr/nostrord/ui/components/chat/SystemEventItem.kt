@@ -33,7 +33,7 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.UserMetadata
-import org.nostr.nostrord.ui.components.avatars.Jdenticon
+import org.nostr.nostrord.ui.components.avatars.UserGradientAvatar
 import org.nostr.nostrord.ui.screens.group.model.SystemEventType
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.utils.formatTimestamp
@@ -251,7 +251,7 @@ private fun MiniAvatar(
             contentAlignment = Alignment.Center,
         ) {
             if (imageState is AsyncImagePainter.State.Error) {
-                Jdenticon(value = pubkey, size = size.dp)
+                UserGradientAvatar(seed = pubkey, size = size.dp)
             } else {
                 val imageRequest =
                     remember(pictureUrl, context) {
@@ -264,7 +264,7 @@ private fun MiniAvatar(
                             .build()
                     }
                 if (imageState is AsyncImagePainter.State.Loading || imageState is AsyncImagePainter.State.Empty) {
-                    Jdenticon(value = pubkey, size = size.dp)
+                    UserGradientAvatar(seed = pubkey, size = size.dp)
                 }
                 AsyncImage(
                     model = imageRequest,
@@ -287,7 +287,7 @@ private fun MiniAvatar(
                 .then(clickModifier),
             contentAlignment = Alignment.Center,
         ) {
-            Jdenticon(value = pubkey, size = size.dp)
+            UserGradientAvatar(seed = pubkey, size = size.dp)
         }
     }
 }

@@ -814,7 +814,7 @@ val AppShell =
                 // Both children of `.content` carry a stable `key`: without one React matches
                 // siblings by position, so toggling this banner shifted `.content-screen` by an
                 // index and React remounted the whole screen from scratch. That reset every
-                // WebAvatar's `loaded` flag, flashing the identicon fallback and re-fetching the
+                // WebAvatar's `loaded` flag, flashing the gradient fallback and re-fetching the
                 // photo each time the banner appeared or hid — the avatars "blinking" with the bar.
                 if (hasRelays && !notificationsOpen && showConnBanner) {
                     div {
