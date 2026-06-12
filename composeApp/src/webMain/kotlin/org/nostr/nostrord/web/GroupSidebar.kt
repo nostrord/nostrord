@@ -13,6 +13,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.modals.CreateGroupModal
+import org.nostr.nostrord.web.modals.EditGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
 import react.FC
 import react.Props
@@ -45,6 +46,7 @@ val GroupSidebar =
         val unreadCounts = useStateFlow(AppModule.nostrRepository.unreadCounts)
         val (showInfo, setShowInfo) = useState { false }
         val (showCreateSubgroup, setShowCreateSubgroup) = useState { false }
+        val (showManage, setShowManage) = useState { false }
 
         val relayGroups = groupsByRelay[route.relayUrl].orEmpty()
         val meta = relayGroups.firstOrNull { it.id == route.groupId }
@@ -107,6 +109,17 @@ val GroupSidebar =
                         +(if (memberCount > 0) "Members · $memberCount" else "Members")
                     }
                 }
+                if (isAdmin) {
+                    button {
+                        className = ClassName("group-side-row")
+                        onClick = { setShowManage(true) }
+                        icon(Ic.Settings)
+                        span {
+                            className = ClassName("group-side-row-label")
+                            +"Manage group"
+                        }
+                    }
+                }
 
                 div {
                     className = ClassName("group-side-label")
@@ -160,6 +173,12 @@ val GroupSidebar =
             GroupInfoModal {
                 group = meta ?: placeholderMeta(route.groupId)
                 onClose = { setShowInfo(false) }
+            }
+        }
+        if (showManage) {
+            EditGroupModal {
+                group = meta ?: placeholderMeta(route.groupId)
+                onClose = { setShowManage(false) }
             }
         }
         if (showCreateSubgroup) {

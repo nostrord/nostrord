@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,6 +51,7 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
+import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
 import org.nostr.nostrord.ui.theme.AvatarGradients
 import org.nostr.nostrord.ui.theme.Hsl
@@ -90,6 +92,7 @@ fun GroupSidebar(
 
     var showInfo by remember { mutableStateOf(false) }
     var showCreateSubgroup by remember { mutableStateOf(false) }
+    var showManage by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         GroupBanner(
@@ -116,6 +119,11 @@ fun GroupSidebar(
                 icon = Icons.Default.People,
                 label = if (memberCount > 0) "Members · $memberCount" else "Members",
             ) { showInfo = true }
+            if (isAdmin) {
+                SidebarRow(icon = Icons.Default.Settings, label = "Manage group") {
+                    showManage = true
+                }
+            }
 
             Spacer(modifier = Modifier.height(Spacing.md))
             Row(
@@ -171,6 +179,14 @@ fun GroupSidebar(
             groupMetadata = meta,
             userMetadata = userMetadata,
             onDismiss = { showInfo = false },
+        )
+    }
+    if (showManage) {
+        EditGroupModal(
+            groupId = route.groupId,
+            currentMetadata = meta,
+            onDismiss = { showManage = false },
+            onGroupUpdated = { showManage = false },
         )
     }
     if (showCreateSubgroup) {
