@@ -5,13 +5,12 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
-import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.formError
+import org.nostr.nostrord.web.components.iconInput
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
-import react.dom.html.ReactHTML.input
-import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
@@ -59,31 +58,19 @@ val UnlockModal =
                     className = ClassName("modal-subtitle tight")
                     +"This account's key is encrypted on this device (NIP-49). Enter the password to unlock it."
                 }
-                div {
-                    className = ClassName("field-with-icon")
-                    span {
-                        className = ClassName("field-icon")
-                        icon(Ic.Lock)
-                    }
-                    input {
-                        className = ClassName("login-input")
-                        type = InputType.password
-                        placeholder = "Password"
-                        value = password
-                        autoFocus = true
-                        onChange = { event ->
-                            setPassword(event.currentTarget.value)
-                            setError(null)
-                        }
-                        onKeyDown = { event -> if (event.key == "Enter") unlock() }
-                    }
-                }
-                error?.let {
-                    p {
-                        className = ClassName("login-error")
-                        +it
-                    }
-                }
+                iconInput(
+                    ic = Ic.Lock,
+                    type = InputType.password,
+                    placeholder = "Password",
+                    value = password,
+                    autoFocus = true,
+                    onChange = {
+                        setPassword(it)
+                        setError(null)
+                    },
+                    onEnter = { unlock() },
+                )
+                formError(error)
                 div {
                     className = ClassName("modal-footer")
                     button {

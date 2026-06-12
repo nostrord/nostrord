@@ -6,7 +6,10 @@ import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.formError
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.iconInput
+import org.nostr.nostrord.web.components.tabItem
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -17,6 +20,8 @@ import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
+import web.html.InputType
+import web.html.text
 
 external interface AddAccountSheetProps : Props {
     var onClose: () -> Unit
@@ -104,12 +109,7 @@ val AddAccountSheet =
 
                 div {
                     className = ClassName("add-sheet-body")
-                    error?.let {
-                        p {
-                            className = ClassName("login-error")
-                            +it
-                        }
-                    }
+                    formError(error)
                     when (step) {
                         AddStep.Pick -> {
                             p {
@@ -160,36 +160,20 @@ val AddAccountSheet =
                             }
                             div {
                                 className = ClassName("bunker-toggle")
-                                button {
-                                    className = ClassName(if (bunkerMode == AddBunkerMode.Qr) "login-tab selected" else "login-tab")
-                                    onClick = { setBunkerMode(AddBunkerMode.Qr) }
-                                    icon(Ic.QrCode)
-                                    span { +"QR Code" }
-                                }
-                                button {
-                                    className = ClassName(if (bunkerMode == AddBunkerMode.Url) "login-tab selected" else "login-tab")
-                                    onClick = { setBunkerMode(AddBunkerMode.Url) }
-                                    icon(Ic.Keyboard)
-                                    span { +"Bunker URL" }
-                                }
+                                tabItem(bunkerMode == AddBunkerMode.Qr, Ic.QrCode, "QR Code") { setBunkerMode(AddBunkerMode.Qr) }
+                                tabItem(bunkerMode == AddBunkerMode.Url, Ic.Keyboard, "Bunker URL") { setBunkerMode(AddBunkerMode.Url) }
                             }
                             when (bunkerMode) {
                                 AddBunkerMode.Qr -> BunkerQr { onSuccess = { props.onClose() } }
 
                                 AddBunkerMode.Url -> {
-                                    div {
-                                        className = ClassName("field-with-icon")
-                                        span {
-                                            className = ClassName("field-icon")
-                                            icon(Ic.Link)
-                                        }
-                                        input {
-                                            className = ClassName("login-input")
-                                            placeholder = "bunker://<pubkey>?relay=wss://..."
-                                            value = bunkerUrl
-                                            onChange = { event -> setBunkerUrl(event.currentTarget.value) }
-                                        }
-                                    }
+                                    iconInput(
+                                        ic = Ic.Link,
+                                        type = InputType.text,
+                                        placeholder = "bunker://<pubkey>?relay=wss://...",
+                                        value = bunkerUrl,
+                                        onChange = { setBunkerUrl(it) },
+                                    )
                                     button {
                                         className = ClassName("btn-primary btn-lg btn-full login-submit")
                                         disabled = bunkerUrl.isBlank() || busy

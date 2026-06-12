@@ -5,7 +5,11 @@ import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.formError
+import org.nostr.nostrord.web.components.formHint
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.iconInput
+import org.nostr.nostrord.web.components.tabItem
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -18,19 +22,12 @@ import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
+import web.html.InputType
+import web.html.text
 
 private enum class Tab { Key, Bunker, Extension }
 
 private enum class BunkerMode { Qr, Url }
-
-private fun ChildrenBuilder.tabButton(selected: Boolean, ic: Ic, label: String, onSelect: () -> Unit) {
-    button {
-        className = ClassName(if (selected) "login-tab selected" else "login-tab")
-        onClick = { onSelect() }
-        icon(ic)
-        span { +label }
-    }
-}
 
 private fun ChildrenBuilder.benefit(text: String) {
     div {
@@ -99,22 +96,17 @@ val LoginScreen =
                     }
 
                     div {
-                        className = ClassName("login-tabs")
-                        tabButton(tab == Tab.Key, Ic.Key, "Private Key") { setTab(Tab.Key) }
-                        tabButton(tab == Tab.Bunker, Ic.Shield, "Bunker") { setTab(Tab.Bunker) }
+                        className = ClassName("tab-strip")
+                        tabItem(tab == Tab.Key, Ic.Key, "Private Key") { setTab(Tab.Key) }
+                        tabItem(tab == Tab.Bunker, Ic.Shield, "Bunker") { setTab(Tab.Bunker) }
                         if (extensionAvailable) {
-                            tabButton(tab == Tab.Extension, Ic.Extension, "Extension") { setTab(Tab.Extension) }
+                            tabItem(tab == Tab.Extension, Ic.Extension, "Extension") { setTab(Tab.Extension) }
                         }
                     }
 
                     div {
                         className = ClassName("login-tab-content")
-                        error?.let {
-                            p {
-                                className = ClassName("login-error")
-                                +it
-                            }
-                        }
+                        formError(error)
                         when (tab) {
                             Tab.Key -> {
                                 KeyLoginForm {
@@ -153,39 +145,20 @@ val LoginScreen =
                                 }
                                 div {
                                     className = ClassName("bunker-toggle")
-                                    button {
-                                        className = ClassName(if (bunkerMode == BunkerMode.Qr) "login-tab selected" else "login-tab")
-                                        onClick = { setBunkerMode(BunkerMode.Qr) }
-                                        icon(Ic.QrCode)
-                                        span { +"QR Code" }
-                                    }
-                                    button {
-                                        className = ClassName(if (bunkerMode == BunkerMode.Url) "login-tab selected" else "login-tab")
-                                        onClick = { setBunkerMode(BunkerMode.Url) }
-                                        icon(Ic.Keyboard)
-                                        span { +"Bunker URL" }
-                                    }
+                                    tabItem(bunkerMode == BunkerMode.Qr, Ic.QrCode, "QR Code") { setBunkerMode(BunkerMode.Qr) }
+                                    tabItem(bunkerMode == BunkerMode.Url, Ic.Keyboard, "Bunker URL") { setBunkerMode(BunkerMode.Url) }
                                 }
                                 when (bunkerMode) {
                                     BunkerMode.Qr -> BunkerQr { onSuccess = {} }
                                     BunkerMode.Url -> {
-                                        div {
-                                            className = ClassName("field-with-icon")
-                                            span {
-                                                className = ClassName("field-icon")
-                                                icon(Ic.Link)
-                                            }
-                                            input {
-                                                className = ClassName("login-input")
-                                                placeholder = "bunker://<pubkey>?relay=wss://..."
-                                                value = bunkerUrl
-                                                onChange = { event -> setBunkerUrl(event.currentTarget.value) }
-                                            }
-                                        }
-                                        p {
-                                            className = ClassName("login-hint")
-                                            +"Get your bunker URL from nsec.app, Amber, or other NIP-46 signers"
-                                        }
+                                        iconInput(
+                                            ic = Ic.Link,
+                                            type = InputType.text,
+                                            placeholder = "bunker://<pubkey>?relay=wss://...",
+                                            value = bunkerUrl,
+                                            onChange = { setBunkerUrl(it) },
+                                        )
+                                        formHint("Get your bunker URL from nsec.app, Amber, or other NIP-46 signers")
                                         button {
                                             className = ClassName("btn-primary btn-lg btn-full login-submit")
                                             disabled = bunkerUrl.isBlank() || busy

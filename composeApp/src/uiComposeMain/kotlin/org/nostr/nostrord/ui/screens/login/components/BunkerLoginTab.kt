@@ -1,10 +1,6 @@
 package org.nostr.nostrord.ui.screens.login.components
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -25,8 +21,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
@@ -39,6 +33,9 @@ import org.nostr.nostrord.isAndroid
 import org.nostr.nostrord.ui.components.QrCode
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
+import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
+import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -79,66 +76,15 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
 
         // Mode toggle: QR Code vs Bunker URL
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = NostrordShapes.shapeMedium,
-            color = NostrordColors.BackgroundFloating,
-        ) {
-            Row(modifier = Modifier.padding(4.dp)) {
-                val modes =
-                    listOf(
-                        BunkerMode.QR to "QR Code" to Icons.Default.QrCode,
-                        BunkerMode.URL to "Bunker URL" to Icons.Default.TextFields,
-                    )
-                for ((pair, icon) in modes) {
-                    val (m, label) = pair
-                    val isSelected = mode == m
-                    val bgColor by animateColorAsState(
-                        if (isSelected) NostrordColors.Primary else Color.Transparent,
-                    )
-                    // Hover lifts the inactive toggle's text to primary (web .login-tab:hover)
-                    val interactionSource = remember { MutableInteractionSource() }
-                    val isHovered by interactionSource.collectIsHoveredAsState()
-                    val contentColor =
-                        when {
-                            isSelected -> Color.White
-                            isHovered -> NostrordColors.TextPrimary
-                            else -> NostrordColors.TextMuted
-                        }
-                    Surface(
-                        modifier =
-                        Modifier
-                            .weight(1f)
-                            .clip(NostrordShapes.shapeSmall)
-                            .hoverable(interactionSource)
-                            .clickable { mode = m }
-                            .pointerHoverIcon(PointerIcon.Hand),
-                        shape = NostrordShapes.shapeSmall,
-                        color = bgColor,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = contentColor,
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = contentColor,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        AppSegmentedTabs(
+            tabs =
+            listOf(
+                SegmentedTab("QR Code", Icons.Default.QrCode),
+                SegmentedTab("Bunker URL", Icons.Default.TextFields),
+            ),
+            selectedIndex = if (mode == BunkerMode.QR) 0 else 1,
+            onSelect = { mode = if (it == 0) BunkerMode.QR else BunkerMode.URL },
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -547,48 +493,18 @@ private fun BunkerUrlLoginContent(
     }
 
     Column {
-        // Input field
-        OutlinedTextField(
+        // Input field (shared form component)
+        AppTextField(
             value = bunkerUrl,
             onValueChange = {
                 bunkerUrl = it
                 errorMessage = null
             },
-            placeholder = {
-                Text(
-                    "bunker://<pubkey>?relay=wss://...",
-                    color = NostrordColors.TextMuted,
-                )
-            },
-            singleLine = false,
+            placeholder = "bunker://<pubkey>?relay=wss://...",
+            hint = "Get your bunker URL from nsec.app, Amber, or other NIP-46 signers",
+            leadingIcon = Icons.Default.Link,
             maxLines = 3,
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = LocalTextStyle.current.copy(color = Color.White),
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Link,
-                    contentDescription = null,
-                    tint = NostrordColors.TextMuted,
-                )
-            },
-            shape = NostrordShapes.inputShape,
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = NostrordColors.Primary,
-                unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                cursorColor = NostrordColors.Primary,
-                focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground,
-            ),
             enabled = !isConnecting,
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            "Get your bunker URL from nsec.app, Amber, or other NIP-46 signers",
-            color = NostrordColors.TextMuted,
-            style = MaterialTheme.typography.labelSmall,
         )
 
         Spacer(modifier = Modifier.height(16.dp))

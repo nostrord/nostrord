@@ -1,12 +1,7 @@
 package org.nostr.nostrord.ui.screens.login
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -20,16 +15,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
 import org.nostr.nostrord.nostr.Nip07
+import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
+import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.screens.login.components.BunkerLoginTab
 import org.nostr.nostrord.ui.screens.login.components.ExtensionLoginTab
 import org.nostr.nostrord.ui.screens.login.components.PrivateKeyLoginTab
@@ -131,66 +125,12 @@ fun NostrLoginScreen(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    // Tab selector
-                    val tabHPad = if (tabs.size >= 3) 8.dp else 12.dp
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = NostrordShapes.shapeMedium,
-                        color = NostrordColors.BackgroundFloating,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(4.dp),
-                        ) {
-                            tabs.forEach { tab ->
-                                val isSelected = selectedTab == tab
-                                val backgroundColor by animateColorAsState(
-                                    if (isSelected) NostrordColors.Primary else Color.Transparent,
-                                )
-                                // Hover lifts the inactive tab's text to primary (web .login-tab:hover)
-                                val interactionSource = remember { MutableInteractionSource() }
-                                val isHovered by interactionSource.collectIsHoveredAsState()
-                                val contentColor =
-                                    when {
-                                        isSelected -> Color.White
-                                        isHovered -> NostrordColors.TextPrimary
-                                        else -> NostrordColors.TextMuted
-                                    }
-
-                                Surface(
-                                    modifier =
-                                    Modifier
-                                        .weight(1f)
-                                        .clip(NostrordShapes.shapeSmall)
-                                        .hoverable(interactionSource)
-                                        .clickable { selectedTab = tab }
-                                        .pointerHoverIcon(PointerIcon.Hand),
-                                    shape = NostrordShapes.shapeSmall,
-                                    color = backgroundColor,
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = tabHPad),
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Icon(
-                                            imageVector = tab.icon,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                            tint = contentColor,
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = tab.title,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = contentColor,
-                                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Tab selector (shared segmented-tabs component)
+                    AppSegmentedTabs(
+                        tabs = tabs.map { SegmentedTab(it.title, it.icon) },
+                        selectedIndex = tabs.indexOf(selectedTab),
+                        onSelect = { selectedTab = tabs[it] },
+                    )
 
                     Spacer(modifier = Modifier.height(24.dp))
 

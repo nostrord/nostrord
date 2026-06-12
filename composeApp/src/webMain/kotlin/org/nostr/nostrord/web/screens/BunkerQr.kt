@@ -137,9 +137,9 @@ val BunkerQr =
             // URI + copy input (matches native OutlinedTextField with copy trailing icon).
             uri?.let { connectUri ->
                 div {
-                    className = ClassName("field-with-icon bunker-uri")
+                    className = ClassName("input-group bunker-uri")
                     input {
-                        className = ClassName("login-input")
+                        className = ClassName("input")
                         value = connectUri
                         readOnly = true
                         onChange = { /* read-only */ }
@@ -155,7 +155,7 @@ val BunkerQr =
 
             if (error != null) {
                 p {
-                    className = ClassName("login-error")
+                    className = ClassName("form-error")
                     +error
                 }
                 button {
@@ -209,9 +209,9 @@ val BunkerQr =
                         }
                     }
                     div {
-                        className = ClassName("field-with-icon advanced-add")
+                        className = ClassName("input-group advanced-add")
                         input {
-                            className = ClassName("login-input")
+                            className = ClassName("input")
                             placeholder = "wss://relay.example.com"
                             value = newRelay
                             onChange = { event -> setNewRelay(event.currentTarget.value) }

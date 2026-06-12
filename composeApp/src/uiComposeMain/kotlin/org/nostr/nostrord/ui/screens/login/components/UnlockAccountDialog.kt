@@ -2,18 +2,12 @@ package org.nostr.nostrord.ui.screens.login.components
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,18 +16,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.forms.FormError
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
-import org.nostr.nostrord.ui.theme.NostrordShapes
 
 /**
  * Startup unlock for a NIP-49 password-protected account: only the ncryptsec is on
@@ -82,37 +74,22 @@ fun UnlockAccountDialog(account: Account) {
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                OutlinedTextField(
+                AppTextField(
                     value = password,
                     onValueChange = {
                         password = it
                         errorMessage = null
                     },
-                    placeholder = { Text("Password", color = NostrordColors.TextMuted) },
-                    singleLine = true,
+                    placeholder = "Password",
+                    leadingIcon = Icons.Default.Lock,
+                    masked = true,
+                    keyboardType = KeyboardType.Password,
                     enabled = !isLoading,
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent),
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions =
-                    KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { unlock() }),
-                    shape = NostrordShapes.inputShape,
-                    colors =
-                    OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = NostrordColors.Primary,
-                        unfocusedBorderColor = Color.Transparent,
-                        cursorColor = NostrordColors.Primary,
-                        focusedContainerColor = NostrordColors.BackgroundFloating,
-                        unfocusedContainerColor = NostrordColors.BackgroundFloating,
-                    ),
+                    onDone = { unlock() },
                 )
                 errorMessage?.let {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(it, color = NostrordColors.Error, style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    FormError(it)
                 }
             }
         },

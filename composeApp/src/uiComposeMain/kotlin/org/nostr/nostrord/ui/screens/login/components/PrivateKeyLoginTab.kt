@@ -5,8 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -24,15 +22,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,6 +37,8 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
+import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.forms.FormError
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -145,7 +141,7 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             Column {
                 // Errors render at the top, mirroring the web's .login-error
                 // placement under the tab strip (visible above the keyboard).
-                LoginErrorPanel(errorMessage)
+                FormError(errorMessage)
                 if (protectApplicable) {
                     StepDots(current = wizardStep, total = 2)
                     Spacer(modifier = Modifier.height(16.dp))
@@ -259,32 +255,32 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    FieldLabel("Password (optional)")
-                    LoginField(
+                    AppTextField(
                         value = wizardPwd,
                         onValueChange = {
                             wizardPwd = it
                             errorMessage = null
                         },
                         placeholder = "Create a password (or skip)",
+                        label = "Password (optional)",
                         leadingIcon = Icons.Default.Lock,
-                        visualTransformation = PasswordVisualTransformation(),
-                        onDone = {},
+                        masked = true,
+                        keyboardType = KeyboardType.Password,
                         enabled = !isLoading,
                     )
                     if (wizardPwd.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        FieldLabel("Confirm password")
-                        LoginField(
+                        AppTextField(
                             value = wizardConfirm,
                             onValueChange = {
                                 wizardConfirm = it
                                 errorMessage = null
                             },
                             placeholder = "Repeat the password",
+                            label = "Confirm password",
                             leadingIcon = Icons.Default.Lock,
-                            visualTransformation = PasswordVisualTransformation(),
-                            onDone = {},
+                            masked = true,
+                            keyboardType = KeyboardType.Password,
                             enabled = !isLoading,
                         )
                     }
@@ -320,19 +316,17 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         // ── Login form ──────────────────────────────────────────────────────
         else -> {
             Column {
-                LoginErrorPanel(errorMessage)
-                FieldLabel("Private key (hex, nsec or ncryptsec)")
-                LoginField(
+                FormError(errorMessage)
+                AppTextField(
                     value = privateKey,
                     onValueChange = {
                         privateKey = it
                         errorMessage = null
                     },
                     placeholder = "hex, nsec1, ncryptsec1",
+                    label = "Private key (hex, nsec or ncryptsec)",
+                    hint = "Your key never leaves this device.",
                     leadingIcon = Icons.Default.VpnKey,
-                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                    onDone = { login() },
-                    enabled = !isLoading,
                     trailingIcon = {
                         IconButton(onClick = { showKey = !showKey }) {
                             Icon(
@@ -342,25 +336,23 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                             )
                         }
                     },
+                    masked = !showKey,
+                    keyboardType = KeyboardType.Password,
+                    enabled = !isLoading,
+                    onDone = { login() },
                 )
-                FieldHint("Your key never leaves this device.")
 
                 if (isEncrypted) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    FieldLabel("Key password")
-                    LoginField(
+                    AppTextField(
                         value = keyPassword,
                         onValueChange = {
                             keyPassword = it
                             errorMessage = null
                         },
                         placeholder = "Password",
-                        leadingIcon = Icons.Default.Lock,
-                        visualTransformation = PasswordVisualTransformation(),
-                        onDone = { login() },
-                        enabled = !isLoading,
-                    )
-                    FieldHint(
+                        label = "Key password",
+                        hint =
                         if (protectApplicable) {
                             "This key is encrypted (NIP-49); enter its password to unlock it."
                         } else {
@@ -369,6 +361,11 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                             "This key is encrypted (NIP-49); enter its password once to import it. " +
                                 "It is then stored in your device's secure storage, with no password at startup."
                         },
+                        leadingIcon = Icons.Default.Lock,
+                        masked = true,
+                        keyboardType = KeyboardType.Password,
+                        enabled = !isLoading,
+                        onDone = { login() },
                     )
                 }
 
@@ -426,33 +423,34 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                     }
                     if (protect) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        FieldLabel("Password")
-                        LoginField(
+                        AppTextField(
                             value = protectPwd,
                             onValueChange = {
                                 protectPwd = it
                                 errorMessage = null
                             },
                             placeholder = "Create a password",
+                            label = "Password",
                             leadingIcon = Icons.Default.Lock,
-                            visualTransformation = PasswordVisualTransformation(),
-                            onDone = {},
+                            masked = true,
+                            keyboardType = KeyboardType.Password,
                             enabled = !isLoading,
                         )
                         if (protectPwd.isNotEmpty()) {
                             Spacer(modifier = Modifier.height(12.dp))
-                            FieldLabel("Confirm password")
-                            LoginField(
+                            AppTextField(
                                 value = protectConfirm,
                                 onValueChange = {
                                     protectConfirm = it
                                     errorMessage = null
                                 },
                                 placeholder = "Repeat the password",
+                                label = "Confirm password",
                                 leadingIcon = Icons.Default.Lock,
-                                visualTransformation = PasswordVisualTransformation(),
-                                onDone = { login() },
+                                masked = true,
+                                keyboardType = KeyboardType.Password,
                                 enabled = !isLoading,
+                                onDone = { login() },
                             )
                         }
                     }
@@ -505,26 +503,6 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun LoginErrorPanel(message: String?) {
-    message?.let {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = NostrordShapes.shapeSmall,
-            color = NostrordColors.Error.copy(alpha = 0.1f),
-        ) {
-            Text(
-                text = it,
-                color = NostrordColors.Error,
-                modifier = Modifier.padding(12.dp),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        // Sits at the top of the form (web .login-error parity): space below, not above.
-        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
@@ -628,75 +606,4 @@ private fun KeyLine(
             )
         }
     }
-}
-
-/** Prototype field label: small uppercase bold, above the input. */
-@Composable
-private fun FieldLabel(text: String) {
-    Text(
-        text = text.uppercase(),
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Bold,
-        letterSpacing = 0.5.sp,
-        color = NostrordColors.TextSecondary,
-        modifier = Modifier.padding(bottom = 6.dp),
-    )
-}
-
-/** Prototype field hint: muted, below the input. */
-@Composable
-private fun FieldHint(text: String) {
-    Text(
-        text = text,
-        fontSize = 12.sp,
-        color = NostrordColors.TextMuted,
-        modifier = Modifier.padding(top = 6.dp),
-    )
-}
-
-/** Prototype input: floating surface, transparent border, brand border on focus. */
-@Composable
-private fun LoginField(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    leadingIcon: ImageVector,
-    visualTransformation: VisualTransformation,
-    onDone: () -> Unit,
-    enabled: Boolean,
-    trailingIcon: (@Composable () -> Unit)? = null,
-) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        placeholder = { Text(placeholder, color = NostrordColors.TextMuted) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-        textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent),
-        leadingIcon = {
-            Icon(
-                imageVector = leadingIcon,
-                contentDescription = null,
-                tint = NostrordColors.TextMuted,
-            )
-        },
-        trailingIcon = trailingIcon,
-        visualTransformation = visualTransformation,
-        keyboardOptions =
-        KeyboardOptions(
-            keyboardType = KeyboardType.Password,
-            imeAction = ImeAction.Done,
-        ),
-        keyboardActions = KeyboardActions(onDone = { onDone() }),
-        shape = NostrordShapes.inputShape,
-        colors =
-        OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = NostrordColors.Primary,
-            unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-            cursorColor = NostrordColors.Primary,
-            focusedContainerColor = NostrordColors.BackgroundFloating,
-            unfocusedContainerColor = NostrordColors.BackgroundFloating,
-        ),
-        enabled = enabled,
-    )
 }

@@ -5,7 +5,12 @@ import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.copyToClipboard
+import org.nostr.nostrord.web.components.formDivider
+import org.nostr.nostrord.web.components.formError
+import org.nostr.nostrord.web.components.formHint
+import org.nostr.nostrord.web.components.formLabel
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.iconInput
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -99,12 +104,7 @@ val KeyLoginForm =
             }
         }
 
-        localError?.let {
-            p {
-                className = ClassName("login-error")
-                +it
-            }
-        }
+        formError(localError)
 
         when {
             // ── Generate wizard ──────────────────────────────────────────────
@@ -179,49 +179,29 @@ val KeyLoginForm =
                             }
                         }
                     }
-                    div {
-                        className = ClassName("login-field-label")
-                        +"Password (optional)"
-                    }
-                    div {
-                        className = ClassName("field-with-icon")
-                        span {
-                            className = ClassName("field-icon")
-                            icon(Ic.Lock)
-                        }
-                        input {
-                            className = ClassName("login-input")
-                            type = InputType.password
-                            placeholder = "Create a password (or skip)"
-                            value = wizardPwd
-                            onChange = { event ->
-                                setWizardPwd(event.currentTarget.value)
-                                clearError()
-                            }
-                        }
-                    }
+                    formLabel("Password (optional)")
+                    iconInput(
+                        ic = Ic.Lock,
+                        type = InputType.password,
+                        placeholder = "Create a password (or skip)",
+                        value = wizardPwd,
+                        onChange = {
+                            setWizardPwd(it)
+                            clearError()
+                        },
+                    )
                     if (wizardPwd.isNotEmpty()) {
-                        div {
-                            className = ClassName("login-field-label spaced")
-                            +"Confirm password"
-                        }
-                        div {
-                            className = ClassName("field-with-icon")
-                            span {
-                                className = ClassName("field-icon")
-                                icon(Ic.Lock)
-                            }
-                            input {
-                                className = ClassName("login-input")
-                                type = InputType.password
-                                placeholder = "Repeat the password"
-                                value = wizardConfirm
-                                onChange = { event ->
-                                    setWizardConfirm(event.currentTarget.value)
-                                    clearError()
-                                }
-                            }
-                        }
+                        formLabel("Confirm password", spaced = true)
+                        iconInput(
+                            ic = Ic.Lock,
+                            type = InputType.password,
+                            placeholder = "Repeat the password",
+                            value = wizardConfirm,
+                            onChange = {
+                                setWizardConfirm(it)
+                                clearError()
+                            },
+                        )
                     }
                     div {
                         className = ClassName("wizard-actions")
@@ -252,65 +232,41 @@ val KeyLoginForm =
 
             // ── Login form ───────────────────────────────────────────────────
             else -> {
-                div {
-                    className = ClassName("login-field-label")
-                    +"Private key (hex, nsec or ncryptsec)"
-                }
-                div {
-                    className = ClassName("field-with-icon")
-                    span {
-                        className = ClassName("field-icon")
-                        icon(Ic.Key)
-                    }
-                    input {
-                        className = ClassName("login-input")
-                        type = if (showKey) InputType.text else InputType.password
-                        placeholder = "hex, nsec1, ncryptsec1"
-                        value = privateKey
-                        onChange = { event ->
-                            setPrivateKey(event.currentTarget.value)
-                            clearError()
+                formLabel("Private key (hex, nsec or ncryptsec)")
+                iconInput(
+                    ic = Ic.Key,
+                    type = if (showKey) InputType.text else InputType.password,
+                    placeholder = "hex, nsec1, ncryptsec1",
+                    value = privateKey,
+                    onChange = {
+                        setPrivateKey(it)
+                        clearError()
+                    },
+                    onEnter = { submit() },
+                    trailing = {
+                        button {
+                            className = ClassName("input-eye")
+                            onClick = { setShowKey(!showKey) }
+                            if (showKey) icon(Ic.VisibilityOff) else icon(Ic.Visibility)
                         }
-                        onKeyDown = { event -> if (event.key == "Enter") submit() }
-                    }
-                    button {
-                        className = ClassName("field-eye")
-                        onClick = { setShowKey(!showKey) }
-                        if (showKey) icon(Ic.VisibilityOff) else icon(Ic.Visibility)
-                    }
-                }
-                p {
-                    className = ClassName("login-hint")
-                    +"Your key never leaves this device."
-                }
+                    },
+                )
+                formHint("Your key never leaves this device.")
 
                 if (isEncrypted) {
-                    div {
-                        className = ClassName("login-field-label spaced")
-                        +"Key password"
-                    }
-                    div {
-                        className = ClassName("field-with-icon")
-                        span {
-                            className = ClassName("field-icon")
-                            icon(Ic.Lock)
-                        }
-                        input {
-                            className = ClassName("login-input")
-                            type = InputType.password
-                            placeholder = "Password"
-                            value = keyPassword
-                            onChange = { event ->
-                                setKeyPassword(event.currentTarget.value)
-                                clearError()
-                            }
-                            onKeyDown = { event -> if (event.key == "Enter") submit() }
-                        }
-                    }
-                    p {
-                        className = ClassName("login-hint")
-                        +"This key is encrypted (NIP-49); enter its password to unlock it. The password is asked again to unlock the app at startup."
-                    }
+                    formLabel("Key password", spaced = true)
+                    iconInput(
+                        ic = Ic.Lock,
+                        type = InputType.password,
+                        placeholder = "Password",
+                        value = keyPassword,
+                        onChange = {
+                            setKeyPassword(it)
+                            clearError()
+                        },
+                        onEnter = { submit() },
+                    )
+                    formHint("This key is encrypted (NIP-49); enter its password to unlock it. The password is asked again to unlock the app at startup.")
                 }
 
                 if (isPlain) {
@@ -337,50 +293,30 @@ val KeyLoginForm =
                         }
                     }
                     if (protect) {
-                        div {
-                            className = ClassName("login-field-label spaced")
-                            +"Password"
-                        }
-                        div {
-                            className = ClassName("field-with-icon")
-                            span {
-                                className = ClassName("field-icon")
-                                icon(Ic.Lock)
-                            }
-                            input {
-                                className = ClassName("login-input")
-                                type = InputType.password
-                                placeholder = "Create a password"
-                                value = protectPwd
-                                onChange = { event ->
-                                    setProtectPwd(event.currentTarget.value)
-                                    clearError()
-                                }
-                            }
-                        }
+                        formLabel("Password", spaced = true)
+                        iconInput(
+                            ic = Ic.Lock,
+                            type = InputType.password,
+                            placeholder = "Create a password",
+                            value = protectPwd,
+                            onChange = {
+                                setProtectPwd(it)
+                                clearError()
+                            },
+                        )
                         if (protectPwd.isNotEmpty()) {
-                            div {
-                                className = ClassName("login-field-label spaced")
-                                +"Confirm password"
-                            }
-                            div {
-                                className = ClassName("field-with-icon")
-                                span {
-                                    className = ClassName("field-icon")
-                                    icon(Ic.Lock)
-                                }
-                                input {
-                                    className = ClassName("login-input")
-                                    type = InputType.password
-                                    placeholder = "Repeat the password"
-                                    value = protectConfirm
-                                    onChange = { event ->
-                                        setProtectConfirm(event.currentTarget.value)
-                                        clearError()
-                                    }
-                                    onKeyDown = { event -> if (event.key == "Enter") submit() }
-                                }
-                            }
+                            formLabel("Confirm password", spaced = true)
+                            iconInput(
+                                ic = Ic.Lock,
+                                type = InputType.password,
+                                placeholder = "Repeat the password",
+                                value = protectConfirm,
+                                onChange = {
+                                    setProtectConfirm(it)
+                                    clearError()
+                                },
+                                onEnter = { submit() },
+                            )
                         }
                     }
                 }
@@ -396,10 +332,7 @@ val KeyLoginForm =
                     }
                     +(if (busy) props.busyLabel else props.submitLabel)
                 }
-                div {
-                    className = ClassName("login-divider")
-                    span { +"or" }
-                }
+                formDivider()
                 button {
                     className = ClassName("btn-secondary btn-lg btn-full")
                     disabled = busy

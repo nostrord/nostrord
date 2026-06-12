@@ -215,7 +215,7 @@ body {
     max-width: 500px;
 }
 
-.login-tabs,
+.tab-strip,
 .bunker-toggle {
     display: flex;
     gap: 4px;
@@ -227,12 +227,12 @@ body {
 .bunker-toggle {
     /* Symmetric vertical breathing: above the toggle separates it from the
        Shield/intro row, below it separates it from the QR canvas or the
-       Bunker URL `.field-with-icon` input. */
+       Bunker URL `.input-group` input. */
     margin-top: 16px;
     margin-bottom: 16px;
 }
 
-.login-tab {
+.tab {
     flex: 1;
     display: flex;
     align-items: center;
@@ -248,11 +248,11 @@ body {
     transition: background 0.15s ease;
 }
 
-.login-tab:not(.selected):hover {
+.tab:not(.selected):hover {
     color: var(--color-text-primary);
 }
 
-.login-tab.selected {
+.tab.selected {
     background: var(--color-primary);
     color: #fff;
     font-weight: 600;
@@ -263,7 +263,7 @@ body {
 }
 
 /* Prototype field label: small uppercase bold, above the input. */
-.login-field-label {
+.form-label {
     margin-bottom: 6px;
     font-size: 11px;
     font-weight: 700;
@@ -272,11 +272,11 @@ body {
     color: var(--color-text-secondary);
 }
 
-.login-field-label.spaced {
+.form-label.spaced {
     margin-top: 16px;
 }
 
-.field-with-icon {
+.input-group {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -286,16 +286,16 @@ body {
     border-radius: 10px;
 }
 
-.field-with-icon:focus-within {
+.input-group:focus-within {
     border-color: var(--color-primary);
 }
 
-.field-icon {
+.input-icon {
     flex-shrink: 0;
     color: var(--color-text-muted);
 }
 
-.login-input {
+.input {
     flex: 1;
     min-width: 0;
     padding: 14px 0;
@@ -306,11 +306,11 @@ body {
     font-size: 14px;
 }
 
-.login-input::placeholder {
+.input::placeholder {
     color: var(--color-text-muted);
 }
 
-.field-eye {
+.input-eye {
     flex-shrink: 0;
     background: transparent;
     border: 0;
@@ -321,7 +321,7 @@ body {
     color: var(--color-text-muted);
 }
 
-.field-eye:hover {
+.input-eye:hover {
     color: var(--color-text-primary);
 }
 
@@ -555,7 +555,7 @@ body {
     color: var(--color-text-secondary);
 }
 
-.login-divider {
+.form-divider {
     display: flex;
     align-items: center;
     gap: 16px;
@@ -564,21 +564,21 @@ body {
     color: var(--color-text-muted);
 }
 
-.login-divider::before,
-.login-divider::after {
+.form-divider::before,
+.form-divider::after {
     content: "";
     flex: 1;
     height: 1px;
     background: var(--color-divider);
 }
 
-.login-hint {
+.form-hint {
     margin: 8px 0 0;
     font-size: 12px;
     color: var(--color-text-muted);
 }
 
-.login-error {
+.form-error {
     margin-bottom: 12px;
     padding: 8px 12px;
     font-size: 13px;
@@ -749,7 +749,7 @@ body {
     margin-top: 16px;
 }
 
-.bunker-uri .login-input {
+.bunker-uri .input {
     color: var(--color-text-muted);
     font-size: 13px;
 }
@@ -779,7 +779,7 @@ body {
 }
 
 /* Trailing-icon button slot used by the URI copy, the add-relay +, and any
-   other small affordance inside a .field-with-icon. */
+   other small affordance inside a .input-group. */
 .field-action {
     flex-shrink: 0;
     width: 32px;
