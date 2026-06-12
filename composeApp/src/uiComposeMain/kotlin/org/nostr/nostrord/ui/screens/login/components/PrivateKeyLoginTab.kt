@@ -6,6 +6,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VpnKey
@@ -14,26 +15,33 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.nostr.KeyPair
-import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import kotlin.random.Random
 
+/**
+ * Private key login: nsec / hex / NIP-49 ncryptsec input with the prototype's field
+ * layout (uppercase label above, hint below, floating input surface). Pasting an
+ * ncryptsec reveals the key-password field; key parsing and decryption live in
+ * [LoginViewModel] so the web tab behaves identically.
+ */
 @Composable
 fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     val vm = viewModel { LoginViewModel(AppModule.nostrRepository) }
 
     var privateKey by remember { mutableStateOf("") }
+    var keyPassword by remember { mutableStateOf("") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     // Hex of the most recently generated key. Drives both the GeneratedKeyCard
     // visibility (so the warning + key value stay on screen until the user
@@ -44,6 +52,9 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
     var showKey by remember { mutableStateOf(false) }
 
+    val isEncrypted = vm.isEncryptedKeyInput(privateKey)
+    val canLogin = privateKey.isNotBlank() && (!isEncrypted || keyPassword.isNotEmpty()) && !isLoading
+
     fun generatePrivateKey(): String {
         val bytes = Random.Default.nextBytes(32)
         return bytes.joinToString("") { byte ->
@@ -52,65 +63,40 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     }
 
     fun login() {
+        if (!canLogin) return
         isLoading = true
         errorMessage = null
         val input = privateKey.trim()
-        val hex =
-            if (input.startsWith("nsec1")) {
-                (Nip19.decode(input) as? Nip19.Entity.Nsec)?.privkey
-            } else {
-                input
-            }
-        if (hex == null) {
-            errorMessage = "Invalid private key or login failed"
-            isLoading = false
-            return
-        }
-        val keyPair =
-            try {
-                KeyPair.fromPrivateKeyHex(hex)
-            } catch (e: Exception) {
-                errorMessage = "Invalid private key or login failed"
-                isLoading = false
-                return
-            }
         // Only flag isNewIdentity when the input is exactly the just-generated
         // key — typing/pasting an existing nsec is never a "new" identity.
-        val isNewIdentity = generatedKey != null && hex == generatedKey
-        vm.loginWithPrivateKey(hex, keyPair.publicKeyHex, isNewIdentity = isNewIdentity) { result ->
+        val isNewIdentity = generatedKey != null && input == generatedKey
+        vm.loginWithPrivateKeyInput(
+            input,
+            password = keyPassword.takeIf { isEncrypted },
+            isNewIdentity = isNewIdentity,
+        ) { result ->
             isLoading = false
             if (result.isSuccess) {
                 onLoginSuccess()
             } else {
-                errorMessage = "Invalid private key or login failed"
+                errorMessage = result.exceptionOrNull()?.message ?: "Invalid private key or login failed"
             }
         }
     }
 
     Column {
-        // Input field with icon
-        OutlinedTextField(
+        FieldLabel("Private key (nsec, hex or ncryptsec)")
+        LoginField(
             value = privateKey,
             onValueChange = {
                 privateKey = it
                 errorMessage = null
             },
-            placeholder = {
-                Text(
-                    "Enter your private key (hex or nsec)",
-                    color = NostrordColors.TextMuted,
-                )
-            },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            textStyle = LocalTextStyle.current.copy(color = Color.White),
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.VpnKey,
-                    contentDescription = null,
-                    tint = NostrordColors.TextMuted,
-                )
-            },
+            placeholder = "nsec1... · ncryptsec1...",
+            leadingIcon = Icons.Default.VpnKey,
+            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+            onDone = { login() },
+            enabled = !isLoading,
             trailingIcon = {
                 IconButton(onClick = { showKey = !showKey }) {
                     Icon(
@@ -120,24 +106,26 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                     )
                 }
             },
-            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-            keyboardOptions =
-            KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done,
-            ),
-            keyboardActions = KeyboardActions(onDone = { if (privateKey.isNotBlank()) login() }),
-            shape = NostrordShapes.inputShape,
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = NostrordColors.Primary,
-                unfocusedBorderColor = NostrordColors.SurfaceVariant,
-                cursorColor = NostrordColors.Primary,
-                focusedContainerColor = NostrordColors.InputBackground,
-                unfocusedContainerColor = NostrordColors.InputBackground,
-            ),
-            enabled = !isLoading,
         )
+        FieldHint("Your key never leaves this device.")
+
+        if (isEncrypted) {
+            Spacer(modifier = Modifier.height(16.dp))
+            FieldLabel("Key password")
+            LoginField(
+                value = keyPassword,
+                onValueChange = {
+                    keyPassword = it
+                    errorMessage = null
+                },
+                placeholder = "Password",
+                leadingIcon = Icons.Default.Lock,
+                visualTransformation = PasswordVisualTransformation(),
+                onDone = { login() },
+                enabled = !isLoading,
+            )
+            FieldHint("This key is encrypted (NIP-49); enter its password to unlock it.")
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -148,7 +136,7 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             Modifier
                 .fillMaxWidth()
                 .height(48.dp),
-            enabled = privateKey.isNotBlank() && !isLoading,
+            enabled = canLogin,
             shape = NostrordShapes.buttonShape,
             colors =
             ButtonDefaults.buttonColors(
@@ -199,12 +187,10 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             )
         }
 
-        // Generate new key button — only generates + populates + shows the
-        // warning card. Login is deferred to the Login button so the user has
-        // time to copy/save the key. (Previously this auto-logged in and the
-        // GeneratedKeyCard flashed for a frame before onLoginSuccess routed
-        // the user away.)
-        OutlinedButton(
+        // Generate new key button (prototype secondary: filled grey) — only
+        // generates + populates + shows the warning card. Login is deferred to
+        // the Login button so the user has time to copy/save the key.
+        Button(
             onClick = {
                 errorMessage = null
                 val newPrivateKey = generatePrivateKey()
@@ -218,14 +204,11 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             enabled = !isLoading,
             shape = NostrordShapes.buttonShape,
             colors =
-            ButtonDefaults.outlinedButtonColors(
-                contentColor = NostrordColors.Success,
-            ),
-            border =
-            ButtonDefaults.outlinedButtonBorder(enabled = true).copy(
-                brush =
-                androidx.compose.ui.graphics
-                    .SolidColor(NostrordColors.Success.copy(alpha = 0.5f)),
+            ButtonDefaults.buttonColors(
+                containerColor = NostrordColors.SurfaceVariant,
+                contentColor = NostrordColors.TextContent,
+                disabledContainerColor = NostrordColors.SurfaceVariant.copy(alpha = 0.5f),
+                disabledContentColor = NostrordColors.TextMuted,
             ),
         ) {
             Icon(
@@ -234,7 +217,7 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                 modifier = Modifier.size(20.dp),
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Generate New Identity", fontWeight = FontWeight.SemiBold)
+            Text("Generate New Key", fontWeight = FontWeight.SemiBold)
         }
 
         // GeneratedKeyCard sticks around once the user pressed Generate (no
@@ -262,4 +245,75 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             }
         }
     }
+}
+
+/** Prototype field label: small uppercase bold, above the input. */
+@Composable
+private fun FieldLabel(text: String) {
+    Text(
+        text = text.uppercase(),
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 0.5.sp,
+        color = NostrordColors.TextSecondary,
+        modifier = Modifier.padding(bottom = 6.dp),
+    )
+}
+
+/** Prototype field hint: muted, below the input. */
+@Composable
+private fun FieldHint(text: String) {
+    Text(
+        text = text,
+        fontSize = 12.sp,
+        color = NostrordColors.TextMuted,
+        modifier = Modifier.padding(top = 6.dp),
+    )
+}
+
+/** Prototype input: floating surface, transparent border, brand border on focus. */
+@Composable
+private fun LoginField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    leadingIcon: ImageVector,
+    visualTransformation: VisualTransformation,
+    onDone: () -> Unit,
+    enabled: Boolean,
+    trailingIcon: (@Composable () -> Unit)? = null,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        placeholder = { Text(placeholder, color = NostrordColors.TextMuted) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent),
+        leadingIcon = {
+            Icon(
+                imageVector = leadingIcon,
+                contentDescription = null,
+                tint = NostrordColors.TextMuted,
+            )
+        },
+        trailingIcon = trailingIcon,
+        visualTransformation = visualTransformation,
+        keyboardOptions =
+        KeyboardOptions(
+            keyboardType = KeyboardType.Password,
+            imeAction = ImeAction.Done,
+        ),
+        keyboardActions = KeyboardActions(onDone = { onDone() }),
+        shape = NostrordShapes.inputShape,
+        colors =
+        OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = NostrordColors.Primary,
+            unfocusedBorderColor = Color.Transparent,
+            cursorColor = NostrordColors.Primary,
+            focusedContainerColor = NostrordColors.BackgroundFloating,
+            unfocusedContainerColor = NostrordColors.BackgroundFloating,
+        ),
+        enabled = enabled,
+    )
 }

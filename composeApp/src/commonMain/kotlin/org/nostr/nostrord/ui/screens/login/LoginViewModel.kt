@@ -3,16 +3,20 @@ package org.nostr.nostrord.ui.screens.login
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip46Client
+import org.nostr.nostrord.nostr.Nip49
+import org.nostr.nostrord.nostr.toHexString
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.getNostrConnectRelays
 import org.nostr.nostrord.storage.saveNostrConnectRelays
@@ -70,20 +74,49 @@ class LoginViewModel(
         }
     }
 
+    /** True when the input is a NIP-49 encrypted key; the UIs ask for [loginWithPrivateKeyInput]'s password. */
+    fun isEncryptedKeyInput(input: String): Boolean = Nip49.isEncryptedKey(input)
+
     /**
-     * Accepts a raw nsec or 64-char hex private key, derives the public key, and logs in.
+     * Accepts a raw nsec, 64-char hex, or NIP-49 ncryptsec private key, derives the
+     * public key, and logs in. ncryptsec requires [password]; scrypt runs on the
+     * Default dispatcher because the default log_n = 16 costs real CPU and memory.
      * The parsing lives here (not per-UI) so Compose and web validate identically.
      */
     fun loginWithPrivateKeyInput(
         input: String,
+        password: String? = null,
         isNewIdentity: Boolean = false,
         onResult: (Result<Unit>) -> Unit,
     ) {
+        if (Nip49.isEncryptedKey(input)) {
+            if (password.isNullOrEmpty()) {
+                onResult(Result.failure(IllegalArgumentException("Enter the key password")))
+                return
+            }
+            viewModelScope.launch {
+                val keyBytes = withContext(Dispatchers.Default) { Nip49.decrypt(input, password) }
+                if (keyBytes == null) {
+                    onResult(Result.failure(IllegalArgumentException("Wrong password or corrupted key")))
+                } else {
+                    loginWithHex(keyBytes.toHexString(), isNewIdentity, onResult)
+                }
+            }
+            return
+        }
         val hex = parsePrivateKeyHex(input)
         if (hex == null) {
             onResult(Result.failure(IllegalArgumentException("Invalid private key")))
             return
         }
+        loginWithHex(hex, isNewIdentity, onResult)
+    }
+
+    private fun loginWithHex(
+        hex: String,
+        isNewIdentity: Boolean,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
         val pub =
             try {
                 KeyPair.fromPrivateKeyHex(hex).publicKeyHex

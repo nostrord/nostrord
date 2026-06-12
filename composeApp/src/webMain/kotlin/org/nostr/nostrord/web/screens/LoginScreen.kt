@@ -63,6 +63,7 @@ val LoginScreen =
         val extensionAvailable = Nip07.isAvailable()
         val (tab, setTab) = useState { Tab.Key }
         val (privateKey, setPrivateKey) = useState { "" }
+        val (keyPassword, setKeyPassword) = useState { "" }
         val (showKey, setShowKey) = useState { false }
         val (generatedKey, setGeneratedKey) = useState<String?> { null }
         val (bunkerMode, setBunkerMode) = useState { BunkerMode.Qr }
@@ -137,6 +138,25 @@ val LoginScreen =
                         }
                         when (tab) {
                             Tab.Key -> {
+                                val isEncrypted = vm.isEncryptedKeyInput(privateKey)
+                                val canLogin = privateKey.isNotBlank() && (!isEncrypted || keyPassword.isNotEmpty()) && !busy
+                                val submitKeyLogin = {
+                                    if (canLogin) {
+                                        runLogin { cb ->
+                                            vm.loginWithPrivateKeyInput(
+                                                privateKey,
+                                                password = keyPassword.takeIf { isEncrypted },
+                                                isNewIdentity = generatedKey != null && privateKey == generatedKey,
+                                                onResult = cb,
+                                            )
+                                        }
+                                    }
+                                }
+
+                                div {
+                                    className = ClassName("login-field-label")
+                                    +"Private key (nsec, hex or ncryptsec)"
+                                }
                                 div {
                                     className = ClassName("field-with-icon")
                                     span {
@@ -146,9 +166,10 @@ val LoginScreen =
                                     input {
                                         className = ClassName("login-input")
                                         type = if (showKey) InputType.text else InputType.password
-                                        placeholder = "Enter your private key (hex or nsec)"
+                                        placeholder = "nsec1... · ncryptsec1..."
                                         value = privateKey
                                         onChange = { event -> setPrivateKey(event.currentTarget.value) }
+                                        onKeyDown = { event -> if (event.key == "Enter") submitKeyLogin() }
                                     }
                                     button {
                                         className = ClassName("field-eye")
@@ -156,18 +177,39 @@ val LoginScreen =
                                         if (showKey) icon(Ic.VisibilityOff) else icon(Ic.Visibility)
                                     }
                                 }
-                                button {
-                                    className = ClassName("login-primary")
-                                    disabled = privateKey.isBlank() || busy
-                                    onClick = {
-                                        runLogin { cb ->
-                                            vm.loginWithPrivateKeyInput(
-                                                privateKey,
-                                                isNewIdentity = generatedKey != null && privateKey == generatedKey,
-                                                onResult = cb,
-                                            )
+                                p {
+                                    className = ClassName("login-hint")
+                                    +"Your key never leaves this device."
+                                }
+                                if (isEncrypted) {
+                                    div {
+                                        className = ClassName("login-field-label spaced")
+                                        +"Key password"
+                                    }
+                                    div {
+                                        className = ClassName("field-with-icon")
+                                        span {
+                                            className = ClassName("field-icon")
+                                            icon(Ic.Lock)
+                                        }
+                                        input {
+                                            className = ClassName("login-input")
+                                            type = InputType.password
+                                            placeholder = "Password"
+                                            value = keyPassword
+                                            onChange = { event -> setKeyPassword(event.currentTarget.value) }
+                                            onKeyDown = { event -> if (event.key == "Enter") submitKeyLogin() }
                                         }
                                     }
+                                    p {
+                                        className = ClassName("login-hint")
+                                        +"This key is encrypted (NIP-49); enter its password to unlock it."
+                                    }
+                                }
+                                button {
+                                    className = ClassName("login-primary")
+                                    disabled = !canLogin
+                                    onClick = { submitKeyLogin() }
                                     if (busy) {
                                         span { className = ClassName("btn-spinner") }
                                     } else {
@@ -180,10 +222,10 @@ val LoginScreen =
                                     span { +"or" }
                                 }
                                 button {
-                                    className = ClassName("login-outline-success")
+                                    className = ClassName("login-secondary")
                                     onClick = { generate() }
                                     icon(Ic.AutoAwesome)
-                                    +"Generate New Identity"
+                                    +"Generate New Key"
                                 }
                                 generatedKey?.let { hex -> GeneratedKeyCard { this.privateKey = hex } }
                             }
@@ -290,7 +332,6 @@ val LoginScreen =
                         }
                     }
                 }
-
             }
         }
     }

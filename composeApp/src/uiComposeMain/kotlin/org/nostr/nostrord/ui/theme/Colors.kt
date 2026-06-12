@@ -58,6 +58,9 @@ object NostrordColors {
     /** Message hover highlight */
     val MessageHover: Color get() = Color(palette.messageHover)
 
+    /** Darkest surface: floating inputs, segmented tab containers (prototype bg-floating) */
+    val BackgroundFloating: Color get() = Color(palette.backgroundFloating)
+
     /** Full-page gradient corners (login/onboarding); Background sits in the middle */
     val PageGradientFrom: Color get() = Color(palette.pageGradientFrom)
     val PageGradientTo: Color get() = Color(palette.pageGradientTo)

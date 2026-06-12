@@ -179,10 +179,10 @@ val AddAccountSheet =
                                 span { +"or" }
                             }
                             button {
-                                className = ClassName("login-outline-success")
+                                className = ClassName("login-secondary")
                                 onClick = { generate() }
                                 icon(Ic.AutoAwesome)
-                                +"Generate New Identity"
+                                +"Generate New Key"
                             }
                             generatedKey?.let { hex -> GeneratedKeyCard { this.privateKey = hex } }
                         }

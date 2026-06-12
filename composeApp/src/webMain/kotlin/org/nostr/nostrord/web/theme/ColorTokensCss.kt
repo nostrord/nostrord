@@ -46,6 +46,7 @@ fun applyColorTokens(palette: ColorPalette = DarkColorPalette) {
     set("--color-surface-variant", palette.surfaceVariant)
     set("--color-input", palette.inputBackground)
     set("--color-hover", palette.hoverBackground)
+    set("--color-floating", palette.backgroundFloating)
     set("--color-primary", palette.primary)
     set("--color-primary-variant", palette.primaryVariant)
     set("--color-text-primary", palette.textPrimary)

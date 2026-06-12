@@ -23,6 +23,7 @@ object ColorTokens {
     const val InputBackground = 0xFF31303AL
     const val HoverBackground = 0xFF302F37L
     const val MessageHover = 0xFF2E2D35L
+    const val BackgroundFloating = 0xFF131217L
 
     // Primary / brand — nostr violet (white-on-brand ≈ 4.5:1)
     const val Primary = 0xFF7A5AF8L
@@ -102,6 +103,7 @@ data class ColorPalette(
     val inputBackground: Long,
     val hoverBackground: Long,
     val messageHover: Long,
+    val backgroundFloating: Long,
     val primary: Long,
     val primaryVariant: Long,
     val success: Long,
@@ -140,6 +142,7 @@ val DarkColorPalette =
         inputBackground = ColorTokens.InputBackground,
         hoverBackground = ColorTokens.HoverBackground,
         messageHover = ColorTokens.MessageHover,
+        backgroundFloating = ColorTokens.BackgroundFloating,
         primary = ColorTokens.Primary,
         primaryVariant = ColorTokens.PrimaryVariant,
         success = ColorTokens.Success,
@@ -185,6 +188,7 @@ val LightColorPalette =
         inputBackground = 0xFFE8E6F0L,
         hoverBackground = 0xFFE3E1EBL, // bg-hover
         messageHover = 0xFFF5F4F9L, // bg-msg-hover
+        backgroundFloating = 0xFFF4F3F8L, // bg-floating
         primary = ColorTokens.Primary, // brand is theme-invariant
         primaryVariant = ColorTokens.PrimaryVariant,
         success = 0xFF178A53L,

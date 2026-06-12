@@ -13,6 +13,7 @@
     --color-surface-variant: #40444b;
     --color-input: #383a40;
     --color-hover: #34373c;
+    --color-floating: #131217;
     --color-primary: #7a5af8;
     --color-primary-variant: #4752c4;
     --color-text-primary: #ffffff;
@@ -218,7 +219,7 @@ body {
     display: flex;
     gap: 4px;
     padding: 4px;
-    background: var(--color-surface-variant);
+    background: var(--color-floating);
     border-radius: 10px;
 }
 
@@ -256,13 +257,27 @@ body {
     margin-top: 24px;
 }
 
+/* Prototype field label: small uppercase bold, above the input. */
+.login-field-label {
+    margin-bottom: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+}
+
+.login-field-label.spaced {
+    margin-top: 16px;
+}
+
 .field-with-icon {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 0 12px;
-    background: var(--color-input);
-    border: 1px solid var(--color-surface-variant);
+    background: var(--color-floating);
+    border: 1px solid transparent;
     border-radius: 10px;
 }
 
@@ -282,7 +297,7 @@ body {
     background: transparent;
     border: 0;
     outline: none;
-    color: #fff;
+    color: var(--color-text-content);
     font-size: 14px;
 }
 
@@ -368,16 +383,17 @@ body {
     background: var(--color-divider);
 }
 
-.login-outline-success {
+/* Prototype secondary button: filled grey, full width. */
+.login-secondary {
     width: 100%;
     height: 48px;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    background: transparent;
-    color: var(--color-success);
-    border: 1px solid rgba(87, 242, 135, 0.5);
+    background: var(--color-surface-variant);
+    color: var(--color-text-content);
+    border: 0;
     border-radius: 10px;
     font-size: 15px;
     font-weight: 600;

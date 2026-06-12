@@ -131,7 +131,7 @@ fun NostrLoginScreen(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = NostrordShapes.shapeMedium,
-                        color = NostrordColors.SurfaceVariant,
+                        color = NostrordColors.BackgroundFloating,
                     ) {
                         Row(
                             modifier = Modifier.padding(4.dp),
