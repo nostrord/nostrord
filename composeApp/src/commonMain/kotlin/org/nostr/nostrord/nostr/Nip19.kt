@@ -86,6 +86,55 @@ object Nip19 {
     }
 
     /**
+     * Encode an event id (+ optional relay hints / author) to nevent
+     * (TLV 0 = event id, 1 = relay, 2 = author).
+     */
+    fun encodeNevent(
+        eventIdHex: String,
+        relays: List<String> = emptyList(),
+        authorHex: String? = null,
+    ): String {
+        val tlv = mutableListOf<Byte>()
+
+        fun addTLV(
+            type: Int,
+            value: ByteArray,
+        ) {
+            tlv.add(type.toByte())
+            tlv.add(value.size.toByte())
+            tlv.addAll(value.toList())
+        }
+        addTLV(TLV_SPECIAL, eventIdHex.hexToByteArray())
+        relays.forEach { addTLV(TLV_RELAY, it.encodeToByteArray()) }
+        authorHex?.runCatching { hexToByteArray() }?.getOrNull()?.takeIf { it.size == 32 }?.let {
+            addTLV(TLV_AUTHOR, it)
+        }
+        return Bech32.encode("nevent", tlv.toByteArray())
+    }
+
+    /**
+     * Encode a pubkey (+ optional relay hints) to nprofile (TLV 0 = pubkey, 1 = relay).
+     */
+    fun encodeNprofile(
+        pubkeyHex: String,
+        relays: List<String> = emptyList(),
+    ): String {
+        val tlv = mutableListOf<Byte>()
+
+        fun addTLV(
+            type: Int,
+            value: ByteArray,
+        ) {
+            tlv.add(type.toByte())
+            tlv.add(value.size.toByte())
+            tlv.addAll(value.toList())
+        }
+        addTLV(TLV_SPECIAL, pubkeyHex.hexToByteArray())
+        relays.forEach { addTLV(TLV_RELAY, it.encodeToByteArray()) }
+        return Bech32.encode("nprofile", tlv.toByteArray())
+    }
+
+    /**
      * Encode a private key to nsec
      */
     fun encodeNsec(privkeyHex: String): String = Bech32.encode("nsec", privkeyHex.hexToByteArray())
