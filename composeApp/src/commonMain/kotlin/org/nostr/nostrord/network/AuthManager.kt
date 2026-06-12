@@ -444,10 +444,16 @@ class AuthManager(
         val prepared: PreparedAccount =
             when (account.authMethod) {
                 AuthMethod.LOCAL -> {
-                    val priv =
-                        SecureStorage.getPrivateKeyFor(account.pubkey)
-                            ?: SecureStorage.getPrivateKey()
-                    if (priv == null) {
+                    // The legacy global slot holds the LAST plain-key login, which in a
+                    // multi-account setup can belong to a different account. Only accept
+                    // it when it actually derives this account's pubkey — otherwise a
+                    // password-protected account (empty per-account slot) would silently
+                    // come up signing with another account's key.
+                    val kp =
+                        SecureStorage.getPrivateKeyFor(account.pubkey)?.let(::keyPairOrNull)
+                            ?: SecureStorage.getPrivateKey()?.let(::keyPairOrNull)
+                                ?.takeIf { it.publicKeyHex == account.pubkey }
+                    if (kp == null) {
                         // Password-protected key: only the ncryptsec is stored. Signal
                         // the unlock gate instead of silently failing the restore.
                         if (SecureStorage.getEncryptedPrivateKeyFor(account.pubkey) != null) {
@@ -455,12 +461,6 @@ class AuthManager(
                         }
                         return false
                     }
-                    val kp =
-                        try {
-                            KeyPair.fromPrivateKeyHex(priv)
-                        } catch (_: Exception) {
-                            return false
-                        }
                     PreparedAccount.Local(kp)
                 }
                 AuthMethod.BUNKER -> {
@@ -732,6 +732,12 @@ class AuthManager(
         }
 
         return true
+    }
+
+    private fun keyPairOrNull(privateKeyHex: String): KeyPair? = try {
+        KeyPair.fromPrivateKeyHex(privateKeyHex)
+    } catch (_: Exception) {
+        null
     }
 
     private fun restorePrivateKeySession(privateKeyHex: String): Boolean = try {

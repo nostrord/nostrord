@@ -121,7 +121,14 @@ fun MeMenu(
             AppModule.accountManager.switchAccountAsync(account.id) { r ->
                 isBusy = false
                 if (r.isFailure) {
-                    pendingError = r.exceptionOrNull()?.message ?: "Switch failed"
+                    // A password-protected account can't be switched to directly: the
+                    // failed credential load raises the unlock dialog instead, so close
+                    // the menu quietly rather than surfacing a misleading error.
+                    if (AppModule.nostrRepository.pendingUnlockAccount.value?.pubkey == account.pubkey) {
+                        onDismiss()
+                    } else {
+                        pendingError = r.exceptionOrNull()?.message ?: "Switch failed"
+                    }
                 } else {
                     onDismiss()
                 }
