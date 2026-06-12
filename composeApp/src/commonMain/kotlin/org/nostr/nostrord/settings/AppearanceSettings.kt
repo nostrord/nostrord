@@ -15,17 +15,17 @@ enum class AppTheme {
     ;
 
     companion object {
-        // Unknown / empty stored values fall back to DARK, the app's default palette.
-        fun fromStored(value: String): AppTheme = entries.firstOrNull { it.name == value } ?: DARK
+        // Unknown / empty stored values fall back to SYSTEM: first launch follows
+        // the OS theme until the user picks one in Settings → Appearance.
+        fun fromStored(value: String): AppTheme = entries.firstOrNull { it.name == value } ?: SYSTEM
     }
 }
 
 /**
  * User-facing appearance preferences — set from Settings → Appearance.
  *
- * Only the preference lives here; both UIs read [theme] to resolve which
- * palette to render. DARK is the only palette implemented today, so LIGHT and
- * SYSTEM persist the user's choice without changing the rendered colors yet.
+ * Only the preference lives here; both UIs read [theme] and resolve it to a
+ * palette via `paletteForTheme` (ui/theme/ColorTokens.kt).
  */
 class AppearanceSettings {
     private val _theme =

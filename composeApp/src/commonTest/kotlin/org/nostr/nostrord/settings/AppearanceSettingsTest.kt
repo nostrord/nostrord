@@ -5,12 +5,12 @@ import kotlin.test.assertEquals
 
 class AppearanceSettingsTest {
     @Test
-    fun fromStoredParsesKnownValuesAndDefaultsToDark() {
+    fun fromStoredParsesKnownValuesAndDefaultsToSystem() {
         assertEquals(AppTheme.DARK, AppTheme.fromStored("DARK"))
         assertEquals(AppTheme.LIGHT, AppTheme.fromStored("LIGHT"))
         assertEquals(AppTheme.SYSTEM, AppTheme.fromStored("SYSTEM"))
-        assertEquals(AppTheme.DARK, AppTheme.fromStored(""))
-        assertEquals(AppTheme.DARK, AppTheme.fromStored("garbage"))
+        assertEquals(AppTheme.SYSTEM, AppTheme.fromStored(""))
+        assertEquals(AppTheme.SYSTEM, AppTheme.fromStored("garbage"))
     }
 
     @Test
