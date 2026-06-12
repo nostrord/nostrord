@@ -112,7 +112,7 @@ fun BunkerLoginTab(onLoginSuccess: () -> Unit) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         "Why use a Bunker?",
-                        color = Color.White,
+                        color = NostrordColors.TextPrimary,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -428,7 +428,7 @@ private fun NostrConnectRelaysSection(
                 },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                textStyle = LocalTextStyle.current.copy(color = Color.White),
+                textStyle = LocalTextStyle.current.copy(color = NostrordColors.TextContent),
                 trailingIcon = {
                     IconButton(
                         onClick = {
