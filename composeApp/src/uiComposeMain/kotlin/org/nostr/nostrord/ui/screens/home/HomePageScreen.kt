@@ -1,0 +1,298 @@
+package org.nostr.nostrord.ui.screens.home
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
+import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
+import org.nostr.nostrord.ui.components.forms.AppTextField
+import org.nostr.nostrord.ui.components.forms.SegmentedTab
+import org.nostr.nostrord.ui.components.home.EmptyStateCard
+import org.nostr.nostrord.ui.components.home.GroupCard
+import org.nostr.nostrord.ui.components.onboarding.PackCard
+import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
+import org.nostr.nostrord.ui.theme.NostrordColors
+
+private val FILTERS = listOf("My groups", "From friends", "Communities", "People")
+
+/** Per-filter icons: own chats, friends, public discovery, people to follow (matches web). */
+private val FILTER_ICONS = listOf(
+    Icons.Default.Forum,
+    Icons.Default.People,
+    Icons.Default.Public,
+    Icons.Default.PersonAdd,
+)
+
+/**
+ * New-design Home (prototype Home): header bar, title + join/create actions, search +
+ * filter pills, and the per-filter content. "My groups" shows the real joined groups
+ * (kind:10009); friends / communities are layout-only empty states and People reuses
+ * the dummy follow packs until the follow logic lands.
+ */
+@Composable
+fun HomePageScreen(
+    modifier: Modifier = Modifier,
+    onOpenGroup: (JoinedGroup) -> Unit = {},
+) {
+    val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
+    val myGroups by vm.myGroups.collectAsState()
+    val memberCounts by vm.memberCounts.collectAsState()
+    val query by vm.query.collectAsState()
+    var filter by remember { mutableStateOf(0) }
+
+    Column(modifier = modifier.fillMaxSize().background(NostrordColors.Background)) {
+        // Header bar
+        Row(
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.People,
+                contentDescription = null,
+                tint = NostrordColors.TextMuted,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                "Groups",
+                color = NostrordColors.TextPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = { /* notifications: not ported yet */ }) {
+                Icon(
+                    imageVector = Icons.Default.Notifications,
+                    contentDescription = "Notifications",
+                    tint = NostrordColors.TextSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        HorizontalDivider(color = NostrordColors.Divider)
+
+        BoxWithConstraints(modifier = Modifier.weight(1f)) {
+            val columns =
+                when {
+                    maxWidth > 1024.dp -> 3
+                    maxWidth > 640.dp -> 2
+                    else -> 1
+                }
+            Column(
+                modifier =
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Column(
+                    modifier =
+                    Modifier
+                        .widthIn(max = 1024.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 24.dp),
+                ) {
+                    // Title row + actions
+                    Column {
+                        Text(
+                            "Groups",
+                            color = NostrordColors.TextPrimary,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            "Your groups and new ones to discover through your friends",
+                            color = NostrordColors.TextMuted,
+                            fontSize = 14.sp,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppButton(
+                            text = "Join group",
+                            onClick = { /* join modal: not wired yet */ },
+                            variant = AppButtonVariant.Secondary,
+                            icon = Icons.Default.Link,
+                        )
+                        AppButton(
+                            text = "Create group",
+                            onClick = { /* create modal: not wired yet */ },
+                            icon = Icons.Default.Add,
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Search + filter pills
+                    AppTextField(
+                        value = query,
+                        onValueChange = { vm.setQuery(it) },
+                        placeholder = "Search groups...",
+                        leadingIcon = Icons.Default.Search,
+                        modifier = Modifier.widthIn(max = 288.dp),
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    AppSegmentedTabs(
+                        tabs = FILTERS.mapIndexed { i, label -> SegmentedTab(label, FILTER_ICONS[i]) },
+                        selectedIndex = filter,
+                        onSelect = { filter = it },
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    when (filter) {
+                        0 ->
+                            when {
+                                myGroups.isEmpty() && query.isBlank() ->
+                                    EmptyStateCard(
+                                        emoji = "👋",
+                                        title = "You're not in any group yet",
+                                        description =
+                                        "Join through an invite link, or check From friends " +
+                                            "for the groups where people you follow already are.",
+                                    ) {
+                                        AppButton(
+                                            text = "Join by link",
+                                            onClick = { /* join modal: not wired yet */ },
+                                            icon = Icons.Default.Link,
+                                        )
+                                        AppButton(
+                                            text = "See friends' groups",
+                                            onClick = { filter = 1 },
+                                            variant = AppButtonVariant.Secondary,
+                                        )
+                                    }
+                                myGroups.isEmpty() ->
+                                    EmptyStateCard(
+                                        emoji = "🔍",
+                                        title = "No group found",
+                                        description = "Try another search term.",
+                                    )
+                                else ->
+                                    CardGrid(columns) {
+                                        myGroups.map { group ->
+                                            {
+                                                GroupCard(
+                                                    name = group.meta.name ?: group.meta.id,
+                                                    description = group.meta.about,
+                                                    picture = group.meta.picture,
+                                                    groupId = group.meta.id,
+                                                    memberCount = memberCounts[group.meta.id] ?: 0,
+                                                    restricted = !group.meta.isOpen,
+                                                    cta = "Open",
+                                                    ctaPrimary = false,
+                                                    onClick = { onOpenGroup(group) },
+                                                )
+                                            }
+                                        }
+                                    }
+                            }
+                        1 ->
+                            EmptyStateCard(
+                                emoji = "🫂",
+                                title = "You don't follow anyone yet",
+                                description = "Follow some people to see your friends here and the groups where they are.",
+                            ) {
+                                AppButton(
+                                    text = "See people to follow",
+                                    onClick = { filter = 3 },
+                                    variant = AppButtonVariant.Secondary,
+                                )
+                            }
+                        2 ->
+                            EmptyStateCard(
+                                emoji = "🧭",
+                                title = "Discover communities through your friends",
+                                description =
+                                "We show the groups where people you follow already are. " +
+                                    "Follow people or join through a link to get started.",
+                            ) {
+                                AppButton(
+                                    text = "Join by link",
+                                    onClick = { /* join modal: not wired yet */ },
+                                    icon = Icons.Default.Link,
+                                )
+                                AppButton(
+                                    text = "See people to follow",
+                                    onClick = { filter = 3 },
+                                    variant = AppButtonVariant.Secondary,
+                                )
+                            }
+                        else ->
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                // Layout-only: dummy packs shared with the onboarding step.
+                                onboardingFollowPacks.forEach { pack ->
+                                    PackCard(
+                                        emoji = pack.emoji,
+                                        name = pack.name,
+                                        description = pack.description,
+                                        people = pack.people,
+                                    )
+                                }
+                            }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Fixed-column grid built from rows (content is small; avoids nested lazy scrolling). */
+@Composable
+private fun CardGrid(
+    columns: Int,
+    content: () -> List<@Composable () -> Unit>,
+) {
+    val cards = content()
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        cards.chunked(columns).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                row.forEach { card ->
+                    Column(modifier = Modifier.weight(1f)) { card() }
+                }
+                repeat(columns - row.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}

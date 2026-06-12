@@ -54,6 +54,7 @@ import org.nostr.nostrord.storage.saveLastGroupForRelay
 import org.nostr.nostrord.ui.Screen
 import org.nostr.nostrord.ui.components.BunkerStatusBanner
 import org.nostr.nostrord.ui.components.chat.LocalAnimatedImageHidden
+import org.nostr.nostrord.ui.components.layout.AppFrame
 import org.nostr.nostrord.ui.components.layout.DesktopShell
 import org.nostr.nostrord.ui.components.layout.responsiveDimension
 import org.nostr.nostrord.ui.components.navigation.MinimalTitleBar
@@ -61,7 +62,6 @@ import org.nostr.nostrord.ui.components.navigation.NavigationToolbar
 import org.nostr.nostrord.ui.components.navigation.ServerRail
 import org.nostr.nostrord.ui.components.notifications.NotificationPermissionBanner
 import org.nostr.nostrord.ui.components.sidebars.GroupsNavSidebar
-import org.nostr.nostrord.ui.components.zap.ZapModalHost
 import org.nostr.nostrord.ui.navigation.BrowserNavigationHandler
 import org.nostr.nostrord.ui.navigation.NavEntry
 import org.nostr.nostrord.ui.navigation.NavigationHistory
@@ -79,6 +79,7 @@ import org.nostr.nostrord.ui.screens.home.HomeScreen
 import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
 import org.nostr.nostrord.ui.screens.login.components.UnlockAccountDialog
 import org.nostr.nostrord.ui.screens.notifications.NotificationsScreen
+import org.nostr.nostrord.ui.screens.onboarding.OnboardingFlowScreen
 import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
 import org.nostr.nostrord.ui.screens.relay.AddRelayModal
@@ -184,17 +185,33 @@ fun App() {
                 }
 
                 is AppStartState.Authenticated -> {
-                    // Authenticated with resolved initial screen
-                    // Now we can create the navigation state with the correct initial value
-                    AuthenticatedApp(
-                        initialScreen = startupState.initialScreen,
-                        restoredFromPersistence = startupState.restoredFromPersistence,
-                        deepLinkRelayUrl = startupState.deepLinkRelayUrl,
-                        deepLinkInviteCode = startupState.deepLinkInviteCode,
-                        deepLinkMessageId = startupState.deepLinkMessageId,
-                    )
-                    // NIP-57 zap modal overlay — opened from anywhere via ZapController.
-                    ZapModalHost()
+                    // New-design flow: an account whose kind:10009 lists no groups goes
+                    // through the onboarding wizard; everyone else lands on Home (a
+                    // placeholder while the prototype's Home page is ported). The old
+                    // shell (AuthenticatedApp) stays in the codebase for piece-by-piece
+                    // reuse during the redesign.
+                    val needsOnboarding by vm.needsOnboarding.collectAsState()
+                    val onboardingSkipped by vm.onboardingSkipped.collectAsState()
+                    val content: @Composable (Modifier) -> Unit =
+                        if (needsOnboarding && !onboardingSkipped) {
+                            { m ->
+                                OnboardingFlowScreen(
+                                    onSkip = vm::skipOnboarding,
+                                    onJoin = vm::joinGroupFromInput,
+                                    modifier = m,
+                                )
+                            }
+                        } else {
+                            { m -> Box(m) { AppFrame() } }
+                        }
+                    if (hasWindowControls) {
+                        Column(Modifier.fillMaxSize()) {
+                            MinimalTitleBar()
+                            content(Modifier.weight(1f))
+                        }
+                    } else {
+                        content(Modifier.fillMaxSize())
+                    }
                 }
             }
 

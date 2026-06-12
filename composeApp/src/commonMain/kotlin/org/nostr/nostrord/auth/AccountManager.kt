@@ -143,6 +143,20 @@ class AccountManager(
      *
      * Returns the account the user is now active as (or null if logged out).
      */
+    /**
+     * [removeAccount] on the manager's long-lived scope, so a sign-out triggered
+     * from UI that unmounts mid-flight (the account bar menu) cannot be cancelled
+     * between the credential wipe and the fallback switch.
+     */
+    fun removeAccountAsync(
+        accountId: String,
+        onResult: (Account?) -> Unit = {},
+    ) {
+        scope.launch {
+            onResult(removeAccount(accountId))
+        }
+    }
+
     suspend fun removeAccount(accountId: String): Account? {
         val account = accountStore.get(accountId) ?: return accountStore.active
         val wasActive = accountStore.activeId.value == accountId

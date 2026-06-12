@@ -9,7 +9,11 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.installGlobalModalFocusTrap
 import org.nostr.nostrord.web.modals.UnlockModal
+import org.nostr.nostrord.web.navigation.WebRoute
+import org.nostr.nostrord.web.navigation.applyWebRoute
+import org.nostr.nostrord.web.navigation.currentHashRoute
 import org.nostr.nostrord.web.screens.LoginScreen
+import org.nostr.nostrord.web.screens.OnboardingFlow
 import org.nostr.nostrord.web.theme.applyColorTokens
 import org.nostr.nostrord.web.theme.systemPrefersDark
 import react.FC
@@ -93,11 +97,38 @@ val WebApp =
         val pendingUnlock = useStateFlow(AppModule.nostrRepository.pendingUnlockAccount)
         pendingUnlock?.let { account -> UnlockModal { this.account = account } }
 
+        // New-design flow gate: an account whose kind:10009 lists no groups goes
+        // through the onboarding wizard; everyone else lands on Home (a placeholder
+        // while the prototype's Home page is ported).
+        val needsOnboarding = useStateFlow(vm.needsOnboarding)
+        val onboardingSkipped = useStateFlow(vm.onboardingSkipped)
+        val showingOnboarding = loggedIn && needsOnboarding && !onboardingSkipped
+
+        // Hash-route mirror: #/login, #/onboarding, Home at the root. A page hash
+        // (#/g/…, #/u/…) is AppFrame's territory: entering logged-in with one (deep
+        // link / refresh) must not be normalized away to Home.
+        val showingLogin = initialized && !loggedIn && !verifyingBunker
+        useEffect(showingLogin, showingOnboarding, loggedIn) {
+            when {
+                showingLogin -> applyWebRoute(WebRoute.Login)
+                loggedIn && showingOnboarding -> applyWebRoute(WebRoute.Onboarding)
+                loggedIn && currentHashRoute() == null -> applyWebRoute(WebRoute.Home)
+            }
+        }
+
         when {
             // Render nothing until initialized; the HTML shell holds the screen
             // and only fades out once data-app-ready is set above.
             !initialized -> null
-            loggedIn -> AppShell()
+            loggedIn ->
+                if (showingOnboarding) {
+                    OnboardingFlow {
+                        onSkip = { vm.skipOnboarding() }
+                        onJoin = { input, onResult -> vm.joinGroupFromInput(input, onResult) }
+                    }
+                } else {
+                    AppFrame()
+                }
             // A bunker signer is still being (re)connected on cold start: hold the loading
             // shell instead of flashing LoginScreen during the async handshake. This is the
             // only restore path that completes after isInitialized (local/NIP-07 restore
