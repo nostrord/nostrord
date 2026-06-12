@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.KeyPair
@@ -20,6 +21,7 @@ import org.nostr.nostrord.nostr.Nip49
 import org.nostr.nostrord.nostr.hexToByteArray
 import org.nostr.nostrord.nostr.toHexString
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.getEncryptedPrivateKeyFor
 import org.nostr.nostrord.storage.getNostrConnectRelays
 import org.nostr.nostrord.storage.saveNostrConnectRelays
 import org.nostr.nostrord.utils.toKotlinResult
@@ -69,10 +71,11 @@ class LoginViewModel(
         privKey: String,
         pubKey: String,
         isNewIdentity: Boolean = false,
+        ncryptsec: String? = null,
         onResult: (Result<Unit>) -> Unit,
     ) {
         viewModelScope.launch {
-            onResult(repo.loginSuspend(privKey, pubKey, isNewIdentity).toKotlinResult())
+            onResult(repo.loginSuspend(privKey, pubKey, isNewIdentity, ncryptsec).toKotlinResult())
         }
     }
 
@@ -96,22 +99,53 @@ class LoginViewModel(
     }
 
     /**
-     * Encrypt a plain (hex / nsec) key into an ncryptsec backup (NIP-49). scrypt runs
-     * on the Default dispatcher; [onResult] gets null when the input is not a valid key.
+     * Login with a plain (hex / nsec) key in password-protected mode: the key is
+     * wrapped as an ncryptsec (NIP-49, scrypt on the Default dispatcher), only the
+     * encrypted form is persisted, and the next session restore asks the password
+     * via [pendingUnlock].
      */
-    fun encryptKeyToNcryptsec(
+    fun loginProtected(
         input: String,
         password: String,
-        onResult: (String?) -> Unit,
+        isNewIdentity: Boolean = false,
+        onResult: (Result<Unit>) -> Unit,
     ) {
         val hex = parsePrivateKeyHex(input)
         if (hex == null) {
-            onResult(null)
+            onResult(Result.failure(IllegalArgumentException("Invalid private key")))
             return
         }
         viewModelScope.launch {
-            onResult(withContext(Dispatchers.Default) { Nip49.encrypt(hex.hexToByteArray(), password) })
+            val ncryptsec = withContext(Dispatchers.Default) { Nip49.encrypt(hex.hexToByteArray(), password) }
+            loginWithHex(hex, isNewIdentity, ncryptsec, onResult)
         }
+    }
+
+    /** Account waiting for its NIP-49 password at startup (drives the unlock dialog). */
+    val pendingUnlock: StateFlow<Account?> = repo.pendingUnlockAccount
+
+    /** Dismiss the unlock dialog; the user falls back to the regular login screen. */
+    fun dismissUnlock() = repo.clearPendingUnlock()
+
+    /**
+     * Decrypt the pending account's stored ncryptsec with [password] and finish the
+     * session restore. Fails with "Wrong password or corrupted key" on a bad password.
+     */
+    fun unlockWithPassword(
+        password: String,
+        onResult: (Result<Unit>) -> Unit,
+    ) {
+        val account = repo.pendingUnlockAccount.value
+        if (account == null) {
+            onResult(Result.failure(IllegalStateException("No account to unlock")))
+            return
+        }
+        val ncryptsec = SecureStorage.getEncryptedPrivateKeyFor(account.pubkey)
+        if (ncryptsec == null) {
+            onResult(Result.failure(IllegalStateException("No encrypted key stored")))
+            return
+        }
+        loginWithPrivateKeyInput(ncryptsec, password, onResult = onResult)
     }
 
     /**
@@ -142,11 +176,14 @@ class LoginViewModel(
                 return
             }
             viewModelScope.launch {
-                val keyBytes = withContext(Dispatchers.Default) { Nip49.decrypt(input, password) }
+                val trimmed = input.trim()
+                val keyBytes = withContext(Dispatchers.Default) { Nip49.decrypt(trimmed, password) }
                 if (keyBytes == null) {
                     onResult(Result.failure(IllegalArgumentException("Wrong password or corrupted key")))
                 } else {
-                    loginWithHex(keyBytes.toHexString(), isNewIdentity, onResult)
+                    // Logging in with an ncryptsec keeps the account password-protected:
+                    // only the encrypted key is persisted (unlock asked at next startup).
+                    loginWithHex(keyBytes.toHexString(), isNewIdentity, ncryptsec = trimmed, onResult)
                 }
             }
             return
@@ -156,12 +193,13 @@ class LoginViewModel(
             onResult(Result.failure(IllegalArgumentException("Invalid private key")))
             return
         }
-        loginWithHex(hex, isNewIdentity, onResult)
+        loginWithHex(hex, isNewIdentity, ncryptsec = null, onResult)
     }
 
     private fun loginWithHex(
         hex: String,
         isNewIdentity: Boolean,
+        ncryptsec: String?,
         onResult: (Result<Unit>) -> Unit,
     ) {
         val pub =
@@ -171,7 +209,7 @@ class LoginViewModel(
                 onResult(Result.failure(IllegalArgumentException("Invalid private key")))
                 return
             }
-        loginWithPrivateKey(hex, pub, isNewIdentity, onResult)
+        loginWithPrivateKey(hex, pub, isNewIdentity, ncryptsec, onResult)
     }
 
     fun loginWithNip07(

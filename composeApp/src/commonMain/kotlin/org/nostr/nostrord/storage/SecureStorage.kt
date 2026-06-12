@@ -768,6 +768,8 @@ fun SecureStorage.clearLastActiveAt(pubkey: String) {
 
 private fun privKeyForAccountKey(pubkey: String) = "priv_key_${pubkeyDigest(pubkey)}"
 
+private fun encryptedPrivKeyForAccountKey(pubkey: String) = "ncryptsec_${pubkeyDigest(pubkey)}"
+
 private fun bunkerUrlForAccountKey(pubkey: String) = "bunker_url_${pubkeyDigest(pubkey)}"
 
 private fun bunkerClientPrivForAccountKey(pubkey: String) = "bunker_client_priv_${pubkeyDigest(pubkey)}"
@@ -808,6 +810,26 @@ fun SecureStorage.clearPrivateKeyFor(pubkey: String) {
     if (pubkey.isBlank()) return
     clearSensitive(privKeyForAccountKey(pubkey))
     clearSensitive(legacyHashPrivKeyForAccountKey(pubkey))
+}
+
+// NIP-49 password-protected accounts: only the ncryptsec touches disk (the raw key
+// lives in the in-memory signer) and the unlock password is asked at startup.
+fun SecureStorage.saveEncryptedPrivateKeyFor(
+    pubkey: String,
+    ncryptsec: String,
+) {
+    if (pubkey.isBlank()) return
+    saveSensitive(encryptedPrivKeyForAccountKey(pubkey), ncryptsec)
+}
+
+fun SecureStorage.getEncryptedPrivateKeyFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getSensitive(encryptedPrivKeyForAccountKey(pubkey))
+}
+
+fun SecureStorage.clearEncryptedPrivateKeyFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    clearSensitive(encryptedPrivKeyForAccountKey(pubkey))
 }
 
 fun SecureStorage.saveBunkerUrlFor(
@@ -858,6 +880,7 @@ fun SecureStorage.clearBunkerClientPrivateKeyFor(pubkey: String) {
 /** Convenience: wipe every credential slot belonging to [pubkey]. */
 fun SecureStorage.clearAllCredentialsForAccount(pubkey: String) {
     clearPrivateKeyFor(pubkey)
+    clearEncryptedPrivateKeyFor(pubkey)
     clearBunkerUrlFor(pubkey)
     clearBunkerClientPrivateKeyFor(pubkey)
 }

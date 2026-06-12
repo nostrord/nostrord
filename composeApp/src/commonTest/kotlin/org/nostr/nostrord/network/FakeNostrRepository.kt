@@ -3,6 +3,7 @@ package org.nostr.nostrord.network
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.RoleDefinition
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
@@ -138,9 +139,17 @@ class FakeNostrRepository : NostrRepositoryApi {
         privKey: String,
         pubKey: String,
         isNewIdentity: Boolean,
+        ncryptsec: String?,
     ): Result<Unit> {
         calls += "loginSuspend"
         return loginSuspendAction(privKey, pubKey)
+    }
+
+    val _pendingUnlockAccount = MutableStateFlow<Account?>(null)
+    override val pendingUnlockAccount: StateFlow<Account?> = _pendingUnlockAccount
+
+    override fun clearPendingUnlock() {
+        _pendingUnlockAccount.value = null
     }
 
     override suspend fun loginWithNip07(pubkey: String): Result<Unit> {

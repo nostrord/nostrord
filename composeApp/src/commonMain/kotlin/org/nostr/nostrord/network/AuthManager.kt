@@ -29,11 +29,15 @@ import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.platformDisplayName
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearAllCredentialsForAccount
+import org.nostr.nostrord.storage.clearEncryptedPrivateKeyFor
+import org.nostr.nostrord.storage.clearPrivateKeyFor
 import org.nostr.nostrord.storage.getBunkerClientPrivateKeyFor
 import org.nostr.nostrord.storage.getBunkerUrlFor
+import org.nostr.nostrord.storage.getEncryptedPrivateKeyFor
 import org.nostr.nostrord.storage.getPrivateKeyFor
 import org.nostr.nostrord.storage.saveBunkerClientPrivateKeyFor
 import org.nostr.nostrord.storage.saveBunkerUrlFor
+import org.nostr.nostrord.storage.saveEncryptedPrivateKeyFor
 import org.nostr.nostrord.storage.savePrivateKeyFor
 import org.nostr.nostrord.utils.epochMillis
 
@@ -71,6 +75,20 @@ class AuthManager(
 
     private val _isLoggedIn = MutableStateFlow(false)
     val isLoggedIn: StateFlow<Boolean> = _isLoggedIn.asStateFlow()
+
+    /**
+     * Set when session restore (or an account switch) hits a NIP-49
+     * password-protected account: only the ncryptsec is on disk, so the app
+     * cannot build a signer until the user enters the password. The UIs gate
+     * an unlock dialog on this; cleared on a successful login/unlock or when
+     * the user dismisses it.
+     */
+    private val _pendingUnlock = MutableStateFlow<Account?>(null)
+    val pendingUnlock: StateFlow<Account?> = _pendingUnlock.asStateFlow()
+
+    fun clearPendingUnlock() {
+        _pendingUnlock.value = null
+    }
 
     /**
      * Invoked when the active session is invalidated involuntarily (bunker
@@ -319,11 +337,15 @@ class AuthManager(
     }
 
     /**
-     * Login with local private key
+     * Login with local private key. When [ncryptsec] is given the account is
+     * password-protected: only the encrypted key is persisted (the raw key
+     * lives in the in-memory signer) and the next session restore asks for the
+     * password via [pendingUnlock].
      */
     fun loginWithPrivateKey(
         privateKeyHex: String,
         publicKeyHex: String,
+        ncryptsec: String? = null,
     ) {
         zeroAndClearKeyPair()
         keyPair = KeyPair.fromPrivateKeyHex(privateKeyHex)
@@ -333,12 +355,20 @@ class AuthManager(
         nip07UserPubkey = null
         nip46Client = null
 
-        SecureStorage.savePrivateKey(privateKeyHex)
-        SecureStorage.savePrivateKeyFor(publicKeyHex, privateKeyHex)
+        if (ncryptsec == null) {
+            SecureStorage.savePrivateKey(privateKeyHex)
+            SecureStorage.savePrivateKeyFor(publicKeyHex, privateKeyHex)
+            SecureStorage.clearEncryptedPrivateKeyFor(publicKeyHex)
+        } else {
+            SecureStorage.clearPrivateKey()
+            SecureStorage.clearPrivateKeyFor(publicKeyHex)
+            SecureStorage.saveEncryptedPrivateKeyFor(publicKeyHex, ncryptsec)
+        }
         SecureStorage.clearBunkerUrl()
         SecureStorage.clearBunkerUserPubkey()
         SecureStorage.clearBunkerClientPrivateKey()
         SecureStorage.clearNip07UserPubkey()
+        _pendingUnlock.value = null
         registerAccountAfterLogin(publicKeyHex, AuthMethod.LOCAL)
     }
 
@@ -417,7 +447,14 @@ class AuthManager(
                     val priv =
                         SecureStorage.getPrivateKeyFor(account.pubkey)
                             ?: SecureStorage.getPrivateKey()
-                            ?: return false
+                    if (priv == null) {
+                        // Password-protected key: only the ncryptsec is stored. Signal
+                        // the unlock gate instead of silently failing the restore.
+                        if (SecureStorage.getEncryptedPrivateKeyFor(account.pubkey) != null) {
+                            _pendingUnlock.value = account
+                        }
+                        return false
+                    }
                     val kp =
                         try {
                             KeyPair.fromPrivateKeyHex(priv)
@@ -467,6 +504,7 @@ class AuthManager(
             }
         }
 
+        _pendingUnlock.value = null
         accountStore.setActive(account.pubkey)
         return true
     }

@@ -1,6 +1,7 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.flow.StateFlow
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.ZapManager
@@ -121,11 +122,23 @@ interface NostrRepositoryApi {
 
     fun forgetBunkerConnection()
 
+    /**
+     * Login with a raw private key. [ncryptsec] marks the account
+     * password-protected (NIP-49): only the encrypted key is persisted and the
+     * next session restore surfaces [pendingUnlockAccount] instead of logging in.
+     */
     suspend fun loginSuspend(
         privKey: String,
         pubKey: String,
         isNewIdentity: Boolean = false,
+        ncryptsec: String? = null,
     ): Result<Unit>
+
+    /** Account whose NIP-49 password is needed to finish session restore (unlock gate). */
+    val pendingUnlockAccount: StateFlow<Account?>
+
+    /** Dismiss the unlock gate (the user can still log in another way). */
+    fun clearPendingUnlock()
 
     suspend fun loginWithNip07(pubkey: String): Result<Unit>
 

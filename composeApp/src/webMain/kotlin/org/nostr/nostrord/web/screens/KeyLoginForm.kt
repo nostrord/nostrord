@@ -3,7 +3,6 @@ package org.nostr.nostrord.web.screens
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.launchApp
-import org.nostr.nostrord.web.components.GeneratedKeyCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
@@ -33,6 +32,12 @@ external interface KeyLoginFormProps : Props {
 
     /** Run the actual login: (input, ncryptsec password or null, isNewIdentity). */
     var onSubmit: (String, String?, Boolean) -> Unit
+
+    /**
+     * Password-protected login (input, protect password, isNewIdentity): the key is
+     * stored encrypted (ncryptsec) and the unlock password is asked at next startup.
+     */
+    var onSubmitProtected: (String, String, Boolean) -> Unit
 }
 
 /**
@@ -40,10 +45,10 @@ external interface KeyLoginFormProps : Props {
  * add-account sheet so the two never drift:
  *  - nsec / hex / ncryptsec input (label + hint + eye toggle), strict validity gating;
  *  - pasting an ncryptsec reveals the key-password field;
- *  - a plain hex/nsec offers "Protect with password" producing an ncryptsec backup
- *    that is shown to copy before signing in;
+ *  - a plain hex/nsec offers "Protect with password", which stores the key encrypted
+ *    (ncryptsec) on this device — the unlock dialog asks the password at startup;
  *  - "Generate New Key" runs the two-step wizard (backup npub/nsec, then optional
- *    password that wraps the new key as an ncryptsec backup).
+ *    password with the same protected-storage semantics).
  * Mirrors the Compose PrivateKeyLoginTab; logic lives in the shared LoginViewModel.
  */
 val KeyLoginForm =
@@ -67,9 +72,6 @@ val KeyLoginForm =
         val (wizardPwd, setWizardPwd) = useState { "" }
         val (wizardConfirm, setWizardConfirm) = useState { "" }
 
-        // Pending ncryptsec backup reveal: the string to show + the login to run on Continue
-        val (backup, setBackup) = useState<Pair<String, Pair<String, Boolean>>?> { null }
-
         val isEncrypted = vm.isEncryptedKeyInput(privateKey)
         val isPlain = vm.isPlainKeyInput(privateKey)
         val protectActive = protect && isPlain
@@ -81,22 +83,6 @@ val KeyLoginForm =
 
         fun clearError() = setLocalError(null)
 
-        /** Encrypt and show the ncryptsec backup; Continue then runs the login. */
-        fun protectAndReveal(
-            input: String,
-            pwd: String,
-            isNewIdentity: Boolean,
-        ) {
-            clearError()
-            vm.encryptKeyToNcryptsec(input, pwd) { ncryptsec ->
-                if (ncryptsec == null) {
-                    setLocalError("Invalid private key")
-                } else {
-                    setBackup(ncryptsec to (input to isNewIdentity))
-                }
-            }
-        }
-
         fun submit() {
             if (!canSubmit) return
             val input = privateKey.trim()
@@ -107,7 +93,7 @@ val KeyLoginForm =
                         setLocalError("Passwords don't match")
                         return
                     }
-                    protectAndReveal(input, protectPwd, isNewIdentity = false)
+                    props.onSubmitProtected(input, protectPwd, false)
                 }
                 else -> props.onSubmit(input, null, false)
             }
@@ -121,29 +107,6 @@ val KeyLoginForm =
         }
 
         when {
-            // ── ncryptsec backup reveal ──────────────────────────────────────
-            backup != null -> {
-                GeneratedKeyCard {
-                    this.privateKey = backup.first
-                    title = "SAVE YOUR ENCRYPTED KEY"
-                    subtitle =
-                        "This ncryptsec is your key encrypted with your password. " +
-                        "Save it somewhere safe; log in with it and the password next time."
-                }
-                button {
-                    className = ClassName("btn-primary btn-lg btn-full login-submit")
-                    disabled = busy
-                    onClick = {
-                        val (input, isNew) = backup.second
-                        props.onSubmit(input, null, isNew)
-                    }
-                    if (busy) {
-                        span { className = ClassName("btn-spinner") }
-                    }
-                    +(if (busy) props.busyLabel else "Continue")
-                }
-            }
-
             // ── Generate wizard ──────────────────────────────────────────────
             wizardStep > 0 -> {
                 div {
@@ -212,7 +175,7 @@ val KeyLoginForm =
                             }
                             div {
                                 className = ClassName("protect-info-desc")
-                                +"Wraps your new key as an encrypted ncryptsec backup. Optional, but strongly recommended."
+                                +"Encrypts your new key on this device (ncryptsec); the password is asked to unlock the app. Optional, but strongly recommended."
                             }
                         }
                     }
@@ -275,7 +238,7 @@ val KeyLoginForm =
                                 when {
                                     wizardPwd.isEmpty() -> props.onSubmit(wizardKey, null, true)
                                     wizardPwd != wizardConfirm -> setLocalError("Passwords don't match")
-                                    else -> protectAndReveal(wizardKey, wizardPwd, isNewIdentity = true)
+                                    else -> props.onSubmitProtected(wizardKey, wizardPwd, true)
                                 }
                             }
                             if (busy) {
@@ -369,7 +332,7 @@ val KeyLoginForm =
                             }
                             div {
                                 className = ClassName("protect-card-desc")
-                                +"Wraps your key as an encrypted ncryptsec backup; log in with it and this password next time."
+                                +"Encrypts your key on this device (ncryptsec); the password is asked to unlock the app."
                             }
                         }
                     }

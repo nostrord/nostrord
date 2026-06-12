@@ -132,6 +132,16 @@ val LoginScreen =
                                             )
                                         }
                                     }
+                                    onSubmitProtected = { input, password, isNewIdentity ->
+                                        runLogin { cb ->
+                                            vm.loginProtected(
+                                                input,
+                                                password,
+                                                isNewIdentity = isNewIdentity,
+                                                onResult = cb,
+                                            )
+                                        }
+                                    }
                                 }
                             }
 

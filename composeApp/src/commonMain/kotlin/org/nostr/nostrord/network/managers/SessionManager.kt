@@ -3,6 +3,7 @@ package org.nostr.nostrord.network.managers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.network.BunkerState
 import org.nostr.nostrord.network.NostrGroupClient
@@ -29,6 +30,9 @@ class SessionManager(
     val isBunkerVerifying: StateFlow<Boolean> = authManager.isBunkerVerifying
     val bunkerState: StateFlow<BunkerState> = authManager.bunkerState
     val authUrl: StateFlow<String?> = authManager.authUrl
+    val pendingUnlock: StateFlow<Account?> = authManager.pendingUnlock
+
+    fun clearPendingUnlock() = authManager.clearPendingUnlock()
 
     /**
      * Restore session from storage
@@ -41,10 +45,11 @@ class SessionManager(
     suspend fun loginWithBunker(bunkerUrl: String): String = authManager.loginWithBunker(bunkerUrl)
 
     /**
-     * Login with private key
+     * Login with private key. [ncryptsec] marks the account password-protected
+     * (only the encrypted key is persisted; unlock asks the password at startup).
      */
-    suspend fun loginWithPrivateKey(privKey: String, pubKey: String) {
-        authManager.loginWithPrivateKey(privKey, pubKey)
+    suspend fun loginWithPrivateKey(privKey: String, pubKey: String, ncryptsec: String? = null) {
+        authManager.loginWithPrivateKey(privKey, pubKey, ncryptsec)
     }
 
     /**

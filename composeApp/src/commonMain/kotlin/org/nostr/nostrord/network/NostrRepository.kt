@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.*
+import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.ConnectionStats
@@ -219,6 +220,9 @@ class NostrRepository(
     override val isBunkerVerifying: StateFlow<Boolean> = sessionManager.isBunkerVerifying
     override val bunkerState: StateFlow<BunkerState> = sessionManager.bunkerState
     override val authUrl: StateFlow<String?> = sessionManager.authUrl
+    override val pendingUnlockAccount: StateFlow<Account?> = sessionManager.pendingUnlock
+
+    override fun clearPendingUnlock() = sessionManager.clearPendingUnlock()
 
     // Expose metadata state
     override val userMetadata: StateFlow<Map<String, UserMetadata>> = metadataManager.userMetadata
@@ -576,7 +580,7 @@ class NostrRepository(
         return userPubkey
     }
 
-    override suspend fun loginSuspend(privKey: String, pubKey: String, isNewIdentity: Boolean): Result<Unit> = try {
+    override suspend fun loginSuspend(privKey: String, pubKey: String, isNewIdentity: Boolean, ncryptsec: String?): Result<Unit> = try {
         val previousPubkey = sessionManager.getPublicKey()
         // A freshly generated identity has nothing on the network yet — no
         // kind:10002, no kind:10009 — so don't bother flagging the relay
@@ -585,7 +589,7 @@ class NostrRepository(
         if (!isNewIdentity && connectionManager.currentRelayUrl.value.isBlank()) {
             _isDiscoveringRelays.value = true
         }
-        sessionManager.loginWithPrivateKey(privKey, pubKey)
+        sessionManager.loginWithPrivateKey(privKey, pubKey, ncryptsec)
         finishLoginInit(previousPubkey, pubKey, isNewIdentity = isNewIdentity)
         Result.Success(Unit)
     } catch (e: Exception) {

@@ -52,13 +52,12 @@ import org.nostr.nostrord.utils.rememberClipboardWriter
  * Private key login (prototype flow): nsec / hex / NIP-49 ncryptsec input with the
  * field layout (uppercase label, hint, floating surface), plus
  *  - pasting an ncryptsec reveals the key-password field;
- *  - a plain hex/nsec offers "Protect with password" which produces an ncryptsec
- *    backup (shown to copy) before signing in;
+ *  - a plain hex/nsec offers "Protect with password", which stores the key
+ *    encrypted (ncryptsec) on this device — the unlock dialog asks the password
+ *    at the next startup;
  *  - "Generate New Key" runs the two-step wizard: backup the npub/nsec, then an
- *    optional password that wraps the new key as an ncryptsec backup.
- * Key parsing, generation and encryption live in [LoginViewModel]; device-side
- * storage stays platform-native (Keystore / keychain), the ncryptsec is the
- * portable encrypted backup the user keeps.
+ *    optional password with the same protected-storage semantics.
+ * Key parsing, generation and encryption live in [LoginViewModel].
  */
 @Composable
 fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
@@ -82,11 +81,6 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     var wizardPwd by remember { mutableStateOf("") }
     var wizardConfirm by remember { mutableStateOf("") }
 
-    // Pending ncryptsec backup reveal: set after encrypting, holds the string to
-    // show plus the login to run on Continue (input + isNewIdentity).
-    var backupNcryptsec by remember { mutableStateOf<String?>(null) }
-    var pendingLogin by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
-
     val isEncrypted = vm.isEncryptedKeyInput(privateKey)
     val isPlain = vm.isPlainKeyInput(privateKey)
     val protectActive = protect && isPlain
@@ -96,6 +90,15 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
             (!protectActive || protectPwd.isNotEmpty()) &&
             !isLoading
 
+    fun handleResult(result: Result<Unit>) {
+        isLoading = false
+        if (result.isSuccess) {
+            onLoginSuccess()
+        } else {
+            errorMessage = result.exceptionOrNull()?.message ?: "Invalid private key or login failed"
+        }
+    }
+
     fun doLogin(
         input: String,
         password: String?,
@@ -103,33 +106,18 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     ) {
         isLoading = true
         errorMessage = null
-        vm.loginWithPrivateKeyInput(input, password, isNewIdentity) { result ->
-            isLoading = false
-            if (result.isSuccess) {
-                onLoginSuccess()
-            } else {
-                errorMessage = result.exceptionOrNull()?.message ?: "Invalid private key or login failed"
-            }
-        }
+        vm.loginWithPrivateKeyInput(input, password, isNewIdentity) { handleResult(it) }
     }
 
-    /** Encrypt and show the ncryptsec backup; Continue then runs the login. */
-    fun protectAndReveal(
+    /** Password-protected login: persists the ncryptsec, unlock asked at next startup. */
+    fun doProtectedLogin(
         input: String,
         password: String,
         isNewIdentity: Boolean,
     ) {
         isLoading = true
         errorMessage = null
-        vm.encryptKeyToNcryptsec(input, password) { ncryptsec ->
-            isLoading = false
-            if (ncryptsec == null) {
-                errorMessage = "Invalid private key"
-            } else {
-                backupNcryptsec = ncryptsec
-                pendingLogin = input to isNewIdentity
-            }
-        }
+        vm.loginProtected(input, password, isNewIdentity) { handleResult(it) }
     }
 
     fun login() {
@@ -142,40 +130,13 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                     errorMessage = "Passwords don't match"
                     return
                 }
-                protectAndReveal(input, protectPwd, isNewIdentity = false)
+                doProtectedLogin(input, protectPwd, isNewIdentity = false)
             }
             else -> doLogin(input, null, isNewIdentity = false)
         }
     }
 
     when {
-        // ── ncryptsec backup reveal ──────────────────────────────────────────
-        backupNcryptsec != null -> {
-            Column {
-                GeneratedKeyCard(
-                    privateKey = backupNcryptsec!!,
-                    title = "SAVE YOUR ENCRYPTED KEY",
-                    subtitle =
-                    "This ncryptsec is your key encrypted with your password. " +
-                        "Save it somewhere safe; log in with it and the password next time.",
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                AppButton(
-                    text = if (isLoading) "Logging in..." else "Continue",
-                    onClick = {
-                        pendingLogin?.let { (input, isNew) ->
-                            doLogin(input, password = null, isNewIdentity = isNew)
-                        }
-                    },
-                    enabled = !isLoading,
-                    size = AppButtonSize.Large,
-                    fullWidth = true,
-                    loading = isLoading,
-                )
-                LoginErrorPanel(errorMessage)
-            }
-        }
-
         // ── Generate wizard ─────────────────────────────────────────────────
         wizardStep > 0 -> {
             Column {
@@ -271,8 +232,8 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                "Wraps your new key as an encrypted ncryptsec backup. " +
-                                    "Optional, but strongly recommended.",
+                                "Encrypts your new key on this device (ncryptsec); the password " +
+                                    "is asked to unlock the app. Optional, but strongly recommended.",
                                 color = NostrordColors.TextSecondary,
                                 fontSize = 12.sp,
                             )
@@ -324,7 +285,7 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                                 } else if (wizardPwd != wizardConfirm) {
                                     errorMessage = "Passwords don't match"
                                 } else {
-                                    protectAndReveal(wizardKey, wizardPwd, isNewIdentity = true)
+                                    doProtectedLogin(wizardKey, wizardPwd, isNewIdentity = true)
                                 }
                             },
                             enabled = !isLoading && (wizardPwd.isEmpty() || wizardConfirm.isNotEmpty()),
@@ -429,7 +390,7 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                             }
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                "Wraps your key as an encrypted ncryptsec backup; log in with it and this password next time.",
+                                "Encrypts your key on this device (ncryptsec); the password is asked to unlock the app.",
                                 color = NostrordColors.TextSecondary,
                                 fontSize = 12.sp,
                             )

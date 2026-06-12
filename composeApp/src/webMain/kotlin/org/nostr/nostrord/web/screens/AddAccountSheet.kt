@@ -139,6 +139,16 @@ val AddAccountSheet =
                                         )
                                     }
                                 }
+                                onSubmitProtected = { input, password, isNewIdentity ->
+                                    runAdd("Could not add account") { cb ->
+                                        vm.loginProtected(
+                                            input,
+                                            password,
+                                            isNewIdentity = isNewIdentity,
+                                            onResult = cb,
+                                        )
+                                    }
+                                }
                             }
                         }
 

@@ -77,6 +77,7 @@ import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.JoinGroupModal
 import org.nostr.nostrord.ui.screens.home.HomeScreen
 import org.nostr.nostrord.ui.screens.login.NostrLoginScreen
+import org.nostr.nostrord.ui.screens.login.components.UnlockAccountDialog
 import org.nostr.nostrord.ui.screens.notifications.NotificationsScreen
 import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
@@ -196,6 +197,11 @@ fun App() {
                     ZapModalHost()
                 }
             }
+
+            // NIP-49 unlock gate: a password-protected account blocked session
+            // restore; ask for the password over whatever screen is showing.
+            val pendingUnlock by AppModule.nostrRepository.pendingUnlockAccount.collectAsState()
+            pendingUnlock?.let { UnlockAccountDialog(it) }
         }
     }
 }

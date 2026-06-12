@@ -8,6 +8,7 @@ import org.nostr.nostrord.ui.theme.paletteForTheme
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.installGlobalModalFocusTrap
+import org.nostr.nostrord.web.modals.UnlockModal
 import org.nostr.nostrord.web.screens.LoginScreen
 import org.nostr.nostrord.web.theme.applyColorTokens
 import org.nostr.nostrord.web.theme.systemPrefersDark
@@ -86,6 +87,11 @@ val WebApp =
                     ?.setAttribute("data-app-ready", "true")
             }
         }
+
+        // NIP-49 unlock gate: a password-protected account blocked session restore;
+        // ask for the password over whatever screen is showing (mirrors native App.kt).
+        val pendingUnlock = useStateFlow(AppModule.nostrRepository.pendingUnlockAccount)
+        pendingUnlock?.let { account -> UnlockModal { this.account = account } }
 
         when {
             // Render nothing until initialized; the HTML shell holds the screen
