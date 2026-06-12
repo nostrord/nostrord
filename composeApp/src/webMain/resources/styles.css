@@ -359,6 +359,202 @@ body {
     flex-shrink: 0;
 }
 
+/* Generate-key wizard (prototype 2-step flow) */
+.wizard-dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.wizard-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--color-input);
+    transition: all 0.15s ease;
+}
+
+.wizard-dot.active {
+    width: 24px;
+    background: var(--color-primary);
+}
+
+.wizard-title {
+    text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.wizard-sub {
+    margin: 4px 0 12px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
+.wizard-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.wizard-actions .grow {
+    flex: 1;
+}
+
+.keyline-box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background: var(--color-floating);
+    border-radius: var(--radius-md);
+}
+
+.keyline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.keyline-label {
+    width: 40px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.keyline-label.danger {
+    color: var(--color-error);
+}
+
+.keyline-value {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--color-text-content);
+}
+
+.keyline-copy {
+    flex-shrink: 0;
+    padding: 4px;
+    background: transparent;
+    border: 0;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    color: var(--color-text-muted);
+}
+
+.keyline-copy:hover {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+}
+
+.link-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 4px;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--color-text-link);
+}
+
+.link-inline:hover {
+    text-decoration: underline;
+}
+
+.link-inline .ico {
+    width: 14px;
+    height: 14px;
+}
+
+/* Protect-with-password opt-in (plain hex/nsec keys) */
+.protect-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 12px;
+    background: var(--color-floating);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.protect-card:hover {
+    border-color: var(--color-primary);
+}
+
+.protect-card input[type="checkbox"] {
+    margin-top: 2px;
+    accent-color: var(--color-primary);
+}
+
+.protect-card-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.protect-card-title .ico {
+    width: 14px;
+    height: 14px;
+    color: var(--color-primary);
+}
+
+.protect-card-desc {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
+/* Wizard password recommendation card (brand tint; brand is theme-invariant) */
+.protect-info {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 12px;
+    border: 1px solid rgba(122, 90, 248, 0.4);
+    background: rgba(122, 90, 248, 0.1);
+    border-radius: var(--radius-md);
+}
+
+.protect-info .ico {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-primary);
+}
+
+.protect-info-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.protect-info-desc {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+}
+
 .login-divider {
     display: flex;
     align-items: center;

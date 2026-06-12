@@ -5,7 +5,6 @@ import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
-import org.nostr.nostrord.web.components.GeneratedKeyCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.icon
 import react.ChildrenBuilder
@@ -18,10 +17,6 @@ import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
-import web.html.InputType
-import web.html.password
-import web.html.text
-import kotlin.random.Random
 
 external interface AddAccountSheetProps : Props {
     var onClose: () -> Unit
@@ -41,10 +36,6 @@ val AddAccountSheet =
     FC<AddAccountSheetProps> { props ->
         val vm = useViewModel { LoginViewModel(AppModule.nostrRepository) }
         val (step, setStep) = useState { AddStep.Pick }
-        val (privateKey, setPrivateKey) = useState { "" }
-        val (keyPassword, setKeyPassword) = useState { "" }
-        val (showKey, setShowKey) = useState { false }
-        val (generatedKey, setGeneratedKey) = useState<String?> { null }
         val (bunkerMode, setBunkerMode) = useState { AddBunkerMode.Qr }
         val (bunkerUrl, setBunkerUrl) = useState { "" }
         val (busy, setBusy) = useState { false }
@@ -70,15 +61,6 @@ val AddAccountSheet =
                 val err = result.exceptionOrNull()
                 if (err == null) props.onClose() else setError(err.message?.takeIf { it.isNotBlank() } ?: fallback)
             }
-        }
-
-        fun generate() {
-            val hex =
-                Random.Default.nextBytes(32).joinToString("") { byte ->
-                    (byte.toInt() and 0xff).toString(16).padStart(2, '0')
-                }
-            setPrivateKey(hex)
-            setGeneratedKey(hex)
         }
 
         div {
@@ -142,74 +124,22 @@ val AddAccountSheet =
                         }
 
                         AddStep.Key -> {
-                            val isEncrypted = vm.isEncryptedKeyInput(privateKey)
-                            // Same gating as LoginScreen: only a well-formed key enables the button.
-                            val canAdd = vm.isValidKeyInput(privateKey) && (!isEncrypted || keyPassword.isNotEmpty()) && !busy
-                            div {
-                                className = ClassName("field-with-icon")
-                                span {
-                                    className = ClassName("field-icon")
-                                    icon(Ic.Key)
-                                }
-                                input {
-                                    className = ClassName("login-input")
-                                    type = if (showKey) InputType.text else InputType.password
-                                    placeholder = "hex, nsec1, ncryptsec1"
-                                    value = privateKey
-                                    onChange = { event -> setPrivateKey(event.currentTarget.value) }
-                                }
-                                button {
-                                    className = ClassName("field-eye")
-                                    onClick = { setShowKey(!showKey) }
-                                    if (showKey) icon(Ic.VisibilityOff) else icon(Ic.Visibility)
-                                }
-                            }
-                            if (isEncrypted) {
-                                div {
-                                    className = ClassName("field-with-icon")
-                                    span {
-                                        className = ClassName("field-icon")
-                                        icon(Ic.Lock)
-                                    }
-                                    input {
-                                        className = ClassName("login-input")
-                                        type = InputType.password
-                                        placeholder = "Key password"
-                                        value = keyPassword
-                                        onChange = { event -> setKeyPassword(event.currentTarget.value) }
-                                    }
-                                }
-                                p {
-                                    className = ClassName("login-hint")
-                                    +"This key is encrypted (NIP-49); enter its password to unlock it."
-                                }
-                            }
-                            button {
-                                className = ClassName("btn-primary btn-lg btn-full login-submit")
-                                disabled = !canAdd
-                                onClick = {
+                            KeyLoginForm {
+                                this.vm = vm
+                                this.busy = busy
+                                submitLabel = "Add account"
+                                busyLabel = "Adding…"
+                                onSubmit = { input, password, isNewIdentity ->
                                     runAdd("Could not add account") { cb ->
                                         vm.loginWithPrivateKeyInput(
-                                            privateKey,
-                                            password = keyPassword.takeIf { isEncrypted },
-                                            isNewIdentity = generatedKey != null && privateKey == generatedKey,
+                                            input,
+                                            password = password,
+                                            isNewIdentity = isNewIdentity,
                                             onResult = cb,
                                         )
                                     }
                                 }
-                                +(if (busy) "Adding…" else "Add account")
                             }
-                            div {
-                                className = ClassName("login-divider")
-                                span { +"or" }
-                            }
-                            button {
-                                className = ClassName("btn-secondary btn-lg btn-full")
-                                onClick = { generate() }
-                                icon(Ic.AutoAwesome)
-                                +"Generate New Key"
-                            }
-                            generatedKey?.let { hex -> GeneratedKeyCard { this.privateKey = hex } }
                         }
 
                         AddStep.Bunker -> {

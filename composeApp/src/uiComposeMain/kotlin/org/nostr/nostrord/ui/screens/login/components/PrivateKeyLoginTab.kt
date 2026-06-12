@@ -1,13 +1,21 @@
 package org.nostr.nostrord.ui.screens.login.components
 
-import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.VpnKey
@@ -15,18 +23,22 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
@@ -34,54 +46,64 @@ import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.screens.login.LoginViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
-import kotlin.random.Random
+import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /**
- * Private key login: nsec / hex / NIP-49 ncryptsec input with the prototype's field
- * layout (uppercase label above, hint below, floating input surface). Pasting an
- * ncryptsec reveals the key-password field; key parsing and decryption live in
- * [LoginViewModel] so the web tab behaves identically.
+ * Private key login (prototype flow): nsec / hex / NIP-49 ncryptsec input with the
+ * field layout (uppercase label, hint, floating surface), plus
+ *  - pasting an ncryptsec reveals the key-password field;
+ *  - a plain hex/nsec offers "Protect with password" which produces an ncryptsec
+ *    backup (shown to copy) before signing in;
+ *  - "Generate New Key" runs the two-step wizard: backup the npub/nsec, then an
+ *    optional password that wraps the new key as an ncryptsec backup.
+ * Key parsing, generation and encryption live in [LoginViewModel]; device-side
+ * storage stays platform-native (Keystore / keychain), the ncryptsec is the
+ * portable encrypted backup the user keeps.
  */
 @Composable
 fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     val vm = viewModel { LoginViewModel(AppModule.nostrRepository) }
 
+    // Form state
     var privateKey by remember { mutableStateOf("") }
     var keyPassword by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    // Hex of the most recently generated key. Drives both the GeneratedKeyCard
-    // visibility (so the warning + key value stay on screen until the user
-    // explicitly clicks Login) and the isNewIdentity flag forwarded to the
-    // repository — matches the web flow where the user has time to copy the
-    // key before signing in.
-    var generatedKey by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(false) }
     var showKey by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    // Protect-with-password (plain keys)
+    var protect by remember { mutableStateOf(false) }
+    var protectPwd by remember { mutableStateOf("") }
+    var protectConfirm by remember { mutableStateOf("") }
+
+    // Generate wizard: 0 = form, 1 = backup step, 2 = password step
+    var wizardStep by remember { mutableStateOf(0) }
+    var wizardKey by remember { mutableStateOf("") }
+    var wizardPwd by remember { mutableStateOf("") }
+    var wizardConfirm by remember { mutableStateOf("") }
+
+    // Pending ncryptsec backup reveal: set after encrypting, holds the string to
+    // show plus the login to run on Continue (input + isNewIdentity).
+    var backupNcryptsec by remember { mutableStateOf<String?>(null) }
+    var pendingLogin by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
 
     val isEncrypted = vm.isEncryptedKeyInput(privateKey)
-    // Only a complete, well-formed key (hex / nsec / ncryptsec) enables Login.
-    val canLogin = vm.isValidKeyInput(privateKey) && (!isEncrypted || keyPassword.isNotEmpty()) && !isLoading
+    val isPlain = vm.isPlainKeyInput(privateKey)
+    val protectActive = protect && isPlain
+    val canLogin =
+        vm.isValidKeyInput(privateKey) &&
+            (!isEncrypted || keyPassword.isNotEmpty()) &&
+            (!protectActive || protectPwd.isNotEmpty()) &&
+            !isLoading
 
-    fun generatePrivateKey(): String {
-        val bytes = Random.Default.nextBytes(32)
-        return bytes.joinToString("") { byte ->
-            byte.toUByte().toString(16).padStart(2, '0')
-        }
-    }
-
-    fun login() {
-        if (!canLogin) return
+    fun doLogin(
+        input: String,
+        password: String?,
+        isNewIdentity: Boolean,
+    ) {
         isLoading = true
         errorMessage = null
-        val input = privateKey.trim()
-        // Only flag isNewIdentity when the input is exactly the just-generated
-        // key — typing/pasting an existing nsec is never a "new" identity.
-        val isNewIdentity = generatedKey != null && input == generatedKey
-        vm.loginWithPrivateKeyInput(
-            input,
-            password = keyPassword.takeIf { isEncrypted },
-            isNewIdentity = isNewIdentity,
-        ) { result ->
+        vm.loginWithPrivateKeyInput(input, password, isNewIdentity) { result ->
             isLoading = false
             if (result.isSuccess) {
                 onLoginSuccess()
@@ -91,128 +113,531 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         }
     }
 
-    Column {
-        FieldLabel("Private key (hex, nsec or ncryptsec)")
-        LoginField(
-            value = privateKey,
-            onValueChange = {
-                privateKey = it
-                errorMessage = null
-            },
-            placeholder = "hex, nsec1, ncryptsec1",
-            leadingIcon = Icons.Default.VpnKey,
-            visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-            onDone = { login() },
-            enabled = !isLoading,
-            trailingIcon = {
-                IconButton(onClick = { showKey = !showKey }) {
-                    Icon(
-                        imageVector = if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                        contentDescription = if (showKey) "Hide key" else "Show key",
-                        tint = NostrordColors.TextMuted,
-                    )
-                }
-            },
-        )
-        FieldHint("Your key never leaves this device.")
+    /** Encrypt and show the ncryptsec backup; Continue then runs the login. */
+    fun protectAndReveal(
+        input: String,
+        password: String,
+        isNewIdentity: Boolean,
+    ) {
+        isLoading = true
+        errorMessage = null
+        vm.encryptKeyToNcryptsec(input, password) { ncryptsec ->
+            isLoading = false
+            if (ncryptsec == null) {
+                errorMessage = "Invalid private key"
+            } else {
+                backupNcryptsec = ncryptsec
+                pendingLogin = input to isNewIdentity
+            }
+        }
+    }
 
-        if (isEncrypted) {
-            Spacer(modifier = Modifier.height(16.dp))
-            FieldLabel("Key password")
-            LoginField(
-                value = keyPassword,
-                onValueChange = {
-                    keyPassword = it
-                    errorMessage = null
-                },
-                placeholder = "Password",
-                leadingIcon = Icons.Default.Lock,
-                visualTransformation = PasswordVisualTransformation(),
-                onDone = { login() },
-                enabled = !isLoading,
-            )
-            FieldHint("This key is encrypted (NIP-49); enter its password to unlock it.")
+    fun login() {
+        if (!canLogin) return
+        val input = privateKey.trim()
+        when {
+            isEncrypted -> doLogin(input, keyPassword, isNewIdentity = false)
+            protectActive -> {
+                if (protectPwd != protectConfirm) {
+                    errorMessage = "Passwords don't match"
+                    return
+                }
+                protectAndReveal(input, protectPwd, isNewIdentity = false)
+            }
+            else -> doLogin(input, null, isNewIdentity = false)
+        }
+    }
+
+    when {
+        // ── ncryptsec backup reveal ──────────────────────────────────────────
+        backupNcryptsec != null -> {
+            Column {
+                GeneratedKeyCard(
+                    privateKey = backupNcryptsec!!,
+                    title = "SAVE YOUR ENCRYPTED KEY",
+                    subtitle =
+                    "This ncryptsec is your key encrypted with your password. " +
+                        "Save it somewhere safe; log in with it and the password next time.",
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                AppButton(
+                    text = if (isLoading) "Logging in..." else "Continue",
+                    onClick = {
+                        pendingLogin?.let { (input, isNew) ->
+                            doLogin(input, password = null, isNewIdentity = isNew)
+                        }
+                    },
+                    enabled = !isLoading,
+                    size = AppButtonSize.Large,
+                    fullWidth = true,
+                    loading = isLoading,
+                )
+                LoginErrorPanel(errorMessage)
+            }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        // ── Generate wizard ─────────────────────────────────────────────────
+        wizardStep > 0 -> {
+            Column {
+                StepDots(current = wizardStep, total = 2)
+                Spacer(modifier = Modifier.height(16.dp))
 
-        // Login button
-        AppButton(
-            text = if (isLoading) "Logging in..." else "Login",
-            onClick = { login() },
-            enabled = canLogin,
-            variant = AppButtonVariant.Primary,
-            size = AppButtonSize.Large,
-            fullWidth = true,
-            loading = isLoading,
-            icon = Icons.AutoMirrored.Filled.Login,
-        )
+                if (wizardStep == 1) {
+                    WizardTitle(
+                        "Your new key",
+                        "Save the nsec somewhere safe. Whoever has it controls your account.",
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val bech = vm.deriveBech32Keys(wizardKey)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = NostrordShapes.shapeMedium,
+                        color = NostrordColors.BackgroundFloating,
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            KeyLine("npub", bech?.first ?: "", danger = false)
+                            KeyLine("nsec", bech?.second ?: "", danger = true)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier =
+                        Modifier
+                            .clip(NostrordShapes.shapeSmall)
+                            .clickable { wizardKey = vm.generateNewKeyHex() }
+                            .pointerHoverIcon(PointerIcon.Hand)
+                            .padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            tint = NostrordColors.TextLink,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Generate another key", color = NostrordColors.TextLink, fontSize = 12.sp)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppButton(
+                            text = "Back",
+                            onClick = { wizardStep = 0 },
+                            variant = AppButtonVariant.Ghost,
+                        )
+                        AppButton(
+                            text = "Continue",
+                            onClick = { wizardStep = 2 },
+                            modifier = Modifier.weight(1f),
+                            fullWidth = true,
+                        )
+                    }
+                } else {
+                    WizardTitle(
+                        "Protect your account",
+                        "Add an extra layer of protection with a password",
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    // Info card (brand-tinted) mirroring the prototype's recommendation box
+                    Row(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(NostrordShapes.shapeMedium)
+                            .background(NostrordColors.PrimarySubtle)
+                            .border(
+                                1.dp,
+                                NostrordColors.Primary.copy(alpha = 0.4f),
+                                NostrordShapes.shapeMedium,
+                            )
+                            .padding(12.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = null,
+                            tint = NostrordColors.Primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                "Password protection (recommended)",
+                                color = NostrordColors.TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Wraps your new key as an encrypted ncryptsec backup. " +
+                                    "Optional, but strongly recommended.",
+                                color = NostrordColors.TextSecondary,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    FieldLabel("Password (optional)")
+                    LoginField(
+                        value = wizardPwd,
+                        onValueChange = {
+                            wizardPwd = it
+                            errorMessage = null
+                        },
+                        placeholder = "Create a password (or skip)",
+                        leadingIcon = Icons.Default.Lock,
+                        visualTransformation = PasswordVisualTransformation(),
+                        onDone = {},
+                        enabled = !isLoading,
+                    )
+                    if (wizardPwd.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        FieldLabel("Confirm password")
+                        LoginField(
+                            value = wizardConfirm,
+                            onValueChange = {
+                                wizardConfirm = it
+                                errorMessage = null
+                            },
+                            placeholder = "Repeat the password",
+                            leadingIcon = Icons.Default.Lock,
+                            visualTransformation = PasswordVisualTransformation(),
+                            onDone = {},
+                            enabled = !isLoading,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppButton(
+                            text = "Back",
+                            onClick = { wizardStep = 1 },
+                            enabled = !isLoading,
+                            variant = AppButtonVariant.Ghost,
+                        )
+                        AppButton(
+                            text = if (wizardPwd.isEmpty()) "Finish without password" else "Finish with password",
+                            onClick = {
+                                if (wizardPwd.isEmpty()) {
+                                    doLogin(wizardKey, null, isNewIdentity = true)
+                                } else if (wizardPwd != wizardConfirm) {
+                                    errorMessage = "Passwords don't match"
+                                } else {
+                                    protectAndReveal(wizardKey, wizardPwd, isNewIdentity = true)
+                                }
+                            },
+                            enabled = !isLoading && (wizardPwd.isEmpty() || wizardConfirm.isNotEmpty()),
+                            modifier = Modifier.weight(1f),
+                            fullWidth = true,
+                            loading = isLoading,
+                        )
+                    }
+                }
+                LoginErrorPanel(errorMessage)
+            }
+        }
 
-        // Divider
-        Row(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(vertical = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // ── Login form ──────────────────────────────────────────────────────
+        else -> {
+            Column {
+                FieldLabel("Private key (hex, nsec or ncryptsec)")
+                LoginField(
+                    value = privateKey,
+                    onValueChange = {
+                        privateKey = it
+                        errorMessage = null
+                    },
+                    placeholder = "hex, nsec1, ncryptsec1",
+                    leadingIcon = Icons.Default.VpnKey,
+                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    onDone = { login() },
+                    enabled = !isLoading,
+                    trailingIcon = {
+                        IconButton(onClick = { showKey = !showKey }) {
+                            Icon(
+                                imageVector = if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                contentDescription = if (showKey) "Hide key" else "Show key",
+                                tint = NostrordColors.TextMuted,
+                            )
+                        }
+                    },
+                )
+                FieldHint("Your key never leaves this device.")
+
+                if (isEncrypted) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    FieldLabel("Key password")
+                    LoginField(
+                        value = keyPassword,
+                        onValueChange = {
+                            keyPassword = it
+                            errorMessage = null
+                        },
+                        placeholder = "Password",
+                        leadingIcon = Icons.Default.Lock,
+                        visualTransformation = PasswordVisualTransformation(),
+                        onDone = { login() },
+                        enabled = !isLoading,
+                    )
+                    FieldHint("This key is encrypted (NIP-49); enter its password to unlock it.")
+                }
+
+                // Plain key: offer to wrap it as an encrypted ncryptsec backup
+                if (isPlain) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(NostrordShapes.shapeMedium)
+                            .background(NostrordColors.BackgroundFloating)
+                            .border(1.dp, NostrordColors.Divider, NostrordShapes.shapeMedium)
+                            .clickable { protect = !protect }
+                            .pointerHoverIcon(PointerIcon.Hand)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = protect,
+                            onCheckedChange = {
+                                protect = it
+                                errorMessage = null
+                            },
+                            colors =
+                            CheckboxDefaults.colors(
+                                checkedColor = NostrordColors.Primary,
+                                uncheckedColor = NostrordColors.TextMuted,
+                            ),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = NostrordColors.Primary,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "Protect with password (recommended)",
+                                    color = NostrordColors.TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Wraps your key as an encrypted ncryptsec backup; log in with it and this password next time.",
+                                color = NostrordColors.TextSecondary,
+                                fontSize = 12.sp,
+                            )
+                        }
+                    }
+                    if (protect) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        FieldLabel("Password")
+                        LoginField(
+                            value = protectPwd,
+                            onValueChange = {
+                                protectPwd = it
+                                errorMessage = null
+                            },
+                            placeholder = "Create a password",
+                            leadingIcon = Icons.Default.Lock,
+                            visualTransformation = PasswordVisualTransformation(),
+                            onDone = {},
+                            enabled = !isLoading,
+                        )
+                        if (protectPwd.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            FieldLabel("Confirm password")
+                            LoginField(
+                                value = protectConfirm,
+                                onValueChange = {
+                                    protectConfirm = it
+                                    errorMessage = null
+                                },
+                                placeholder = "Repeat the password",
+                                leadingIcon = Icons.Default.Lock,
+                                visualTransformation = PasswordVisualTransformation(),
+                                onDone = { login() },
+                                enabled = !isLoading,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                AppButton(
+                    text = if (isLoading) "Logging in..." else "Login",
+                    onClick = { login() },
+                    enabled = canLogin,
+                    size = AppButtonSize.Large,
+                    fullWidth = true,
+                    loading = isLoading,
+                    icon = Icons.AutoMirrored.Filled.Login,
+                )
+
+                // Divider
+                Row(
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    HorizontalDivider(modifier = Modifier.weight(1f), color = NostrordColors.Divider)
+                    Text(
+                        text = "or",
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = NostrordColors.TextMuted,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    HorizontalDivider(modifier = Modifier.weight(1f), color = NostrordColors.Divider)
+                }
+
+                AppButton(
+                    text = "Generate New Key",
+                    onClick = {
+                        errorMessage = null
+                        wizardKey = vm.generateNewKeyHex()
+                        wizardPwd = ""
+                        wizardConfirm = ""
+                        wizardStep = 1
+                    },
+                    enabled = !isLoading,
+                    variant = AppButtonVariant.Secondary,
+                    size = AppButtonSize.Large,
+                    fullWidth = true,
+                    icon = Icons.Default.AutoAwesome,
+                )
+
+                LoginErrorPanel(errorMessage)
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoginErrorPanel(message: String?) {
+    message?.let {
+        Spacer(modifier = Modifier.height(12.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = NostrordShapes.shapeSmall,
+            color = NostrordColors.Error.copy(alpha = 0.1f),
         ) {
-            HorizontalDivider(
-                modifier = Modifier.weight(1f),
-                color = NostrordColors.Divider,
-            )
             Text(
-                text = "or",
-                modifier = Modifier.padding(horizontal = 16.dp),
-                color = NostrordColors.TextMuted,
+                text = it,
+                color = NostrordColors.Error,
+                modifier = Modifier.padding(12.dp),
                 style = MaterialTheme.typography.bodySmall,
             )
-            HorizontalDivider(
-                modifier = Modifier.weight(1f),
-                color = NostrordColors.Divider,
+        }
+    }
+}
+
+/** Wizard progress dots: the active step is a wide brand pill. */
+@Composable
+private fun StepDots(
+    current: Int,
+    total: Int,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (step in 1..total) {
+            if (step > 1) Spacer(modifier = Modifier.width(6.dp))
+            Box(
+                modifier =
+                Modifier
+                    .height(6.dp)
+                    .width(if (step == current) 24.dp else 6.dp)
+                    .clip(RoundedCornerShape(percent = 50))
+                    .background(if (step == current) NostrordColors.Primary else NostrordColors.InputBackground),
             )
         }
+    }
+}
 
-        // Generate new key button (prototype secondary: filled grey) — only
-        // generates + populates + shows the warning card. Login is deferred to
-        // the Login button so the user has time to copy/save the key.
-        AppButton(
-            text = "Generate New Key",
-            onClick = {
-                errorMessage = null
-                val newPrivateKey = generatePrivateKey()
-                privateKey = newPrivateKey
-                generatedKey = newPrivateKey
-            },
-            enabled = !isLoading,
-            variant = AppButtonVariant.Secondary,
-            size = AppButtonSize.Large,
-            fullWidth = true,
-            icon = Icons.Default.AutoAwesome,
+@Composable
+private fun WizardTitle(
+    title: String,
+    subtitle: String,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            title,
+            color = NostrordColors.TextPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
         )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            subtitle,
+            color = NostrordColors.TextMuted,
+            fontSize = 13.sp,
+            textAlign = TextAlign.Center,
+        )
+    }
+}
 
-        // GeneratedKeyCard sticks around once the user pressed Generate (no
-        // auto-login any more). They can clear it by editing the input — if
-        // it diverges from `generatedKey`, the Login button just signs in as
-        // an existing identity (isNewIdentity flips to false).
-        generatedKey?.takeIf { it.isNotEmpty() }?.let { key ->
-            Spacer(modifier = Modifier.height(16.dp))
-            GeneratedKeyCard(key)
+/** One npub/nsec row in the wizard backup box: label, truncated mono value, copy. */
+@Composable
+private fun KeyLine(
+    label: String,
+    value: String,
+    danger: Boolean,
+) {
+    val copyToClipboard = rememberClipboardWriter()
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1_500)
+            copied = false
         }
-
-        errorMessage?.let {
-            Spacer(modifier = Modifier.height(12.dp))
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = NostrordShapes.shapeSmall,
-                color = NostrordColors.Error.copy(alpha = 0.1f),
-            ) {
-                Text(
-                    text = it,
-                    color = NostrordColors.Error,
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            label.uppercase(),
+            color = if (danger) NostrordColors.Error else NostrordColors.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(40.dp),
+        )
+        Text(
+            value,
+            color = NostrordColors.TextContent,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Box(
+            modifier =
+            Modifier
+                .size(28.dp)
+                .clip(NostrordShapes.shapeSmall)
+                .clickable {
+                    copyToClipboard(value)
+                    copied = true
+                }
+                .pointerHoverIcon(PointerIcon.Hand),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                contentDescription = if (copied) "Copied" else "Copy $label",
+                tint = if (copied) NostrordColors.Success else NostrordColors.TextMuted,
+                modifier = Modifier.size(14.dp),
+            )
         }
     }
 }
@@ -279,7 +704,7 @@ private fun LoginField(
         colors =
         OutlinedTextFieldDefaults.colors(
             focusedBorderColor = NostrordColors.Primary,
-            unfocusedBorderColor = Color.Transparent,
+            unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
             cursorColor = NostrordColors.Primary,
             focusedContainerColor = NostrordColors.BackgroundFloating,
             unfocusedContainerColor = NostrordColors.BackgroundFloating,

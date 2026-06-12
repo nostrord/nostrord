@@ -11,11 +11,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.nostr.Nip49
+import org.nostr.nostrord.nostr.hexToByteArray
 import org.nostr.nostrord.nostr.toHexString
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.getNostrConnectRelays
@@ -76,6 +78,41 @@ class LoginViewModel(
 
     /** True when the input is a NIP-49 encrypted key; the UIs ask for [loginWithPrivateKeyInput]'s password. */
     fun isEncryptedKeyInput(input: String): Boolean = Nip49.isEncryptedKey(input)
+
+    /** True for a plain (hex / nsec) key — the UIs offer the protect-with-password option for these. */
+    fun isPlainKeyInput(input: String): Boolean = isValidKeyInput(input) && !Nip49.isEncryptedKey(input)
+
+    /** Fresh private key from the platform CSPRNG (the generate flow; not kotlin.random). */
+    fun generateNewKeyHex(): String = Crypto.generatePrivateKey().toHexString()
+
+    /** npub + nsec for displaying a key backup; null when the hex is invalid. */
+    fun deriveBech32Keys(hexOrNsec: String): Pair<String, String>? {
+        val hex = parsePrivateKeyHex(hexOrNsec) ?: return null
+        return try {
+            Nip19.encodeNpub(KeyPair.fromPrivateKeyHex(hex).publicKeyHex) to Nip19.encodeNsec(hex)
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Encrypt a plain (hex / nsec) key into an ncryptsec backup (NIP-49). scrypt runs
+     * on the Default dispatcher; [onResult] gets null when the input is not a valid key.
+     */
+    fun encryptKeyToNcryptsec(
+        input: String,
+        password: String,
+        onResult: (String?) -> Unit,
+    ) {
+        val hex = parsePrivateKeyHex(input)
+        if (hex == null) {
+            onResult(null)
+            return
+        }
+        viewModelScope.launch {
+            onResult(withContext(Dispatchers.Default) { Nip49.encrypt(hex.hexToByteArray(), password) })
+        }
+    }
 
     /**
      * True when the input is a complete, well-formed key: 64-char hex, a decodable
