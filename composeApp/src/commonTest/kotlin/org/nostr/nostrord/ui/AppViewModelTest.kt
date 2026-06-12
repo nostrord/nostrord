@@ -65,4 +65,30 @@ class AppViewModelTest {
         fake._isLoggedIn.value = true
         assertTrue(vm.isLoggedIn.value)
     }
+
+    @Test
+    fun `needsOnboarding is true only while the kind10009 group list is empty`() = runTest {
+        val fake = FakeNostrRepository()
+        val vm = AppViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.needsOnboarding.value)
+
+        fake._joinedGroupsByRelay.value = mapOf("wss://relay.example.com" to setOf("group1"))
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertFalse(vm.needsOnboarding.value)
+
+        // Relays listed but every group set empty still counts as "no groups".
+        fake._joinedGroupsByRelay.value = mapOf("wss://relay.example.com" to emptySet())
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.needsOnboarding.value)
+    }
+
+    @Test
+    fun `skipOnboarding flips the session override`() = runTest {
+        val fake = FakeNostrRepository()
+        val vm = AppViewModel(fake)
+        assertFalse(vm.onboardingSkipped.value)
+        vm.skipOnboarding()
+        assertTrue(vm.onboardingSkipped.value)
+    }
 }
