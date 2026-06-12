@@ -4938,6 +4938,17 @@ body {
     color: var(--color-error);
 }
 
+/* Feature not available yet (kept so the menu shape matches the prototype). */
+.ctx-item.disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.ctx-item.disabled:hover {
+    background: transparent;
+    color: var(--color-text-secondary);
+}
+
 .ctx-item.danger:hover {
     background: rgba(237, 66, 69, 0.15);
 }

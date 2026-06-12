@@ -1709,6 +1709,8 @@ val ChatScreen =
                                                 replyTo = replyPreview
                                                 onReplyClick = { parent?.let { scrollToMessage(it.id) } }
                                                 canDelete = myPubkey != null && (message.pubkey == myPubkey || myPubkey in admins)
+                                                this.isMine = message.pubkey == myPubkey
+                                                this.isAdmin = myPubkey != null && myPubkey in admins
                                                 messageLink = "https://nostrord.com/open/?relay=$relayHost&group=${group.id}&e=${message.id}"
                                                 nevent = Nip19.encodeNevent(message.id, authorHex = message.pubkey)
                                                 eventJson = eventJsonOf(message)
@@ -2180,6 +2182,12 @@ external interface MessageRowProps : Props {
     var replyTo: ReplyPreviewData?
     var onReplyClick: () -> Unit
     var canDelete: Boolean
+
+    /** The viewer authored this message (hides Report). */
+    var isMine: Boolean
+
+    /** The viewer is a group admin (shows the moderation section). */
+    var isAdmin: Boolean
     var canZap: Boolean
     var zapTotalMsats: Long
     var zapCount: Int
@@ -2644,18 +2652,25 @@ private val MessageRow =
                         props.onReply()
                         setMenuOpen(false)
                     }
+                    // Threads / saved / reports are not implemented yet; shown disabled
+                    // so the menu shape matches the prototype.
+                    ctxItem(Ic.Forum, "Start thread here", disabled = true) {}
                     if (props.canZap) {
                         ctxItem(Ic.Bolt, "Zap", zap = true) {
                             props.onZap()
                             setMenuOpen(false)
                         }
                     }
+                    ctxItem(Ic.Bookmark, "Save for later", disabled = true) {}
+                    if (!props.isMine) {
+                        ctxItem(Ic.Shield, "Report", disabled = true) {}
+                    }
                     div { className = ClassName("ctx-divider") }
-                    ctxItem(Ic.ContentCopy, "Copy Text") {
+                    ctxItem(Ic.ContentCopy, "Copy text") {
                         copyToClipboard(props.content)
                         setMenuOpen(false)
                     }
-                    ctxItem(Ic.Link, "Copy Message Link") {
+                    ctxItem(Ic.Link, "Copy link") {
                         copyToClipboard(props.messageLink)
                         setMenuOpen(false)
                     }
@@ -2664,13 +2679,18 @@ private val MessageRow =
                         copyToClipboard(props.nevent)
                         setMenuOpen(false)
                     }
-                    ctxItem(Ic.Code, "Copy Event JSON") {
+                    ctxItem(Ic.Code, "Copy event JSON") {
                         copyToClipboard(props.eventJson)
                         setMenuOpen(false)
                     }
+                    if (props.isAdmin) {
+                        div { className = ClassName("ctx-divider") }
+                        // Disabled until the pinning backend exists (matches native).
+                        ctxItem(Ic.PushPin, "Pin message", disabled = true) {}
+                    }
                     if (props.canDelete) {
                         div { className = ClassName("ctx-divider") }
-                        ctxItem(Ic.Delete, "Delete Message", danger = true) {
+                        ctxItem(Ic.Delete, "Delete message", danger = true) {
                             props.onDelete()
                             setMenuOpen(false)
                         }
@@ -2694,17 +2714,26 @@ private val MessageRow =
         }
     }
 
-private fun ChildrenBuilder.ctxItem(ic: Ic, label: String, danger: Boolean = false, zap: Boolean = false, onSelect: () -> Unit) {
+private fun ChildrenBuilder.ctxItem(
+    ic: Ic,
+    label: String,
+    danger: Boolean = false,
+    zap: Boolean = false,
+    disabled: Boolean = false,
+    onSelect: () -> Unit,
+) {
     div {
         className =
             ClassName(
                 when {
+                    disabled -> "ctx-item disabled"
                     danger -> "ctx-item danger"
                     zap -> "ctx-item zap"
                     else -> "ctx-item"
                 },
             )
-        onClick = { onSelect() }
+        if (disabled) title = "Coming soon"
+        onClick = { if (!disabled) onSelect() }
         span {
             className = ClassName("ctx-item-icon")
             icon(ic)
