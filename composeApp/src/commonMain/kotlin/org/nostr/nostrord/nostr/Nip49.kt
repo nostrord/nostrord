@@ -88,6 +88,15 @@ object Nip49 {
 /** NFKC normalization (NIP-49 requires it for passwords); platform-backed. */
 internal expect fun nfkcNormalize(input: String): String
 
+/**
+ * True where storing the key as an ncryptsec at rest adds security: only the web,
+ * whose SecureStorage is localStorage. Native platforms already protect keys at rest
+ * (Android hardware Keystore, iOS Keychain, desktop OS keychain with a passphrase
+ * fallback), so there an imported ncryptsec is decrypted once and stored through the
+ * platform's secure storage — no NIP-49 password at startup.
+ */
+expect val ncryptsecStorageApplicable: Boolean
+
 // ── scrypt (RFC 7914) ─────────────────────────────────────────────────────────
 
 internal object Scrypt {

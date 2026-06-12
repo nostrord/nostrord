@@ -309,7 +309,7 @@ val KeyLoginForm =
                     }
                     p {
                         className = ClassName("login-hint")
-                        +"This key is encrypted (NIP-49); enter its password to unlock it."
+                        +"This key is encrypted (NIP-49); enter its password to unlock it. The password is asked again to unlock the app at startup."
                     }
                 }
 

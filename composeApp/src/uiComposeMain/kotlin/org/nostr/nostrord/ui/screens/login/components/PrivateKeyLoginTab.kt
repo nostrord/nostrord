@@ -83,7 +83,10 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
 
     val isEncrypted = vm.isEncryptedKeyInput(privateKey)
     val isPlain = vm.isPlainKeyInput(privateKey)
-    val protectActive = protect && isPlain
+    // ncryptsec-at-rest only makes sense on the web; native key storage is already
+    // Keystore / keychain-backed, so the protect option and wizard password step hide.
+    val protectApplicable = vm.isProtectApplicable
+    val protectActive = protect && isPlain && protectApplicable
     val canLogin =
         vm.isValidKeyInput(privateKey) &&
             (!isEncrypted || keyPassword.isNotEmpty()) &&
@@ -140,8 +143,10 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
         // ── Generate wizard ─────────────────────────────────────────────────
         wizardStep > 0 -> {
             Column {
-                StepDots(current = wizardStep, total = 2)
-                Spacer(modifier = Modifier.height(16.dp))
+                if (protectApplicable) {
+                    StepDots(current = wizardStep, total = 2)
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
 
                 if (wizardStep == 1) {
                     WizardTitle(
@@ -190,8 +195,19 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                             variant = AppButtonVariant.Ghost,
                         )
                         AppButton(
-                            text = "Continue",
-                            onClick = { wizardStep = 2 },
+                            // Without the web's password step the wizard is single-step:
+                            // finishing logs straight in with the new key.
+                            text =
+                            when {
+                                protectApplicable -> "Continue"
+                                isLoading -> "Logging in..."
+                                else -> "Finish"
+                            },
+                            onClick = {
+                                if (protectApplicable) wizardStep = 2 else doLogin(wizardKey, null, isNewIdentity = true)
+                            },
+                            enabled = !isLoading,
+                            loading = !protectApplicable && isLoading,
                             modifier = Modifier.weight(1f),
                             fullWidth = true,
                         )
@@ -341,11 +357,20 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
                         onDone = { login() },
                         enabled = !isLoading,
                     )
-                    FieldHint("This key is encrypted (NIP-49); enter its password to unlock it.")
+                    FieldHint(
+                        if (protectApplicable) {
+                            "This key is encrypted (NIP-49); enter its password to unlock it."
+                        } else {
+                            // Native: the password is needed once for the import; the key then
+                            // lives in the platform's secure storage (Keystore / keychain).
+                            "This key is encrypted (NIP-49); enter its password once to import it. " +
+                                "It is then stored in your device's secure storage, with no password at startup."
+                        },
+                    )
                 }
 
-                // Plain key: offer to wrap it as an encrypted ncryptsec backup
-                if (isPlain) {
+                // Plain key: offer protected (ncryptsec-at-rest) storage — web only
+                if (isPlain && protectApplicable) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(
                         modifier =

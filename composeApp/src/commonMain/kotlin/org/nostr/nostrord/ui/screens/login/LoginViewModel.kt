@@ -19,6 +19,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip46Client
 import org.nostr.nostrord.nostr.Nip49
 import org.nostr.nostrord.nostr.hexToByteArray
+import org.nostr.nostrord.nostr.ncryptsecStorageApplicable
 import org.nostr.nostrord.nostr.toHexString
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.getEncryptedPrivateKeyFor
@@ -84,6 +85,14 @@ class LoginViewModel(
 
     /** True for a plain (hex / nsec) key — the UIs offer the protect-with-password option for these. */
     fun isPlainKeyInput(input: String): Boolean = isValidKeyInput(input) && !Nip49.isEncryptedKey(input)
+
+    /**
+     * True where the protect-with-password option (ncryptsec at rest + unlock at
+     * startup) makes sense: only the web. Native platforms already protect keys at
+     * rest (Keystore / Keychain / OS keychain), so the UIs hide the option there and
+     * an imported ncryptsec is decrypted once into the platform's secure storage.
+     */
+    val isProtectApplicable: Boolean get() = ncryptsecStorageApplicable
 
     /** Fresh private key from the platform CSPRNG (the generate flow; not kotlin.random). */
     fun generateNewKeyHex(): String = Crypto.generatePrivateKey().toHexString()
@@ -181,9 +190,12 @@ class LoginViewModel(
                 if (keyBytes == null) {
                     onResult(Result.failure(IllegalArgumentException("Wrong password or corrupted key")))
                 } else {
-                    // Logging in with an ncryptsec keeps the account password-protected:
-                    // only the encrypted key is persisted (unlock asked at next startup).
-                    loginWithHex(keyBytes.toHexString(), isNewIdentity, ncryptsec = trimmed, onResult)
+                    // On the web an ncryptsec login keeps the account password-protected
+                    // (only the encrypted key is persisted; unlock asked at next startup).
+                    // Native platforms store the decrypted key in Keystore / keychain
+                    // instead, so the NIP-49 password is needed only for this import.
+                    val persistEncrypted = trimmed.takeIf { ncryptsecStorageApplicable }
+                    loginWithHex(keyBytes.toHexString(), isNewIdentity, ncryptsec = persistEncrypted, onResult)
                 }
             }
             return
