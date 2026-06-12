@@ -155,7 +155,7 @@ val LoginScreen =
 
                                 div {
                                     className = ClassName("login-field-label")
-                                    +"Private key (nsec, hex or ncryptsec)"
+                                    +"Private key (hex, nsec or ncryptsec)"
                                 }
                                 div {
                                     className = ClassName("field-with-icon")
@@ -166,7 +166,7 @@ val LoginScreen =
                                     input {
                                         className = ClassName("login-input")
                                         type = if (showKey) InputType.text else InputType.password
-                                        placeholder = "nsec1... · ncryptsec1..."
+                                        placeholder = "hex, nsec1, ncryptsec1"
                                         value = privateKey
                                         onChange = { event -> setPrivateKey(event.currentTarget.value) }
                                         onKeyDown = { event -> if (event.key == "Enter") submitKeyLogin() }

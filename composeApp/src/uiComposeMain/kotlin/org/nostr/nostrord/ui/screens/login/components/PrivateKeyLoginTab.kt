@@ -85,14 +85,14 @@ fun PrivateKeyLoginTab(onLoginSuccess: () -> Unit) {
     }
 
     Column {
-        FieldLabel("Private key (nsec, hex or ncryptsec)")
+        FieldLabel("Private key (hex, nsec or ncryptsec)")
         LoginField(
             value = privateKey,
             onValueChange = {
                 privateKey = it
                 errorMessage = null
             },
-            placeholder = "nsec1... · ncryptsec1...",
+            placeholder = "hex, nsec1, ncryptsec1",
             leadingIcon = Icons.Default.VpnKey,
             visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
             onDone = { login() },
