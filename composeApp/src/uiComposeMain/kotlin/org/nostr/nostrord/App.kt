@@ -16,6 +16,7 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberDrawerState
@@ -34,6 +35,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChangeIgnoreConsumed
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -80,8 +82,10 @@ import org.nostr.nostrord.ui.screens.onboarding.OnboardingScreen
 import org.nostr.nostrord.ui.screens.profile.EditProfileScreen
 import org.nostr.nostrord.ui.screens.relay.AddRelayModal
 import org.nostr.nostrord.ui.screens.settings.SettingsScreen
+import org.nostr.nostrord.ui.theme.AppFonts
 import org.nostr.nostrord.ui.theme.ColorTokens
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.rememberInterFontFamily
 import org.nostr.nostrord.ui.window.LocalDesktopWindowControls
 import kotlin.math.abs
 
@@ -125,7 +129,14 @@ fun App() {
     val appTheme by AppModule.appearanceSettings.theme.collectAsState()
     NostrordColors.apply(appTheme, systemDark = isSystemInDarkTheme())
 
-    MaterialTheme(colorScheme = nostrordColorScheme()) {
+    // Install Inter as the app face before any content renders: NostrordTypography
+    // reads AppFonts.defaultFontFamily, and the Material typography below covers
+    // Text() calls that rely on LocalTextStyle instead of NostrordTypography.
+    val interFamily = rememberInterFontFamily()
+    remember(interFamily) { AppFonts.setDefaultFontFamily(interFamily) }
+    val appTypography = remember(interFamily) { materialTypographyWith(interFamily) }
+
+    MaterialTheme(colorScheme = nostrordColorScheme(), typography = appTypography) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             val hasWindowControls = LocalDesktopWindowControls.current != null
 
@@ -187,6 +198,28 @@ fun App() {
             }
         }
     }
+}
+
+/** Material typography with every style on the given family (Inter app-wide). */
+private fun materialTypographyWith(fontFamily: FontFamily): Typography {
+    val base = Typography()
+    return Typography(
+        displayLarge = base.displayLarge.copy(fontFamily = fontFamily),
+        displayMedium = base.displayMedium.copy(fontFamily = fontFamily),
+        displaySmall = base.displaySmall.copy(fontFamily = fontFamily),
+        headlineLarge = base.headlineLarge.copy(fontFamily = fontFamily),
+        headlineMedium = base.headlineMedium.copy(fontFamily = fontFamily),
+        headlineSmall = base.headlineSmall.copy(fontFamily = fontFamily),
+        titleLarge = base.titleLarge.copy(fontFamily = fontFamily),
+        titleMedium = base.titleMedium.copy(fontFamily = fontFamily),
+        titleSmall = base.titleSmall.copy(fontFamily = fontFamily),
+        bodyLarge = base.bodyLarge.copy(fontFamily = fontFamily),
+        bodyMedium = base.bodyMedium.copy(fontFamily = fontFamily),
+        bodySmall = base.bodySmall.copy(fontFamily = fontFamily),
+        labelLarge = base.labelLarge.copy(fontFamily = fontFamily),
+        labelMedium = base.labelMedium.copy(fontFamily = fontFamily),
+        labelSmall = base.labelSmall.copy(fontFamily = fontFamily),
+    )
 }
 
 /**

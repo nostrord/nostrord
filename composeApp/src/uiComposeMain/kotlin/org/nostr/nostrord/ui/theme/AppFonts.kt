@@ -3,26 +3,28 @@ package org.nostr.nostrord.ui.theme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import nostrord.composeapp.generated.resources.NotoColorEmoji
 import nostrord.composeapp.generated.resources.Res
+import nostrord.composeapp.generated.resources.inter_bold
+import nostrord.composeapp.generated.resources.inter_medium
+import nostrord.composeapp.generated.resources.inter_regular
+import nostrord.composeapp.generated.resources.inter_semibold
 import org.jetbrains.compose.resources.Font
 
 /**
- * Application font configuration for Compose Web Canvas rendering.
+ * Application font configuration for the Compose UIs (android/jvm/ios).
  *
- * CRITICAL: Compose Web uses Skia Canvas which does NOT access browser fonts.
- * FontFamily.SansSerif only maps to Skia's bundled Latin-only font.
- * We must explicitly set a FontFamily with all required fonts.
- *
- * On web: Call `AppFonts.setDefaultFontFamily()` after fonts are loaded.
- * On other platforms: System fonts work automatically via FontFamily.SansSerif.
+ * The primary UI face is Inter (OFL), bundled as static TTFs in Compose Resources —
+ * the same family the web self-hosts as InterVariable.woff2 — so typography matches
+ * across all platforms. App() loads it via [rememberInterFontFamily] and installs it
+ * with [setDefaultFontFamily] before any content renders; [NostrordTypography] reads
+ * [defaultFontFamily] on every style access.
  */
 object AppFonts {
     /**
-     * Default font family used by Typography.
-     *
-     * On web, this is set to a custom FontFamily containing all loaded fonts.
-     * On other platforms, this remains FontFamily.SansSerif (system fonts).
+     * Default font family used by Typography. Inter once App() installs it;
+     * FontFamily.SansSerif only as the pre-install fallback.
      */
     var defaultFontFamily: FontFamily = FontFamily.SansSerif
         private set
@@ -34,8 +36,8 @@ object AppFonts {
         private set
 
     /**
-     * Set the default font family (called from web after fonts load).
-     * This updates all Typography styles to use the new font.
+     * Set the default font family. NostrordTypography styles are computed on access,
+     * so everything composed afterwards uses the new family.
      */
     fun setDefaultFontFamily(fontFamily: FontFamily) {
         defaultFontFamily = fontFamily
@@ -57,4 +59,19 @@ object AppFonts {
 fun rememberEmojiFontFamily(): FontFamily {
     val font = Font(Res.font.NotoColorEmoji)
     return remember(font) { FontFamily(font) }
+}
+
+/**
+ * Inter (Regular/Medium/SemiBold/Bold) from Compose Resources. Italic is synthesized
+ * by Skia; intermediate weights resolve to the nearest bundled face.
+ */
+@Composable
+fun rememberInterFontFamily(): FontFamily {
+    val regular = Font(Res.font.inter_regular, FontWeight.Normal)
+    val medium = Font(Res.font.inter_medium, FontWeight.Medium)
+    val semiBold = Font(Res.font.inter_semibold, FontWeight.SemiBold)
+    val bold = Font(Res.font.inter_bold, FontWeight.Bold)
+    return remember(regular, medium, semiBold, bold) {
+        FontFamily(regular, medium, semiBold, bold)
+    }
 }

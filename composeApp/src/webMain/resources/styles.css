@@ -96,16 +96,32 @@ html, body {
     overflow: hidden;
 }
 
+/* Inter (OFL, see fonts/LICENSE-Inter.txt) — the app's primary UI face on every
+   platform: self-hosted variable woff2 here, static TTFs bundled via Compose
+   resources on android/jvm/ios. The service worker caches these cache-first. */
+@font-face {
+    font-family: "Inter";
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("./fonts/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+    font-family: "Inter";
+    font-style: italic;
+    font-weight: 100 900;
+    font-display: swap;
+    src: url("./fonts/InterVariable-Italic.woff2") format("woff2");
+}
+
 body {
     background: var(--color-background-dark);
     color: var(--color-text-content);
-    /* Native system-font stack: matches Compose's FontFamily.SansSerif on every
-       platform (San Francisco on macOS/iOS, Segoe UI on Windows, Roboto on
-       Android/ChromeOS). "Noto Sans" is kept only as a late fallback for Linux
-       desktops that ship it — leading with it would make Linux diverge since it
-       isn't loaded via @font-face. Emoji families are appended so color emoji
-       render consistently within text runs. */
-    font-family: -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto,
+    /* Inter leads (matching Compose, which bundles the same family); the system
+       stack stays as the font-display:swap fallback while Inter loads. Emoji
+       families are appended so color emoji render consistently within text runs. */
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", Roboto,
         "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji",
         "Segoe UI Emoji", "Noto Color Emoji";
     -webkit-font-smoothing: antialiased;
