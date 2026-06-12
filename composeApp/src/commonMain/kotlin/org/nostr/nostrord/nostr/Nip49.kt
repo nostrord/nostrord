@@ -514,11 +514,10 @@ internal object Poly1305 {
 private fun le32(
     b: ByteArray,
     i: Int,
-): Int =
-    (b[i].toInt() and 0xFF) or
-        ((b[i + 1].toInt() and 0xFF) shl 8) or
-        ((b[i + 2].toInt() and 0xFF) shl 16) or
-        ((b[i + 3].toInt() and 0xFF) shl 24)
+): Int = (b[i].toInt() and 0xFF) or
+    ((b[i + 1].toInt() and 0xFF) shl 8) or
+    ((b[i + 2].toInt() and 0xFF) shl 16) or
+    ((b[i + 3].toInt() and 0xFF) shl 24)
 
 private fun putLe32(
     b: ByteArray,
