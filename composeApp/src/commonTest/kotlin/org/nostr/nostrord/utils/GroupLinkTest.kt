@@ -93,6 +93,36 @@ class GroupLinkTest {
     }
 
     @Test
+    fun `parses group address with invite suffix`() {
+        val target = parseGroupJoinInput("groups.fiatjaf.com'2a69c7?invite=x7k29q")
+        assertEquals(GroupJoinTarget("wss://groups.fiatjaf.com", "2a69c7", "x7k29q"), target)
+    }
+
+    @Test
+    fun `parses naddr with invite suffix`() {
+        val naddr = Nip19.encodeNaddr(identifier = "abc123", relay = "wss://relay.com", kind = 39000)
+        val target = parseGroupJoinInput("$naddr?invite=x7k29q")
+        assertEquals(GroupJoinTarget("wss://relay.com", "abc123", "x7k29q"), target)
+    }
+
+    @Test
+    fun `parses nostrord hash link with invite inside the hash`() {
+        val target = parseGroupJoinInput("https://nostrord.com/#/g/relay.com/abc123?invite=x7k29q")
+        assertEquals(GroupJoinTarget("wss://relay.com", "abc123", "x7k29q"), target)
+    }
+
+    @Test
+    fun `parses nostrord hash link without invite`() {
+        val target = parseGroupJoinInput("https://nostrord.com/#/g/relay.com/abc123")
+        assertEquals(GroupJoinTarget("wss://relay.com", "abc123", null), target)
+    }
+
+    @Test
+    fun `invite suffix on a garbage base is rejected`() {
+        assertNull(parseGroupJoinInput("notanaddress?invite=x7k29q"))
+    }
+
+    @Test
     fun `address with userinfo relay is rejected`() {
         // toRelayUrl rejects `@` userinfo (it could bypass loopback checks); none of the forms
         // should let a blank relay slip through.

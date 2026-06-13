@@ -1,6 +1,7 @@
 package org.nostr.nostrord.utils
 
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.navigation.parseGroupHash
 
 /** A parsed join target: which relay hosts the group, the group id, and an optional invite code. */
 data class GroupJoinTarget(
@@ -23,13 +24,38 @@ fun buildGroupAddress(relayUrl: String, groupId: String): String {
  * Parse a join input into a [GroupJoinTarget]. Accepts:
  * - NIP-29 group address: `wss://relay.com'groupId` (or a bare `relay.com'groupId`)
  * - NIP-19 group naddr (as shared by ShareGroupModal): `nostr:naddr1...` / bare `naddr1...`
- * - nostrord invite link: `https://nostrord.com/open/?relay=X&group=Y&code=Z` / `nostrord://...`
+ * - nostrord group link: `https://nostrord.com/#/g/<relay>/<groupId>[?invite=Z]`
+ * - legacy nostrord invite link: `https://nostrord.com/open/?relay=X&group=Y&code=Z` / `nostrord://...`
+ *
+ * The address and naddr forms accept the Nostrord `?invite=<code>` suffix extension
+ * (`relay.com'groupId?invite=Z`, `naddr1...?invite=Z`): everything before the `?` is the
+ * plain address any client understands; the suffix carries the invite for auto-join.
  *
  * Returns null when no form yields a relay and group id.
  */
 fun parseGroupJoinInput(input: String): GroupJoinTarget? {
     val trimmed = input.trim()
     if (trimmed.isEmpty()) return null
+
+    // Nostrord group link: the #/g/<relay>/<id>[?invite=] hash route, pasted as a full URL.
+    val hashIndex = trimmed.indexOf("#/g/")
+    if (hashIndex >= 0) {
+        val route = parseGroupHash(trimmed.substring(hashIndex).removePrefix("#").let { "#$it" }) ?: return null
+        return GroupJoinTarget(route.relayUrl, route.groupId, route.inviteCode)
+    }
+
+    // ?invite= suffix extension: strip it, parse the base form, then attach the code.
+    // Gated on the absence of relay/group params so the legacy ?relay=&group=&code=
+    // link still parses through its own branch below.
+    val query = trimmed.substringAfter('?', "")
+    if (query.isNotEmpty()) {
+        val params = parseQueryParams(query)
+        val invite = params["invite"]?.takeIf { it.isNotBlank() }
+        if (invite != null && params["relay"] == null && params["group"] == null) {
+            val base = parseGroupJoinInput(trimmed.substringBefore('?')) ?: return null
+            return base.copy(inviteCode = base.inviteCode ?: invite)
+        }
+    }
 
     // NIP-19 group naddr: decode to its relay hint + group identifier. Requires a relay hint
     // (without it we don't know which relay hosts the group) and the group metadata kind.
@@ -56,17 +82,17 @@ fun parseGroupJoinInput(input: String): GroupJoinTarget? {
         return GroupJoinTarget(relayUrl, groupId)
     }
 
-    // Invite-link form: pull the relay/group/code query params.
-    val queryStart = trimmed.indexOf('?')
-    if (queryStart < 0) return null
-    val params =
-        trimmed.substring(queryStart + 1).split("&").associate { param ->
-            val idx = param.indexOf("=")
-            if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1) else param to ""
-        }
+    // Legacy invite-link form: pull the relay/group/code query params.
+    if (query.isEmpty()) return null
+    val params = parseQueryParams(query)
     val relay = params["relay"]?.takeIf { it.isNotBlank() } ?: return null
     val group = params["group"]?.takeIf { it.isNotBlank() } ?: return null
     val relayUrl = relay.toRelayUrl()
     if (relayUrl.isEmpty()) return null
     return GroupJoinTarget(relayUrl, group, params["code"]?.takeIf { it.isNotBlank() })
+}
+
+private fun parseQueryParams(query: String): Map<String, String> = query.split("&").associate { param ->
+    val idx = param.indexOf("=")
+    if (idx >= 0) param.substring(0, idx) to param.substring(idx + 1) else param to ""
 }
