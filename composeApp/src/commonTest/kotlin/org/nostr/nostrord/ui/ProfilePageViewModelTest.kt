@@ -57,4 +57,23 @@ class ProfilePageViewModelTest {
         assertEquals(listOf("g1", "g2"), vm2.groupsWithUser.value.map { it.meta.id })
         assertEquals(false, vm2.isAdminSomewhere.value)
     }
+
+    @Test
+    fun `toggleFollow follows then unfollows the user`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.fakePublicKey = "me"
+        val vm = ProfilePageViewModel(fake, "pk1")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.isFollowing.value)
+
+        vm.toggleFollow()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertTrue(vm.isFollowing.value)
+        assertTrue("pk1" in fake.following.value)
+
+        vm.toggleFollow()
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.isFollowing.value)
+        assertEquals(false, "pk1" in fake.following.value)
+    }
 }

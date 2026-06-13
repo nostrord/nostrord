@@ -271,6 +271,42 @@ class NostrRepository(
     override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = _userGroupLists.asStateFlow()
     private val userGroupListCreatedAt = mutableMapOf<String, Long>()
 
+    // The active account's own NIP-02 contact list (kind:3). [following] is the set
+    // of "p"-tagged pubkeys; the raw tags + content are kept so follow/unfollow
+    // re-publish on top of the latest known list without dropping relay hints,
+    // petnames, or the (legacy) relay-JSON content.
+    private val _following = MutableStateFlow<Set<String>>(emptySet())
+    override val following: StateFlow<Set<String>> = _following.asStateFlow()
+    private var contactListCreatedAt = 0L
+    private var contactListContent = ""
+    private var contactListTags: List<List<String>> = emptyList()
+    private var contactListRequested = false
+    private val contactListMutex = Mutex()
+
+    private fun followsFrom(tags: List<List<String>>): Set<String> = tags
+        .filter { it.firstOrNull() == "p" }
+        .mapNotNull { it.getOrNull(1)?.takeIf { pk -> pk.isNotBlank() } }
+        .toSet()
+
+    private fun handleKind3Event(event: JsonObject) {
+        // Only the active account's own list drives [following]; other users' kind:3
+        // events (some relays gossip them) are ignored here.
+        val pubKey = sessionManager.getPublicKey() ?: return
+        val eventPubkey = event["pubkey"]?.jsonPrimitive?.contentOrNull ?: return
+        if (eventPubkey != pubKey) return
+        val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
+        if (createdAt < contactListCreatedAt) return
+        val tags =
+            event["tags"]?.jsonArray.orEmpty().map { tag ->
+                tag.jsonArray.mapNotNull { it.jsonPrimitive.contentOrNull }
+            }
+        contactListCreatedAt = createdAt
+        contactListContent = event["content"]?.jsonPrimitive?.contentOrNull ?: ""
+        contactListTags = tags
+        contactListRequested = true
+        _following.value = followsFrom(tags)
+    }
+
     override fun forceInitialized() {
         _isInitialized.value = true
     }
@@ -759,8 +795,18 @@ class NostrRepository(
         // permanently "restricted" in the UI until process restart, even
         // though the new session's signer can answer the challenge fine.
         _restrictedRelays.value = emptyMap()
+        resetContactListState()
 
         sessionManager.logout()
+    }
+
+    /** Drops the previous account's kind:3 state so [following] never leaks across accounts. */
+    private fun resetContactListState() {
+        contactListCreatedAt = 0L
+        contactListContent = ""
+        contactListTags = emptyList()
+        contactListRequested = false
+        _following.value = emptySet()
     }
 
     override fun forgetBunkerConnection() {
@@ -769,6 +815,8 @@ class NostrRepository(
 
     override suspend fun reloadForActiveAccount() {
         val pubkey = sessionManager.getPublicKey() ?: return
+        // The contact list is per-account; drop the prior account's before the swap.
+        resetContactListState()
         val activeRelay = connectionManager.currentRelayUrl.value
         val savedRelays = SecureStorage.loadRelayListFor(pubkey)
 
@@ -1621,6 +1669,28 @@ class NostrRepository(
         } catch (_: Exception) {}
     }
 
+    override suspend fun fetchGroupPreviews(relayToGroups: Map<String, Set<String>>) {
+        // Skip groups whose metadata we already have a name for.
+        val known = groupManager.groupsByRelay.value.values.flatten()
+            .filter { it.name != null }
+            .map { it.id }
+            .toSet()
+        relayToGroups.forEach { (relayUrl, groupIds) ->
+            if (relayUrl.isBlank()) return@forEach
+            val missing = groupIds.filter { it !in known }
+            if (missing.isEmpty()) return@forEach
+            try {
+                // getOrConnectRelay is a pooled singleflight: one connection per relay
+                // even across concurrent callers, so duplicate relays never stack up.
+                val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+                    enqueueToRelayPipeline(msg, c)
+                } ?: return@forEach
+                connectedPoolRelays.add(relayUrl)
+                client.requestGroupsMetadata(missing)
+            } catch (_: Exception) {}
+        }
+    }
+
     override suspend fun editGroup(
         groupId: String,
         name: String,
@@ -1892,14 +1962,140 @@ class NostrRepository(
     override suspend fun requestUserGroupList(pubkey: String) {
         // Own list flows through the joined-groups state; nothing to fetch here.
         if (pubkey.isBlank() || pubkey == sessionManager.getPublicKey()) return
-        val relays = outboxManager.selectConnectedOutboxRelays(authors = listOf(pubkey))
-        relays.forEach { relayUrl ->
-            runCatching { connectionManager.getClientForRelay(relayUrl)?.requestUserGroupList(pubkey) }
+        // kind:10009 lives on general-purpose relays (author outbox + bootstrap).
+        // Connect on demand: when a discovery tab opens, those may not be connected
+        // yet, and a connected-only filter would silently send nothing.
+        val targets = outboxManager.selectOutboxRelays(authors = listOf(pubkey))
+        targets.forEach { relayUrl ->
+            runCatching {
+                val client = connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                    ?: connectionManager.getOrConnectRelay(relayUrl, metadataMessageHandler)
+                client?.takeIf { it.isConnected() }?.requestUserGroupList(pubkey)
+            }
         }
         // The primary NIP-29 relay often hosts members' lists too.
         val primary = connectionManager.getPrimaryClient()
         if (primary != null && primary.isConnected()) {
             runCatching { primary.requestUserGroupList(pubkey) }
+        }
+    }
+
+    override suspend fun requestContactList() {
+        val pubKey = sessionManager.getPublicKey() ?: return
+        if (contactListRequested) return
+
+        // kind:3 lives on general-purpose relays, never the NIP-29 group relay
+        // (NIP-29 relays don't serve kind:0/3), so exclude them and the primary.
+        val nip29Relays = outboxManager.kind10009Relays.value + connectionManager.currentRelayUrl.value
+        val targets = (outboxManager.getWriteRelays() + outboxManager.bootstrapRelays)
+            .distinct()
+            .filter { it !in nip29Relays }
+
+        // Connect bootstrap relays on demand: at cold start they are not yet up, so
+        // a connected-only filter would send nothing. We only latch the request once
+        // at least one relay actually received the REQ — otherwise the one-shot VM
+        // call would permanently suppress the fetch after a restart.
+        var sent = 0
+        targets.forEach { relayUrl ->
+            runCatching {
+                val client = connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                    ?: connectionManager.getOrConnectRelay(relayUrl, metadataMessageHandler)
+                if (client != null && client.isConnected()) {
+                    client.requestContactList(pubKey)
+                    sent++
+                }
+            }
+        }
+        if (sent > 0) contactListRequested = true
+    }
+
+    override suspend fun followUser(pubkey: String): Result<Unit> = updateContactList { tags ->
+        if (tags.any { it.firstOrNull() == "p" && it.getOrNull(1) == pubkey }) {
+            tags
+        } else {
+            tags + listOf(listOf("p", pubkey))
+        }
+    }
+
+    override suspend fun unfollowUser(pubkey: String): Result<Unit> = updateContactList { tags ->
+        tags.filterNot { it.firstOrNull() == "p" && it.getOrNull(1) == pubkey }
+    }
+
+    /**
+     * Builds, signs and publishes a fresh kind:3 from [transform] applied to the
+     * latest known tags. Serialized by [contactListMutex] so concurrent follow taps
+     * don't race two events with the same base. On the first call we best-effort
+     * fetch the existing list first, so we don't replace a list built on another
+     * client with a single-entry one.
+     */
+    private suspend fun updateContactList(
+        transform: (List<List<String>>) -> List<List<String>>,
+    ): Result<Unit> {
+        val pubKey = sessionManager.getPublicKey()
+            ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return contactListMutex.withLock {
+            if (!contactListRequested) {
+                requestContactList()
+                // Wait briefly for a relay to return the existing list before we
+                // overwrite it; absence is treated as "no prior list" after this.
+                withTimeoutOrNull(3_000L) { following.first { contactListCreatedAt > 0L } }
+            }
+
+            val newTags = transform(contactListTags)
+            // Optimistic update: flip [following] immediately so the UI reacts the
+            // instant the user taps, then revert in `finally` if the publish failed.
+            val previousFollowing = _following.value
+            _following.value = followsFrom(newTags)
+            var committed = false
+            try {
+                val event = org.nostr.nostrord.nostr.Event(
+                    pubkey = pubKey,
+                    createdAt = org.nostr.nostrord.utils.epochSeconds(),
+                    kind = 3,
+                    tags = newTags,
+                    content = contactListContent,
+                )
+                val signedEvent = sessionManager.signEvent(event)
+                val eventId = signedEvent.id
+                    ?: return@withLock Result.Error(AppError.Unknown("Event has no id after signing", null))
+                val message = buildJsonArray {
+                    add("EVENT")
+                    add(signedEvent.toJsonObject())
+                }.toString()
+
+                // Publish kind:3 only to general-purpose relays (write + bootstrap),
+                // never the NIP-29 group relay: it doesn't serve kind:3 back, so a
+                // list written only there would read as empty on the next start.
+                val nip29Relays = outboxManager.kind10009Relays.value + connectionManager.currentRelayUrl.value
+                val targets = (outboxManager.getWriteRelays() + outboxManager.bootstrapRelays)
+                    .distinct()
+                    .filter { it !in nip29Relays }
+                val clients = targets.mapNotNull { relayUrl ->
+                    connectionManager.getClientForRelay(relayUrl)?.takeIf { it.isConnected() }
+                        ?: connectionManager.getOrConnectRelay(relayUrl, metadataMessageHandler)?.takeIf { it.isConnected() }
+                }
+                if (clients.isEmpty()) {
+                    return@withLock Result.Error(AppError.Network.Disconnected(connectionManager.currentRelayUrl.value))
+                }
+                val results = clients.map { client ->
+                    scope.async { client.sendAndAwaitOkOrError(message, eventId) }
+                }.awaitAll()
+                if (results.none { it is PublishResult.Success }) {
+                    return@withLock Result.Error(AppError.Network.PublishRejected(results.summarizeFailures()))
+                }
+
+                contactListCreatedAt = signedEvent.createdAt
+                contactListContent = signedEvent.content
+                contactListTags = newTags
+                contactListRequested = true
+                committed = true
+                Result.Success(Unit)
+            } catch (e: Exception) {
+                Result.Error(AppError.Unknown(e.message ?: "Failed to update contact list", e))
+            } finally {
+                // Any non-success path (early return, throw) reverts the optimistic flip.
+                if (!committed) _following.value = previousFollowing
+            }
         }
     }
 
@@ -2320,6 +2516,10 @@ class NostrRepository(
                 outboxManager.handleKind10002Event(event, sessionManager.getPublicKey())
                 return
             }
+            if (kind == 3) {
+                handleKind3Event(event)
+                return
+            }
         }
 
         // Delegate all other events (39000, 39001, 39002, 9, 7, 5, 0, AUTH, OK, CLOSED…)
@@ -2702,6 +2902,12 @@ class NostrRepository(
                 // Handle kind:10002 (NIP-65 relay list)
                 if (kind == 10002) {
                     outboxManager.handleKind10002Event(event, sessionManager.getPublicKey())
+                    return
+                }
+
+                // Handle kind:3 (NIP-02 contact list) for the active account
+                if (kind == 3) {
+                    handleKind3Event(event)
                     return
                 }
             }

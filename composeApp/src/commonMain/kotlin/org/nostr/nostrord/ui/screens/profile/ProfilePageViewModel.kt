@@ -2,8 +2,10 @@ package org.nostr.nostrord.ui.screens.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -114,10 +116,35 @@ class ProfilePageViewModel(
             .map { list -> list.any { it.isAdmin } }
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    /** Whether the active account follows this user (NIP-02 kind:3). */
+    val isFollowing: StateFlow<Boolean> =
+        repo.following
+            .map { pubkey in it }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** True while a follow/unfollow publish is in flight, to disable the button. */
+    private val _isFollowBusy = MutableStateFlow(false)
+    val isFollowBusy: StateFlow<Boolean> = _isFollowBusy.asStateFlow()
+
+    /** Follow or unfollow this user, toggling based on the current [isFollowing]. */
+    fun toggleFollow() {
+        if (isSelf || _isFollowBusy.value) return
+        viewModelScope.launch {
+            _isFollowBusy.value = true
+            try {
+                if (isFollowing.value) repo.unfollowUser(pubkey) else repo.followUser(pubkey)
+            } finally {
+                _isFollowBusy.value = false
+            }
+        }
+    }
+
     init {
         // The kind:0 may not be cached (deep link straight to a profile), and the
-        // public group list (kind:10009) is only fetched on demand.
+        // public group list (kind:10009) is only fetched on demand. The own contact
+        // list (kind:3) drives the Follow button state.
         viewModelScope.launch { repo.requestUserMetadata(setOf(pubkey)) }
         viewModelScope.launch { repo.requestUserGroupList(pubkey) }
+        viewModelScope.launch { repo.requestContactList() }
     }
 }

@@ -115,6 +115,12 @@ interface NostrRepositoryApi {
      */
     val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>>
 
+    /**
+     * The active account's own following set (pubkeys) from its NIP-02 kind:3
+     * contact list. Empty until [requestContactList] (or a follow/unfollow) fills it.
+     */
+    val following: StateFlow<Set<String>>
+
     // --- Initialization ---
     fun forceInitialized()
 
@@ -360,6 +366,14 @@ interface NostrRepositoryApi {
         relayUrl: String,
     )
 
+    /**
+     * Batched, deduplicated metadata fetch for discovered groups: [relayToGroups]
+     * maps each relay to the set of group ids to fetch there. Connects to each
+     * relay at most once (pooled) and sends one kind:39000 REQ per relay, so a
+     * friends-groups list spanning many relays does not open redundant connections.
+     */
+    suspend fun fetchGroupPreviews(relayToGroups: Map<String, Set<String>>)
+
     suspend fun loadMoreMessages(
         groupId: String,
         channel: String? = null,
@@ -458,6 +472,15 @@ interface NostrRepositoryApi {
 
     /** Fetch [pubkey]'s public NIP-29 group list (kind:10009) into [userGroupLists]. */
     suspend fun requestUserGroupList(pubkey: String)
+
+    /** Fetch the active account's own kind:3 contact list into [following]. */
+    suspend fun requestContactList()
+
+    /** Add [pubkey] to the active account's kind:3 contact list and publish it. */
+    suspend fun followUser(pubkey: String): Result<Unit>
+
+    /** Remove [pubkey] from the active account's kind:3 contact list and publish it. */
+    suspend fun unfollowUser(pubkey: String): Result<Unit>
 
     suspend fun updateProfileMetadata(
         displayName: String? = null,

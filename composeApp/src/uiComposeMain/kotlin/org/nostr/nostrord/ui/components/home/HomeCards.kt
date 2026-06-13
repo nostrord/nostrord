@@ -52,6 +52,7 @@ fun GroupCard(
     cta: String,
     ctaPrimary: Boolean,
     modifier: Modifier = Modifier,
+    friendsNote: String? = null,
     onClick: () -> Unit = {},
 ) {
     Surface(
@@ -121,6 +122,25 @@ fun GroupCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.height(36.dp),
             )
+            if (friendsNote != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.People,
+                        contentDescription = null,
+                        tint = NostrordColors.Primary,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        friendsNote,
+                        color = NostrordColors.Primary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(12.dp))
             Surface(
                 shape = NostrordShapes.shapeMedium,

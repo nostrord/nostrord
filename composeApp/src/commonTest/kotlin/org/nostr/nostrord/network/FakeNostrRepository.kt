@@ -332,9 +332,25 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun requestUserMetadata(pubkeys: Set<String>) {}
 
-    override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = MutableStateFlow(emptyMap())
+    val _userGroupLists = MutableStateFlow<Map<String, List<UserGroupRef>>>(emptyMap())
+    override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = _userGroupLists
 
     override suspend fun requestUserGroupList(pubkey: String) {}
+
+    val _following = MutableStateFlow<Set<String>>(emptySet())
+    override val following: StateFlow<Set<String>> = _following
+
+    override suspend fun requestContactList() {}
+
+    override suspend fun followUser(pubkey: String): Result<Unit> {
+        _following.value = _following.value + pubkey
+        return Result.Success(Unit)
+    }
+
+    override suspend fun unfollowUser(pubkey: String): Result<Unit> {
+        _following.value = _following.value - pubkey
+        return Result.Success(Unit)
+    }
 
     override suspend fun updateProfileMetadata(
         displayName: String?,
@@ -453,6 +469,12 @@ class FakeNostrRepository : NostrRepositoryApi {
         groupId: String,
         relayUrl: String,
     ) {}
+
+    var fetchGroupPreviewsCalls = mutableListOf<Map<String, Set<String>>>()
+
+    override suspend fun fetchGroupPreviews(relayToGroups: Map<String, Set<String>>) {
+        fetchGroupPreviewsCalls.add(relayToGroups)
+    }
 
     override val fullGroupListFetchedRelays: StateFlow<Set<String>> = MutableStateFlow(emptySet())
 

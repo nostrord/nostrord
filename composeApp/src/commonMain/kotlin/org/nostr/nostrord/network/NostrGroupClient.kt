@@ -724,6 +724,28 @@ class NostrGroupClient(
         return subId
     }
 
+    /**
+     * Batched kind:39000 metadata fetch for several groups in one REQ (friends-group
+     * discovery). Uses its own sub id so it never disturbs the relay's group-list
+     * subscription, unlike [requestGroupsForIds].
+     */
+    suspend fun requestGroupsMetadata(groupIds: List<String>): String {
+        val subId = "meta_batch_${groupIds.sorted().joinToString(",").hashCode().toUInt()}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(39000) }
+                    putJsonArray("#d") { groupIds.forEach { add(it) } }
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
     /** One-shot REQ for a user's public NIP-29 group list (kind:10009). */
     suspend fun requestUserGroupList(pubkey: String): String {
         val subId = "ugroups_${pubkey.take(8)}"
@@ -734,6 +756,24 @@ class NostrGroupClient(
             add(
                 buildJsonObject {
                     putJsonArray("kinds") { add(10009) }
+                    putJsonArray("authors") { add(pubkey) }
+                    put("limit", 1)
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
+    suspend fun requestContactList(pubkey: String): String {
+        val subId = "contacts_${pubkey.take(8)}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(3) }
                     putJsonArray("authors") { add(pubkey) }
                     put("limit", 1)
                 },

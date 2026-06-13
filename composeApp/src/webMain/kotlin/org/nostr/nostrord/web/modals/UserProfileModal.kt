@@ -14,6 +14,7 @@ import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.IdentifierField
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
+import org.nostr.nostrord.web.components.followToggleButton
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.navigation.pushRoute
@@ -69,11 +70,15 @@ val UserProfileModal =
         val canZap = canSign && Nip57.resolvePayEndpoint(meta?.lud16, meta?.lud06) != null
         val (confirmRemove, setConfirmRemove) = useState { false }
         val (removeError, setRemoveError) = useState<String?> { null }
+        val following = useStateFlow(AppModule.nostrRepository.following)
+        val isFollowing = pubkey in following
+        val (followBusy, setFollowBusy) = useState { false }
 
         useEffect(pubkey) {
             setConfirmRemove(false)
             setRemoveError(null)
             launchApp { AppModule.nostrRepository.requestUserMetadata(setOf(pubkey)) }
+            launchApp { AppModule.nostrRepository.requestContactList() }
         }
         useEscClose { props.onClose() }
 
@@ -159,13 +164,16 @@ val UserProfileModal =
                     if (!isSelf) {
                         div {
                             className = ClassName("profile-btn-row")
-                            // Follow needs the kind:3 contact list, not wired yet.
-                            button {
-                                className = ClassName("btn-primary profile-btn")
-                                disabled = true
-                                title = "Coming soon"
-                                icon(Ic.Add)
-                                +"Follow"
+                            followToggleButton(isFollowing, followBusy) {
+                                setFollowBusy(true)
+                                launchApp {
+                                    if (isFollowing) {
+                                        AppModule.nostrRepository.unfollowUser(pubkey)
+                                    } else {
+                                        AppModule.nostrRepository.followUser(pubkey)
+                                    }
+                                    setFollowBusy(false)
+                                }
                             }
                             button {
                                 className = ClassName("btn-secondary profile-btn")

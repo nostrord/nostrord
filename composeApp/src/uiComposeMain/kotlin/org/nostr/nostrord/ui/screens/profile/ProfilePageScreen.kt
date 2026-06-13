@@ -21,7 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.outlined.Bolt
@@ -54,6 +53,7 @@ import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
+import org.nostr.nostrord.ui.components.buttons.FollowButton
 import org.nostr.nostrord.ui.components.zap.ZapController
 import org.nostr.nostrord.ui.isValidNip05
 import org.nostr.nostrord.ui.navigation.DmRoute
@@ -83,6 +83,8 @@ fun ProfilePageScreen(
     val metadata by vm.metadata.collectAsState()
     val groups by vm.userGroups.collectAsState()
     val isAdminSomewhere by vm.isAdminSomewhere.collectAsState()
+    val isFollowing by vm.isFollowing.collectAsState()
+    val isFollowBusy by vm.isFollowBusy.collectAsState()
 
     val name =
         metadata?.displayName?.takeIf { it.isNotBlank() }
@@ -150,12 +152,10 @@ fun ProfilePageScreen(
                                             variant = AppButtonVariant.Secondary,
                                             icon = Icons.Default.Mail,
                                         )
-                                        // Follow needs the kind:3 contact list, not wired yet.
-                                        AppButton(
-                                            text = "Follow",
-                                            onClick = {},
-                                            enabled = false,
-                                            icon = Icons.Default.Add,
+                                        FollowButton(
+                                            isFollowing = isFollowing,
+                                            isBusy = isFollowBusy,
+                                            onToggle = { vm.toggleFollow() },
                                         )
                                     }
                                 }

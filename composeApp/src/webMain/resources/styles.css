@@ -345,6 +345,26 @@ body {
     flex-shrink: 0;
 }
 
+/* Follow / Following toggle: while following, hovering the button reveals the
+   destructive "Unfollow" label in the error color (the resting state keeps
+   "Following"). Mirrors the native FollowButton hover swap. */
+.follow-toggle .label-unfollow {
+    display: none;
+}
+
+.follow-toggle.following:hover {
+    background: rgba(237, 66, 69, 0.12);
+    color: var(--color-error);
+}
+
+.follow-toggle.following:hover .label-following {
+    display: none;
+}
+
+.follow-toggle.following:hover .label-unfollow {
+    display: inline;
+}
+
 /* Spinner for the attach/upload button. Inherits the button's text color via
    currentColor so it stays visible on the muted/transparent backgrounds where
    the white .btn-spinner would vanish (native CircularProgressIndicator parity). */
@@ -2175,6 +2195,47 @@ body {
     color: var(--color-text-muted);
 }
 
+.sidebar-friends {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sidebar-friend {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    width: 100%;
+    padding: 6px var(--space-sm);
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    cursor: pointer;
+}
+
+.sidebar-friend:hover {
+    background: var(--color-hover);
+}
+
+.sidebar-friend-avatar {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: var(--radius-full);
+}
+
+.sidebar-friend-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .account-menu {
     position: relative;
     flex-shrink: 0;
@@ -2555,6 +2616,13 @@ body {
     margin-bottom: 12px;
 }
 
+/* Let the text column shrink below its content width so a long/space-less title
+   (e.g. a bare group id before metadata arrives) wraps and hyphenates instead of
+   widening the card and shifting the whole grid. */
+.group-card-head > div {
+    min-width: 0;
+}
+
 .group-card-avatar {
     width: 48px;
     height: 48px;
@@ -2563,9 +2631,14 @@ body {
 }
 
 .group-card-name {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    /* Break anywhere (covers space-less ids) and hyphenate real words, so the
+       title stays inside the card and the grid never reflows on title length. */
+    overflow-wrap: anywhere;
+    hyphens: auto;
     font-size: 15px;
     font-weight: 600;
     color: var(--color-text-primary);
@@ -2591,6 +2664,22 @@ body {
     color: var(--color-warning);
     background: var(--color-floating);
     border-radius: var(--radius-sm);
+}
+
+/* Mutual-friends hint on a "From friends" discovery card. */
+.group-card-friends {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    margin: 10px 0 12px;
+    font-size: 12px;
+    color: var(--color-primary);
+}
+
+.group-card-friends .ico {
+    width: 12px;
+    height: 12px;
 }
 
 .group-card-desc {

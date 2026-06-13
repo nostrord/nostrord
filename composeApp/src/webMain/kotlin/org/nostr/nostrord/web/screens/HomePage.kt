@@ -1,6 +1,9 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.screens.home.Friend
+import org.nostr.nostrord.ui.screens.home.FriendsGroup
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.home.JoinedGroup
 import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
@@ -21,12 +24,13 @@ import react.dom.html.ReactHTML.h1
 import react.dom.html.ReactHTML.h2
 import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import react.useState
 import web.cssom.ClassName
 import web.html.InputType
 import web.html.text
 
-private val FILTERS = listOf("My groups", "From friends", "Communities", "People")
+private val FILTERS = listOf("My groups", "From friends", "Recommended", "People")
 
 /** Per-filter icons: own chats, friends, public discovery, people to follow (matches native). */
 private val FILTER_ICONS = listOf(Ic.Forum, Ic.People, Ic.Public, Ic.PersonAdd)
@@ -48,7 +52,16 @@ val HomePage =
         val myGroups = useStateFlow(vm.myGroups)
         val memberCounts = useStateFlow(vm.memberCounts)
         val query = useStateFlow(vm.query)
+        val friends = useStateFlow(vm.friends)
+        val friendsGroups = useStateFlow(vm.friendsGroups)
+        val recommendedGroups = useStateFlow(vm.recommendedGroups)
         val (filter, setFilter) = useState { 0 }
+
+        // Fetch the discovery lists lazily, only when their tab is shown.
+        useEffect(filter) {
+            if (filter == 1) vm.loadFriendsGroups()
+            if (filter == 2) vm.loadRecommended()
+        }
 
         div {
             className = ClassName("home-page")
@@ -160,34 +173,50 @@ val HomePage =
                                     }
                             }
                         1 ->
-                            emptyCard(
-                                emoji = "🫂",
-                                title = "You don't follow anyone yet",
-                                description = "Follow some people to see your friends here and the groups where they are.",
-                            ) {
-                                button {
-                                    className = ClassName("btn-secondary")
-                                    onClick = { setFilter(3) }
-                                    +"See people to follow"
-                                }
+                            when {
+                                friends.isEmpty() ->
+                                    emptyCard(
+                                        emoji = "🫂",
+                                        title = "You don't follow anyone yet",
+                                        description = "Follow some people to see your friends here and the groups where they are.",
+                                    ) {
+                                        button {
+                                            className = ClassName("btn-secondary")
+                                            onClick = { setFilter(3) }
+                                            +"See people to follow"
+                                        }
+                                    }
+                                friendsGroups.isEmpty() ->
+                                    emptyCard(
+                                        emoji = "🔭",
+                                        title = "No groups from your friends yet",
+                                        description = "When people you follow join groups, those groups show up here to discover.",
+                                    )
+                                else ->
+                                    div {
+                                        className = ClassName("card-grid")
+                                        friendsGroups.forEach { fg ->
+                                            friendsGroupCard(fg) {
+                                                props.onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta))
+                                            }
+                                        }
+                                    }
                             }
                         2 ->
-                            emptyCard(
-                                emoji = "🧭",
-                                title = "Discover communities through your friends",
-                                description =
-                                "We show the groups where people you follow already are. " +
-                                    "Follow people or join through a link to get started.",
-                            ) {
-                                button {
-                                    className = ClassName("btn-primary")
-                                    icon(Ic.Link)
-                                    +"Join by link"
-                                }
-                                button {
-                                    className = ClassName("btn-secondary")
-                                    onClick = { setFilter(3) }
-                                    +"See people to follow"
+                            if (recommendedGroups.isEmpty()) {
+                                emptyCard(
+                                    emoji = "✨",
+                                    title = "No recommendations yet",
+                                    description = "Hand-picked groups we curate will show up here.",
+                                )
+                            } else {
+                                div {
+                                    className = ClassName("card-grid")
+                                    recommendedGroups.forEach { group ->
+                                        groupCard(group, memberCounts[group.meta.id] ?: 0) {
+                                            props.onOpenGroup(group)
+                                        }
+                                    }
                                 }
                             }
                         else ->
@@ -279,6 +308,68 @@ private fun ChildrenBuilder.groupCard(
             +"Open"
         }
     }
+}
+
+/** Discovery card for a group some of your friends are in (the "From friends" tab). */
+private fun ChildrenBuilder.friendsGroupCard(
+    fg: FriendsGroup,
+    onOpen: () -> Unit,
+) {
+    val meta = fg.meta
+    val name = meta.name ?: meta.id
+    button {
+        key = meta.id
+        className = ClassName("group-card")
+        onClick = { onOpen() }
+        div {
+            className = ClassName("group-card-head")
+            WebAvatar {
+                url = meta.picture
+                seed = meta.id
+                this.name = name
+                kind = AvatarKind.GROUP
+                cls = "group-card-avatar"
+            }
+            div {
+                div {
+                    className = ClassName("group-card-name")
+                    +name
+                }
+                div {
+                    className = ClassName("group-card-meta")
+                    if (fg.memberCount > 0) {
+                        icon(Ic.People)
+                        +"${fg.memberCount}"
+                    }
+                    if (!meta.isOpen) {
+                        span {
+                            className = ClassName("badge-restricted")
+                            +"restricted"
+                        }
+                    }
+                }
+            }
+        }
+        div {
+            className = ClassName("group-card-friends")
+            icon(Ic.People)
+            +friendsNote(fg.mutualFriends)
+        }
+        span {
+            className = ClassName("group-card-cta")
+            +(if (meta.isOpen) "Join" else "Preview")
+        }
+    }
+}
+
+/** "Alice", "Alice, Bob" or "Alice, Bob +2" from the friends in a discovered group. */
+private fun friendsNote(friends: List<Friend>): String {
+    fun shortName(f: Friend) = f.metadata?.displayName?.takeIf { it.isNotBlank() }
+        ?: f.metadata?.name?.takeIf { it.isNotBlank() }
+        ?: (runCatching { Nip19.encodeNpub(f.pubkey) }.getOrDefault(f.pubkey).take(10) + "…")
+    val shown = friends.take(2).joinToString(", ") { shortName(it) }
+    val extra = friends.size - 2
+    return if (extra > 0) "$shown +$extra" else shown
 }
 
 private fun ChildrenBuilder.emptyCard(

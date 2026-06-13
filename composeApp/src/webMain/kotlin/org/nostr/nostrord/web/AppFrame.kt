@@ -58,6 +58,7 @@ val AppFrame =
         val repo = AppModule.nostrRepository
         val vm = useViewModel { HomePageViewModel(repo, AppModule.notificationHistoryStore) }
         val groups = useStateFlow(vm.myGroups)
+        val friends = useStateFlow(vm.friends)
         val unreadCounts = useStateFlow(vm.unreadCounts)
         val notificationUnread = useStateFlow(vm.notificationUnread)
         val accounts = useStateFlow(AppModule.accountStore.accounts)
@@ -260,10 +261,42 @@ val AppFrame =
                                 tabItem(hub == 0, Ic.People, "Friends") { setHub(0) }
                                 tabItem(hub == 1, Ic.Bookmark, "Saved") { setHub(1) }
                             }
-                            div {
-                                className = ClassName("sidebar-note")
-                                // Layout-only hub: friends/saved data arrives with the follow logic.
-                                +(if (hub == 0) "You don't follow anyone yet." else "Nothing saved yet.")
+                            when {
+                                hub == 1 ->
+                                    div {
+                                        className = ClassName("sidebar-note")
+                                        +"Nothing saved yet."
+                                    }
+                                friends.isEmpty() ->
+                                    div {
+                                        className = ClassName("sidebar-note")
+                                        +"You don't follow anyone yet."
+                                    }
+                                else ->
+                                    div {
+                                        className = ClassName("sidebar-friends")
+                                        friends.forEach { friend ->
+                                            val friendName =
+                                                friend.metadata?.displayName?.takeIf { it.isNotBlank() }
+                                                    ?: friend.metadata?.name?.takeIf { it.isNotBlank() }
+                                                    ?: (Nip19.encodeNpub(friend.pubkey).take(12) + "…")
+                                            button {
+                                                key = friend.pubkey
+                                                className = ClassName("sidebar-friend")
+                                                onClick = { pushRoute(UserRoute(friend.pubkey)) }
+                                                WebAvatar {
+                                                    url = friend.metadata?.picture
+                                                    seed = friend.pubkey
+                                                    name = friendName
+                                                    cls = "sidebar-friend-avatar"
+                                                }
+                                                span {
+                                                    className = ClassName("sidebar-friend-name")
+                                                    +friendName
+                                                }
+                                            }
+                                        }
+                                    }
                             }
                         }
                     }

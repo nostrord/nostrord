@@ -80,6 +80,7 @@ import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.group.components.AddGroupModal
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.JoinGroupModal
+import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.screens.home.HomePageScreen
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.profile.ProfilePageScreen
@@ -217,7 +218,11 @@ fun AppFrame() {
                             )
                         }
                         HorizontalDivider(color = NostrordColors.Divider)
-                        HomeHub(modifier = Modifier.weight(1f))
+                        HomeHub(
+                            vm = vm,
+                            onOpenUser = { route = UserRoute(it) },
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                     AccountBar(onOpenSettings = { showSettings = true })
                 }
@@ -419,8 +424,13 @@ private fun RailBadge(
 }
 
 @Composable
-private fun HomeHub(modifier: Modifier = Modifier) {
+private fun HomeHub(
+    vm: HomePageViewModel,
+    onOpenUser: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var hub by remember { mutableStateOf(0) }
+    val friends by vm.friends.collectAsState()
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(8.dp),
     ) {
@@ -434,12 +444,62 @@ private fun HomeHub(modifier: Modifier = Modifier) {
             onSelect = { hub = it },
         )
         Spacer(modifier = Modifier.height(12.dp))
-        // Layout-only hub: friends/saved data arrives with the follow logic.
+        when {
+            hub == 1 ->
+                Text(
+                    "Nothing saved yet.",
+                    color = NostrordColors.TextMuted,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                )
+            friends.isEmpty() ->
+                Text(
+                    "You don't follow anyone yet.",
+                    color = NostrordColors.TextMuted,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                )
+            else ->
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    friends.forEach { friend -> FriendRow(friend = friend, onClick = { onOpenUser(friend.pubkey) }) }
+                }
+        }
+    }
+}
+
+@Composable
+private fun FriendRow(
+    friend: Friend,
+    onClick: () -> Unit,
+) {
+    val name =
+        friend.metadata?.displayName?.takeIf { it.isNotBlank() }
+            ?: friend.metadata?.name?.takeIf { it.isNotBlank() }
+            ?: (Nip19.encodeNpub(friend.pubkey).take(12) + "…")
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .clip(NostrordShapes.shapeMedium)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OptimizedSmallAvatar(
+            imageUrl = friend.metadata?.picture,
+            identifier = friend.pubkey,
+            displayName = name,
+            size = 32.dp,
+            shape = CircleShape,
+        )
         Text(
-            if (hub == 0) "You don't follow anyone yet." else "Nothing saved yet.",
-            color = NostrordColors.TextMuted,
+            name,
+            color = NostrordColors.TextPrimary,
             fontSize = 13.sp,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
     }
 }

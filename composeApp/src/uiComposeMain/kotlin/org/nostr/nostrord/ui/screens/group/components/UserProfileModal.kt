@@ -12,7 +12,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Shield
@@ -32,7 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.auth.ActiveAccountManager
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
@@ -41,6 +42,7 @@ import org.nostr.nostrord.ui.components.ModalTitleBar
 import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
+import org.nostr.nostrord.ui.components.buttons.FollowButton
 import org.nostr.nostrord.ui.components.zap.ZapController
 import org.nostr.nostrord.ui.isValidNip05
 import org.nostr.nostrord.ui.navigation.DmRoute
@@ -130,6 +132,13 @@ fun UserProfileModal(
             ?: metadata?.name?.takeIf { it.isNotBlank() }
             ?: (npub.take(12) + "…")
     val isSelf = ActiveAccountManager.currentPubkey == pubkey
+
+    // Follow state from the active account's kind:3 contact list (fetched once on open).
+    val scope = rememberCoroutineScope()
+    val following by AppModule.nostrRepository.following.collectAsState()
+    val isFollowing = pubkey in following
+    var followBusy by remember(pubkey) { mutableStateOf(false) }
+    LaunchedEffect(Unit) { AppModule.nostrRepository.requestContactList() }
 
     // Zaps require signing a kind:9734 request, so only offer them when an account
     // with a usable signer is active AND the profile has a lightning address.
@@ -280,12 +289,20 @@ fun UserProfileModal(
                         if (!isSelf) {
                             Spacer(modifier = Modifier.height(Spacing.md))
                             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                                // Follow needs the kind:3 contact list, not wired yet (Coming soon).
-                                AppButton(
-                                    text = "Follow",
-                                    onClick = {},
-                                    enabled = false,
-                                    icon = Icons.Default.Add,
+                                FollowButton(
+                                    isFollowing = isFollowing,
+                                    isBusy = followBusy,
+                                    onToggle = {
+                                        followBusy = true
+                                        scope.launch {
+                                            if (isFollowing) {
+                                                AppModule.nostrRepository.unfollowUser(pubkey)
+                                            } else {
+                                                AppModule.nostrRepository.followUser(pubkey)
+                                            }
+                                            followBusy = false
+                                        }
+                                    },
                                     modifier = Modifier.weight(1f),
                                 )
                                 AppButton(

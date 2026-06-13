@@ -18,6 +18,7 @@ import org.nostr.nostrord.web.components.IdentifierField
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.aboutMentionPubkeys
+import org.nostr.nostrord.web.components.followToggleButton
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.renderAboutText
 import org.nostr.nostrord.web.navigation.pushRoute
@@ -51,6 +52,8 @@ val ProfilePage =
         val metadata = useStateFlow(vm.metadata)
         val groups = useStateFlow(vm.userGroups)
         val isAdminSomewhere = useStateFlow(vm.isAdminSomewhere)
+        val isFollowing = useStateFlow(vm.isFollowing)
+        val isFollowBusy = useStateFlow(vm.isFollowBusy)
         val allMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
         // Resolve @names for any npub/nprofile mentioned in the bio so mentions
         // render as display names, not raw npubs.
@@ -112,14 +115,7 @@ val ProfilePage =
                                             icon(Ic.Mail)
                                             +"Message"
                                         }
-                                        // Follow needs the kind:3 contact list, not wired yet.
-                                        button {
-                                            className = ClassName("btn-primary profile-btn")
-                                            disabled = true
-                                            title = "Coming soon"
-                                            icon(Ic.Add)
-                                            +"Follow"
-                                        }
+                                        followToggleButton(isFollowing, isFollowBusy) { vm.toggleFollow() }
                                     }
                                 }
                             }

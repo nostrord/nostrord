@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,7 +53,7 @@ import org.nostr.nostrord.ui.components.onboarding.PackCard
 import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
 import org.nostr.nostrord.ui.theme.NostrordColors
 
-private val FILTERS = listOf("My groups", "From friends", "Communities", "People")
+private val FILTERS = listOf("My groups", "From friends", "Recommended", "People")
 
 /** Per-filter icons: own chats, friends, public discovery, people to follow (matches web). */
 private val FILTER_ICONS = listOf(
@@ -77,7 +78,16 @@ fun HomePageScreen(
     val myGroups by vm.myGroups.collectAsState()
     val memberCounts by vm.memberCounts.collectAsState()
     val query by vm.query.collectAsState()
+    val friends by vm.friends.collectAsState()
+    val friendsGroups by vm.friendsGroups.collectAsState()
+    val recommendedGroups by vm.recommendedGroups.collectAsState()
     var filter by remember { mutableStateOf(0) }
+
+    // Fetch the discovery lists lazily, only when their tab is shown.
+    LaunchedEffect(filter) {
+        if (filter == 1) vm.loadFriendsGroups()
+        if (filter == 2) vm.loadRecommended()
+    }
 
     Column(modifier = modifier.fillMaxSize().background(NostrordColors.Background)) {
         // Header bar
@@ -227,35 +237,70 @@ fun HomePageScreen(
                                     }
                             }
                         1 ->
-                            EmptyStateCard(
-                                emoji = "🫂",
-                                title = "You don't follow anyone yet",
-                                description = "Follow some people to see your friends here and the groups where they are.",
-                            ) {
-                                AppButton(
-                                    text = "See people to follow",
-                                    onClick = { filter = 3 },
-                                    variant = AppButtonVariant.Secondary,
-                                )
+                            when {
+                                friends.isEmpty() ->
+                                    EmptyStateCard(
+                                        emoji = "🫂",
+                                        title = "You don't follow anyone yet",
+                                        description = "Follow some people to see your friends here and the groups where they are.",
+                                    ) {
+                                        AppButton(
+                                            text = "See people to follow",
+                                            onClick = { filter = 3 },
+                                            variant = AppButtonVariant.Secondary,
+                                        )
+                                    }
+                                friendsGroups.isEmpty() ->
+                                    EmptyStateCard(
+                                        emoji = "🔭",
+                                        title = "No groups from your friends yet",
+                                        description = "When people you follow join groups, those groups show up here to discover.",
+                                    )
+                                else ->
+                                    CardGrid(columns) {
+                                        friendsGroups.map { fg ->
+                                            {
+                                                GroupCard(
+                                                    name = fg.meta.name ?: fg.meta.id,
+                                                    description = fg.meta.about,
+                                                    picture = fg.meta.picture,
+                                                    groupId = fg.meta.id,
+                                                    memberCount = fg.memberCount,
+                                                    restricted = !fg.meta.isOpen,
+                                                    cta = if (fg.meta.isOpen) "Join" else "Preview",
+                                                    ctaPrimary = true,
+                                                    friendsNote = friendsNote(fg.mutualFriends),
+                                                    onClick = { onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta)) },
+                                                )
+                                            }
+                                        }
+                                    }
                             }
                         2 ->
-                            EmptyStateCard(
-                                emoji = "🧭",
-                                title = "Discover communities through your friends",
-                                description =
-                                "We show the groups where people you follow already are. " +
-                                    "Follow people or join through a link to get started.",
-                            ) {
-                                AppButton(
-                                    text = "Join by link",
-                                    onClick = { /* join modal: not wired yet */ },
-                                    icon = Icons.Default.Link,
+                            if (recommendedGroups.isEmpty()) {
+                                EmptyStateCard(
+                                    emoji = "✨",
+                                    title = "No recommendations yet",
+                                    description = "Hand-picked groups we curate will show up here.",
                                 )
-                                AppButton(
-                                    text = "See people to follow",
-                                    onClick = { filter = 3 },
-                                    variant = AppButtonVariant.Secondary,
-                                )
+                            } else {
+                                CardGrid(columns) {
+                                    recommendedGroups.map { group ->
+                                        {
+                                            GroupCard(
+                                                name = group.meta.name ?: group.meta.id,
+                                                description = group.meta.about,
+                                                picture = group.meta.picture,
+                                                groupId = group.meta.id,
+                                                memberCount = memberCounts[group.meta.id] ?: 0,
+                                                restricted = !group.meta.isOpen,
+                                                cta = if (group.meta.isOpen) "Join" else "Preview",
+                                                ctaPrimary = true,
+                                                onClick = { onOpenGroup(group) },
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         else ->
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -274,6 +319,16 @@ fun HomePageScreen(
             }
         }
     }
+}
+
+/** "Alice", "Alice, Bob" or "Alice, Bob +2" from the friends in a discovered group. */
+private fun friendsNote(friends: List<Friend>): String {
+    fun shortName(f: Friend) = f.metadata?.displayName?.takeIf { it.isNotBlank() }
+        ?: f.metadata?.name?.takeIf { it.isNotBlank() }
+        ?: (runCatching { org.nostr.nostrord.nostr.Nip19.encodeNpub(f.pubkey) }.getOrDefault(f.pubkey).take(10) + "…")
+    val shown = friends.take(2).joinToString(", ") { shortName(it) }
+    val extra = friends.size - 2
+    return if (extra > 0) "$shown +$extra" else shown
 }
 
 /** Fixed-column grid built from rows (content is small; avoids nested lazy scrolling). */
