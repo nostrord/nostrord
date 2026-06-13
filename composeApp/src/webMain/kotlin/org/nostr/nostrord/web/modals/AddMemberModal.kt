@@ -30,6 +30,8 @@ val AddMemberModal =
         val (value, setValue) = useState { "" }
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
+        // Submit only unlocks for a key that actually parses (npub/nprofile/hex).
+        val isValidKey = Nip19.parsePubkeyInput(value) is Nip19.PubkeyParse.Ok
 
         fun submit() {
             val pubkey =
@@ -119,7 +121,7 @@ val AddMemberModal =
                     }
                     button {
                         className = ClassName("btn-primary")
-                        disabled = value.isBlank() || busy
+                        disabled = !isValidKey || busy
                         onClick = { submit() }
                         +(if (busy) "Adding…" else "Add Member")
                     }

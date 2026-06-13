@@ -46,6 +46,8 @@ fun AddMemberModal(
     var input by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     val focusRequester = remember { FocusRequester() }
+    // Submit only unlocks for a key that actually parses (npub/nprofile/hex).
+    val isValidKey = Nip19.parsePubkeyInput(input) is Nip19.PubkeyParse.Ok
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -222,9 +224,11 @@ fun AddMemberModal(
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = { submit() },
+                            enabled = isValidKey,
                             colors =
                             ButtonDefaults.buttonColors(
                                 containerColor = NostrordColors.Primary,
+                                disabledContainerColor = NostrordColors.Primary.copy(alpha = 0.3f),
                             ),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
