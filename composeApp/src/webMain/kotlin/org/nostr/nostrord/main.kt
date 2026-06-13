@@ -4,6 +4,8 @@ import kotlinx.browser.window
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.startup.ExternalLaunchContext
 import org.nostr.nostrord.startup.StartupResolver
+import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.toHash
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.WebApp
 import org.nostr.nostrord.web.theme.applyDimenTokens
@@ -15,8 +17,10 @@ import web.dom.document
 
 /**
  * Parse URL query parameters for deep linking.
- * Supports: /?relay=groups.hzrd149.com&group=a45b2f
- *           /?relay=groups.hzrd149.com
+ * Supports: /?relay=groups.hzrd149.com (opens the relay)
+ *           /?view=notifications
+ * Legacy group links (/?relay=X&group=Y[&code=Z]) redirect to the canonical
+ * hash route #/g/X/Y[?invite=Z] before render.
  */
 private fun parseDeepLinkFromUrl() {
     val search = window.location.search
@@ -47,18 +51,18 @@ private fun parseDeepLinkFromUrl() {
 
     val groupId = params["group"]?.takeIf { it.isNotBlank() }
     val inviteCode = params["code"]?.takeIf { it.isNotBlank() }
-    val messageId = params["e"]?.takeIf { it.isNotBlank() }
+
+    // Legacy ?relay=&group= group links redirect to the canonical #/g/<relay>/<id>
+    // hash route (AppFrame owns it: relay switch, open, ?invite= auto-join). The
+    // query is stripped so the URL shown/copied is the new form.
+    if (groupId != null) {
+        val route = GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = inviteCode)
+        window.history.replaceState(null, "", window.location.pathname + route.toHash())
+        return
+    }
 
     val context =
         when {
-            groupId != null ->
-                ExternalLaunchContext.OpenGroup(
-                    groupId = groupId,
-                    groupName = null,
-                    relayUrl = relayUrl,
-                    inviteCode = inviteCode,
-                    messageId = messageId,
-                )
             viewNotifications -> ExternalLaunchContext.OpenNotifications(relayUrl)
             else -> ExternalLaunchContext.OpenRelay(relayUrl)
         }
