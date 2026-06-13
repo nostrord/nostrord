@@ -152,6 +152,15 @@ private fun ChildrenBuilder.letterAvatar(seed: String, name: String, background:
 
 private fun hsl(c: Hsl): String = "hsl(${c.hue} ${c.saturation}% ${c.lightness}%)"
 
+/**
+ * Prototype groupGradient: the group avatar's hue pair, darkened, at 135deg.
+ * Shared by every banner/cover surface (group sidebar banner, info modal cover).
+ */
+internal fun bannerGradientCss(seed: String): String {
+    val g = AvatarGradients.banner(seed)
+    return "linear-gradient(135deg, ${hsl(g.start)}, ${hsl(g.end)})"
+}
+
 /** Prototype gradientAvatar: diagonal duotone + soft top sheen (math in AvatarGradients). */
 private fun userGradientCss(seed: String): String {
     val g = AvatarGradients.user(seed)

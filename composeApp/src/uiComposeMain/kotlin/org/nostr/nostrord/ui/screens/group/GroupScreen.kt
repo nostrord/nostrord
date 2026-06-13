@@ -175,6 +175,9 @@ fun GroupScreen(
     var messageToDelete by remember { mutableStateOf<NostrGroupClient.NostrMessage?>(null) }
     var selectedUserPubkey by remember { mutableStateOf<String?>(null) }
     var showMemberSheet by remember { mutableStateOf(false) }
+
+    // Desktop members column visibility, toggled from the header (prototype behavior).
+    var membersVisible by remember { mutableStateOf(true) }
     var memberToRemove by remember { mutableStateOf<MemberInfo?>(null) }
     var showJoinRequestsModal by remember { mutableStateOf(false) }
     var showMemberManagementModal by remember { mutableStateOf(false) }
@@ -428,10 +431,17 @@ fun GroupScreen(
             groupId = groupId,
             groupName = groupName,
             groupMetadata = currentGroupMetadata,
+            relayUrl = currentRelayUrl,
+            isMember = isJoined,
+            memberCount = groupMembers.size,
             userMetadata = userMetadata,
             onUserClick = { pubkey ->
                 showGroupInfoModal = false
                 selectedUserPubkey = pubkey
+            },
+            onLeave = {
+                showGroupInfoModal = false
+                vm.leaveGroup { onNavigateHome() }
             },
             onDismiss = { showGroupInfoModal = false },
         )
@@ -686,10 +696,32 @@ fun GroupScreen(
 
     // User profile modal
     selectedUserPubkey?.let { pubkey ->
+        val targetMember = groupMembers.firstOrNull { it.pubkey == pubkey }
         UserProfileModal(
             pubkey = pubkey,
             metadata = userMetadata[pubkey],
             userMetadata = userMetadata,
+            iAmAdmin = isAdmin,
+            targetIsAdmin = targetMember?.isAdmin == true,
+            // Pipes into the existing remove-member confirmation dialog below.
+            onRemoveFromGroup =
+            targetMember?.let { member ->
+                {
+                    selectedUserPubkey = null
+                    memberToRemove = member
+                }
+            },
+            // Inserts a resolved @mention into the composer draft (prototype behavior).
+            onMention = { pk ->
+                val meta = userMetadata[pk]
+                val name =
+                    meta?.displayName?.takeIf { it.isNotBlank() }
+                        ?: meta?.name?.takeIf { it.isNotBlank() }
+                        ?: (Nip19.encodeNpub(pk).take(12) + "…")
+                messageInput = (if (messageInput.isBlank()) "" else messageInput.trimEnd() + " ") + "@$name "
+                mentions = mentions + (name to pk)
+                selectedUserPubkey = null
+            },
             onUserClick = { clickedPubkey ->
                 selectedUserPubkey = clickedPubkey
             },
@@ -1047,7 +1079,14 @@ fun GroupScreen(
                             pendingUploads = pendingUploads + upload
                         }
                     },
-                    showMemberSidebar = maxWidth >= 1080.dp,
+                    showMemberSidebar = maxWidth >= 1080.dp && membersVisible,
+                    onToggleMembers = {
+                        if (maxWidth >= 1080.dp) {
+                            membersVisible = !membersVisible
+                        } else {
+                            showMemberSheet = true
+                        }
+                    },
                     showMemberSheet = showMemberSheet,
                     onShowMemberSheet = { showMemberSheet = it },
                     isCurrentUserAdmin = isAdmin,

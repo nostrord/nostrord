@@ -1606,11 +1606,36 @@ body {
     color: var(--color-success);
 }
 
+/* Action buttons on the profile page card (prototype: Message/Follow at the
+   avatar row's right; Zap/Mute/Report under the identifier). */
+.profile-page-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.profile-page-actions .profile-btn {
+    flex: 0 0 auto;
+}
+
+.profile-page-actions.secondary {
+    margin-top: 12px;
+    flex-wrap: wrap;
+}
+
+.profile-page-actions .profile-btn.sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
 .profile-page-about {
     margin: var(--space-md) 0 0;
     font-size: 15px;
     line-height: 1.4;
     color: var(--color-text-secondary);
+    /* Bios keep their author's line breaks (renderAboutText emits raw newlines). */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 
 .profile-page-npub {
@@ -2854,10 +2879,10 @@ body {
 
 .sidebar-header {
     /* Matches .chat-header / .member-header so the three headers form a single
-       horizontal band at the top of the app. Same Surface as the sidebar
-       (GroupsNavSidebar.kt:189-203) — only the 1px border-bottom uses
-       BackgroundDark, which is native's divider Box (line 234). */
-    height: 56px;
+       horizontal band at the top of the app (48px = Spacing.headerHeight token,
+       prototype h-12). Same Surface as the sidebar (GroupsNavSidebar.kt:189-203);
+       only the 1px border-bottom uses BackgroundDark, native's divider Box. */
+    height: 48px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -4447,7 +4472,7 @@ body {
     /* Single source of truth for the header height: .chat-header consumes it for its height and
        .chat-search-overlay for its top offset, so the floating search bar stays pinned under the
        header if the height ever changes. */
-    --chat-header-height: 56px;
+    --chat-header-height: 48px;
     flex: 1;
     min-width: 0;
     display: flex;
@@ -4519,64 +4544,91 @@ body {
     height: var(--chat-header-height);
     display: flex;
     align-items: center;
-    gap: 8px;
+    /* Tight 4px between the action buttons (prototype gap-1); the title block
+       carries its own internal 8px gap. */
+    gap: 4px;
     padding: 0 8px;
     background: var(--color-background-dark);
 }
 
+/* Prototype single-row title: avatar · name · relay dot · inline description. */
 .chat-header-title {
     flex: 1;
     min-width: 0;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     padding: 0 8px;
     cursor: pointer;
 }
 
 .chat-header-icon {
-    width: 36px;
-    height: 36px;
+    width: 26px;
+    height: 26px;
     flex-shrink: 0;
-    border-radius: 50%;
-    font-size: 15px;
+    border-radius: var(--radius-md);
+    font-size: 12px;
     font-weight: 700;
-}
-
-.chat-header-meta {
-    min-width: 0;
 }
 
 .chat-header-name {
-    font-size: 16px;
-    font-weight: 700;
-    color: #ffffff;
+    flex-shrink: 0;
+    max-width: 50%;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Relay connection dot next to the group name (prototype RelayStatusDot). */
+.chat-relay-dot {
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+.chat-relay-dot.st-connected {
+    background: var(--color-success);
+}
+.chat-relay-dot.st-connecting {
+    background: var(--color-warning);
+    animation: relay-dot-pulse 1.2s ease-in-out infinite;
+}
+.chat-relay-dot.st-offline {
+    background: var(--color-error);
+}
+@keyframes relay-dot-pulse {
+    50% {
+        opacity: 0.4;
+    }
 }
 
 .chat-header-about {
-    font-size: 12px;
-    color: var(--color-text-secondary);
+    flex: 1;
+    min-width: 0;
+    margin-left: 4px;
+    font-size: 13px;
+    color: var(--color-text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.chat-members-btn {
-    flex-shrink: 0;
-    width: 34px;
-    height: 34px;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    background: transparent;
-    border: none;
-    color: var(--color-text-secondary);
-    border-radius: 8px;
-    cursor: pointer;
+/* Description is desktop chrome; the prototype hides it on small screens. */
+@media (max-width: 640px) {
+    .chat-header-about {
+        display: none;
+    }
+}
+
+/* Desktop: the members column is toggleable from the header (prototype behavior).
+   Below 1000px the same .members-open class drives the slide-over drawer instead. */
+@media (min-width: 1001px) {
+    .chat:not(.members-open) .member-sidebar {
+        display: none;
+    }
 }
 
 /* Non-scrolling flex wrapper. .chat-messages-list is the scroller; this just gives
@@ -5470,40 +5522,6 @@ body {
     text-decoration: underline;
 }
 
-/* Profile zap pill (UserProfileModal) */
-.profile-name-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-}
-.profile-name-col {
-    min-width: 0;
-}
-/* Mirror the native profile zap pill: solid neutral surface, white label, yellow bolt. */
-.profile-zap {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    padding: 8px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--color-text-primary);
-    background: var(--color-surface-variant);
-    border: none;
-    border-radius: 10px;
-    cursor: pointer;
-}
-.profile-zap:hover {
-    background: #4a4f57;
-}
-.profile-zap .ico {
-    width: 16px;
-    height: 16px;
-    color: var(--color-warning);
-}
-
 /* Fenced code block + inline code (mirrors native CodeBlockContent / Monospace) */
 .code-block {
     margin: 4px 0;
@@ -5694,42 +5712,58 @@ body {
     color: var(--color-text-primary);
 }
 
+/* Prototype Composer: the outer area anchors the hint popups; the frame is the
+   bordered card holding reply chip / toolbar / input row; the footer hint sits
+   below it. */
+.composer-area {
+    position: relative;
+    flex-shrink: 0;
+    /* Prototype: px-4 pb-5 pt-1. */
+    padding: 4px 16px 20px;
+}
+
+.composer-frame {
+    overflow: hidden;
+    background: var(--color-surface-variant);
+    border: 1px solid var(--color-divider);
+    /* Prototype radius-card. */
+    border-radius: 12px;
+}
+
+/* Reply chip pinned to the top of the frame (prototype): the textarea below
+   keeps its own room and grows independently of the chip. */
 .composer-reply {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 16px;
     padding: 6px 12px;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    background: var(--color-surface-variant);
-    border-radius: 8px 8px 0 0;
-    border-bottom: 1px solid var(--color-background);
+    font-size: 12px;
+    color: var(--color-text-muted);
+    background: rgba(0, 0, 0, 0.1);
+    border-bottom: 1px solid var(--color-floating);
 }
 
-/* Accent bar mirroring the native ReplyingToBar. */
-.composer-reply-bar {
+.composer-reply > .ico {
+    width: 14px;
+    height: 14px;
     flex-shrink: 0;
-    width: 3px;
-    align-self: stretch;
-    min-height: 24px;
-    background: var(--color-primary);
-    border-radius: 2px;
 }
 
-.composer-reply-body {
-    flex: 1;
-    min-width: 0;
+.composer-reply-label {
+    flex-shrink: 0;
 }
 
 .composer-reply-name {
-    color: var(--color-primary);
-    font-weight: 600;
+    flex-shrink: 0;
+    color: var(--color-text-secondary);
+    font-weight: 500;
 }
 
 /* Single-line content preview of the message being replied to. */
 .composer-reply-text {
-    color: var(--color-text-secondary);
+    flex: 1;
+    min-width: 0;
+    color: var(--color-text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -5737,51 +5771,139 @@ body {
 
 .composer-reply-close {
     flex-shrink: 0;
+    display: inline-flex;
+    padding: 2px;
     background: transparent;
     border: none;
+    border-radius: 4px;
     color: var(--color-text-muted);
-    font-size: 13px;
+    font-size: 12px;
     cursor: pointer;
 }
 
 .composer-reply-close:hover {
+    background: var(--color-hover);
     color: var(--color-text-primary);
 }
 
-.composer.replying {
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
+/* Toggleable markdown toolbar row (prototype FmtBtns). */
+.composer-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 8px;
+    color: var(--color-text-secondary);
+    border-bottom: 1px solid var(--color-floating);
+}
+
+.fmt-btn {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+
+.fmt-btn:hover:not(.disabled) {
+    background: var(--color-hover);
+    color: var(--color-text-primary);
+}
+
+.fmt-btn.disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.fmt-close {
+    margin-left: auto;
+    color: var(--color-text-muted);
 }
 
 .composer {
     position: relative;
-    flex-shrink: 0;
     display: flex;
     /* flex-end so the upload / emoji / send buttons stay pinned to the bottom
        row of the composer when the textarea grows past one line. */
     align-items: flex-end;
     gap: 8px;
     padding: 8px 12px;
-    margin: 0 16px 16px;
-    background: var(--color-surface-variant);
-    border-radius: 8px;
 }
-/* @user / %group mention autocomplete popover above the composer */
+
+/* "?" hints popup floating above the frame (prototype). */
+.composer-hints {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: calc(100% + 2px);
+    z-index: 30;
+    padding: 6px;
+    background: var(--color-floating);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.composer-hints-title {
+    padding: 0 8px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.composer-hints-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.composer-hints-row kbd,
+.composer-hint-footer kbd {
+    padding: 1px 6px;
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: var(--color-text-secondary);
+    background: var(--color-background-dark);
+    border-radius: 4px;
+}
+
+.composer-hint-footer {
+    margin-top: 4px;
+    padding: 0 4px;
+    font-size: 11px;
+    color: var(--color-text-muted);
+}
+/* @user / %group mention autocomplete popover, floating above the composer
+   frame (anchored to .composer-area; prototype: bottom-full left-4 w-[300px]). */
 .mention-popup {
     position: absolute;
-    left: 0;
-    right: 0;
-    bottom: calc(100% + 6px);
+    left: 16px;
+    bottom: calc(100% + 8px);
+    width: 300px;
+    max-width: calc(100% - 32px);
     max-height: 320px;
     overflow: hidden auto;
     padding: 0;
-    background: var(--color-surface);
-    border: 1px solid var(--color-surface-variant);
+    background: var(--color-floating);
+    border: 1px solid var(--color-divider);
     border-radius: 8px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
     z-index: 40;
 }
 .mention-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-floating);
     padding: 8px 12px 4px;
     font-size: 11px;
     font-weight: 700;
@@ -5907,7 +6029,7 @@ body {
        32px buttons (the row is align-items:flex-end). Keep in sync with
        .composer-highlight's padding. */
     min-height: 32px;
-    max-height: 140px;
+    max-height: 160px;
     padding: 5.5px 0;
     line-height: 1.4;
     background: transparent;
@@ -5959,34 +6081,30 @@ body {
     background: var(--color-surface);
 }
 
+/* Prototype MembersPanel header: muted uppercase label on the sidebar surface,
+   action buttons grouped on the right, 1px bottom border. */
 .member-header {
     flex-shrink: 0;
     /* Matches .chat-header / .sidebar-header — keeps the top band aligned. */
-    height: 56px;
+    height: 48px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 16px;
-    font-size: 13px;
-    font-weight: 600;
-    /* White (was text-secondary grey) so the title reads cleanly on the
-       BackgroundDark band — matches the native MemberSidebar header. */
-    color: #ffffff;
-    background: var(--color-background-dark);
+    border-bottom: 1px solid var(--color-divider);
 }
 
 .member-header-title {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
 }
 
-/* The Person icon inherits color via fill: currentColor (.ico rule), so the
-   white from .member-header-title applies automatically. */
-.member-header-title .ico {
-    width: 18px;
-    height: 18px;
+.member-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .member-add-btn {
@@ -6136,10 +6254,6 @@ body {
 
 /* Member sidebar collapses to a right drawer on narrow screens */
 @media (max-width: 1000px) {
-    .chat-members-btn {
-        display: inline-flex;
-    }
-
     .member-sidebar {
         position: fixed;
         top: 0;
@@ -7074,64 +7188,178 @@ body {
     max-width: 440px;
 }
 
-.info-cover,
-.profile-banner {
-    position: relative;
-    height: 120px;
-    background: linear-gradient(135deg, var(--color-primary), var(--color-primary-variant));
+/* Group info modal header (prototype Modal): the zero-padding .info-card needs the
+   standard .modal-header padded and separated from the cover by a bottom border. */
+.info-card .modal-header,
+.profile-card .modal-header {
+    align-items: center;
+    margin-bottom: 0;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--color-divider);
 }
 
-.cover-img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.info-cover-close {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    width: 30px;
-    height: 30px;
-    display: inline-flex;
+/* Gradient cover band with the centered group avatar (prototype). The gradient
+   itself is inline (seeded per group, same hue pair as the avatar). */
+.info-cover {
+    height: 112px;
+    display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
-    color: #ffffff;
-    background: rgba(0, 0, 0, 0.4);
+}
+
+.info-cover-avatar {
+    width: 72px;
+    height: 72px;
+    flex-shrink: 0;
+    font-size: 27px;
+    font-weight: 700;
+    border-radius: 16px;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18);
+}
+
+/* Quick profile modal (prototype UserProfileCard): no banner; a clickable
+   header row (avatar + name + nip-05 + chevron) that opens the full page. */
+.profile-content {
+    padding: 16px 20px 20px;
+}
+
+.profile-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 4px;
+    text-align: left;
+    background: transparent;
     border: none;
-    border-radius: 50%;
+    border-radius: 8px;
     cursor: pointer;
 }
 
-.info-cover-close:hover {
-    background: rgba(0, 0, 0, 0.6);
+.profile-head:hover {
+    background: var(--color-hover);
 }
 
-.info-cover-icon,
-.profile-avatar {
-    position: absolute;
-    left: 20px;
-    bottom: -32px;
-    width: 80px;
-    height: 80px;
-    font-size: 30px;
+.profile-head-avatar {
+    width: 64px;
+    height: 64px;
+    flex-shrink: 0;
+    font-size: 24px;
     font-weight: 700;
-    border: 4px solid var(--color-surface);
-}
-
-.info-cover-icon {
-    border-radius: 16px;
-}
-
-.profile-avatar {
     border-radius: 50%;
 }
 
+.profile-head-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.profile-head-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.profile-head-name {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.profile-admin-badge {
+    flex-shrink: 0;
+    padding: 2px 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 20%, transparent);
+    border-radius: 4px;
+}
+
+.profile-nip05 {
+    font-size: 13px;
+    color: var(--color-success);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.profile-head-chevron {
+    flex-shrink: 0;
+    display: inline-flex;
+    color: var(--color-text-muted);
+}
+
+.profile-head-chevron .ico {
+    width: 18px;
+    height: 18px;
+}
+
+.profile-about {
+    margin: 12px 0 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--color-text-content);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.profile-identifier {
+    margin-top: 12px;
+}
+
+/* Follow + Message side-by-side (prototype). */
+.profile-btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.profile-btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.profile-btn .ico {
+    width: 16px;
+    height: 16px;
+}
+
+.profile-action-row.disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.profile-action-row.disabled:hover {
+    background: transparent;
+    color: var(--color-text-secondary);
+}
+
+.profile-action-emoji {
+    width: 18px;
+    flex-shrink: 0;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.profile-actions-divider {
+    margin: 4px 0;
+}
+
+.profile-self-note {
+    margin: 16px 0 0;
+    font-size: 13px;
+    color: var(--color-text-muted);
+}
+
 .info-content {
-    padding: 44px 20px 20px;
+    padding: 16px 20px 20px;
 }
 
 .info-content .settings-section-head {
@@ -7141,36 +7369,155 @@ body {
 .info-name {
     font-size: 20px;
     font-weight: 700;
-    color: #ffffff;
-}
-
-.profile-handle {
-    margin-top: 2px;
-    font-size: 14px;
-    color: var(--color-text-muted);
+    color: var(--color-text-primary);
 }
 
 .info-badges {
     display: flex;
-    gap: 8px;
-    margin-top: 10px;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
 }
 
+/* Prototype InfoBadge: 11px semibold pill, tone-tinted background. */
 .info-badge {
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
-    padding: 3px 10px;
-    border-radius: 12px;
-    background: var(--color-surface-variant);
-    color: var(--color-text-secondary);
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--color-floating);
+    color: var(--color-text-muted);
 }
 
 .info-badge.success {
+    background: color-mix(in srgb, var(--color-success) 15%, transparent);
     color: var(--color-success);
 }
 
 .info-badge.primary {
+    background: color-mix(in srgb, var(--color-primary) 15%, transparent);
     color: var(--color-primary);
+}
+
+/* Prototype InfoRadio: bordered option cards for the notification level. */
+.info-radio-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.info-radio {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+    padding: 12px;
+    text-align: left;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.info-radio:hover {
+    border-color: var(--color-text-muted);
+}
+
+.info-radio.on {
+    border-color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.info-radio-circle {
+    margin-top: 2px;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-text-muted);
+    border-radius: 50%;
+}
+
+.info-radio-circle.on {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+}
+
+.info-radio-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ffffff;
+}
+
+.info-radio-text {
+    min-width: 0;
+}
+
+.info-radio-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-primary);
+}
+
+.info-radio-desc {
+    display: block;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+/* The group-address row reuses the .identifier-field / .identifier-format object
+   (components/IdentifierField.kt) — no modal-specific clone. */
+
+.info-divider {
+    height: 1px;
+    margin: 20px 0;
+    background: var(--color-divider);
+}
+
+/* Leave group: danger row, swapped for an inline confirm box (prototype). */
+.info-leave-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    font-size: 14px;
+    text-align: left;
+    color: var(--color-error);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.info-leave-row:hover {
+    background: var(--color-hover);
+}
+
+.info-leave-confirm {
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--color-error) 40%, transparent);
+    background: color-mix(in srgb, var(--color-error) 5%, transparent);
+    border-radius: 8px;
+}
+
+.info-leave-text {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+.info-leave-text b {
+    color: var(--color-text-primary);
+}
+
+.info-leave-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
 }
 
 .info-about {
@@ -7183,55 +7530,25 @@ body {
     white-space: pre-wrap;
 }
 
-.info-id-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
 
-.info-id {
-    flex: 1;
-    min-width: 0;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
 
-.info-copy {
+
+
+/* ---------- Chat header overflow menu + moderation modals ---------- */
+/* Prototype HeaderBtn: 18px icon + 6px padding, small radius. The 1.2em .ico
+   inside resolves to 18px via the 15px font-size. */
+.chat-icon-btn {
     flex-shrink: 0;
     width: 30px;
     height: 30px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
-    color: var(--color-text-secondary);
-    background: transparent;
-    border: none;
-    border-radius: 6px;
-    cursor: pointer;
-}
-
-.info-copy:hover {
-    background: var(--color-hover);
-    color: var(--color-text-primary);
-}
-
-/* ---------- Chat header overflow menu + moderation modals ---------- */
-.chat-icon-btn {
-    flex-shrink: 0;
-    width: 40px;
-    height: 40px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
+    font-size: 15px;
     background: transparent;
     border: none;
     color: var(--color-text-secondary);
-    border-radius: 8px;
+    border-radius: 4px;
     cursor: pointer;
 }
 
@@ -7244,8 +7561,8 @@ body {
 
 .chat-requests-badge {
     position: absolute;
-    top: 4px;
-    right: 4px;
+    top: -2px;
+    right: -2px;
     min-width: 16px;
     height: 16px;
     padding: 0 4px;
@@ -7417,55 +7734,9 @@ body {
     background: var(--color-primary-variant);
 }
 
-.chat-icon-btn:hover,
-.chat-members-btn:hover {
+.chat-icon-btn:hover {
     background: var(--color-hover);
     color: var(--color-text-primary);
-}
-
-.chat-menu-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-}
-
-.chat-menu {
-    position: absolute;
-    top: 50px;
-    right: 8px;
-    z-index: 51;
-    width: 200px;
-    padding: 6px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-divider);
-    border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-
-.chat-menu-item {
-    padding: 8px 10px;
-    font-size: 14px;
-    color: var(--color-text-primary);
-    border-radius: 4px;
-    cursor: pointer;
-}
-
-.chat-menu-item:hover {
-    background: var(--color-hover);
-}
-
-.chat-menu-item.danger {
-    color: var(--color-error);
-}
-
-.chat-menu-item.danger:hover {
-    background: rgba(237, 66, 69, 0.15);
-}
-
-.chat-menu-divider {
-    height: 1px;
-    margin: 6px 4px;
-    background: var(--color-divider);
 }
 
 /* shared moderation lists / rows */
@@ -7508,6 +7779,20 @@ body {
     gap: 12px;
     padding: 8px 0;
     border-bottom: 1px solid var(--color-background-dark);
+}
+
+/* Invite-code row: code + actions on top, the cycling share formats below. */
+.invite-code-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+}
+
+.invite-code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 }
 
 .mod-avatar {

@@ -5,12 +5,11 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
-import org.nostr.nostrord.ui.theme.AvatarGradients
-import org.nostr.nostrord.ui.theme.Hsl
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.bannerGradientCss
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.EditGroupModal
@@ -199,11 +198,3 @@ private fun placeholderMeta(groupId: String): GroupMetadata = GroupMetadata(
     isPublic = true,
     isOpen = true,
 )
-
-private fun hsl(c: Hsl): String = "hsl(${c.hue} ${c.saturation}% ${c.lightness}%)"
-
-/** Prototype groupGradient: the avatar's hue pair, darkened, at 135deg. */
-private fun bannerGradientCss(seed: String): String {
-    val g = AvatarGradients.banner(seed)
-    return "linear-gradient(135deg, ${hsl(g.start)}, ${hsl(g.end)})"
-}

@@ -1,20 +1,17 @@
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,55 +19,49 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil3.compose.AsyncImage
-import coil3.compose.AsyncImagePainter
-import coil3.compose.LocalPlatformContext
-import coil3.request.CachePolicy
-import coil3.request.ImageRequest
-import coil3.request.crossfade
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.settings.NotificationLevel
+import org.nostr.nostrord.ui.components.IdentifierRow
+import org.nostr.nostrord.ui.components.ModalTitleBar
 import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.RichAboutText
+import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.theme.AvatarGradients
+import org.nostr.nostrord.ui.theme.Hsl
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
-import org.nostr.nostrord.ui.util.generateColorFromString
-import org.nostr.nostrord.utils.rememberClipboardWriter
+
+private fun Hsl.toColor(): Color = Color.hsl(hue.toFloat(), saturation / 100f, lightness / 100f)
 
 /**
- * Group info modal displaying group details and cover image.
- *
- * Features:
- * - Cover/banner image at the top (if available)
- * - Group avatar overlapping the banner
- * - Group name and description
- * - Public/Private and Open/Closed status badges
- * - Close button
+ * Group info modal — prototype GroupInfoModal: title bar, gradient cover with the
+ * centered group avatar, name, status badges, ABOUT, per-group NOTIFICATIONS level,
+ * the GROUP ADDRESS (cyclable relay'id / naddr / link formats) and, for members,
+ * Leave group with an inline confirm.
  */
 @Composable
 fun GroupInfoModal(
     groupId: String,
     groupName: String?,
     groupMetadata: GroupMetadata?,
+    relayUrl: String = "",
+    isMember: Boolean = false,
+    memberCount: Int = 0,
     userMetadata: Map<String, UserMetadata> = emptyMap(),
     onUserClick: ((String) -> Unit)? = null,
+    onLeave: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
-    val copyToClipboard = rememberClipboardWriter()
-
     Dialog(
         onDismissRequest = onDismiss,
         properties =
@@ -91,11 +82,10 @@ fun GroupInfoModal(
                 ) { onDismiss() },
             contentAlignment = Alignment.Center,
         ) {
-            // Modal card
             Card(
                 modifier =
                 Modifier
-                    .widthIn(max = 480.dp)
+                    .widthIn(max = 440.dp)
                     .fillMaxWidth(0.9f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -110,13 +100,37 @@ fun GroupInfoModal(
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                 ) {
-                    // Banner/Cover image section
-                    BannerSection(
-                        coverImageUrl = groupMetadata?.picture,
-                        groupName = groupName,
-                        groupId = groupId,
-                        onCloseClick = onDismiss,
-                    )
+                    ModalTitleBar(title = "Group Info", onClose = onDismiss)
+
+                    // Gradient cover band with the centered group avatar (prototype).
+                    // Same seeded hue pair as the group's avatar identity.
+                    val banner = remember(groupId) { AvatarGradients.banner(groupId) }
+                    Box(
+                        modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(112.dp)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(banner.start.toColor(), banner.end.toColor()),
+                                ),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            modifier =
+                            Modifier
+                                .border(3.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(16.dp)),
+                        ) {
+                            GroupHeaderIcon(
+                                pictureUrl = groupMetadata?.picture,
+                                groupId = groupId,
+                                displayName = groupName ?: "Group",
+                                size = 72.dp,
+                                cornerRadius = 16.dp,
+                            )
+                        }
+                    }
 
                     // Content section
                     Column(
@@ -124,50 +138,41 @@ fun GroupInfoModal(
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = Spacing.lg)
-                            .padding(bottom = Spacing.lg),
+                            .padding(top = Spacing.md, bottom = Spacing.lg),
                     ) {
-                        Spacer(modifier = Modifier.height(Spacing.md))
-
-                        // Group name
                         Text(
                             text = groupMetadata?.name ?: groupName ?: "Unknown Group",
-                            style = NostrordTypography.ServerHeader,
-                            color = Color.White,
+                            color = NostrordColors.TextPrimary,
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
                         )
 
                         Spacer(modifier = Modifier.height(Spacing.sm))
 
-                        // Status badges
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            // Public/Private badge
                             StatusBadge(
-                                icon = if (groupMetadata?.isPublic == true) Icons.Default.Public else Icons.Default.Lock,
                                 text = if (groupMetadata?.isPublic == true) "Public" else "Private",
-                                color = if (groupMetadata?.isPublic == true) NostrordColors.Success else NostrordColors.TextSecondary,
+                                color = if (groupMetadata?.isPublic == true) NostrordColors.Success else NostrordColors.TextMuted,
+                                tinted = groupMetadata?.isPublic == true,
                             )
-
-                            // Open/Closed badge
                             StatusBadge(
                                 text = if (groupMetadata?.isOpen == true) "Open" else "Closed",
                                 color = if (groupMetadata?.isOpen == true) NostrordColors.Primary else NostrordColors.TextMuted,
+                                tinted = groupMetadata?.isOpen == true,
                             )
+                            if (memberCount > 0) {
+                                StatusBadge(
+                                    text = "$memberCount members",
+                                    color = NostrordColors.TextMuted,
+                                    tinted = false,
+                                )
+                            }
                         }
 
-                        // Description
                         if (!groupMetadata?.about.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(Spacing.lg))
-
-                            Text(
-                                text = "ABOUT",
-                                style = NostrordTypography.SectionHeader,
-                                color = NostrordColors.TextMuted,
-                            )
-
-                            Spacer(modifier = Modifier.height(Spacing.sm))
-
+                            SectionHead("ABOUT")
                             RichAboutText(
                                 text = groupMetadata?.about ?: "",
                                 userMetadata = userMetadata,
@@ -183,74 +188,104 @@ fun GroupInfoModal(
                         val defaultLevel by notificationSettings.defaultLevel.collectAsState()
                         val effectiveLevel = groupLevels[groupId] ?: defaultLevel
 
-                        Spacer(modifier = Modifier.height(Spacing.lg))
-
-                        Text(
-                            text = "NOTIFICATIONS",
-                            style = NostrordTypography.SectionHeader,
-                            color = NostrordColors.TextMuted,
-                        )
-
-                        Spacer(modifier = Modifier.height(Spacing.sm))
-
-                        NotificationLevelOption(
-                            label = "All messages",
-                            description = "Notify for every message in this group.",
-                            selected = effectiveLevel == NotificationLevel.ALL,
-                            onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.ALL) },
-                        )
-                        NotificationLevelOption(
-                            label = "Mentions & replies only",
-                            description = "Notify on replies, @mentions, and reactions to your messages.",
-                            selected = effectiveLevel == NotificationLevel.MENTIONS_REPLIES,
-                            onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.MENTIONS_REPLIES) },
-                        )
-                        NotificationLevelOption(
-                            label = "Muted",
-                            description = "Silence everything, including replies, mentions and reactions.",
-                            selected = effectiveLevel == NotificationLevel.MUTED,
-                            onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.MUTED) },
-                        )
-
-                        // Group ID
-                        Spacer(modifier = Modifier.height(Spacing.lg))
-
-                        Text(
-                            text = "GROUP ID",
-                            style = NostrordTypography.SectionHeader,
-                            color = NostrordColors.TextMuted,
-                        )
-
-                        Spacer(modifier = Modifier.height(Spacing.sm))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = groupId,
-                                style = NostrordTypography.Caption,
-                                color = NostrordColors.TextSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
+                        SectionHead("NOTIFICATIONS")
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            NotificationLevelOption(
+                                label = "All messages",
+                                description = "Notify for every message in this group.",
+                                selected = effectiveLevel == NotificationLevel.ALL,
+                                onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.ALL) },
                             )
+                            NotificationLevelOption(
+                                label = "Mentions & replies",
+                                description = "Only replies, @mentions, and reactions to your messages.",
+                                selected = effectiveLevel == NotificationLevel.MENTIONS_REPLIES,
+                                onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.MENTIONS_REPLIES) },
+                            )
+                            NotificationLevelOption(
+                                label = "Muted",
+                                description = "Silence everything, including replies and mentions.",
+                                selected = effectiveLevel == NotificationLevel.MUTED,
+                                onClick = { notificationSettings.setGroupLevel(groupId, NotificationLevel.MUTED) },
+                            )
+                        }
 
-                            Spacer(modifier = Modifier.width(Spacing.sm))
+                        // Group address (prototype): the shared IdentifierRow cycles
+                        // relay'id / naddr / nostrord link, same object as the profile field.
+                        val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+                        val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
+                        val groupIds = remember(relayUrl, groupId, relayPubkey) { groupIdentifiers(relayUrl, groupId, relayPubkey) }
+                        if (groupIds.isNotEmpty()) {
+                            SectionHead("GROUP ADDRESS")
+                            IdentifierRow(ids = groupIds)
+                        }
 
-                            IconButton(
-                                onClick = { copyToClipboard(groupId) },
-                                modifier =
-                                Modifier
-                                    .size(32.dp)
-                                    .pointerHoverIcon(PointerIcon.Hand),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.ContentCopy,
-                                    contentDescription = "Copy group ID",
-                                    tint = NostrordColors.TextSecondary,
-                                    modifier = Modifier.size(18.dp),
-                                )
+                        // Leave group: danger row swapped for an inline confirm box (prototype).
+                        if (isMember) {
+                            Spacer(modifier = Modifier.height(Spacing.lg))
+                            HorizontalDivider(color = NostrordColors.Divider, thickness = 1.dp)
+                            Spacer(modifier = Modifier.height(Spacing.lg))
+
+                            var confirmLeave by remember { mutableStateOf(false) }
+                            if (confirmLeave) {
+                                Column(
+                                    modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, NostrordColors.Error.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                        .background(NostrordColors.Error.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                                        .padding(Spacing.md),
+                                ) {
+                                    Text(
+                                        text =
+                                        "Leave ${groupMetadata?.name ?: groupName ?: "this group"}? " +
+                                            if (groupMetadata?.isOpen == false) {
+                                                "To come back you will need approval or an invite."
+                                            } else {
+                                                "You can rejoin whenever you want."
+                                            },
+                                        fontSize = 13.sp,
+                                        color = NostrordColors.TextSecondary,
+                                    )
+                                    Spacer(modifier = Modifier.height(Spacing.sm))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                        Button(
+                                            onClick = onLeave,
+                                            colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Error),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            shape = RoundedCornerShape(6.dp),
+                                        ) {
+                                            Text("Confirm leave", style = NostrordTypography.Caption, color = Color.White)
+                                        }
+                                        TextButton(onClick = { confirmLeave = false }) {
+                                            Text("Cancel", style = NostrordTypography.Caption, color = NostrordColors.TextSecondary)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Row(
+                                    modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { confirmLeave = true }
+                                        .pointerHoverIcon(PointerIcon.Hand)
+                                        .padding(Spacing.sm),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.ExitToApp,
+                                        contentDescription = null,
+                                        tint = NostrordColors.Error,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                    Text(
+                                        text = "Leave group",
+                                        fontSize = 14.sp,
+                                        color = NostrordColors.Error,
+                                    )
+                                }
                             }
                         }
                     }
@@ -260,178 +295,42 @@ fun GroupInfoModal(
     }
 }
 
-/**
- * Banner section with cover image and avatar overlay.
- */
+/** 11sp bold uppercase section header (prototype InfoHead). */
 @Composable
-private fun BannerSection(
-    coverImageUrl: String?,
-    groupName: String?,
-    groupId: String,
-    onCloseClick: () -> Unit,
-) {
-    val context = LocalPlatformContext.current
-    var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
-    val hasCoverImage = !coverImageUrl.isNullOrBlank()
-
-    Box(
-        modifier =
-        Modifier
-            .fillMaxWidth()
-            .height(160.dp),
-    ) {
-        // Cover image or gradient background
-        if (hasCoverImage) {
-            AsyncImage(
-                model =
-                ImageRequest
-                    .Builder(context)
-                    .data(coverImageUrl)
-                    .crossfade(true)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                contentDescription = "Group cover",
-                contentScale = ContentScale.Crop,
-                filterQuality = FilterQuality.High,
-                modifier = Modifier.fillMaxSize(),
-                onState = { imageState = it },
-            )
-
-            // Gradient overlay for text readability
-            Box(
-                modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors =
-                            listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.6f),
-                            ),
-                        ),
-                    ),
-            )
-        } else {
-            // Gradient background when no cover image
-            Box(
-                modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors =
-                            listOf(
-                                NostrordColors.Primary.copy(alpha = 0.8f),
-                                NostrordColors.Primary.copy(alpha = 0.4f),
-                            ),
-                        ),
-                    ),
-            )
-        }
-
-        // Loading indicator for cover image
-        if (hasCoverImage && imageState is AsyncImagePainter.State.Loading) {
-            CircularProgressIndicator(
-                modifier =
-                Modifier
-                    .size(32.dp)
-                    .align(Alignment.Center),
-                color = Color.White,
-                strokeWidth = 3.dp,
-            )
-        }
-
-        // Close button
-        IconButton(
-            onClick = onCloseClick,
-            modifier =
-            Modifier
-                .align(Alignment.TopEnd)
-                .padding(Spacing.sm)
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.5f))
-                .pointerHoverIcon(PointerIcon.Hand),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = "Close",
-                tint = Color.White,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-
-        // Group avatar at bottom, overlapping
-        Box(
-            modifier =
-            Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = Spacing.lg)
-                .offset(y = 40.dp),
-        ) {
-            Box(
-                modifier =
-                Modifier
-                    .size(88.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(NostrordColors.Surface)
-                    .padding(4.dp),
-            ) {
-                GroupInfoIcon(
-                    pictureUrl = coverImageUrl,
-                    groupId = groupId,
-                    displayName = groupName ?: "Group",
-                    size = 80.dp,
-                )
-            }
-        }
-    }
-
-    // Spacer for avatar overflow
-    Spacer(modifier = Modifier.height(48.dp))
+private fun SectionHead(text: String) {
+    Spacer(modifier = Modifier.height(Spacing.lg))
+    Text(
+        text = text,
+        style = NostrordTypography.SectionHeader,
+        color = NostrordColors.TextMuted,
+    )
+    Spacer(modifier = Modifier.height(Spacing.sm))
 }
 
-/**
- * Status badge component for displaying group status.
- */
+/** Prototype InfoBadge: 11sp semibold pill, tone-tinted background when [tinted]. */
 @Composable
 private fun StatusBadge(
     text: String,
     color: Color,
-    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    tinted: Boolean,
 ) {
     Surface(
-        shape = RoundedCornerShape(4.dp),
-        color = color.copy(alpha = 0.15f),
+        shape = RoundedCornerShape(999.dp),
+        color = if (tinted) color.copy(alpha = 0.15f) else NostrordColors.BackgroundFloating,
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            if (icon != null) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(14.dp),
-                )
-            }
-            Text(
-                text = text,
-                style = NostrordTypography.Caption,
-                color = color,
-                fontWeight = FontWeight.Medium,
-            )
-        }
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            color = color,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
     }
 }
 
 /**
- * Selectable row for a per-group [NotificationLevel] choice. Shows a check on
- * the currently effective level.
+ * Selectable bordered card for a per-group [NotificationLevel] choice
+ * (prototype InfoRadio).
  */
 @Composable
 private fun NotificationLevelOption(
@@ -442,23 +341,26 @@ private fun NotificationLevelOption(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
+    val borderColor =
+        when {
+            selected -> NostrordColors.Primary
+            isHovered -> NostrordColors.TextMuted
+            else -> NostrordColors.Divider
+        }
     Row(
         modifier =
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (isHovered) NostrordColors.SurfaceVariant else Color.Transparent)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .background(if (selected) NostrordColors.Primary.copy(alpha = 0.1f) else NostrordColors.Surface)
             .hoverable(interactionSource)
             .clickable(onClick = onClick)
             .pointerHoverIcon(PointerIcon.Hand)
-            .padding(vertical = Spacing.sm, horizontal = Spacing.sm),
+            .padding(Spacing.md),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
-        // Web-parity radio circle (matches .settings-radio in styles.css) so the
-        // notification picker reads the same on both platforms. The bell / Check
-        // icons that used to occupy the corners are dropped — the radio is the
-        // selection signal now.
         RadioCircle(
             selected = selected,
             modifier = Modifier.padding(top = 2.dp),
@@ -466,66 +368,14 @@ private fun NotificationLevelOption(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = label,
-                style = NostrordTypography.MessageBody,
-                color = if (selected) Color.White else NostrordColors.TextContent,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                fontSize = 14.sp,
+                color = NostrordColors.TextPrimary,
+                fontWeight = FontWeight.Medium,
             )
             Text(
                 text = description,
-                style = NostrordTypography.Caption,
+                fontSize = 12.sp,
                 color = NostrordColors.TextMuted,
-            )
-        }
-    }
-}
-
-@Composable
-private fun GroupInfoIcon(
-    pictureUrl: String?,
-    groupId: String,
-    displayName: String,
-    size: androidx.compose.ui.unit.Dp,
-) {
-    val context = LocalPlatformContext.current
-    val iconShape = RoundedCornerShape(12.dp)
-    var imageState by remember(pictureUrl) {
-        mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
-    }
-    val showImage = !pictureUrl.isNullOrBlank() && imageState !is AsyncImagePainter.State.Error
-
-    Box(
-        modifier =
-        Modifier
-            .size(size)
-            .clip(iconShape)
-            .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (!showImage) {
-            Text(
-                text = displayName.take(1).uppercase(),
-                color = Color.White,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        if (!pictureUrl.isNullOrBlank()) {
-            AsyncImage(
-                model =
-                ImageRequest
-                    .Builder(context)
-                    .data(pictureUrl)
-                    .crossfade(true)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                contentDescription = displayName,
-                modifier =
-                Modifier
-                    .fillMaxSize()
-                    .clip(iconShape),
-                contentScale = ContentScale.Crop,
-                onState = { imageState = it },
             )
         }
     }

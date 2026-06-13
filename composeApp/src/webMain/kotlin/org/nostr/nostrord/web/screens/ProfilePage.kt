@@ -1,14 +1,26 @@
 package org.nostr.nostrord.web.screens
 
 import js.objects.unsafeJso
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.nostr.Nip57
+import org.nostr.nostrord.ui.isValidNip05
+import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
 import org.nostr.nostrord.ui.theme.AvatarGradients
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
+import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.IdentifierField
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.WebZapController
+import org.nostr.nostrord.web.components.aboutMentionPubkeys
+import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.renderAboutText
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -16,6 +28,7 @@ import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.h1
 import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import web.cssom.Background
 import web.cssom.ClassName
 
@@ -36,8 +49,15 @@ val ProfilePage =
     FC<ProfilePageProps> { props ->
         val vm = useViewModel("profile-${props.pubkey}") { ProfilePageViewModel(AppModule.nostrRepository, props.pubkey) }
         val metadata = useStateFlow(vm.metadata)
-        val groups = useStateFlow(vm.groupsWithUser)
+        val groups = useStateFlow(vm.userGroups)
         val isAdminSomewhere = useStateFlow(vm.isAdminSomewhere)
+        val allMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
+        // Resolve @names for any npub/nprofile mentioned in the bio so mentions
+        // render as display names, not raw npubs.
+        useEffect(metadata?.about) {
+            val pks = aboutMentionPubkeys(metadata?.about ?: "")
+            if (pks.isNotEmpty()) launchApp { AppModule.nostrRepository.requestUserMetadata(pks) }
+        }
 
         val name =
             metadata?.displayName?.takeIf { it.isNotBlank() }
@@ -83,6 +103,24 @@ val ProfilePage =
                                         onClick = { props.onEditProfile() }
                                         +"Edit profile"
                                     }
+                                } else {
+                                    div {
+                                        className = ClassName("profile-page-actions")
+                                        button {
+                                            className = ClassName("btn-secondary profile-btn")
+                                            onClick = { pushRoute(DmRoute(props.pubkey)) }
+                                            icon(Ic.Mail)
+                                            +"Message"
+                                        }
+                                        // Follow needs the kind:3 contact list, not wired yet.
+                                        button {
+                                            className = ClassName("btn-primary profile-btn")
+                                            disabled = true
+                                            title = "Coming soon"
+                                            icon(Ic.Add)
+                                            +"Follow"
+                                        }
+                                    }
                                 }
                             }
 
@@ -99,16 +137,16 @@ val ProfilePage =
                                     }
                                 }
                             }
-                            metadata?.nip05?.takeIf { it.isNotBlank() }?.let {
+                            metadata?.nip05?.takeIf { isValidNip05(it) }?.let {
                                 div {
                                     className = ClassName("profile-page-nip05")
                                     +it
                                 }
                             }
-                            metadata?.about?.takeIf { it.isNotBlank() }?.let {
+                            metadata?.about?.takeIf { it.isNotBlank() }?.let { about ->
                                 p {
                                     className = ClassName("profile-page-about")
-                                    +it
+                                    renderAboutText(about, allMeta) { pushRoute(UserRoute(it)) }
                                 }
                             }
                             // Cycling identifier (prototype IdentifierField): npub /
@@ -117,17 +155,49 @@ val ProfilePage =
                                 pubkey = props.pubkey
                                 nip05 = metadata?.nip05
                             }
+
+                            if (!vm.isSelf) {
+                                // Zaps require a signer + a lightning address on the profile.
+                                val canSign = useStateFlow(ActiveAccountManager.session) != null
+                                val canZap = canSign && Nip57.resolvePayEndpoint(metadata?.lud16, metadata?.lud06) != null
+                                div {
+                                    className = ClassName("profile-page-actions secondary")
+                                    button {
+                                        className = ClassName("btn-secondary profile-btn sm")
+                                        disabled = !canZap
+                                        if (!canZap) title = "No lightning address"
+                                        onClick = { WebZapController.request(props.pubkey) }
+                                        icon(Ic.Bolt)
+                                        +"Zap"
+                                    }
+                                    // Mute list and NIP-56 reports aren't wired yet.
+                                    button {
+                                        className = ClassName("btn-ghost profile-btn sm")
+                                        disabled = true
+                                        title = "Coming soon"
+                                        span { +"🔕" }
+                                        +"Mute"
+                                    }
+                                    button {
+                                        className = ClassName("btn-ghost profile-btn sm")
+                                        disabled = true
+                                        title = "Coming soon"
+                                        icon(Ic.Shield)
+                                        +"Report"
+                                    }
+                                }
+                            }
                         }
                     }
 
                     div {
                         className = ClassName("profile-groups-label")
-                        +((if (vm.isSelf) "Your groups" else "Groups in common") + " · ${groups.size}")
+                        +((if (vm.isSelf) "Your groups" else "$name's groups") + " · ${groups.size}")
                     }
                     if (groups.isEmpty()) {
                         div {
                             className = ClassName("profile-groups-empty")
-                            +"No groups in common."
+                            +"No groups to show."
                         }
                     } else {
                         groups.forEach { group ->

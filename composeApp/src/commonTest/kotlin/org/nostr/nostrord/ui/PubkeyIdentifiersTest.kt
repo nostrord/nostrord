@@ -1,5 +1,7 @@
 package org.nostr.nostrord.ui
 
+import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.network.outbox.RelayListManager
 import org.nostr.nostrord.nostr.Nip19
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -26,5 +28,33 @@ class PubkeyIdentifiersTest {
     fun `omits nip-05 when absent`() {
         val ids = pubkeyIdentifiers(hex, nip05 = null)
         assertEquals(listOf("npub", "nprofile", "nostrord link", "hex"), ids.map { it.label })
+    }
+
+    @Test
+    fun `nprofile carries relay hints`() {
+        val ids = pubkeyIdentifiers(hex, nprofileRelays = listOf("wss://relay.damus.io"))
+        val nprofile = ids.first { it.label == "nprofile" }.value
+        val decoded = Nip19.decode(nprofile) as Nip19.Entity.Nprofile
+        assertEquals(hex, decoded.pubkey)
+        assertEquals(listOf("wss://relay.damus.io"), decoded.relays)
+    }
+
+    @Test
+    fun `relay hints take nip65 write relays capped at two`() {
+        val hints =
+            nprofileRelayHints(
+                listOf(
+                    Nip65Relay("wss://a.example"),
+                    Nip65Relay("wss://read-only.example", write = false),
+                    Nip65Relay("wss://b.example"),
+                    Nip65Relay("wss://c.example"),
+                ),
+            )
+        assertEquals(listOf("wss://a.example", "wss://b.example"), hints)
+    }
+
+    @Test
+    fun `relay hints fall back to defaults without nip65`() {
+        assertEquals(RelayListManager.DEFAULT_FALLBACK_RELAYS.take(2), nprofileRelayHints(emptyList()))
     }
 }

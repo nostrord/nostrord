@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -13,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.nostr.nostrord.network.GroupMetadata
@@ -111,6 +111,7 @@ fun GroupScreenDesktop(
     isSending: Boolean = false,
     onMediaUploaded: (org.nostr.nostrord.network.upload.UploadResult) -> Unit = {},
     showMemberSidebar: Boolean = true,
+    onToggleMembers: () -> Unit = {},
     showMemberSheet: Boolean = false,
     onShowMemberSheet: (Boolean) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
@@ -172,23 +173,30 @@ fun GroupScreenDesktop(
                 pendingJoinRequestCount = pendingJoinRequestCount,
                 onJoinRequestsClick = onJoinRequestsClick,
                 onSearchClick = search.onToggle,
-                trailingIcon =
-                if (!showMemberSidebar) {
-                    {
-                        IconButton(
-                            onClick = { onShowMemberSheet(true) },
-                            modifier = Modifier.size(40.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.People,
-                                contentDescription = "Members",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
+                searchActive = search.active,
+                connectionState = connectionState,
+                trailingIcon = {
+                    // Members toggle (prototype): highlighted while the column is visible.
+                    IconButton(
+                        onClick = onToggleMembers,
+                        modifier =
+                        Modifier
+                            .size(32.dp)
+                            .then(
+                                if (showMemberSidebar) {
+                                    Modifier.background(NostrordColors.SurfaceVariant, RoundedCornerShape(6.dp))
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                    ) {
+                        Icon(
+                            Icons.Default.People,
+                            contentDescription = "Members",
+                            tint = if (showMemberSidebar) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
-                } else {
-                    null
                 },
             )
 
@@ -284,6 +292,7 @@ fun GroupScreenDesktop(
                 currentUserPubkey = currentUserPubkey,
                 onRemoveMember = onRemoveMember,
                 onAddMember = onAddMember,
+                onManage = if (isCurrentUserAdmin) onManageMembers else null,
             )
         }
     }
@@ -310,6 +319,7 @@ fun GroupScreenDesktop(
                 currentUserPubkey = currentUserPubkey,
                 onRemoveMember = onRemoveMember,
                 onAddMember = onAddMember,
+                onManage = if (isCurrentUserAdmin) onManageMembers else null,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

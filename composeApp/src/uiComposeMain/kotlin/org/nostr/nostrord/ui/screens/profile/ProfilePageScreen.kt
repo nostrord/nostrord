@@ -20,6 +20,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Mail
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,17 +39,27 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.IdentifierField
+import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
+import org.nostr.nostrord.ui.components.zap.ZapController
+import org.nostr.nostrord.ui.isValidNip05
+import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.LocalFrameNavigator
+import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.theme.AvatarGradients
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -66,7 +81,7 @@ fun ProfilePageScreen(
 ) {
     val vm = viewModel(key = "profile-$pubkey") { ProfilePageViewModel(AppModule.nostrRepository, pubkey) }
     val metadata by vm.metadata.collectAsState()
-    val groups by vm.groupsWithUser.collectAsState()
+    val groups by vm.userGroups.collectAsState()
     val isAdminSomewhere by vm.isAdminSomewhere.collectAsState()
 
     val name =
@@ -125,6 +140,24 @@ fun ProfilePageScreen(
                                         onClick = onEditProfile,
                                         variant = AppButtonVariant.Secondary,
                                     )
+                                } else {
+                                    val frameNavigator = LocalFrameNavigator.current
+                                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                        AppButton(
+                                            text = "Message",
+                                            onClick = { frameNavigator?.invoke(DmRoute(pubkey)) },
+                                            enabled = frameNavigator != null,
+                                            variant = AppButtonVariant.Secondary,
+                                            icon = Icons.Default.Mail,
+                                        )
+                                        // Follow needs the kind:3 contact list, not wired yet.
+                                        AppButton(
+                                            text = "Follow",
+                                            onClick = {},
+                                            enabled = false,
+                                            icon = Icons.Default.Add,
+                                        )
+                                    }
                                 }
                             }
 
@@ -143,17 +176,61 @@ fun ProfilePageScreen(
                                     )
                                     if (isAdminSomewhere) AdminBadge()
                                 }
-                                metadata?.nip05?.takeIf { it.isNotBlank() }?.let {
+                                metadata?.nip05?.takeIf { isValidNip05(it) }?.let {
                                     Text(it, color = NostrordColors.Success, fontSize = 14.sp)
                                 }
-                                metadata?.about?.takeIf { it.isNotBlank() }?.let {
+                                metadata?.about?.takeIf { it.isNotBlank() }?.let { about ->
                                     Spacer(modifier = Modifier.height(Spacing.md))
-                                    Text(it, color = NostrordColors.TextSecondary, fontSize = 15.sp, lineHeight = 21.sp)
+                                    // Rich parser: npub/nprofile mentions resolve to @names and
+                                    // navigate to that profile (same as the web renderAboutText).
+                                    val frameNavigator = LocalFrameNavigator.current
+                                    val allMeta by AppModule.nostrRepository.userMetadata.collectAsState()
+                                    RichAboutText(
+                                        text = about,
+                                        userMetadata = allMeta,
+                                        style = TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
+                                        color = NostrordColors.TextSecondary,
+                                        onMentionClick = frameNavigator?.let { nav -> { pk -> nav(UserRoute(pk)) } },
+                                    )
                                 }
                                 Spacer(modifier = Modifier.height(Spacing.lg))
                                 // Cycling identifier (prototype IdentifierField): npub /
                                 // nprofile / link / hex / nip-05 with swap + copy.
                                 IdentifierField(pubkey = pubkey, nip05 = metadata?.nip05)
+
+                                if (!vm.isSelf) {
+                                    // Zaps require a signer + a lightning address; mute list
+                                    // and NIP-56 reports aren't wired yet (disabled).
+                                    val activeSession by ActiveAccountManager.session.collectAsState()
+                                    val canZap = activeSession != null &&
+                                        Nip57.resolvePayEndpoint(metadata?.lud16, metadata?.lud06) != null
+                                    Spacer(modifier = Modifier.height(Spacing.md))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                                        AppButton(
+                                            text = "Zap",
+                                            onClick = { ZapController.request(pubkey, null) },
+                                            enabled = canZap,
+                                            variant = AppButtonVariant.Secondary,
+                                            size = AppButtonSize.Small,
+                                            icon = Icons.Outlined.Bolt,
+                                        )
+                                        AppButton(
+                                            text = "Mute",
+                                            onClick = {},
+                                            enabled = false,
+                                            variant = AppButtonVariant.Ghost,
+                                            size = AppButtonSize.Small,
+                                        )
+                                        AppButton(
+                                            text = "Report",
+                                            onClick = {},
+                                            enabled = false,
+                                            variant = AppButtonVariant.Ghost,
+                                            size = AppButtonSize.Small,
+                                            icon = Icons.Default.Shield,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -161,7 +238,7 @@ fun ProfilePageScreen(
 
                 Spacer(modifier = Modifier.height(Spacing.xxl))
                 Text(
-                    (if (vm.isSelf) "YOUR GROUPS" else "GROUPS IN COMMON") + " · ${groups.size}",
+                    (if (vm.isSelf) "YOUR GROUPS" else name.uppercase() + "'S GROUPS") + " · ${groups.size}",
                     color = NostrordColors.TextMuted,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -170,7 +247,7 @@ fun ProfilePageScreen(
                 Spacer(modifier = Modifier.height(Spacing.sm))
                 if (groups.isEmpty()) {
                     Text(
-                        "No groups in common.",
+                        "No groups to show.",
                         color = NostrordColors.TextMuted,
                         fontSize = 13.sp,
                         modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xxl),

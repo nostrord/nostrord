@@ -6,18 +6,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VpnKey
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,9 +35,10 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.ui.util.generateColorFromString
-import org.nostr.nostrord.utils.rememberClipboardWriter
 
 /** Group header with avatar, name, join/invite actions, and admin menu. */
 @Composable
@@ -73,6 +67,8 @@ fun GroupHeader(
     pendingJoinRequestCount: Int = 0,
     onJoinRequestsClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
+    searchActive: Boolean = false,
+    connectionState: ConnectionManager.ConnectionState? = null,
     modifier: Modifier = Modifier,
     navigationIcon: @Composable (() -> Unit)? = null,
     trailingIcon: @Composable (() -> Unit)? = null,
@@ -87,7 +83,7 @@ fun GroupHeader(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(Spacing.headerHeight)
                 .padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -108,10 +104,10 @@ fun GroupHeader(
                     pictureUrl = groupMetadata?.picture,
                     groupId = groupMetadata?.id ?: "",
                     displayName = groupName ?: "Group",
-                    size = 36.dp,
+                    size = 26.dp,
                 )
 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     if (showSubgroupControls && parentGroupName != null) {
@@ -127,12 +123,14 @@ fun GroupHeader(
                                 .pointerHoverIcon(PointerIcon.Hand),
                         )
                     }
+                    // Prototype single-row title: name · relay dot · inline description.
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = groupMetadata?.name ?: groupName ?: "Unknown Group",
-                            color = Color.White,
+                            color = NostrordColors.TextPrimary,
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false),
@@ -153,47 +151,40 @@ fun GroupHeader(
                                 )
                             }
                         }
-                    }
-
-                    if (!groupMetadata?.about.isNullOrBlank()) {
-                        Text(
-                            text = groupMetadata?.about ?: "",
-                            color = NostrordColors.TextSecondary,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        if (connectionState != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            RelayStatusDot(connectionState)
+                        }
+                        if (!groupMetadata?.about.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = groupMetadata?.about ?: "",
+                                color = NostrordColors.TextMuted,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
             }
 
-            if (trailingIcon != null) {
-                trailingIcon()
-            }
-
-            IconButton(
-                onClick = onSearchClick,
-                modifier = Modifier.size(40.dp),
-            ) {
-                Icon(
-                    Icons.Default.Search,
-                    contentDescription = "Search messages",
-                    tint = NostrordColors.TextSecondary,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            // Header actions in prototype order: Search, Invite, Info, Members.
+            var showShareModal by remember { mutableStateOf(false) }
 
             if (isAdmin && pendingJoinRequestCount > 0) {
                 Box {
                     IconButton(
                         onClick = onJoinRequestsClick,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
                             Icons.Default.PersonAdd,
                             contentDescription = "Join requests",
                             tint = NostrordColors.TextSecondary,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                     Box(
@@ -213,6 +204,65 @@ fun GroupHeader(
                         )
                     }
                 }
+            }
+
+            IconButton(
+                onClick = onSearchClick,
+                modifier =
+                Modifier
+                    .size(32.dp)
+                    .then(
+                        if (searchActive) {
+                            Modifier.background(NostrordColors.SurfaceVariant, RoundedCornerShape(6.dp))
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = "Search messages",
+                    tint = if (searchActive) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+
+            if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                IconButton(
+                    onClick = { showShareModal = true },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Link,
+                        contentDescription = "Invite",
+                        tint = NostrordColors.TextSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+
+            IconButton(
+                onClick = onTitleClick,
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    Icons.Outlined.Info,
+                    contentDescription = "Group info",
+                    tint = NostrordColors.TextSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+
+            if (trailingIcon != null) {
+                trailingIcon()
+            }
+
+            if (showShareModal && relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                ShareGroupModal(
+                    relayUrl = relayUrl,
+                    groupId = groupId,
+                    onDismiss = { showShareModal = false },
+                )
             }
 
             Row(
@@ -264,176 +314,35 @@ fun GroupHeader(
                             onDismiss = { showInviteModal = false },
                         )
                     }
-                } else {
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    var showShareModal by remember { mutableStateOf(false) }
-                    val copyToClipboard = rememberClipboardWriter()
-
-                    Box {
-                        IconButton(
-                            onClick = { menuExpanded = true },
-                            modifier = Modifier.size(40.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.MoreVert,
-                                contentDescription = "More options",
-                                tint = NostrordColors.TextSecondary,
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                            containerColor = NostrordColors.Surface,
-                        ) {
-                            if (isAdmin) {
-                                DropdownMenuItem(
-                                    text = { Text("Edit Group", color = NostrordColors.TextPrimary) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onEditClick()
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Edit,
-                                            contentDescription = null,
-                                            tint = NostrordColors.TextSecondary,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    },
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Manage Members", color = NostrordColors.TextPrimary) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onManageMembersClick()
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.People,
-                                            contentDescription = null,
-                                            tint = NostrordColors.TextSecondary,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    },
-                                )
-                                if (isClosed) {
-                                    DropdownMenuItem(
-                                        text = { Text("Invite Codes", color = NostrordColors.TextPrimary) },
-                                        onClick = {
-                                            menuExpanded = false
-                                            onInviteCodesClick()
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Default.Link,
-                                                contentDescription = null,
-                                                tint = NostrordColors.TextSecondary,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        },
-                                    )
-                                }
-                                if (showSubgroupControls) {
-                                    DropdownMenuItem(
-                                        text = { Text("Create Subgroup", color = NostrordColors.TextPrimary) },
-                                        onClick = {
-                                            menuExpanded = false
-                                            onCreateSubgroupClick()
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Default.Add,
-                                                contentDescription = null,
-                                                tint = NostrordColors.TextSecondary,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Manage Children", color = NostrordColors.TextPrimary) },
-                                        onClick = {
-                                            menuExpanded = false
-                                            onManageChildrenClick()
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Default.AccountTree,
-                                                contentDescription = null,
-                                                tint = NostrordColors.TextSecondary,
-                                                modifier = Modifier.size(20.dp),
-                                            )
-                                        },
-                                    )
-                                }
-                                DropdownMenuItem(
-                                    text = { Text("Delete Group", color = NostrordColors.Error) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        onDeleteClick()
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Delete,
-                                            contentDescription = null,
-                                            tint = NostrordColors.Error,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    },
-                                )
-                            }
-                            if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
-                                DropdownMenuItem(
-                                    text = { Text("Share", color = NostrordColors.TextPrimary) },
-                                    onClick = {
-                                        menuExpanded = false
-                                        showShareModal = true
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Default.Share,
-                                            contentDescription = null,
-                                            tint = NostrordColors.TextSecondary,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Leave Group",
-                                        color = NostrordColors.Error,
-                                    )
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    onLeaveClick()
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.ExitToApp,
-                                        contentDescription = null,
-                                        tint = NostrordColors.Error,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                },
-                            )
-                        }
-                    }
-
-                    if (showShareModal && relayUrl.isNotBlank() && groupId.isNotBlank()) {
-                        ShareGroupModal(
-                            relayUrl = relayUrl,
-                            groupId = groupId,
-                            onDismiss = { showShareModal = false },
-                        )
-                    }
                 }
+                // No 3-dots menu (prototype shape): Leave lives in the info modal,
+                // admin management in the sidebar "Manage group" entry and the
+                // members panel gear.
             }
         }
     }
+}
+
+/**
+ * Connection dot for the group's relay (prototype RelayStatusDot):
+ * green = connected, yellow = connecting/reconnecting, red = offline/error.
+ */
+@Composable
+internal fun RelayStatusDot(state: ConnectionManager.ConnectionState) {
+    val color =
+        when (state) {
+            is ConnectionManager.ConnectionState.Connected -> NostrordColors.Success
+            is ConnectionManager.ConnectionState.Connecting,
+            is ConnectionManager.ConnectionState.Reconnecting,
+            -> NostrordColors.Warning
+            else -> NostrordColors.Error
+        }
+    Box(
+        modifier =
+        Modifier
+            .size(8.dp)
+            .background(color, CircleShape),
+    )
 }
 
 /** Modal for entering an invite code to join a closed group. */
@@ -510,9 +419,10 @@ internal fun GroupHeaderIcon(
     groupId: String,
     displayName: String,
     size: androidx.compose.ui.unit.Dp,
+    cornerRadius: androidx.compose.ui.unit.Dp = 8.dp,
 ) {
     val context = LocalPlatformContext.current
-    val iconShape = RoundedCornerShape(8.dp)
+    val iconShape = RoundedCornerShape(cornerRadius)
     var imageState by remember(pictureUrl) {
         mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty)
     }
@@ -530,7 +440,8 @@ internal fun GroupHeaderIcon(
             Text(
                 text = displayName.take(1).uppercase(),
                 color = Color.White,
-                fontSize = 15.sp,
+                // Letter scales with the avatar (26dp header icon → 12sp, 32dp mobile → 15sp).
+                fontSize = (size.value * 0.46f).sp,
                 fontWeight = FontWeight.Bold,
             )
         }

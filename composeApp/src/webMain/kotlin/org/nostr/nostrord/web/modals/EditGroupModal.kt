@@ -2,9 +2,11 @@ package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.ui.Identifier
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
@@ -13,7 +15,6 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
-import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useState
 import web.cssom.ClassName
@@ -147,17 +148,7 @@ val EditGroupModal =
                     className = ClassName("access-section-title")
                     +"GROUP ID"
                 }
-                div {
-                    className = ClassName("info-id-row")
-                    span {
-                        className = ClassName("info-id")
-                        +group.id
-                    }
-                    button {
-                        className = ClassName("info-copy")
-                        icon(Ic.ContentCopy)
-                    }
-                }
+                IdentifierRow { ids = listOf(Identifier("group id", group.id)) }
 
                 if (error != null) {
                     div {

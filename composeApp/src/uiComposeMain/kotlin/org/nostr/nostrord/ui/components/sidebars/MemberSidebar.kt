@@ -15,9 +15,10 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +59,7 @@ import org.nostr.nostrord.ui.components.scrollbar.VerticalScrollbarWrapper
 import org.nostr.nostrord.ui.screens.group.components.AddMemberModal
 import org.nostr.nostrord.ui.screens.group.model.MemberInfo
 import org.nostr.nostrord.ui.theme.NostrordColors
+import org.nostr.nostrord.ui.theme.Spacing
 
 /**
  * Enhanced member sidebar with online/offline status, avatars, role badges, and search.
@@ -74,6 +76,7 @@ fun MemberSidebar(
     currentUserPubkey: String? = null,
     onRemoveMember: (MemberInfo) -> Unit = {},
     onAddMember: (String) -> Unit = {},
+    onManage: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -119,27 +122,21 @@ fun MemberSidebar(
             .fillMaxHeight()
             .background(NostrordColors.Surface),
     ) {
-        // Header
+        // Header (prototype MembersPanel): muted uppercase label on the sidebar
+        // surface, action buttons grouped on the right, 1px bottom border.
         Row(
             modifier =
             Modifier
                 .fillMaxWidth()
-                .height(50.dp)
-                .background(NostrordColors.BackgroundDark)
+                // Same band as GroupHeader (Spacing.headerHeight) so the top edge lines up.
+                .height(Spacing.headerHeight)
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = null,
-                tint = NostrordColors.TextSecondary,
-                modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Members (${visibleMembers.size})",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
+                text = "MEMBERS · ${visibleMembers.size}",
+                color = NostrordColors.TextMuted,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f),
             )
@@ -159,8 +156,24 @@ fun MemberSidebar(
                         modifier = Modifier.size(18.dp),
                     )
                 }
+                if (onManage != null) {
+                    // Prototype MembersPanel gear: opens member management (the
+                    // header 3-dots menu that used to host it is gone).
+                    IconButton(
+                        onClick = onManage,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Manage members",
+                            tint = NostrordColors.TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
             }
         }
+        HorizontalDivider(color = NostrordColors.Divider, thickness = 1.dp)
 
         // Add member modal
         if (showAddMemberModal) {
@@ -357,7 +370,7 @@ private fun MemberSectionHeader(
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
-            text = "$title ($count)",
+            text = "$title · $count",
             color = NostrordColors.TextMuted,
             fontWeight = FontWeight.SemiBold,
             style = MaterialTheme.typography.labelSmall,

@@ -23,6 +23,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.Identifier
+import org.nostr.nostrord.ui.components.IdentifierRow
+import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.toHash
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
@@ -54,6 +60,9 @@ fun InviteCodesModal(
     onClearError: () -> Unit = {},
 ) {
     val copyToClipboard = rememberClipboardWriter()
+    // Author = the relay's own pubkey (NIP-11) for the naddr share format.
+    val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
+    val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -249,11 +258,8 @@ fun InviteCodesModal(
                                 items(inviteCodes, key = { it.eventId }) { invite ->
                                     InviteCodeItem(
                                         invite = invite,
+                                        shareIds = groupIdentifiers(relayUrl, groupId, relayPubkey, invite.code),
                                         onCopyCode = { copyToClipboard(invite.code) },
-                                        onCopyUrl = {
-                                            val url = buildInviteUrl(relayUrl, groupId, invite.code)
-                                            copyToClipboard(url)
-                                        },
                                         onRevoke = { onRevokeInviteCode(invite.eventId) },
                                     )
                                 }
@@ -281,62 +287,60 @@ fun InviteCodesModal(
 @Composable
 private fun InviteCodeItem(
     invite: InviteCode,
+    shareIds: List<Identifier>,
     onCopyCode: () -> Unit,
-    onCopyUrl: () -> Unit,
     onRevoke: () -> Unit,
 ) {
-    Row(
+    Column(
         modifier =
         Modifier
             .fillMaxWidth()
             .background(NostrordColors.SurfaceVariant, RoundedCornerShape(8.dp))
             .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = invite.code,
-            style = NostrordTypography.Caption,
-            color = NostrordColors.TextPrimary,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.weight(1f),
-        )
-        IconButton(onClick = onCopyCode, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.ContentCopy,
-                contentDescription = "Copy code",
-                tint = NostrordColors.TextSecondary,
-                modifier = Modifier.size(16.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = invite.code,
+                style = NostrordTypography.Caption,
+                color = NostrordColors.TextPrimary,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
             )
+            IconButton(onClick = onCopyCode, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.ContentCopy,
+                    contentDescription = "Copy code",
+                    tint = NostrordColors.TextSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+            IconButton(onClick = onRevoke, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Revoke",
+                    tint = NostrordColors.Error,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
         }
-        IconButton(onClick = onCopyUrl, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.Link,
-                contentDescription = "Copy URL",
-                tint = NostrordColors.TextSecondary,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        IconButton(onClick = onRevoke, modifier = Modifier.size(32.dp)) {
-            Icon(
-                Icons.Default.Delete,
-                contentDescription = "Revoke",
-                tint = NostrordColors.Error,
-                modifier = Modifier.size(16.dp),
-            )
-        }
+        // Shareable forms with the ?invite= suffix (address / naddr / link);
+        // parseGroupJoinInput auto-joins from any of them.
+        IdentifierRow(ids = shareIds)
     }
 }
 
 /**
- * Builds an invite URL with code appended to the share link.
+ * Invite URL in the canonical hash-route form: the ?invite= rides inside #/g/.
  */
 private fun buildInviteUrl(
     relayUrl: String,
     groupId: String,
     code: String,
-): String = org.nostr.nostrord.ui.util
-    .buildShareGroupLink(relayUrl, groupId) + "&code=$code"
+): String = "https://nostrord.com/" + GroupRoute(relayUrl = relayUrl, groupId = groupId, inviteCode = code).toHash()
 
 /**
  * Dialog for entering an invite code to join a closed group.

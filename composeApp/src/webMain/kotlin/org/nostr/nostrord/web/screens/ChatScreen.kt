@@ -1,5 +1,6 @@
 package org.nostr.nostrord.web.screens
 
+import kotlinx.browser.document
 import kotlinx.browser.window
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.add
@@ -67,6 +68,7 @@ import react.dom.html.ReactHTML.code
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
+import react.dom.html.ReactHTML.kbd
 import react.dom.html.ReactHTML.pre
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
@@ -193,6 +195,9 @@ private fun detectMention(text: String, cursor: Int): MentionCtx? {
     return MentionCtx(before[idx], query, idx)
 }
 
+/** A mention requested from the profile modal, inserted into the composer draft. */
+private data class MentionRequest(val name: String, val pubkey: String, val nonce: Int)
+
 /** A run of composer text, flagged as a resolved @mention (gold) or plain. */
 private data class HlSeg(val text: String, val mention: Boolean)
 
@@ -223,6 +228,19 @@ private fun highlightSegments(text: String, tokens: Collection<String>): List<Hl
     return segs
 }
 
+/** Markdown-toolbar button (prototype FmtBtn). Unsupported tokens render disabled. */
+private fun ChildrenBuilder.fmtBtn(ic: Ic, label: String, disabled: Boolean = false, onSelect: () -> Unit) {
+    button {
+        className = ClassName(if (disabled) "fmt-btn disabled" else "fmt-btn")
+        title = if (disabled) "$label (Coming soon)" else label
+        this.disabled = disabled
+        // Keep the textarea's focus/selection so wrapSelection still sees it.
+        onMouseDown = { it.preventDefault() }
+        onClick = { if (!disabled) onSelect() }
+        icon(ic)
+    }
+}
+
 private external interface ChatComposerProps : Props {
     var groupId: String
     var groupName: String
@@ -245,6 +263,9 @@ private external interface ChatComposerProps : Props {
     /** Cleared after a successful publish so the parent can drop the reply target. */
     var onSent: () -> Unit
     var onJoin: () -> Unit
+
+    /** Mention requested from the profile modal ("Mention" action); nonce dedupes. */
+    var mentionRequest: MentionRequest?
 
     /** The screen's GroupViewModel (shared, not a second instance). */
     var groupVm: GroupViewModel
@@ -389,6 +410,11 @@ private val ChatComposer =
         fun send() {
             var text = draft.trim()
             if (text.isEmpty() || sending) return
+            if (text == "?" && pendingUploads.isEmpty()) {
+                // "?" is the hints trigger (popup above the frame), not a message.
+                setDraft("")
+                return
+            }
             // Resolve %group mentions to their nostr:naddr inline (native does this at send too);
             // @user mentions are resolved by sendMessage from the mentions map (+ p-tag).
             groupMentions.forEach { (name, ref) -> text = text.replace("%$name", ref) }
@@ -420,12 +446,105 @@ private val ChatComposer =
         useEffect(props.replyingToId) {
             if (props.replyingToId != null) composerInputRef.current?.focus()
         }
+        // Insert an @mention requested from the profile modal (prototype behavior).
+        val lastMentionNonce = useRef(0)
+        useEffect(props.mentionRequest) {
+            val req = props.mentionRequest
+            if (req != null && req.nonce != lastMentionNonce.current) {
+                lastMentionNonce.current = req.nonce
+                setDraft { t -> (if (t.isBlank()) "" else t.trimEnd() + " ") + "@${req.name} " }
+                setMentions { it + (req.name to req.pubkey) }
+                composerInputRef.current?.focus()
+            }
+        }
         useEffect(draft) {
             val el = composerInputRef.current ?: return@useEffect
             // Reset before reading scrollHeight so the field can shrink when text
             // is deleted — otherwise scrollHeight only grows.
             el.style.height = "auto"
             el.style.height = "${el.scrollHeight}px"
+        }
+
+        // Markdown toolbar (prototype Composer): wraps the selection via execCommand
+        // so edits join the textarea's NATIVE undo stack (Ctrl+Z works).
+        val (toolbarOpen, setToolbarOpen) = useState { false }
+        val isTouch = window.matchMedia("(pointer: coarse)").matches
+
+        fun insertAtCursor(replacement: String, caretBack: Int = 0) {
+            val ta = composerInputRef.current
+            if (ta == null) {
+                setDraft { it + replacement }
+                return
+            }
+            ta.focus()
+            document.asDynamic().execCommand("insertText", false, replacement)
+            if (caretBack > 0) {
+                val pos = ((ta.asDynamic().selectionStart as? Int) ?: 0) - caretBack
+                ta.asDynamic().setSelectionRange(pos, pos)
+            }
+        }
+
+        // Wrap the current selection (or cursor) with markdown tokens; the caret
+        // lands inside, before the closing token.
+        fun wrapSelection(pre: String, post: String = pre) {
+            val ta = composerInputRef.current ?: return
+            val start = (ta.asDynamic().selectionStart as? Int) ?: 0
+            val end = (ta.asDynamic().selectionEnd as? Int) ?: start
+            val sel = ta.value.substring(start, end)
+            insertAtCursor(pre + sel + post, post.length)
+        }
+
+        // List toolbar buttons: prefix the covered line(s) with a marker; clicking
+        // again toggles it off (prototype insertList).
+        fun insertList(ordered: Boolean) {
+            val ta = composerInputRef.current ?: return
+            val v = ta.value
+            val selStart = (ta.asDynamic().selectionStart as? Int) ?: 0
+            val selEnd = (ta.asDynamic().selectionEnd as? Int) ?: selStart
+            val start = v.lastIndexOf('\n', selStart - 1) + 1
+            var end = v.indexOf('\n', selEnd)
+            if (end == -1) end = v.length
+            val lines = v.substring(start, end).split('\n')
+            val re = if (ordered) Regex("^\\d+\\.\\s") else Regex("^[-*+]\\s")
+            val allListed = lines.all { it.isBlank() || re.containsMatchIn(it) }
+            val out =
+                lines.mapIndexed { i, ln ->
+                    if (allListed) ln.replaceFirst(re, "") else (if (ordered) "${i + 1}. " else "- ") + ln
+                }.joinToString("\n")
+            ta.focus()
+            ta.asDynamic().setSelectionRange(start, end)
+            document.asDynamic().execCommand("insertText", false, out)
+        }
+
+        // Enter inside a list: continue with the next marker; on an empty item, drop
+        // the marker (exit the list) instead — so a second Enter ends the list rather
+        // than sending the message (prototype continueList).
+        fun continueList(): Boolean {
+            val ta = composerInputRef.current ?: return false
+            val pos = (ta.asDynamic().selectionStart as? Int) ?: return false
+            val end = (ta.asDynamic().selectionEnd as? Int) ?: pos
+            if (pos != end) return false
+            val v = ta.value
+            val lineStart = v.lastIndexOf('\n', pos - 1) + 1
+            val nextBreak = v.indexOf('\n', pos)
+            val lineEnd = if (nextBreak == -1) v.length else nextBreak
+            val line = v.substring(lineStart, lineEnd)
+            val ul = Regex("^(\\s*)([-*+])\\s+(.*)$").find(line)
+            val ol = Regex("^(\\s*)(\\d+)\\.\\s+(.*)$").find(line)
+            if (ul == null && ol == null) return false
+            val groups = (ul ?: ol)!!.groupValues
+            val indent = groups[1]
+            val content = if (ul != null) ul.groupValues[3] else ol!!.groupValues[3]
+            if (content.isBlank()) {
+                // Empty item: remove the marker and exit the list.
+                ta.asDynamic().setSelectionRange(lineStart, lineEnd)
+                document.asDynamic().execCommand("delete")
+                if (indent.isNotEmpty()) document.asDynamic().execCommand("insertText", false, indent)
+                return true
+            }
+            val marker = if (ul != null) "$indent${ul.groupValues[2]} " else "$indent${ol!!.groupValues[2].toInt() + 1}. "
+            insertAtCursor("\n" + marker)
+            return true
         }
 
         if (!props.canPost) {
@@ -445,158 +564,48 @@ private val ChatComposer =
                 }
             }
         } else {
-            // Reply banner (above the composer)
-            val parentName = props.replyParentName
-            if (props.replyingToId != null && parentName != null) {
-                div {
-                    className = ClassName("composer-reply")
-                    div { className = ClassName("composer-reply-bar") }
-                    div {
-                        className = ClassName("composer-reply-body")
-                        div {
-                            className = ClassName("composer-reply-name")
-                            +"Replying to $parentName"
-                        }
-                        props.replyParentContent?.takeIf { it.isNotBlank() }?.let { preview ->
-                            div {
-                                className = ClassName("composer-reply-text")
-                                +preview
-                            }
-                        }
-                    }
-                    button {
-                        className = ClassName("composer-reply-close")
-                        onClick = { props.onCancelReply() }
-                        icon(Ic.Close)
-                    }
-                }
-            }
-
-            // Composer
+            // Prototype Composer: one bordered frame holding the reply chip, the
+            // toggleable markdown toolbar and the input row; hints float above it.
             div {
-                className = ClassName(if (props.replyingToId != null) "composer replying" else "composer")
-                UploadButton {
-                    cls = "composer-btn"
-                    icon = Ic.AttachFile
-                    // Paste / drag-and-drop uploads run through handleMediaFile and are
-                    // tracked by uploadCount; surface their spinner on the attach icon.
-                    busy = uploadCount > 0
-                    // Count a file-pick upload in uploadCount too, so the send button is
-                    // disabled until the picked URL lands in the draft (it isn't sent empty).
-                    onBusyChange = { b -> setUploadCount { if (b) it + 1 else it - 1 } }
-                    // The native file picker collapses the soft keyboard (no web API keeps it
-                    // open while the OS dialog is up). Refocus the composer the instant the
-                    // dialog closes, whether a file was chosen or cancelled, so the keyboard
-                    // re-opens and the user keeps typing. Fired from the file input's change /
-                    // cancel handlers, the closest point to the gesture, so Android re-pops the
-                    // keyboard; iOS Safari needs a live gesture and may not.
-                    onPickerClosed = { composerInputRef.current?.focus() }
-                    onUploaded = { upload ->
-                        val url = upload.url
-                        setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
-                        setPendingUploads { it + upload }
-                    }
-                    onError = { setUploadError(it) }
-                }
-                div {
-                    className = ClassName("composer-input-wrap")
-                    // Colored mirror painted behind the textarea: same text, but with
-                    // resolved @user / %group mentions tinted gold (native parity).
+                className = ClassName("composer-area")
+
+                // Every direct child carries a stable key: the hints / mention popups
+                // are conditional siblings rendered before the frame, and without keys
+                // React reconciles by index and REMOUNTS the frame - the focused
+                // textarea included (same failure mode as the chat-header note).
+                // Type "?" to surface hints (keyboard shortcuts on desktop, mention
+                // triggers on touch, where Enter is a newline).
+                if (draft.trim() == "?") {
                     div {
-                        className = ClassName("composer-highlight")
-                        ref = composerHighlightRef
-                        val tokens = mentions.keys.map { "@$it" } + groupMentions.keys.map { "%$it" }
-                        highlightSegments(draft, tokens).forEach { seg ->
-                            if (seg.mention) {
-                                span {
-                                    className = ClassName("msg-mention")
-                                    +seg.text
-                                }
-                            } else {
-                                +seg.text
-                            }
+                        key = "composer-hints"
+                        className = ClassName("composer-hints")
+                        div {
+                            className = ClassName("composer-hints-title")
+                            +(if (isTouch) "Mentions" else "Shortcuts")
                         }
-                    }
-                    textarea {
-                        ref = composerInputRef
-                        onScroll = {
-                            composerHighlightRef.current?.scrollTop =
-                                composerInputRef.current?.scrollTop ?: 0.0
-                        }
-                        className = ClassName("composer-input")
-                        placeholder = "Message $groupName"
-                        value = draft
-                        // Intentionally NOT readOnly while sending: toggling readOnly on the
-                        // focused field dismisses the mobile virtual keyboard. The double-send
-                        // guard lives in send() (sending check) and the Send button's disabled.
-                        rows = 1
-                        onChange = { event ->
-                            val v = event.currentTarget.value
-                            setDraft(v)
-                            val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
-                            setMention(detectMention(v, cursor))
-                            setMentionSelected(0)
-                        }
-                        onKeyDown = { event ->
-                            val hasMentions = mention != null && mentionMatches.isNotEmpty()
-                            when {
-                                hasMentions && event.key == "ArrowDown" -> {
-                                    event.preventDefault()
-                                    setMentionSelected { (it + 1).coerceAtMost(mentionMatches.size - 1) }
+                        val rows =
+                            (
+                                if (isTouch) {
+                                    emptyList()
+                                } else {
+                                    listOf("Enter" to "send", "Shift + Enter" to "new line")
                                 }
-                                hasMentions && event.key == "ArrowUp" -> {
-                                    event.preventDefault()
-                                    setMentionSelected { (it - 1).coerceAtLeast(0) }
-                                }
-                                hasMentions && (event.key == "Enter" || event.key == "Tab") -> {
-                                    event.preventDefault()
-                                    insertMention(mentionMatches[mentionSelected.coerceIn(0, mentionMatches.size - 1)])
-                                }
-                                mention != null && event.key == "Escape" -> {
-                                    event.preventDefault()
-                                    setMention(null)
-                                }
-                                props.replyingToId != null && event.key == "Escape" -> {
-                                    event.preventDefault()
-                                    props.onCancelReply()
-                                }
-                                event.key == "Enter" && !event.shiftKey -> {
-                                    event.preventDefault()
-                                    send()
-                                }
-                            }
-                        }
-                        onBlur = { window.setTimeout({ setMention(null) }, 150) }
-                        onPaste = { event ->
-                            val items = event.asDynamic().clipboardData?.items
-                            val count = (items?.length as? Int) ?: 0
-                            for (i in 0 until count) {
-                                val item = items[i]
-                                val type = item.type.unsafeCast<String?>()
-                                if (item.kind == "file" && isMediaMime(type)) {
-                                    val file = item.getAsFile()
-                                    if (file != null) {
-                                        event.preventDefault()
-                                        handleMediaFile(file)
-                                    }
-                                }
-                            }
-                        }
-                        onDragOver = { it.preventDefault() }
-                        onDrop = { event ->
-                            val files = event.asDynamic().dataTransfer?.files
-                            val count = (files?.length as? Int) ?: 0
-                            if (count > 0) event.preventDefault()
-                            for (i in 0 until count) {
-                                val file = files[i]
-                                val type = file.type.unsafeCast<String?>()
-                                if (isMediaMime(type)) handleMediaFile(file)
+                                ) + listOf("@" to "mention a person", "%" to "mention a group")
+                        rows.forEach { (k, v) ->
+                            div {
+                                className = ClassName("composer-hints-row")
+                                kbd { +k }
+                                span { +v }
                             }
                         }
                     }
                 }
+
+                // Mention popup floats above the frame (anchored to the area, the
+                // frame's overflow:hidden would clip it inside the input row).
                 if (mention != null && mentionMatches.isNotEmpty()) {
                     div {
+                        key = "mention-popup"
                         className = ClassName("mention-popup")
                         div {
                             className = ClassName("mention-header")
@@ -634,40 +643,260 @@ private val ChatComposer =
                         }
                     }
                 }
-                button {
-                    // composer-emoji is hidden on touch/mobile (CSS @media pointer:coarse),
-                    // where the OS keyboard already provides emoji (native parity).
-                    className = ClassName(if (emojiOpen) "composer-btn composer-emoji active" else "composer-btn composer-emoji")
-                    onClick = { setEmojiOpen(!emojiOpen) }
-                    icon(Ic.EmojiEmotions)
-                }
-                button {
-                    val uploading = uploadCount > 0
-                    // The upload spinner now lives on the attach icon; the send button
-                    // only spins for an in-flight send, but stays disabled while a paste
-                    // upload finishes so its URL can land in the draft first.
-                    className = ClassName(
-                        if (draft.isNotBlank() || sending) "composer-send active" else "composer-send",
-                    )
-                    disabled = (draft.isBlank() && !uploading) || sending || uploading
-                    // preventDefault on mousedown keeps focus on the textarea so tapping Send
-                    // does not blur it and dismiss the mobile keyboard (same trick as mention rows).
-                    onMouseDown = { e -> e.preventDefault() }
-                    onClick = { send() }
-                    if (sending) {
-                        span { className = ClassName("btn-spinner") }
-                    } else {
-                        icon(Ic.Send)
-                    }
-                }
-                if (emojiOpen) {
-                    div {
-                        className = ClassName("emoji-overlay")
-                        onClick = { setEmojiOpen(false) }
-                        EmojiPicker {
-                            onPick = { emoji -> setDraft { prev -> prev + emoji } }
+
+                div {
+                    key = "composer-frame"
+                    className = ClassName("composer-frame")
+
+                    // Reply chip pinned to the top of the frame (prototype): the
+                    // textarea below keeps its own room and grows independently.
+                    val parentName = props.replyParentName
+                    if (props.replyingToId != null && parentName != null) {
+                        div {
+                            key = "composer-reply"
+                            className = ClassName("composer-reply")
+                            icon(Ic.Reply)
+                            span {
+                                className = ClassName("composer-reply-label")
+                                +"Replying to"
+                            }
+                            span {
+                                className = ClassName("composer-reply-name")
+                                +parentName
+                            }
+                            props.replyParentContent?.takeIf { it.isNotBlank() }?.let { preview ->
+                                span {
+                                    className = ClassName("composer-reply-text")
+                                    +preview
+                                }
+                            }
+                            button {
+                                className = ClassName("composer-reply-close")
+                                onClick = { props.onCancelReply() }
+                                icon(Ic.Close)
+                            }
                         }
                     }
+
+                    // Markdown toolbar (toggleable). Tokens match what the message
+                    // renderer understands: *bold*, _italic_, `code`, ``` blocks;
+                    // quote/lists are plain-text conventions. Strikethrough and
+                    // spoiler wait on renderer support (Coming soon).
+                    if (toolbarOpen) {
+                        div {
+                            key = "composer-toolbar"
+                            className = ClassName("composer-toolbar")
+                            fmtBtn(Ic.FormatBold, "Bold") { wrapSelection("*") }
+                            fmtBtn(Ic.FormatItalic, "Italic") { wrapSelection("_") }
+                            fmtBtn(Ic.FormatStrikethrough, "Strikethrough", disabled = true) {}
+                            fmtBtn(Ic.Code, "Code") { wrapSelection("`") }
+                            fmtBtn(Ic.DataObject, "Code block") { wrapSelection("```\n", "\n```") }
+                            fmtBtn(Ic.FormatQuote, "Quote") { wrapSelection("> ", "") }
+                            fmtBtn(Ic.FormatListBulleted, "Bulleted list") { insertList(false) }
+                            fmtBtn(Ic.FormatListNumbered, "Numbered list") { insertList(true) }
+                            fmtBtn(Ic.VisibilityOff, "Spoiler", disabled = true) {}
+                            button {
+                                className = ClassName("fmt-btn fmt-close")
+                                title = "Close formatting (Esc)"
+                                onClick = { setToolbarOpen(false) }
+                                icon(Ic.Close)
+                            }
+                        }
+                    }
+
+                    // Input row
+                    div {
+                        key = "composer-row"
+                        className = ClassName("composer")
+                        button {
+                            className = ClassName(if (toolbarOpen) "composer-btn active" else "composer-btn")
+                            title = "Text formatting"
+                            onClick = {
+                                setToolbarOpen(!toolbarOpen)
+                                composerInputRef.current?.focus()
+                            }
+                            icon(Ic.TextFields)
+                        }
+                        UploadButton {
+                            cls = "composer-btn"
+                            icon = Ic.AttachFile
+                            // Paste / drag-and-drop uploads run through handleMediaFile and are
+                            // tracked by uploadCount; surface their spinner on the attach icon.
+                            busy = uploadCount > 0
+                            // Count a file-pick upload in uploadCount too, so the send button is
+                            // disabled until the picked URL lands in the draft (it isn't sent empty).
+                            onBusyChange = { b -> setUploadCount { if (b) it + 1 else it - 1 } }
+                            // The native file picker collapses the soft keyboard (no web API keeps it
+                            // open while the OS dialog is up). Refocus the composer the instant the
+                            // dialog closes, whether a file was chosen or cancelled, so the keyboard
+                            // re-opens and the user keeps typing. Fired from the file input's change /
+                            // cancel handlers, the closest point to the gesture, so Android re-pops the
+                            // keyboard; iOS Safari needs a live gesture and may not.
+                            onPickerClosed = { composerInputRef.current?.focus() }
+                            onUploaded = { upload ->
+                                val url = upload.url
+                                setDraft { prev -> if (prev.isBlank()) url else "$prev $url" }
+                                setPendingUploads { it + upload }
+                            }
+                            onError = { setUploadError(it) }
+                        }
+                        div {
+                            className = ClassName("composer-input-wrap")
+                            // Colored mirror painted behind the textarea: same text, but with
+                            // resolved @user / %group mentions tinted gold (native parity).
+                            div {
+                                className = ClassName("composer-highlight")
+                                ref = composerHighlightRef
+                                val tokens = mentions.keys.map { "@$it" } + groupMentions.keys.map { "%$it" }
+                                highlightSegments(draft, tokens).forEach { seg ->
+                                    if (seg.mention) {
+                                        span {
+                                            className = ClassName("msg-mention")
+                                            +seg.text
+                                        }
+                                    } else {
+                                        +seg.text
+                                    }
+                                }
+                            }
+                            textarea {
+                                ref = composerInputRef
+                                onScroll = {
+                                    composerHighlightRef.current?.scrollTop =
+                                        composerInputRef.current?.scrollTop ?: 0.0
+                                }
+                                className = ClassName("composer-input")
+                                placeholder =
+                                    props.replyParentName?.takeIf { props.replyingToId != null }
+                                        ?.let { "Reply to $it" }
+                                        ?: "Message $groupName"
+                                value = draft
+                                // Intentionally NOT readOnly while sending: toggling readOnly on the
+                                // focused field dismisses the mobile virtual keyboard. The double-send
+                                // guard lives in send() (sending check) and the Send button's disabled.
+                                rows = 1
+                                onChange = { event ->
+                                    val v = event.currentTarget.value
+                                    setDraft(v)
+                                    val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
+                                    setMention(detectMention(v, cursor))
+                                    setMentionSelected(0)
+                                }
+                                onKeyDown = { event ->
+                                    val hasMentions = mention != null && mentionMatches.isNotEmpty()
+                                    when {
+                                        hasMentions && event.key == "ArrowDown" -> {
+                                            event.preventDefault()
+                                            setMentionSelected { (it + 1).coerceAtMost(mentionMatches.size - 1) }
+                                        }
+                                        hasMentions && event.key == "ArrowUp" -> {
+                                            event.preventDefault()
+                                            setMentionSelected { (it - 1).coerceAtLeast(0) }
+                                        }
+                                        hasMentions && (event.key == "Enter" || event.key == "Tab") -> {
+                                            event.preventDefault()
+                                            insertMention(mentionMatches[mentionSelected.coerceIn(0, mentionMatches.size - 1)])
+                                        }
+                                        mention != null && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            setMention(null)
+                                        }
+                                        toolbarOpen && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            setToolbarOpen(false)
+                                        }
+                                        props.replyingToId != null && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            props.onCancelReply()
+                                        }
+                                        event.key == "Enter" && !event.shiftKey -> {
+                                            // Inside a list: continue / exit it, never send. On touch,
+                                            // Enter stays a newline (Send is the button).
+                                            if (continueList()) {
+                                                event.preventDefault()
+                                            } else if (!isTouch) {
+                                                event.preventDefault()
+                                                send()
+                                            }
+                                        }
+                                    }
+                                }
+                                onBlur = { window.setTimeout({ setMention(null) }, 150) }
+                                onPaste = { event ->
+                                    val items = event.asDynamic().clipboardData?.items
+                                    val count = (items?.length as? Int) ?: 0
+                                    for (i in 0 until count) {
+                                        val item = items[i]
+                                        val type = item.type.unsafeCast<String?>()
+                                        if (item.kind == "file" && isMediaMime(type)) {
+                                            val file = item.getAsFile()
+                                            if (file != null) {
+                                                event.preventDefault()
+                                                handleMediaFile(file)
+                                            }
+                                        }
+                                    }
+                                }
+                                onDragOver = { it.preventDefault() }
+                                onDrop = { event ->
+                                    val files = event.asDynamic().dataTransfer?.files
+                                    val count = (files?.length as? Int) ?: 0
+                                    if (count > 0) event.preventDefault()
+                                    for (i in 0 until count) {
+                                        val file = files[i]
+                                        val type = file.type.unsafeCast<String?>()
+                                        if (isMediaMime(type)) handleMediaFile(file)
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            // composer-emoji is hidden on touch/mobile (CSS @media pointer:coarse),
+                            // where the OS keyboard already provides emoji (native parity).
+                            className = ClassName(if (emojiOpen) "composer-btn composer-emoji active" else "composer-btn composer-emoji")
+                            onClick = { setEmojiOpen(!emojiOpen) }
+                            icon(Ic.EmojiEmotions)
+                        }
+                        button {
+                            val uploading = uploadCount > 0
+                            // The upload spinner now lives on the attach icon; the send button
+                            // only spins for an in-flight send, but stays disabled while a paste
+                            // upload finishes so its URL can land in the draft first.
+                            className = ClassName(
+                                if (draft.isNotBlank() || sending) "composer-send active" else "composer-send",
+                            )
+                            disabled = (draft.isBlank() && !uploading) || sending || uploading
+                            // preventDefault on mousedown keeps focus on the textarea so tapping Send
+                            // does not blur it and dismiss the mobile keyboard (same trick as mention rows).
+                            onMouseDown = { e -> e.preventDefault() }
+                            onClick = { send() }
+                            if (sending) {
+                                span { className = ClassName("btn-spinner") }
+                            } else {
+                                icon(Ic.Send)
+                            }
+                        }
+                        if (emojiOpen) {
+                            div {
+                                className = ClassName("emoji-overlay")
+                                onClick = { setEmojiOpen(false) }
+                                EmojiPicker {
+                                    onPick = { emoji ->
+                                        insertAtCursor(emoji)
+                                        setEmojiOpen(false)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                div {
+                    key = "composer-footer"
+                    className = ClassName("composer-hint-footer")
+                    +"Type "
+                    kbd { +"?" }
+                    +(if (isTouch) " to see mention triggers" else " to see shortcuts")
                 }
             }
             uploadError?.let { error ->
@@ -793,11 +1022,14 @@ val ChatScreen =
             0
         }
 
-        val (membersOpen, setMembersOpen) = useState { false }
+        // Members panel: persistent side column on desktop (open by default), slide-over
+        // drawer on mobile (closed by default). Same split as the prototype.
+        val (membersOpen, setMembersOpen) = useState { window.innerWidth > 1000 }
         val (infoOpen, setInfoOpen) = useState { false }
         val (profilePubkey, setProfilePubkey) = useState<String?> { null }
-        val (menuOpen, setMenuOpen) = useState { false }
         val (replyingToId, setReplyingToId) = useState<String?> { null }
+        // Mention requested from the profile modal, consumed by the composer.
+        val (mentionRequest, setMentionRequest) = useState<MentionRequest?> { null }
         // Members sidebar search query.
         val (memberQuery, setMemberQuery) = useState { "" }
         // The deep-linked message currently flashing (cleared after the highlight animation).
@@ -1286,16 +1518,27 @@ val ChatScreen =
                             cls = "chat-header-icon"
                         }
                         div {
-                            className = ClassName("chat-header-meta")
-                            div {
-                                className = ClassName("chat-header-name")
-                                +groupName
+                            className = ClassName("chat-header-name")
+                            +groupName
+                        }
+                        // Relay status dot (prototype RelayStatusDot): colored by the
+                        // active relay's connection state, tooltip = relay URL + status.
+                        val (dotCls, dotLabel) =
+                            when (connState) {
+                                is ConnectionManager.ConnectionState.Connected -> "st-connected" to "Connected"
+                                is ConnectionManager.ConnectionState.Connecting,
+                                is ConnectionManager.ConnectionState.Reconnecting,
+                                -> "st-connecting" to "Connecting..."
+                                else -> "st-offline" to "Offline"
                             }
-                            if (!group.about.isNullOrBlank()) {
-                                div {
-                                    className = ClassName("chat-header-about")
-                                    +group.about
-                                }
+                        span {
+                            className = ClassName("chat-relay-dot $dotCls")
+                            title = "${relayUrl.ifBlank { "relay" }} · $dotLabel"
+                        }
+                        if (!group.about.isNullOrBlank()) {
+                            div {
+                                className = ClassName("chat-header-about")
+                                +group.about
                             }
                         }
                     }
@@ -1315,11 +1558,26 @@ val ChatScreen =
                     }
                     button {
                         className = ClassName(if (searchActive) "chat-icon-btn active" else "chat-icon-btn")
+                        title = "Search"
                         onClick = { if (searchActive) closeSearch() else setSearchActive(true) }
                         icon(Ic.Search)
                     }
+                    // Prototype header actions: Invite (share link) and Info, then Members.
                     button {
-                        className = ClassName("chat-members-btn")
+                        className = ClassName("chat-icon-btn")
+                        title = "Invite"
+                        onClick = { setModal("share") }
+                        icon(Ic.Link)
+                    }
+                    button {
+                        className = ClassName("chat-icon-btn")
+                        title = "Group Info"
+                        onClick = { setInfoOpen(true) }
+                        icon(Ic.Info)
+                    }
+                    button {
+                        className = ClassName(if (membersOpen) "chat-icon-btn active" else "chat-icon-btn")
+                        title = "Members"
                         onClick = { setMembersOpen(!membersOpen) }
                         icon(Ic.People)
                     }
@@ -1354,69 +1612,10 @@ val ChatScreen =
                                 span { +(if (!group.isOpen) "Request to Join" else "Join") }
                             }
                         }
-                    } else {
-                        button {
-                            className = ClassName("chat-icon-btn")
-                            onClick = { setMenuOpen(!menuOpen) }
-                            icon(Ic.MoreVert)
-                        }
                     }
-
-                    if (menuOpen && canPost) {
-                        div {
-                            className = ClassName("chat-menu-overlay")
-                            onClick = { setMenuOpen(false) }
-                        }
-                        div {
-                            className = ClassName("chat-menu")
-                            // Admin-only moderation actions (mirrors native: gated by isAdmin).
-                            if (isAdmin) {
-                                chatMenuItem("Edit Group") {
-                                    setMenuOpen(false)
-                                    setModal("edit")
-                                }
-                                chatMenuItem("Manage Members") {
-                                    setMenuOpen(false)
-                                    setModal("members")
-                                }
-                                // Invite codes only matter for closed groups (native gates on isClosed).
-                                if (!group.isOpen) {
-                                    chatMenuItem("Invite Codes") {
-                                        setMenuOpen(false)
-                                        setModal("invite")
-                                    }
-                                    chatMenuItem("Join Requests") {
-                                        setMenuOpen(false)
-                                        setModal("requests")
-                                    }
-                                }
-                                chatMenuItem("Create Subgroup") {
-                                    setMenuOpen(false)
-                                    setModal("subgroup")
-                                }
-                                chatMenuItem("Manage Children") {
-                                    setMenuOpen(false)
-                                    setModal("children")
-                                }
-                                chatMenuItem("Delete Group", danger = true) {
-                                    setMenuOpen(false)
-                                    launchApp { repo.deleteGroup(group.id) }
-                                    props.onLeave()
-                                }
-                                div { className = ClassName("chat-menu-divider") }
-                            }
-                            // Available to everyone.
-                            chatMenuItem("Share") {
-                                setMenuOpen(false)
-                                setModal("share")
-                            }
-                            chatMenuItem("Leave Group", danger = true) {
-                                setMenuOpen(false)
-                                launchApp { repo.leaveGroup(group.id) }
-                                props.onLeave()
-                            }
-                        }
-                    }
+                    // No 3-dots menu (prototype shape): Leave lives in the info modal,
+                    // admin management in the sidebar "Manage group" entry and the
+                    // members panel gear.
                 }
 
                 // In-chat search bar. Floats as an overlay anchored under the header (absolute
@@ -1777,6 +1976,7 @@ val ChatScreen =
                     this.groupIsOpen = group.isOpen
                     this.canPost = canPost
                     this.isPending = isPending
+                    this.mentionRequest = mentionRequest
                     this.members = members
                     this.allGroups = allGroups
                     this.userMetadata = userMetadata
@@ -1806,20 +2006,28 @@ val ChatScreen =
                     className = ClassName("member-header")
                     span {
                         className = ClassName("member-header-title")
-                        // Person icon next to "Members (N)" — same layout as
-                        // native MemberSidebar.kt:130-145. Both icon and label
-                        // stay in white (the muted-grey was easy to miss on the
-                        // BackgroundDark band).
-                        icon(Ic.Person)
-                        span { +"Members (${members.size})" }
+                        +"Members · ${members.size}"
                     }
-                    // Only admins can add members — kind:9000 (put-user) is admin-only and the
-                    // relay rejects it from non-admins. Mirrors native MemberSidebar.
+                    // Only admins can add/manage members — kind:9000 (put-user) is
+                    // admin-only and the relay rejects it from non-admins. Grouped on
+                    // the right (prototype MembersPanel).
                     if (isAdmin) {
-                        button {
-                            className = ClassName("member-add-btn")
-                            onClick = { setModal("addmember") }
-                            icon(Ic.PersonAdd)
+                        div {
+                            className = ClassName("member-header-actions")
+                            button {
+                                className = ClassName("member-add-btn")
+                                title = "Add member"
+                                onClick = { setModal("addmember") }
+                                icon(Ic.PersonAdd)
+                            }
+                            // Prototype MembersPanel gear: opens member management (the
+                            // header 3-dots menu that used to host it is gone).
+                            button {
+                                className = ClassName("member-add-btn")
+                                title = "Manage members"
+                                onClick = { setModal("members") }
+                                icon(Ic.Settings)
+                            }
                         }
                     }
                 }
@@ -1914,12 +2122,34 @@ val ChatScreen =
             if (infoOpen) {
                 GroupInfoModal {
                     this.group = group
+                    this.isMember = canPost
+                    onLeave = {
+                        setInfoOpen(false)
+                        // App-lifetime scope: the leave publish must survive the
+                        // navigation away that follows (see `repo` note above).
+                        launchApp { repo.leaveGroup(group.id) }
+                        props.onLeave()
+                    }
                     onClose = { setInfoOpen(false) }
                 }
             }
             profilePubkey?.let { pubkey ->
                 UserProfileModal {
                     this.pubkey = pubkey
+                    // Group context unlocks the admin section (remove / role rows).
+                    groupId = group.id
+                    iAmAdmin = isAdmin
+                    targetIsAdmin = pubkey in admins
+                    onMention = { pk ->
+                        setMentionRequest(
+                            MentionRequest(
+                                name = displayName(pk, userMetadata[pk]),
+                                pubkey = pk,
+                                nonce = (mentionRequest?.nonce ?: 0) + 1,
+                            ),
+                        )
+                        setProfilePubkey(null)
+                    }
                     onClose = { setProfilePubkey(null) }
                 }
             }
@@ -2149,14 +2379,6 @@ private fun ChildrenBuilder.deleteMessageConfirm(onCancel: () -> Unit, onConfirm
                 }
             }
         }
-    }
-}
-
-private fun ChildrenBuilder.chatMenuItem(label: String, danger: Boolean = false, onSelect: () -> Unit) {
-    div {
-        className = ClassName(if (danger) "chat-menu-item danger" else "chat-menu-item")
-        onClick = { onSelect() }
-        +label
     }
 }
 
@@ -3272,7 +3494,7 @@ private val GroupLinkCard =
 private fun ChildrenBuilder.memberSection(title: String, count: Int) {
     div {
         className = ClassName("member-section")
-        +"$title ($count)"
+        +"$title · $count"
     }
 }
 
