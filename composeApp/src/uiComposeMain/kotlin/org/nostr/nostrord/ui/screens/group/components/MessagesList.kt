@@ -3,16 +3,21 @@ package org.nostr.nostrord.ui.screens.group.components
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -20,7 +25,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -35,6 +39,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -212,6 +218,11 @@ fun MessagesList(
     val scrollStateHolder = rememberScrollStateHolder(groupId)
     val isSeekingTarget = targetMessageId != null
 
+    // Two-stage jump pill: the first tap focuses the "New messages" divider, the next
+    // drops to the bottom. Landing on the divider at entry counts as the first stage,
+    // so the first pill tap from there goes straight to the latest.
+    var dividerSeen by remember(groupId) { mutableStateOf(false) }
+
     // One-shot entry alignment to the "New messages" divider (Telegram pattern).
     // Fires once when a divider first appears after entering the group, then
     // latches openedAtDivider so streaming chunks / pagination don't re-anchor.
@@ -225,6 +236,7 @@ fun MessagesList(
         val target = scrollStateHolder.applyEntryChange(hasDivider = idx >= 0, isSeeking = isSeekingTarget)
         if (target == ScrollEntryTarget.Divider && idx >= 0) {
             listState.scrollToItem(idx)
+            dividerSeen = true
         }
     }
 
@@ -808,41 +820,61 @@ fun MessagesList(
 
                         AnimatedVisibility(
                             visible = scrollStateHolder.isScrolledAway,
-                            enter = fadeIn(),
-                            exit = fadeOut(),
+                            // Pop-in: rise + slight scale anchored at the bottom-right,
+                            // matching the web `.chat-jump-bottom` pill animation.
+                            enter = fadeIn() + scaleIn(initialScale = 0.96f, transformOrigin = TransformOrigin(1f, 1f)),
+                            exit = fadeOut() + scaleOut(targetScale = 0.96f, transformOrigin = TransformOrigin(1f, 1f)),
                             modifier = Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
                         ) {
-                            // FAB + badge overlay (Telegram pattern). The badge sits
-                            // at the top-right corner of the FAB and only renders when
-                            // there's at least one unread message from someone else.
-                            Box(contentAlignment = Alignment.TopEnd) {
-                                SmallFloatingActionButton(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            val lastIndex = chatItems.lastIndex
-                                            val distance = lastIndex - listState.firstVisibleItemIndex
-                                            if (distance <= 30) {
-                                                listState.animateScrollToItem(lastIndex)
-                                            } else {
-                                                listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+                            // Jump-to-bottom pill (prototype design): a floating-bg rounded
+                            // pill with an optional unread count and a down chevron. Two-stage:
+                            // the first tap focuses the "New messages" divider so they're read
+                            // top-down, the next drops to the very latest.
+                            val interaction = remember { MutableInteractionSource() }
+                            val hovered by interaction.collectIsHoveredAsState()
+                            val contentColor = if (hovered) NostrordColors.TextPrimary else NostrordColors.TextSecondary
+                            Row(
+                                modifier =
+                                Modifier
+                                    .clip(RoundedCornerShape(percent = 50))
+                                    .background(NostrordColors.BackgroundFloating)
+                                    .hoverable(interaction)
+                                    .clickable {
+                                        val dividerIdx = chatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
+                                        if (dividerIdx >= 0 && !dividerSeen) {
+                                            dividerSeen = true
+                                            coroutineScope.launch { listState.animateScrollToItem(dividerIdx) }
+                                        } else {
+                                            dividerSeen = false
+                                            coroutineScope.launch {
+                                                val lastIndex = chatItems.lastIndex
+                                                val distance = lastIndex - listState.firstVisibleItemIndex
+                                                if (distance <= 30) {
+                                                    listState.animateScrollToItem(lastIndex)
+                                                } else {
+                                                    listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+                                                }
                                             }
                                         }
-                                    },
-                                    containerColor = NostrordColors.Primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.KeyboardArrowDown,
-                                        contentDescription = "Jump to latest message",
-                                    )
-                                }
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
                                 if (unreadFromOthersCount > 0) {
-                                    UnreadBadge(
-                                        count = unreadFromOthersCount,
-                                        size = 18.dp,
-                                        modifier = Modifier.offset(x = 6.dp, y = (-4).dp),
-                                    )
+                                    UnreadBadge(count = unreadFromOthersCount, size = 18.dp)
                                 }
+                                Text(
+                                    text = if (unreadFromOthersCount > 0) "$unreadFromOthersCount new" else "Jump to latest",
+                                    color = contentColor,
+                                    fontSize = 13.sp,
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Jump to latest message",
+                                    tint = contentColor,
+                                    modifier = Modifier.size(14.dp),
+                                )
                             }
                         }
 

@@ -4580,51 +4580,56 @@ body {
 .chat-jump-bottom {
     position: absolute;
     right: 16px;
-    bottom: 80px;
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
-    border: none;
-    background: var(--color-primary);
-    color: #fff;
-    box-shadow: 0 3px 5px -1px rgba(0, 0, 0, 0.2),
-        0 6px 10px 0 rgba(0, 0, 0, 0.14),
-        0 1px 18px 0 rgba(0, 0, 0, 0.12);
-    cursor: pointer;
+    /* Anchored to .chat-messages, which ends at the composer's top edge, so 12px
+       always sits just above the composer no matter how tall it is (reply banner,
+       formatting toolbar, multiline) — matches the prototype's bottom-3. */
+    bottom: 12px;
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 9999px;
+    background: var(--color-floating);
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    line-height: 1.2;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3),
+        0 8px 10px -6px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
     z-index: 5;
-    transition: filter 0.15s;
-}
-/* When a reply banner is open above the composer, raise the FAB so it never
-   overlaps the banner's close (X) button. */
-.chat-jump-bottom.replying {
-    bottom: 110px;
+    transform-origin: bottom left;
+    animation: pop-in 0.14s ease-out;
+    transition: color 0.15s;
 }
 .chat-jump-bottom:hover {
-    filter: brightness(1.08);
+    color: var(--color-text-primary);
 }
 .chat-jump-bottom > svg {
-    width: 24px;
-    height: 24px;
+    width: 14px;
+    height: 14px;
 }
 .chat-jump-badge {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 9px;
-    background: var(--color-primary);
+    padding: 0 6px;
+    border-radius: 9999px;
+    background: var(--color-error);
     color: #fff;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    line-height: 1.5;
     pointer-events: none;
+}
+
+/* Pop-in for the jump pill: rise + slight scale, anchored at its bottom-right. */
+@keyframes pop-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
 
 .chat-header {

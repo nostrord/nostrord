@@ -1161,6 +1161,9 @@ val ChatScreen =
         // scrollKey jumps to a row (deep-link / reply), jumpNonce jumps to bottom.
         val (scrollKey, setScrollKey) = useState<String?> { null }
         val (jumpNonce, setJumpNonce) = useState { 0 }
+        // Two-stage jump: false until the first tap focuses the "New messages" divider,
+        // then the next tap drops to the bottom. Reset per group on entry.
+        val dividerSeen = useRef(false)
 
         // Entering reply mode grows the composer with the reply banner; if the feed
         // was at the bottom, the last message would slide behind it. Re-pin to the
@@ -1238,6 +1241,7 @@ val ChatScreen =
             // through the session. Native does the same with remember(groupId).
             setLastReadSnapshot(vm.getLastReadTimestamp())
             wasNotAtBottom.current = false
+            dividerSeen.current = false
             // Reset atBottom to true on group entry. Without this, the ref
             // carries the PREVIOUS group's value across the ChatScreen re-
             // render: if the user was reading mid-feed in group A (atBottom
@@ -1805,7 +1809,7 @@ val ChatScreen =
                             scrollToKey = scrollKey
                             // Search lands the hit at the top (under the overlay, via scroll-padding),
                             // matching Compose; reply / deep-link jumps stay centered.
-                            scrollToKeyBlock = if (searchActive) "start" else "center"
+                            scrollToKeyBlock = if (searchActive || scrollKey == "new-msg-divider") "start" else "center"
                             onScrolledToKey = { setScrollKey(null) }
                             this.jumpNonce = jumpNonce
                             onStartReached = { vm.loadMoreMessages() }
@@ -1931,36 +1935,42 @@ val ChatScreen =
                             }
                         }
                     }
-                }
 
-                // Jump-to-bottom FAB with unread badge — Telegram pattern. Visible
-                // when the user has scrolled up from the bottom; the badge shows
-                // the count of unread messages from others so the user can either
-                // skip them (click) or keep reading from the divider.
-                if (!atBottomState) {
-                    button {
-                        key = "chat-jump-bottom"
-                        // Lift the FAB above the reply banner so it never covers
-                        // the banner's close (X) button on the right edge.
-                        className = ClassName(
-                            if (replyingToId != null) "chat-jump-bottom replying" else "chat-jump-bottom",
-                        )
-                        title = "Jump to latest message"
-                        onClick = {
-                            // Command ChatMessageList to jump to the newest row.
-                            setJumpNonce { it + 1 }
-                            // Tapping the FAB is an explicit "I've seen everything"
-                            // intent — dismiss the divider for this session.
-                            if (lastReadSnapshot != null) setLastReadSnapshot(null)
-                        }
-                        // Chevron, not the bold arrow — matches native's
-                        // KeyboardArrowDown in MessagesList.kt:644.
-                        icon(Ic.ExpandMore)
-                        if (unreadCount > 0) {
-                            span {
-                                className = ClassName("chat-jump-badge")
-                                +unreadCount.toString()
+                    // Jump-to-bottom pill. Lives INSIDE .chat-messages (which ends at the
+                    // composer's top edge), so it always floats 12px above the composer
+                    // regardless of its height (reply banner, toolbar, multiline) — the
+                    // prototype's anchoring. Visible only when scrolled up from the bottom.
+                    // With unread from others it shows the count and a two-stage jump: the
+                    // first tap focuses the "New messages" divider so they're read top-down,
+                    // the second drops to the very latest.
+                    if (!atBottomState) {
+                        val hasDivider = lastReadSnapshot != null && unreadCount > 0
+                        button {
+                            key = "chat-jump-bottom"
+                            className = ClassName("chat-jump-bottom")
+                            title = if (hasDivider) "Jump to new messages" else "Jump to latest message"
+                            onClick = {
+                                if (hasDivider && dividerSeen.current != true) {
+                                    // First tap: land on the "New messages" divider.
+                                    dividerSeen.current = true
+                                    setScrollKey("new-msg-divider")
+                                } else {
+                                    // Second tap (or no divider): drop to the latest and
+                                    // dismiss the divider for this session.
+                                    dividerSeen.current = false
+                                    setJumpNonce { it + 1 }
+                                    if (lastReadSnapshot != null) setLastReadSnapshot(null)
+                                }
                             }
+                            if (unreadCount > 0) {
+                                span {
+                                    className = ClassName("chat-jump-badge")
+                                    +unreadCount.toString()
+                                }
+                            }
+                            span { +(if (unreadCount > 0) "$unreadCount new" else "Jump to latest") }
+                            // Down chevron (matches native KeyboardArrowDown).
+                            icon(Ic.ExpandMore)
                         }
                     }
                 }

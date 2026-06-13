@@ -235,7 +235,9 @@ val ChatMessageList =
                 val sh = node.scrollHeight.toDouble()
                 val st = node.scrollTop.toDouble()
                 val ch = node.clientHeight.toDouble()
-                val isAtBottom = (sh - st - ch) < 48.0
+                // 80px threshold matches the prototype: the jump pill appears once the
+                // user is more than ~80px up from the bottom.
+                val isAtBottom = (sh - st - ch) < 80.0
                 if (atBottom.current != isAtBottom) {
                     atBottom.current = isAtBottom
                     props.onAtBottomChange(isAtBottom)
