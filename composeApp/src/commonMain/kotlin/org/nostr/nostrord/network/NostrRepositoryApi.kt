@@ -14,6 +14,12 @@ import org.nostr.nostrord.utils.Result
  * Public contract for NostrRepository.
  * Allows ViewModels to be tested with a fake implementation.
  */
+/** One entry of a user's public kind:10009 group list. */
+data class UserGroupRef(
+    val relayUrl: String,
+    val groupId: String,
+)
+
 interface NostrRepositoryApi {
     // --- Auth state ---
     val isInitialized: StateFlow<Boolean>
@@ -101,6 +107,13 @@ interface NostrRepositoryApi {
 
     /** Relay URLs from "group" tags that have no "r" tag — implicit, never persisted. */
     val groupTagRelays: StateFlow<Set<String>>
+
+    /**
+     * Public NIP-29 group lists (kind:10009) of OTHER users, keyed by pubkey, as
+     * (relayUrl, groupId) refs. Filled by [requestUserGroupList]; the active
+     * account's own list keeps flowing through the joined-groups state instead.
+     */
+    val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>>
 
     // --- Initialization ---
     fun forceInitialized()
@@ -442,6 +455,9 @@ interface NostrRepositoryApi {
 
     // --- Metadata operations ---
     suspend fun requestUserMetadata(pubkeys: Set<String>)
+
+    /** Fetch [pubkey]'s public NIP-29 group list (kind:10009) into [userGroupLists]. */
+    suspend fun requestUserGroupList(pubkey: String)
 
     suspend fun updateProfileMetadata(
         displayName: String? = null,

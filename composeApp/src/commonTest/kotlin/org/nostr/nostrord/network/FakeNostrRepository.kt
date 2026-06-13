@@ -332,6 +332,10 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun requestUserMetadata(pubkeys: Set<String>) {}
 
+    override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = MutableStateFlow(emptyMap())
+
+    override suspend fun requestUserGroupList(pubkey: String) {}
+
     override suspend fun updateProfileMetadata(
         displayName: String?,
         name: String?,

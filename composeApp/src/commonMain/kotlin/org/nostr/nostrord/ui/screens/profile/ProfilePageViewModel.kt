@@ -72,6 +72,42 @@ class ProfilePageViewModel(
                 }.distinctBy { it.meta.id }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * The user's OWN groups: their public kind:10009 list (fetched on open via the
+     * outbox relays), merged with the shared-membership view above so private but
+     * shared groups still show. Metadata is enriched when a connected relay already
+     * served it; unknown groups render with a placeholder name until opened.
+     */
+    val userGroups: StateFlow<List<ProfileGroup>> =
+        combine(
+            repo.userGroupLists.map { it[pubkey].orEmpty() },
+            groupsWithUser,
+            repo.groupsByRelay,
+            repo.groupMembers,
+            repo.groupAdmins,
+        ) { publicRefs, shared, byRelay, members, admins ->
+            val fromList =
+                publicRefs.map { ref ->
+                    val meta = byRelay[ref.relayUrl].orEmpty().find { it.id == ref.groupId }
+                        ?: byRelay.values.flatten().find { it.id == ref.groupId }
+                    ProfileGroup(
+                        relayUrl = ref.relayUrl,
+                        meta =
+                        meta ?: GroupMetadata(
+                            id = ref.groupId,
+                            name = null,
+                            about = null,
+                            picture = null,
+                            isPublic = true,
+                            isOpen = true,
+                        ),
+                        isAdmin = pubkey in admins[ref.groupId].orEmpty(),
+                        memberCount = members[ref.groupId].orEmpty().size,
+                    )
+                }
+            (fromList + shared).distinctBy { it.meta.id }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** Drives the ADMIN badge next to the name (admin in any shared group). */
     val isAdminSomewhere: StateFlow<Boolean> =
         groupsWithUser
@@ -79,7 +115,9 @@ class ProfilePageViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     init {
-        // The kind:0 may not be cached (deep link straight to a profile).
+        // The kind:0 may not be cached (deep link straight to a profile), and the
+        // public group list (kind:10009) is only fetched on demand.
         viewModelScope.launch { repo.requestUserMetadata(setOf(pubkey)) }
+        viewModelScope.launch { repo.requestUserGroupList(pubkey) }
     }
 }

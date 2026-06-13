@@ -265,6 +265,12 @@ class NostrRepository(
     override val kind10009Relays: StateFlow<Set<String>> = outboxManager.kind10009Relays
     override val groupTagRelays: StateFlow<Set<String>> = outboxManager.groupTagRelays
 
+    // Public kind:10009 group lists of OTHER users (profile pages). Newest event
+    // wins per pubkey; the active account's own list never lands here.
+    private val _userGroupLists = MutableStateFlow<Map<String, List<UserGroupRef>>>(emptyMap())
+    override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = _userGroupLists.asStateFlow()
+    private val userGroupListCreatedAt = mutableMapOf<String, Long>()
+
     override fun forceInitialized() {
         _isInitialized.value = true
     }
@@ -1883,6 +1889,20 @@ class NostrRepository(
         metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler)
     }
 
+    override suspend fun requestUserGroupList(pubkey: String) {
+        // Own list flows through the joined-groups state; nothing to fetch here.
+        if (pubkey.isBlank() || pubkey == sessionManager.getPublicKey()) return
+        val relays = outboxManager.selectConnectedOutboxRelays(authors = listOf(pubkey))
+        relays.forEach { relayUrl ->
+            runCatching { connectionManager.getClientForRelay(relayUrl)?.requestUserGroupList(pubkey) }
+        }
+        // The primary NIP-29 relay often hosts members' lists too.
+        val primary = connectionManager.getPrimaryClient()
+        if (primary != null && primary.isConnected()) {
+            runCatching { primary.requestUserGroupList(pubkey) }
+        }
+    }
+
     private suspend fun refreshVisibleUserMetadata() {
         // Wait for resubscribeAllGroups REQs to deliver events before collecting pubkeys.
         // Without this delay, messages/members may still be empty from the previous session.
@@ -2247,6 +2267,27 @@ class NostrRepository(
             connStats.onEventReceived(url)
             if (kind == 10009) {
                 val pubKey = sessionManager.getPublicKey() ?: ""
+                val eventPubkey = event["pubkey"]?.jsonPrimitive?.content
+                if (eventPubkey != null && eventPubkey != pubKey) {
+                    // Another user's public group list (profile page fetch).
+                    val createdAt = event["created_at"]?.jsonPrimitive?.longOrNull ?: 0L
+                    if (createdAt >= (userGroupListCreatedAt[eventPubkey] ?: 0L)) {
+                        userGroupListCreatedAt[eventPubkey] = createdAt
+                        val refs =
+                            event["tags"]?.jsonArray.orEmpty().mapNotNull { tag ->
+                                val t = tag.jsonArray
+                                if (t.getOrNull(0)?.jsonPrimitive?.content != "group") return@mapNotNull null
+                                val gid = t.getOrNull(1)?.jsonPrimitive?.content ?: return@mapNotNull null
+                                val relay =
+                                    (t.getOrNull(2)?.jsonPrimitive?.content ?: "")
+                                        .normalizeRelayUrl()
+                                        .ifBlank { connectionManager.currentRelayUrl.value }
+                                UserGroupRef(relayUrl = relay, groupId = gid)
+                            }.distinct()
+                        _userGroupLists.value = _userGroupLists.value + (eventPubkey to refs)
+                    }
+                    return
+                }
                 scope.launch {
                     outboxManager.handleKind10009Event(
                         event = event,

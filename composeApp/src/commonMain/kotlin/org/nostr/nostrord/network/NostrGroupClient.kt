@@ -724,6 +724,25 @@ class NostrGroupClient(
         return subId
     }
 
+    /** One-shot REQ for a user's public NIP-29 group list (kind:10009). */
+    suspend fun requestUserGroupList(pubkey: String): String {
+        val subId = "ugroups_${pubkey.take(8)}"
+        trySendClose(subId)
+        val req = buildJsonArray {
+            add("REQ")
+            add(subId)
+            add(
+                buildJsonObject {
+                    putJsonArray("kinds") { add(10009) }
+                    putJsonArray("authors") { add(pubkey) }
+                    put("limit", 1)
+                },
+            )
+        }
+        sendJson(req)
+        return subId
+    }
+
     suspend fun requestGroupMessages(
         groupId: String,
         channel: String? = null,
