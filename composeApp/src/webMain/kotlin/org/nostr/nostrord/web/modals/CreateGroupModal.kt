@@ -59,6 +59,8 @@ val CreateGroupModal =
         val (picture, setPicture) = useState { "" }
         val (isPrivate, setIsPrivate) = useState { false }
         val (isClosed, setIsClosed) = useState { false }
+        val (isRestricted, setIsRestricted) = useState { false }
+        val (isHidden, setIsHidden) = useState { false }
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
 
@@ -81,6 +83,8 @@ val CreateGroupModal =
                             relayUrl = selectedRelay,
                             isPrivate = isPrivate,
                             isClosed = isClosed,
+                            isRestricted = isRestricted,
+                            isHidden = isHidden,
                             picture = picture.trim().ifBlank { null },
                             customGroupId = groupId.trim().ifBlank { null },
                         )
@@ -91,6 +95,8 @@ val CreateGroupModal =
                             relayUrl = selectedRelay,
                             isPrivate = isPrivate,
                             isClosed = isClosed,
+                            isRestricted = isRestricted,
+                            isHidden = isHidden,
                             picture = picture.trim().ifBlank { null },
                             customGroupId = groupId.trim().ifBlank { null },
                         )
@@ -251,6 +257,20 @@ val CreateGroupModal =
                     description = "Join requests are ignored (invite-only)",
                     checked = isClosed,
                     onToggle = { setIsClosed(!isClosed) },
+                )
+                accessToggle(
+                    ic = Ic.Send,
+                    label = "Restricted",
+                    description = "Only members can post messages",
+                    checked = isRestricted,
+                    onToggle = { setIsRestricted(!isRestricted) },
+                )
+                accessToggle(
+                    ic = Ic.VisibilityOff,
+                    label = "Hidden",
+                    description = "Hidden from non-members, not discoverable",
+                    checked = isHidden,
+                    onToggle = { setIsHidden(!isHidden) },
                 )
 
                 if (error != null) {

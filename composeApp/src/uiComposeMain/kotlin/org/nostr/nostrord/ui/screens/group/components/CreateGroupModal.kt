@@ -9,9 +9,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -56,6 +58,8 @@ fun CreateGroupModal(
     var picture by remember { mutableStateOf("") }
     var isPrivate by remember { mutableStateOf(false) }
     var isClosed by remember { mutableStateOf(false) }
+    var isRestricted by remember { mutableStateOf(false) }
+    var isHidden by remember { mutableStateOf(false) }
     var isCreating by remember { mutableStateOf(false) }
     var creatingJob by remember { mutableStateOf<Job?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -359,6 +363,26 @@ fun CreateGroupModal(
                         onCheckedChange = { isClosed = it },
                     )
 
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+
+                    AccessToggleRow(
+                        icon = Icons.AutoMirrored.Filled.Send,
+                        label = "Restricted",
+                        description = "Only members can post messages",
+                        checked = isRestricted,
+                        onCheckedChange = { isRestricted = it },
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+
+                    AccessToggleRow(
+                        icon = Icons.Default.VisibilityOff,
+                        label = "Hidden",
+                        description = "Hidden from non-members, not discoverable",
+                        checked = isHidden,
+                        onCheckedChange = { isHidden = it },
+                    )
+
                     // Error message
                     if (errorMessage != null) {
                         Spacer(modifier = Modifier.height(Spacing.md))
@@ -434,6 +458,8 @@ fun CreateGroupModal(
                                                         relayUrl = selectedRelay,
                                                         isPrivate = isPrivate,
                                                         isClosed = isClosed,
+                                                        isRestricted = isRestricted,
+                                                        isHidden = isHidden,
                                                         picture = picture.trim().ifBlank { null },
                                                         customGroupId = customGroupId.trim().ifBlank { null },
                                                     )
@@ -444,6 +470,8 @@ fun CreateGroupModal(
                                                         relayUrl = selectedRelay,
                                                         isPrivate = isPrivate,
                                                         isClosed = isClosed,
+                                                        isRestricted = isRestricted,
+                                                        isHidden = isHidden,
                                                         picture = picture.trim().ifBlank { null },
                                                         customGroupId = customGroupId.trim().ifBlank { null },
                                                     )

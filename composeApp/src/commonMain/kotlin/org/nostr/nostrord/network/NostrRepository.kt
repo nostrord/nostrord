@@ -1506,6 +1506,8 @@ class NostrRepository(
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
     ): Result<String> {
@@ -1520,6 +1522,8 @@ class NostrRepository(
             picture = picture,
             isPrivate = isPrivate,
             isClosed = isClosed,
+            isRestricted = isRestricted,
+            isHidden = isHidden,
             customGroupId = customGroupId,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
@@ -1539,10 +1543,12 @@ class NostrRepository(
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
     ): Result<String> {
-        val created = createGroup(name, about, relayUrl, isPrivate, isClosed, picture, customGroupId)
+        val created = createGroup(name, about, relayUrl, isPrivate, isClosed, isRestricted, isHidden, picture, customGroupId)
         if (created !is Result.Success) return created
         // Attach to parent via kind:9002.
         val topology = updateGroupTopology(
@@ -1697,6 +1703,8 @@ class NostrRepository(
         about: String?,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         parentOp: GroupManager.ParentOp?,
         childrenEdit: GroupManager.ChildrenEdit?,
@@ -1710,6 +1718,8 @@ class NostrRepository(
             picture = picture,
             isPrivate = isPrivate,
             isClosed = isClosed,
+            isRestricted = isRestricted,
+            isHidden = isHidden,
             pubKey = pubKey,
             currentRelayUrl = connectionManager.currentRelayUrl.value,
             signEvent = { sessionManager.signEvent(it) },

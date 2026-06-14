@@ -22,6 +22,10 @@ data class GroupMetadata(
     val picture: String?,
     val isPublic: Boolean,
     val isOpen: Boolean,
+    /** NIP-29 `restricted`: only members can write. Absence = anyone can post. */
+    val isRestricted: Boolean = false,
+    /** NIP-29 `hidden`: relays hide metadata from non-members (not discoverable). */
+    val isHidden: Boolean = false,
     /** Declared parent group id (from kind:39000 `parent` tag). Null for root groups. */
     val parent: String? = null,
     /**
@@ -102,6 +106,7 @@ data class RoleDefinition(
     val description: String = "",
 )
 
+@Serializable
 @Immutable
 data class UserMetadata(
     val pubkey: String,
@@ -1198,6 +1203,8 @@ class NostrGroupClient(
                 picture = tagMap["picture"],
                 isPublic = !tagNames.contains("private"),
                 isOpen = !tagNames.contains("closed"),
+                isRestricted = tagNames.contains("restricted"),
+                isHidden = tagNames.contains("hidden"),
                 parent = parent,
                 parentAttestation = parentAttestation,
                 children = children,

@@ -240,6 +240,8 @@ interface NostrRepositoryApi {
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         picture: String? = null,
         customGroupId: String? = null,
     ): Result<String>
@@ -255,6 +257,8 @@ interface NostrRepositoryApi {
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         picture: String? = null,
         customGroupId: String? = null,
     ): Result<String>
@@ -294,6 +298,8 @@ interface NostrRepositoryApi {
         about: String?,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         picture: String? = null,
         parentOp: GroupManager.ParentOp? = null,
         childrenEdit: GroupManager.ChildrenEdit? = null,

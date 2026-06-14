@@ -208,6 +208,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
     ): Result<String> = Result.Success(customGroupId ?: "fake-group-id")
@@ -219,6 +221,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         relayUrl: String,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         customGroupId: String?,
     ): Result<String> = Result.Success(customGroupId ?: "fake-subgroup-id")
@@ -255,6 +259,8 @@ class FakeNostrRepository : NostrRepositoryApi {
         about: String?,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
         picture: String?,
         parentOp: org.nostr.nostrord.network.managers.GroupManager.ParentOp?,
         childrenEdit: org.nostr.nostrord.network.managers.GroupManager.ChildrenEdit?,

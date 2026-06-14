@@ -9,11 +9,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +59,8 @@ fun EditGroupModal(
     var picture by remember(currentMetadata) { mutableStateOf(currentMetadata?.picture ?: "") }
     var isPrivate by remember(currentMetadata) { mutableStateOf(currentMetadata?.isPublic == false) }
     var isClosed by remember(currentMetadata) { mutableStateOf(currentMetadata?.isOpen == false) }
+    var isRestricted by remember(currentMetadata) { mutableStateOf(currentMetadata?.isRestricted == true) }
+    var isHidden by remember(currentMetadata) { mutableStateOf(currentMetadata?.isHidden == true) }
     var parentIdInput by remember(currentMetadata) { mutableStateOf(currentMetadata?.parent ?: "") }
     val originalParent = currentMetadata?.parent
 
@@ -265,6 +269,26 @@ fun EditGroupModal(
                         onCheckedChange = { isClosed = it },
                     )
 
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+
+                    EditAccessToggleRow(
+                        icon = Icons.AutoMirrored.Filled.Send,
+                        label = "Restricted",
+                        description = "Only members can post messages",
+                        checked = isRestricted,
+                        onCheckedChange = { isRestricted = it },
+                    )
+
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+
+                    EditAccessToggleRow(
+                        icon = Icons.Default.VisibilityOff,
+                        label = "Hidden",
+                        description = "Hidden from non-members, not discoverable",
+                        checked = isHidden,
+                        onCheckedChange = { isHidden = it },
+                    )
+
                     if (showSubgroupControls) {
                         Spacer(modifier = Modifier.height(Spacing.xxl))
 
@@ -341,6 +365,8 @@ fun EditGroupModal(
                                             about = about.trim().ifBlank { null },
                                             isPrivate = isPrivate,
                                             isClosed = isClosed,
+                                            isRestricted = isRestricted,
+                                            isHidden = isHidden,
                                             picture = picture.trim().ifBlank { null },
                                             parentOp = parentOp,
                                         )

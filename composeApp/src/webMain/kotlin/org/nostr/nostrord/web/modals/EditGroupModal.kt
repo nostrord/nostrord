@@ -37,6 +37,8 @@ val EditGroupModal =
         val (picture, setPicture) = useState { group.picture ?: "" }
         val (isPrivate, setIsPrivate) = useState { !group.isPublic }
         val (isClosed, setIsClosed) = useState { !group.isOpen }
+        val (isRestricted, setIsRestricted) = useState { group.isRestricted }
+        val (isHidden, setIsHidden) = useState { group.isHidden }
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
 
@@ -55,6 +57,8 @@ val EditGroupModal =
                         about = about.trim().ifBlank { null },
                         isPrivate = isPrivate,
                         isClosed = isClosed,
+                        isRestricted = isRestricted,
+                        isHidden = isHidden,
                         picture = picture.trim().ifBlank { null },
                     )
                 setBusy(false)
@@ -143,6 +147,8 @@ val EditGroupModal =
                 }
                 accessToggle(Ic.Lock, "Private", "Only members can read group messages", isPrivate) { setIsPrivate(!isPrivate) }
                 accessToggle(Ic.Block, "Closed", "Join requests are ignored (invite-only)", isClosed) { setIsClosed(!isClosed) }
+                accessToggle(Ic.Send, "Restricted", "Only members can post messages", isRestricted) { setIsRestricted(!isRestricted) }
+                accessToggle(Ic.VisibilityOff, "Hidden", "Hidden from non-members, not discoverable", isHidden) { setIsHidden(!isHidden) }
 
                 div {
                     className = ClassName("access-section-title")

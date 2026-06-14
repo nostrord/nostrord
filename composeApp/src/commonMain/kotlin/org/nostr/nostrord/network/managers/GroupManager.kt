@@ -1037,6 +1037,8 @@ class GroupManager(
         picture: String? = null,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         customGroupId: String? = null,
         pubKey: String,
         currentRelayUrl: String,
@@ -1087,6 +1089,9 @@ class GroupManager(
                 if (isPrivate) listOf("private") else listOf("public"),
                 if (isClosed) listOf("closed") else listOf("open"),
             )
+            // NIP-29 restricted/hidden have no positive counterpart tag: emit only when on.
+            if (isRestricted) metaTags.add(listOf("restricted"))
+            if (isHidden) metaTags.add(listOf("hidden"))
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
             val signedMeta = signEvent(
@@ -1146,6 +1151,8 @@ class GroupManager(
         picture: String? = null,
         isPrivate: Boolean,
         isClosed: Boolean,
+        isRestricted: Boolean = false,
+        isHidden: Boolean = false,
         pubKey: String,
         currentRelayUrl: String,
         signEvent: suspend (Event) -> Event,
@@ -1164,6 +1171,9 @@ class GroupManager(
                 if (isPrivate) listOf("private") else listOf("public"),
                 if (isClosed) listOf("closed") else listOf("open"),
             )
+            // NIP-29 restricted/hidden have no positive counterpart tag: emit only when on.
+            if (isRestricted) metaTags.add(listOf("restricted"))
+            if (isHidden) metaTags.add(listOf("hidden"))
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
 
