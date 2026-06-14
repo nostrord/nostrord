@@ -55,7 +55,6 @@ val HomePage =
     FC<HomePageProps> { props ->
         val vm = useViewModel { HomePageViewModel(AppModule.nostrRepository) }
         val myGroups = useStateFlow(vm.myGroups)
-        val memberCounts = useStateFlow(vm.memberCounts)
         val query = useStateFlow(vm.query)
         val friends = useStateFlow(vm.friends)
         val friendsGroups = useStateFlow(vm.friendsGroups)
@@ -185,8 +184,8 @@ val HomePage =
                                     div {
                                         className = ClassName("card-grid")
                                         myGroups.forEach { group ->
-                                            groupCard(group, memberCounts[group.meta.id] ?: 0) {
-                                                props.onOpenGroup(group)
+                                            discoverGroupCard(group) {
+                                                props.onOpenGroup(JoinedGroup(group.relayUrl, group.meta))
                                             }
                                         }
                                     }
@@ -284,13 +283,19 @@ val HomePage =
         }
     }
 
-private fun ChildrenBuilder.groupCard(
-    group: JoinedGroup,
-    memberCount: Int,
+/**
+ * The one group card used everywhere (My groups / From friends / Recommended): a square
+ * avatar, the name, then the people row directly under it (the friends you follow who are
+ * here as overlapping avatars, falling back to members, plus the total "N people" count and
+ * the restricted badge), and finally a single-line description.
+ */
+private fun ChildrenBuilder.discoverGroupCard(
+    dg: DiscoverGroup,
     onOpen: () -> Unit,
 ) {
-    val meta = group.meta
+    val meta = dg.meta
     val name = meta.name ?: meta.id
+    val count = if (dg.people.isNotEmpty()) maxOf(dg.memberCount, dg.people.size) else dg.memberCount
     button {
         key = meta.id
         className = ClassName("group-card")
@@ -310,10 +315,25 @@ private fun ChildrenBuilder.groupCard(
                     +name
                 }
                 div {
-                    className = ClassName("group-card-meta")
-                    if (memberCount > 0) {
-                        icon(Ic.People)
-                        +"$memberCount"
+                    className = ClassName("group-card-people")
+                    if (dg.people.isNotEmpty()) {
+                        div {
+                            className = ClassName("discover-avatars")
+                            dg.people.take(5).forEach { person ->
+                                WebAvatar {
+                                    url = person.metadata?.picture
+                                    seed = person.pubkey
+                                    this.name = personName(person)
+                                    cls = "discover-avatar"
+                                }
+                            }
+                        }
+                    }
+                    if (count > 0) {
+                        span {
+                            className = ClassName("group-card-people-count")
+                            +"$count people"
+                        }
                     }
                     if (meta.isRestricted) {
                         span {
@@ -327,69 +347,6 @@ private fun ChildrenBuilder.groupCard(
         p {
             className = ClassName("group-card-desc")
             +(meta.about.orEmpty().ifBlank { "No description" })
-        }
-    }
-}
-
-/**
- * Discovery card for the From friends / Recommended tabs: group name, the people in
- * it by name, then their overlapping avatars and the total "N people" count. [people]
- * is the friends you follow who are here, falling back to members on Recommended.
- */
-private fun ChildrenBuilder.discoverGroupCard(
-    dg: DiscoverGroup,
-    onOpen: () -> Unit,
-) {
-    val meta = dg.meta
-    val name = meta.name ?: meta.id
-    button {
-        key = meta.id
-        className = ClassName("group-card")
-        onClick = { onOpen() }
-        div {
-            className = ClassName("group-card-head")
-            WebAvatar {
-                url = meta.picture
-                seed = meta.id
-                this.name = name
-                kind = AvatarKind.GROUP
-                cls = "group-card-avatar"
-            }
-            div {
-                div {
-                    className = ClassName("group-card-name")
-                    +name
-                }
-                if (!meta.isOpen) {
-                    div {
-                        className = ClassName("group-card-meta")
-                        span {
-                            className = ClassName("badge-restricted")
-                            +"restricted"
-                        }
-                    }
-                }
-            }
-        }
-        if (dg.people.isNotEmpty()) {
-            div {
-                className = ClassName("group-card-people")
-                div {
-                    className = ClassName("discover-avatars")
-                    dg.people.take(5).forEach { person ->
-                        WebAvatar {
-                            url = person.metadata?.picture
-                            seed = person.pubkey
-                            this.name = personName(person)
-                            cls = "discover-avatar"
-                        }
-                    }
-                }
-                span {
-                    className = ClassName("group-card-people-count")
-                    +"${maxOf(dg.memberCount, dg.people.size)} people"
-                }
-            }
         }
     }
 }

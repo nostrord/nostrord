@@ -97,38 +97,56 @@ class HomePageViewModel(
     /**
      * Joined groups across all relays (each with its hosting relay), with metadata
      * where the relay already served the kind:39000 (a bare id placeholder
-     * otherwise), filtered by [query] over name and description.
+     * otherwise), filtered by [query] over name and description. Carries the same
+     * people preview + member count as the discovery tabs so every group card shows
+     * the same shape: the friends you follow who are here (or members as a fallback).
      */
-    val myGroups: StateFlow<List<JoinedGroup>> =
-        combine(repo.groupsByRelay, repo.joinedGroupsByRelay, _query) { groupsByRelay, joinedByRelay, q ->
-            val joined =
-                joinedByRelay
-                    .flatMap { (relay, ids) ->
-                        val metas = groupsByRelay[relay].orEmpty().associateBy { it.id }
-                        ids.map { id ->
-                            JoinedGroup(
-                                relayUrl = relay,
-                                meta =
-                                metas[id] ?: GroupMetadata(
-                                    id = id,
-                                    name = null,
-                                    about = null,
-                                    picture = null,
-                                    isPublic = true,
-                                    isOpen = true,
-                                ),
-                            )
-                        }
-                    }.distinctBy { it.meta.id }
-            val needle = q.trim().lowercase()
-            if (needle.isEmpty()) {
-                joined
-            } else {
-                joined.filter {
-                    (it.meta.name ?: it.meta.id).lowercase().contains(needle) ||
-                        it.meta.about.orEmpty().lowercase().contains(needle)
+    val myGroups: StateFlow<List<DiscoverGroup>> =
+        combine(
+            listOf(
+                repo.groupsByRelay,
+                repo.joinedGroupsByRelay,
+                repo.groupMembers,
+                repo.following,
+                repo.userMetadata,
+                _query,
+            ),
+        ) { arr ->
+            val groupsByRelay = arr[0] as Map<String, List<GroupMetadata>>
+            val joinedByRelay = arr[1] as Map<String, Set<String>>
+            val members = arr[2] as Map<String, List<String>>
+            val following = arr[3] as Set<String>
+            val meta = arr[4] as Map<String, UserMetadata>
+            val needle = (arr[5] as String).trim().lowercase()
+            joinedByRelay
+                .flatMap { (relay, ids) ->
+                    val metas = groupsByRelay[relay].orEmpty().associateBy { it.id }
+                    ids.map { id ->
+                        val memberPks = members[id].orEmpty()
+                        val friendsHere = memberPks.filter { it in following }
+                        val preview = (friendsHere.ifEmpty { memberPks }).take(8)
+                        DiscoverGroup(
+                            relayUrl = relay,
+                            meta =
+                            metas[id] ?: GroupMetadata(
+                                id = id,
+                                name = null,
+                                about = null,
+                                picture = null,
+                                isPublic = true,
+                                isOpen = true,
+                            ),
+                            people = preview.map { Friend(it, meta[it]) },
+                            memberCount = memberPks.size,
+                        )
+                    }
                 }
-            }
+                .distinctBy { it.meta.id }
+                .filter { dg ->
+                    needle.isEmpty() ||
+                        (dg.meta.name ?: dg.meta.id).lowercase().contains(needle) ||
+                        dg.meta.about.orEmpty().lowercase().contains(needle)
+                }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**

@@ -17,9 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.People
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -88,65 +85,52 @@ fun GroupCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // The member count rides with the people row below on discovery
-                        // cards; in the header it only shows when there is no people row.
-                        val showHeaderCount = people.isEmpty() && memberCount > 0
-                        if (showHeaderCount) {
-                            Icon(
-                                imageVector = Icons.Default.People,
-                                contentDescription = null,
-                                tint = NostrordColors.TextMuted,
-                                modifier = Modifier.size(12.dp),
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                "$memberCount",
-                                color = NostrordColors.TextMuted,
-                                fontSize = 12.sp,
-                            )
-                        }
-                        if (restricted) {
-                            if (showHeaderCount) Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = NostrordShapes.shapeSmall,
-                                color = NostrordColors.BackgroundFloating,
-                            ) {
+                    // People row directly under the name: overlapping friend/member
+                    // avatars (when known) and the total "N people" count, with the
+                    // restricted badge riding along.
+                    val peopleCount = if (people.isNotEmpty()) maxOf(memberCount, people.size) else memberCount
+                    if (peopleCount > 0 || restricted) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (people.isNotEmpty()) {
+                                AvatarStack(people)
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            if (peopleCount > 0) {
                                 Text(
-                                    "restricted",
-                                    color = NostrordColors.Warning,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    "$peopleCount people",
+                                    color = NostrordColors.TextMuted,
+                                    fontSize = 12.sp,
                                 )
+                            }
+                            if (restricted) {
+                                if (peopleCount > 0) Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = NostrordShapes.shapeSmall,
+                                    color = NostrordColors.BackgroundFloating,
+                                ) {
+                                    Text(
+                                        "restricted",
+                                        color = NostrordColors.Warning,
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-            if (people.isNotEmpty()) {
-                // Social proof (From friends / Recommended): the people in the group as
-                // overlapping avatars and the total count.
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AvatarStack(people)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "${maxOf(memberCount, people.size)} people",
-                        color = NostrordColors.TextMuted,
-                        fontSize = 12.sp,
-                    )
-                }
-            } else {
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    description.orEmpty().ifBlank { "No description" },
-                    color = NostrordColors.TextSecondary,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.height(18.dp),
-                )
-            }
+            // Single-line description, always shown below the head (the agreed card shape).
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                description.orEmpty().ifBlank { "No description" },
+                color = NostrordColors.TextSecondary,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.height(18.dp),
+            )
             if (cta != null) {
                 // Push the CTA to the bottom so equal-height cards line their chips up.
                 Spacer(modifier = Modifier.weight(1f).heightIn(min = 12.dp))

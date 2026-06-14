@@ -96,7 +96,6 @@ fun HomePageScreen(
 ) {
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
     val myGroups by vm.myGroups.collectAsState()
-    val memberCounts by vm.memberCounts.collectAsState()
     val query by vm.query.collectAsState()
     val friends by vm.friends.collectAsState()
     val friendsGroups by vm.friendsGroups.collectAsState()
@@ -269,9 +268,10 @@ fun HomePageScreen(
                                                     description = group.meta.about,
                                                     picture = group.meta.picture,
                                                     groupId = group.meta.id,
-                                                    memberCount = memberCounts[group.meta.id] ?: 0,
+                                                    memberCount = group.memberCount,
                                                     restricted = group.meta.isRestricted,
-                                                    onClick = { onOpenGroup(group) },
+                                                    people = group.people,
+                                                    onClick = { onOpenGroup(JoinedGroup(group.relayUrl, group.meta)) },
                                                 )
                                             }
                                         }
