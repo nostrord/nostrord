@@ -108,8 +108,8 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
  * joined groups with unread badges, add, DMs and notifications) plus the 240px
  * sidebar (home hub or the open group's sidebar, with the account bar) around the
  * content. Owns the new-design navigation: home vs an open group ([GroupRoute]),
- * mirroring the web's #/g/<relay>/<groupId> hash. Compact widths (< 600dp) show
- * the content alone; the mobile drawer comes later.
+ * mirroring the web's #/g/<relay>/<groupId> hash. Below md (768dp) the rail +
+ * sidebar collapse into a ModalNavigationDrawer opened from each screen's hamburger.
  */
 @Composable
 fun AppFrame() {
