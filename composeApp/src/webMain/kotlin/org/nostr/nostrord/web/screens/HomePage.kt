@@ -293,7 +293,7 @@ private fun ChildrenBuilder.groupCard(
                         icon(Ic.People)
                         +"$memberCount"
                     }
-                    if (!meta.isOpen) {
+                    if (meta.isRestricted) {
                         span {
                             className = ClassName("badge-restricted")
                             +"restricted"
