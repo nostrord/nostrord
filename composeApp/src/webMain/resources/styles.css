@@ -257,6 +257,7 @@ body {
     background: transparent;
     color: var(--color-text-muted);
     font-size: 13px;
+    white-space: nowrap;
     cursor: pointer;
     transition: background 0.15s ease;
 }
@@ -1247,7 +1248,7 @@ body {
 
 /* A hamburger that toggles the nav drawer; shown only below the md breakpoint, where
    the rail + sidebar collapse into the drawer (the chat header has its own). */
-.frame-menu-btn {
+.icon-btn.frame-menu-btn {
     display: none;
 }
 
@@ -1265,7 +1266,7 @@ body {
     .app-frame.drawer-open .app-frame-nav {
         transform: translateX(0);
     }
-    .frame-menu-btn {
+    .icon-btn.frame-menu-btn {
         display: inline-flex;
     }
 }
@@ -2604,21 +2605,8 @@ body {
     margin-bottom: 20px;
 }
 
-@media (min-width: 640px) {
-    .home-toolbar {
-        flex-direction: row;
-        align-items: center;
-    }
-}
-
 .home-search {
     width: 100%;
-}
-
-@media (min-width: 640px) {
-    .home-search {
-        width: 288px;
-    }
 }
 
 /* Responsive card grid (1 / 2 / 3 columns) */
@@ -2746,6 +2734,12 @@ body {
 .group-card-people-count {
     font-size: 12px;
     color: var(--color-text-muted);
+}
+
+/* "N people" placeholder while the member list loads (shimmer from .skel). */
+.group-card-people-skel {
+    width: 56px;
+    height: 12px;
 }
 
 .group-card-desc {
