@@ -351,7 +351,6 @@ fun GroupScreenMobile(
 }
 
 /** Mobile top bar with avatar, group name, and join/admin actions. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MobileGroupTopBar(
     groupName: String?,
@@ -379,188 +378,187 @@ private fun MobileGroupTopBar(
     initialInviteCode: String? = null,
     connectionState: ConnectionManager.ConnectionState? = null,
 ) {
-    TopAppBar(
-        navigationIcon = {
-            IconButton(
-                onClick = onOpenDrawer,
-                modifier = Modifier.size(Spacing.touchTargetMin),
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .background(NostrordColors.BackgroundDark)
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(
+            onClick = onOpenDrawer,
+            modifier = Modifier.size(Spacing.touchTargetMin),
+        ) {
+            Icon(
+                Icons.Default.Menu,
+                contentDescription = "Open sidebar",
+                tint = Color.White,
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier =
+            Modifier
+                .weight(1f)
+                .padding(start = Spacing.xs)
+                .clickable(onClick = onTitleClick),
+        ) {
+            GroupHeaderIcon(
+                pictureUrl = groupMetadata?.picture,
+                groupId = groupMetadata?.id ?: "",
+                displayName = groupName ?: "Group",
+                size = 32.dp,
+            )
+
+            Spacer(modifier = Modifier.width(Spacing.sm))
+
+            Column(
+                modifier = Modifier.weight(1f),
             ) {
-                Icon(
-                    Icons.Default.Menu,
-                    contentDescription = "Open sidebar",
-                    tint = Color.White,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = groupMetadata?.name ?: groupName ?: "Unknown Group",
+                        style = NostrordTypography.ServerHeader,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (connectionState != null) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        RelayStatusDot(connectionState)
+                    }
+                }
+
+                if (!groupMetadata?.about.isNullOrBlank()) {
+                    Text(
+                        text = groupMetadata?.about ?: "",
+                        style = NostrordTypography.Tiny,
+                        color = NostrordColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-        },
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier =
-                Modifier
-                    .padding(start = Spacing.xs)
-                    .clickable(onClick = onTitleClick),
-            ) {
-                GroupHeaderIcon(
-                    pictureUrl = groupMetadata?.picture,
-                    groupId = groupMetadata?.id ?: "",
-                    displayName = groupName ?: "Group",
-                    size = 32.dp,
-                )
-
-                Spacer(modifier = Modifier.width(Spacing.sm))
-
-                Column(
-                    modifier = Modifier.weight(1f),
+        }
+        if (isAdmin && pendingJoinRequestCount > 0) {
+            Box {
+                IconButton(
+                    onClick = onJoinRequestsClick,
+                    modifier = Modifier.size(Spacing.touchTargetMin),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = groupMetadata?.name ?: groupName ?: "Unknown Group",
-                            style = NostrordTypography.ServerHeader,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        if (connectionState != null) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            RelayStatusDot(connectionState)
-                        }
-                    }
-
-                    if (!groupMetadata?.about.isNullOrBlank()) {
-                        Text(
-                            text = groupMetadata?.about ?: "",
-                            style = NostrordTypography.Tiny,
-                            color = NostrordColors.TextSecondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    Icon(
+                        Icons.Default.PersonAdd,
+                        contentDescription = "Join requests",
+                        tint = Color.White,
+                    )
                 }
-            }
-        },
-        actions = {
-            if (isAdmin && pendingJoinRequestCount > 0) {
-                Box {
-                    IconButton(
-                        onClick = onJoinRequestsClick,
-                        modifier = Modifier.size(Spacing.touchTargetMin),
-                    ) {
-                        Icon(
-                            Icons.Default.PersonAdd,
-                            contentDescription = "Join requests",
-                            tint = Color.White,
-                        )
-                    }
-                    Box(
-                        modifier =
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = (-4).dp, y = 4.dp)
-                            .size(18.dp)
-                            .background(NostrordColors.Error, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                }
-            }
-
-            IconButton(
-                onClick = onSearchClick,
-                modifier = Modifier.size(Spacing.touchTargetMin),
-            ) {
-                Icon(
-                    Icons.Default.Search,
-                    contentDescription = "Search messages",
-                    tint = Color.White,
-                )
-            }
-
-            IconButton(
-                onClick = onMembersClick,
-                modifier = Modifier.size(Spacing.touchTargetMin),
-            ) {
-                Icon(
-                    Icons.Default.People,
-                    contentDescription = "Members",
-                    tint = Color.White,
-                )
-            }
-
-            if (!isJoined) {
-                val showInviteButton = isClosed || initialInviteCode != null
-                var showInviteModal by remember { mutableStateOf(initialInviteCode != null) }
-
-                if (showInviteButton) {
-                    IconButton(
-                        onClick = { showInviteModal = true },
-                        modifier = Modifier.size(Spacing.touchTargetMin),
-                    ) {
-                        Icon(
-                            Icons.Default.VpnKey,
-                            contentDescription = "Invite Code",
-                            tint = Color.White,
-                        )
-                    }
-                }
-
-                TextButton(
-                    onClick = { onJoinClick(null) },
-                    modifier = Modifier.height(Spacing.touchTargetMin),
-                    contentPadding = PaddingValues(horizontal = Spacing.md),
+                Box(
+                    modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = (-4).dp, y = 4.dp)
+                        .size(18.dp)
+                        .background(NostrordColors.Error, CircleShape),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        "Join",
-                        style = NostrordTypography.Button,
-                        color = NostrordColors.Primary,
-                    )
-                }
-
-                if (showInviteModal) {
-                    InviteCodeJoinModal(
-                        initialCode = initialInviteCode ?: "",
-                        onJoin = { code ->
-                            showInviteModal = false
-                            onJoinClick(code)
-                        },
-                        onDismiss = { showInviteModal = false },
-                    )
-                }
-            } else {
-                // Invite (share) button; Leave lives in the info modal (title tap),
-                // admin management in the sidebar "Manage group" entry (prototype shape).
-                var showShareModal by remember { mutableStateOf(false) }
-                if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
-                    IconButton(
-                        onClick = { showShareModal = true },
-                        modifier = Modifier.size(Spacing.touchTargetMin),
-                    ) {
-                        Icon(
-                            Icons.Default.Link,
-                            contentDescription = "Invite",
-                            tint = Color.White,
-                        )
-                    }
-                }
-
-                if (showShareModal && relayUrl.isNotBlank() && groupId.isNotBlank()) {
-                    ShareGroupModal(
-                        relayUrl = relayUrl,
-                        groupId = groupId,
-                        onDismiss = { showShareModal = false },
+                        text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
-        },
-        colors =
-        TopAppBarDefaults.topAppBarColors(
-            containerColor = NostrordColors.BackgroundDark,
-        ),
-    )
+        }
+
+        IconButton(
+            onClick = onSearchClick,
+            modifier = Modifier.size(Spacing.touchTargetMin),
+        ) {
+            Icon(
+                Icons.Default.Search,
+                contentDescription = "Search messages",
+                tint = Color.White,
+            )
+        }
+
+        IconButton(
+            onClick = onMembersClick,
+            modifier = Modifier.size(Spacing.touchTargetMin),
+        ) {
+            Icon(
+                Icons.Default.People,
+                contentDescription = "Members",
+                tint = Color.White,
+            )
+        }
+
+        if (!isJoined) {
+            val showInviteButton = isClosed || initialInviteCode != null
+            var showInviteModal by remember { mutableStateOf(initialInviteCode != null) }
+
+            if (showInviteButton) {
+                IconButton(
+                    onClick = { showInviteModal = true },
+                    modifier = Modifier.size(Spacing.touchTargetMin),
+                ) {
+                    Icon(
+                        Icons.Default.VpnKey,
+                        contentDescription = "Invite Code",
+                        tint = Color.White,
+                    )
+                }
+            }
+
+            TextButton(
+                onClick = { onJoinClick(null) },
+                modifier = Modifier.height(Spacing.touchTargetMin),
+                contentPadding = PaddingValues(horizontal = Spacing.md),
+            ) {
+                Text(
+                    "Join",
+                    style = NostrordTypography.Button,
+                    color = NostrordColors.Primary,
+                )
+            }
+
+            if (showInviteModal) {
+                InviteCodeJoinModal(
+                    initialCode = initialInviteCode ?: "",
+                    onJoin = { code ->
+                        showInviteModal = false
+                        onJoinClick(code)
+                    },
+                    onDismiss = { showInviteModal = false },
+                )
+            }
+        } else {
+            // Invite (share) button; Leave lives in the info modal (title tap),
+            // admin management in the sidebar "Manage group" entry (prototype shape).
+            var showShareModal by remember { mutableStateOf(false) }
+            if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                IconButton(
+                    onClick = { showShareModal = true },
+                    modifier = Modifier.size(Spacing.touchTargetMin),
+                ) {
+                    Icon(
+                        Icons.Default.Link,
+                        contentDescription = "Invite",
+                        tint = Color.White,
+                    )
+                }
+            }
+
+            if (showShareModal && relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                ShareGroupModal(
+                    relayUrl = relayUrl,
+                    groupId = groupId,
+                    onDismiss = { showShareModal = false },
+                )
+            }
+        }
+    }
 }
