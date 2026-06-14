@@ -264,6 +264,7 @@ body {
 
 .tab:not(.selected):hover {
     color: var(--color-text-primary);
+    background: var(--color-hover);
 }
 
 .tab.selected {

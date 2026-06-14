@@ -230,11 +230,15 @@ fun AppSegmentedTabs(
         ) {
             tabs.forEachIndexed { index, tab ->
                 val isSelected = index == selectedIndex
-                val backgroundColor by animateColorAsState(
-                    if (isSelected) NostrordColors.Primary else Color.Transparent,
-                )
                 val interactionSource = remember { MutableInteractionSource() }
                 val isHovered by interactionSource.collectIsHoveredAsState()
+                val backgroundColor by animateColorAsState(
+                    when {
+                        isSelected -> NostrordColors.Primary
+                        isHovered -> NostrordColors.HoverBackground
+                        else -> Color.Transparent
+                    },
+                )
                 val contentColor =
                     when {
                         isSelected -> Color.White
