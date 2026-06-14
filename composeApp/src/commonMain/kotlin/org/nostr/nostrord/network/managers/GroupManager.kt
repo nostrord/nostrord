@@ -1029,6 +1029,26 @@ class GroupManager(
     }
 
     /**
+     * Append the NIP-29 access flags to a kind:9002 tag list. Flags are presence-only:
+     * each is added only when on; absence is the permissive default (public / open /
+     * anyone-writes / discoverable). There are no public / open / un-restricted tags, so a
+     * complete flag declaration is exactly the set of on-flags, which is also how the OFF
+     * state is communicated to the relay.
+     */
+    private fun addAccessFlags(
+        tags: MutableList<List<String>>,
+        isPrivate: Boolean,
+        isClosed: Boolean,
+        isRestricted: Boolean,
+        isHidden: Boolean,
+    ) {
+        if (isPrivate) tags.add(listOf("private"))
+        if (isClosed) tags.add(listOf("closed"))
+        if (isRestricted) tags.add(listOf("restricted"))
+        if (isHidden) tags.add(listOf("hidden"))
+    }
+
+    /**
      * Create a new NIP-29 group
      */
     suspend fun createGroup(
@@ -1082,16 +1102,16 @@ class GroupManager(
                 suggestedGroupId = suggestedId,
             )
 
-            // kind 9002: edit-metadata — sets name, about, picture, and access in one event
+            // kind 9002: edit-metadata — sets name, about, picture, and access in one event.
             val metaTags = mutableListOf(
                 listOf("h", confirmedGroupId),
                 listOf("name", name),
-                if (isPrivate) listOf("private") else listOf("public"),
-                if (isClosed) listOf("closed") else listOf("open"),
             )
-            // NIP-29 restricted/hidden have no positive counterpart tag: emit only when on.
-            if (isRestricted) metaTags.add(listOf("restricted"))
-            if (isHidden) metaTags.add(listOf("hidden"))
+            // NIP-29 access flags are presence-only: absence is the permissive default
+            // (public / open / anyone-writes / discoverable). There are no public / open /
+            // un-restricted counterpart tags, so we emit each flag only when on and omit it
+            // otherwise — that omission is what declares the OFF state to the relay.
+            addAccessFlags(metaTags, isPrivate, isClosed, isRestricted, isHidden)
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
             val signedMeta = signEvent(
@@ -1168,12 +1188,9 @@ class GroupManager(
             val metaTags = mutableListOf(
                 listOf("h", groupId),
                 listOf("name", name),
-                if (isPrivate) listOf("private") else listOf("public"),
-                if (isClosed) listOf("closed") else listOf("open"),
             )
-            // NIP-29 restricted/hidden have no positive counterpart tag: emit only when on.
-            if (isRestricted) metaTags.add(listOf("restricted"))
-            if (isHidden) metaTags.add(listOf("hidden"))
+            // Presence-only NIP-29 flags (see createGroup): emit only the ones that are on.
+            addAccessFlags(metaTags, isPrivate, isClosed, isRestricted, isHidden)
             if (!about.isNullOrBlank()) metaTags.add(listOf("about", about))
             if (!picture.isNullOrBlank()) metaTags.add(listOf("picture", picture))
 
@@ -1332,8 +1349,16 @@ class GroupManager(
             val tags = mutableListOf<List<String>>(
                 listOf("h", groupId),
                 listOf("name", meta?.name ?: groupId),
-                if (meta?.isPublic != false) listOf("public") else listOf("private"),
-                if (meta?.isOpen != false) listOf("open") else listOf("closed"),
+            )
+            // Re-declare the existing access flags so this topology/children edit doesn't
+            // drop them (presence-only, same rule as createGroup/editGroup). Omitting them
+            // here previously cleared restricted/hidden and emitted bogus public/open tags.
+            addAccessFlags(
+                tags,
+                isPrivate = meta?.isPublic == false,
+                isClosed = meta?.isOpen == false,
+                isRestricted = meta?.isRestricted == true,
+                isHidden = meta?.isHidden == true,
             )
             meta?.about?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("about", it)) }
             meta?.picture?.takeIf { it.isNotBlank() }?.let { tags.add(listOf("picture", it)) }
