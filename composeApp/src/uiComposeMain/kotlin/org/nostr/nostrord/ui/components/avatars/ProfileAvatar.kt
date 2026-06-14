@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -27,8 +28,12 @@ fun ProfileAvatar(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalPlatformContext.current
-    // Memoize computed values to prevent recalculation on every recomposition
-    val sizeInPx = remember(size) { (size.value * 2).toInt() }
+    val density = LocalDensity.current
+    // Request at the real display density with retina headroom and a high floor, so the avatar
+    // is as sharp as the web <img> (which downscales from the full-resolution source). The old
+    // `size.value * 2` ignored density and under-resolved on HiDPI, softening the picture; Coil
+    // then downsampled to that small size, which read as a worse/"zoomed" render than web.
+    val sizeInPx = remember(size, density) { maxOf(with(density) { size.roundToPx() } * 2, 256) }
 
     if (imageUrl.isNullOrBlank()) {
         AvatarPlaceholder(displayName, pubkey, modifier.size(size), size)
