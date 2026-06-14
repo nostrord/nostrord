@@ -19,6 +19,7 @@ import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.ImageViewerHost
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.ZapModalHost
 import org.nostr.nostrord.web.components.icon
@@ -580,6 +581,10 @@ val AppFrame =
             // Zap modal host: mounted once so any WebZapController.request(...) from a
             // profile, profile modal or message renders the send-zap modal over the frame.
             ZapModalHost {}
+
+            // Fullscreen image viewer host: mounted once so ImageViewer.show(...) from a
+            // chat image opens the lightbox over the frame.
+            ImageViewerHost {}
         }
     }
 
