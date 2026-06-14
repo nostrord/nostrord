@@ -110,7 +110,14 @@ val WebApp =
         val showingLogin = initialized && !loggedIn && !verifyingBunker
         useEffect(showingLogin, showingOnboarding, loggedIn) {
             when {
-                showingLogin -> applyWebRoute(WebRoute.Login)
+                // Preserve a deep-link page hash (#/g, #/u, #/dm) across the brief
+                // cold-start window where we're initialized but the session hasn't
+                // restored yet (initialized=true, loggedIn=false). Clobbering it to
+                // #/login here is what made a refresh inside a group land on Home: the
+                // hash was gone before AppFrame could read it. Keeping it means AppFrame
+                // restores the group the instant loggedIn flips (and a genuine deep link
+                // survives the login screen).
+                showingLogin -> if (currentHashRoute() == null) applyWebRoute(WebRoute.Login)
                 loggedIn && showingOnboarding -> applyWebRoute(WebRoute.Onboarding)
                 loggedIn && currentHashRoute() == null -> applyWebRoute(WebRoute.Home)
             }
