@@ -201,6 +201,13 @@ expect object SecureStorage {
 
     fun getRelayMetadata(): String?
 
+    // kind:0 user metadata cache (persisted across restarts). Public, non-sensitive: a
+    // pubkey's profile is the same for everyone, so this is a single global store (not
+    // per-account) restored before network so names/avatars show instantly on cold start.
+    fun saveUserMetadataCache(json: String)
+
+    fun getUserMetadataCache(): String?
+
     // Live subscription cursors — last-seen event timestamp per group per relay
     fun saveLiveCursors(
         relayUrl: String,

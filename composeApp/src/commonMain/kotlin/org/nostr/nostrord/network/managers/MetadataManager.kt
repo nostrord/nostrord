@@ -14,10 +14,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.epochMillis
 
@@ -72,7 +75,21 @@ class MetadataManager(
 
         /** Wall-clock fallback if a relay never emits EOSE for a metadata batch. */
         const val EOSE_FALLBACK_MS = 5_000L
+
+        /** Debounce before snapshotting the metadata cache to disk after a change. */
+        const val DISK_PERSIST_DELAY_MS = 5_000L
     }
+
+    /** On-disk form of a [CachedMetadata] entry (see the global user-metadata store). */
+    @Serializable
+    private data class PersistedMetadata(
+        val pubkey: String,
+        val metadata: UserMetadata,
+        val createdAt: Long,
+        val fetchedAt: Long,
+    )
+
+    private val persistedMetadataListSerializer = ListSerializer(PersistedMetadata.serializer())
 
     /**
      * Cached kind:0 entry. [createdAt] is the event's own timestamp (seconds, NIP-01) and
@@ -463,6 +480,53 @@ class MetadataManager(
         }
         metadataCache.put(pubkey, CachedMetadata(metadata, createdAt, epochMillis()))
         scheduleMetadataFlush()
+        scheduleDiskPersist()
+    }
+
+    /**
+     * Pre-populates the cache + StateFlow from the on-disk store so names/avatars show
+     * instantly on cold start, without waiting for the network. Must run AFTER
+     * [SecureStorage.preloadMetadata] on web (IndexedDB reads are async there). Restored
+     * entries keep their original fetchedAt so a stale one (>30 min) still revalidates on
+     * the next incoming event; it does NOT mark anything as fetched, so refresh still runs.
+     */
+    fun restoreFromCache() {
+        try {
+            val cached = SecureStorage.getUserMetadataCache()
+            if (cached.isNullOrBlank()) return
+            val entries = json.decodeFromString(persistedMetadataListSerializer, cached)
+            entries.forEach { e ->
+                val existing = metadataCache.get(e.pubkey)
+                if (existing == null || e.createdAt > existing.createdAt) {
+                    metadataCache.put(e.pubkey, CachedMetadata(e.metadata, e.createdAt, e.fetchedAt))
+                }
+            }
+            if (entries.isNotEmpty()) publishMetadataSnapshot()
+        } catch (_: Exception) {
+            // Corrupted cache — start fresh.
+        }
+    }
+
+    private var diskPersistJob: Job? = null
+
+    /** Debounced snapshot of the (recency-bounded) cache to the global on-disk store. */
+    private fun scheduleDiskPersist() {
+        diskPersistJob?.cancel()
+        diskPersistJob =
+            scope.launch {
+                delay(DISK_PERSIST_DELAY_MS)
+                val entries =
+                    metadataCache.toMap().map { (pk, c) ->
+                        PersistedMetadata(pk, c.metadata, c.createdAt, c.fetchedAt)
+                    }
+                // Never overwrite the store with an empty snapshot (e.g. if a logout cleared
+                // the in-memory cache between the schedule and the write).
+                if (entries.isEmpty()) return@launch
+                try {
+                    SecureStorage.saveUserMetadataCache(json.encodeToString(persistedMetadataListSerializer, entries))
+                } catch (_: Exception) {
+                }
+            }
     }
 
     private fun publishMetadataSnapshot() {
@@ -492,6 +556,7 @@ class MetadataManager(
     ) {
         metadataCache.put(pubkey, CachedMetadata(metadata, createdAt, epochMillis()))
         flushMetadataNow()
+        scheduleDiskPersist()
     }
 
     private fun UserMetadata.isEmpty(): Boolean = name.isNullOrBlank() &&
@@ -591,6 +656,9 @@ class MetadataManager(
     fun getCachedEvent(eventId: String): CachedEvent? = eventsCache.get(eventId)
 
     fun clear() {
+        // Cancel any pending persist so it can't write the about-to-be-emptied cache over
+        // the on-disk store (which is global and survives logout for fast re-login).
+        diskPersistJob?.cancel()
         metadataCache.clear()
         eventsCache.clear()
         _userMetadata.value = emptyMap()

@@ -411,6 +411,9 @@ class NostrRepository(
         // Now that the IDB cache is populated, prime the relay-metadata StateFlow so the sidebar
         // shows icons/names immediately instead of waiting for NIP-11 HTTP fetches.
         _relayMetadataManager.restoreFromCache()
+        // Same for kind:0 profiles: hydrate names/avatars from the global on-disk store so they
+        // show instantly on cold start instead of waiting for the network.
+        metadataManager.restoreFromCache()
 
         val restored = sessionManager.restoreSession()
         if (restored) {

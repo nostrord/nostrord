@@ -719,6 +719,27 @@ actual object SecureStorage {
         null
     }
 
+    // Plain JSON file (same rationale as relay metadata: public, non-sensitive, and too
+    // large for the 8 KB Preferences value cap).
+    private val userMetadataFile: java.io.File by lazy {
+        val dir = java.io.File(System.getProperty("user.home"), ".nostrord")
+        dir.mkdirs()
+        java.io.File(dir, "user_metadata.json")
+    }
+
+    actual fun saveUserMetadataCache(json: String) {
+        try {
+            userMetadataFile.writeText(json)
+        } catch (_: Exception) {
+        }
+    }
+
+    actual fun getUserMetadataCache(): String? = try {
+        if (userMetadataFile.exists()) userMetadataFile.readText() else null
+    } catch (_: Exception) {
+        null
+    }
+
     actual fun saveLiveCursors(
         relayUrl: String,
         json: String,

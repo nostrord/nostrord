@@ -23,6 +23,7 @@ actual object SecureStorage {
     private const val RELAY_GROUPS_PREFIX = "relay_groups_"
     private const val JOINED_GROUP_META_PREFIX = "joined_group_meta_"
     private const val RELAY_METADATA_KEY = "relay_metadata"
+    private const val USER_METADATA_KEY = "user_metadata"
     private const val LIVE_CURSORS_PREFIX = "live_cursors_"
 
     private lateinit var prefs: SharedPreferences
@@ -408,6 +409,16 @@ actual object SecureStorage {
     actual fun getRelayMetadata(): String? {
         ensureInitialized()
         return prefs.getString(RELAY_METADATA_KEY, null)
+    }
+
+    actual fun saveUserMetadataCache(json: String) {
+        ensureInitialized()
+        prefs.edit().putString(USER_METADATA_KEY, json).apply()
+    }
+
+    actual fun getUserMetadataCache(): String? {
+        ensureInitialized()
+        return prefs.getString(USER_METADATA_KEY, null)
     }
 
     actual fun saveLiveCursors(
