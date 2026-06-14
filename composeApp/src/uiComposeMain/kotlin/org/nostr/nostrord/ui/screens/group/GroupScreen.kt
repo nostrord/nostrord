@@ -102,7 +102,6 @@ fun GroupScreen(
             joinedGroupsByRelay.values.flatten().toSet()
         }
     val groups by vm.groups.collectAsState()
-    val groupsByRelay by vm.groupsByRelay.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
     val userMetadata by vm.userMetadata.collectAsState()
     val allReactions by vm.reactions.collectAsState()
@@ -122,13 +121,19 @@ fun GroupScreen(
             groups.find { it.id == groupId }
         }
 
+    // %group mention candidates: only joined + friends' groups (the new discovery),
+    // not every group the relay served.
+    val mentionableGroups by vm.mentionableGroups.collectAsState()
     val availableGroups =
-        remember(groupsByRelay) {
-            groupsByRelay
-                .flatMap { (relay, relayGroups) ->
-                    relayGroups.map { g ->
-                        GroupInfo(id = g.id, name = g.name ?: g.id, picture = g.picture, relay = relay)
-                    }
+        remember(mentionableGroups) {
+            mentionableGroups
+                .map { mg ->
+                    GroupInfo(
+                        id = mg.meta.id,
+                        name = mg.meta.name ?: mg.meta.id,
+                        picture = mg.meta.picture,
+                        relay = mg.relayUrl,
+                    )
                 }.distinctBy { it.id }
         }
 

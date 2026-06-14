@@ -941,7 +941,9 @@ val ChatScreen =
         val userMetadata = useStateFlow(vm.userMetadata)
         val reactionsByMsg = useStateFlow(vm.reactions)
         val zapsByMsg = useStateFlow(vm.zaps)
-        val allGroups = useStateFlow(vm.groups)
+        // %group mention candidates: only joined + friends' groups (the new discovery),
+        // not every group the relay served.
+        val allGroups = useStateFlow(vm.mentionableGroups).map { it.meta }
         val relayMetadata = useStateFlow(vm.relayMetadata)
         val relayUrl = useStateFlow(vm.currentRelayUrl)
         val isLoadingMore = useStateFlow(vm.isLoadingMore)[group.id] ?: false

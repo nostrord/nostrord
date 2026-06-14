@@ -3,11 +3,22 @@ package org.nostr.nostrord.ui.screens.group
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrRepositoryApi
+import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.utils.Result
+
+/** A group offered in the `%group` mention autocomplete (with its hosting relay). */
+data class MentionableGroup(
+    val relayUrl: String,
+    val meta: GroupMetadata,
+)
 
 class GroupViewModel(
     private val repo: NostrRepositoryApi,
@@ -35,6 +46,39 @@ class GroupViewModel(
     val groupStates = repo.groupStates
     val zaps = repo.zaps
     val cachedEvents = repo.cachedEvents
+
+    /**
+     * Groups offered in the `%group` mention autocomplete: only the ones you're in plus the
+     * ones discovered through people you follow (their kind:10009 lists, and friends present
+     * in a group's member list) - not every group the relay ever served. Matches the
+     * friend-based discovery used on the Home page.
+     */
+    @Suppress("UNCHECKED_CAST")
+    val mentionableGroups: StateFlow<List<MentionableGroup>> =
+        combine(
+            listOf(
+                repo.groupsByRelay,
+                repo.joinedGroupsByRelay,
+                repo.following,
+                repo.userGroupLists,
+                repo.groupMembers,
+            ),
+        ) { arr ->
+            val byRelay = arr[0] as Map<String, List<GroupMetadata>>
+            val joinedByRelay = arr[1] as Map<String, Set<String>>
+            val following = arr[2] as Set<String>
+            val lists = arr[3] as Map<String, List<UserGroupRef>>
+            val members = arr[4] as Map<String, List<String>>
+
+            val wanted = HashSet<String>()
+            wanted.addAll(joinedByRelay.values.flatten())
+            following.forEach { f -> lists[f].orEmpty().forEach { wanted.add(it.groupId) } }
+            members.forEach { (gid, pks) -> if (pks.any { it in following }) wanted.add(gid) }
+
+            byRelay
+                .flatMap { (relay, list) -> list.filter { it.id in wanted }.map { MentionableGroup(relay, it) } }
+                .distinctBy { it.meta.id }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending
