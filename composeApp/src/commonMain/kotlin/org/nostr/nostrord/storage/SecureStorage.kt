@@ -2,10 +2,10 @@ package org.nostr.nostrord.storage
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.toHexString
 
@@ -491,28 +491,34 @@ fun SecureStorage.clearRelayListFor(pubkey: String) {
 // Last-known followed users (kind:3) with their resolved kind:0 metadata, so the
 // home sidebar shows names + avatars instantly on launch instead of re-fetching
 // every time. Refreshed from live data and on follow/unfollow.
-private fun friendsCacheKey(pubkey: String) = "friends_cache_${pubkeyDigest(pubkey)}"
+private fun followingCacheKey(pubkey: String) = "following_cache_${pubkeyDigest(pubkey)}"
 
-fun SecureStorage.saveFriendsCacheFor(
+/**
+ * The followed pubkey list (kind:3), per account. Only the identities are cached here — the
+ * ordering pointer for the friends sidebar; their kind:0 metadata comes from the global
+ * user-metadata store (MetadataManager), so it is not duplicated and stays a single source
+ * of truth. Lets the sidebar render its rows before kind:3 re-arrives on cold start.
+ */
+fun SecureStorage.saveFollowingCacheFor(
     pubkey: String,
-    friends: List<UserMetadata>,
+    following: List<String>,
 ) {
     if (pubkey.isBlank()) return
     try {
         saveStringPref(
-            friendsCacheKey(pubkey),
-            Json.encodeToString(ListSerializer(UserMetadata.serializer()), friends),
+            followingCacheKey(pubkey),
+            Json.encodeToString(ListSerializer(String.serializer()), following),
         )
     } catch (_: Exception) {
     }
 }
 
-fun SecureStorage.loadFriendsCacheFor(pubkey: String): List<UserMetadata> {
+fun SecureStorage.loadFollowingCacheFor(pubkey: String): List<String> {
     if (pubkey.isBlank()) return emptyList()
-    val raw = getStringPref(friendsCacheKey(pubkey), "")
+    val raw = getStringPref(followingCacheKey(pubkey), "")
     if (raw.isBlank()) return emptyList()
     return try {
-        Json.decodeFromString(ListSerializer(UserMetadata.serializer()), raw)
+        Json.decodeFromString(ListSerializer(String.serializer()), raw)
     } catch (_: Exception) {
         emptyList()
     }

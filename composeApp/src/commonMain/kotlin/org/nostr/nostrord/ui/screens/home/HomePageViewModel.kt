@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -19,8 +18,8 @@ import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.notifications.NotificationHistoryStore
 import org.nostr.nostrord.storage.SecureStorage
-import org.nostr.nostrord.storage.loadFriendsCacheFor
-import org.nostr.nostrord.storage.saveFriendsCacheFor
+import org.nostr.nostrord.storage.loadFollowingCacheFor
+import org.nostr.nostrord.storage.saveFollowingCacheFor
 
 /**
  * Curator whose public group list (kind:10009) seeds the "Recommended" tab: the
@@ -150,13 +149,14 @@ class HomePageViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
-     * Last-known friends persisted to disk (followed users + their kind:0 metadata),
-     * so the sidebar shows names + avatars instantly on launch instead of waiting for
-     * kind:3 + kind:0 to re-arrive. Refreshed below whenever live data resolves.
+     * Last-known followed users, so the sidebar shows its rows instantly on launch instead of
+     * waiting for kind:3 to re-arrive. Only the identities are persisted (see
+     * [saveFollowingCacheFor]); each row's avatar/name comes from the global user-metadata
+     * store (already hydrated from disk by this point), so metadata is not duplicated.
      */
     private val cachedFriends: List<Friend> =
-        SecureStorage.loadFriendsCacheFor(repo.getPublicKey().orEmpty())
-            .map { Friend(it.pubkey, it) }
+        SecureStorage.loadFollowingCacheFor(repo.getPublicKey().orEmpty())
+            .map { pk -> Friend(pk, repo.userMetadata.value[pk]) }
 
     /** Friends with resolved avatars first, then by display name. */
     private fun sortFriends(list: List<Friend>): List<Friend> = list.sortedWith(
@@ -378,20 +378,17 @@ class HomePageViewModel(
             withTimeoutOrNull(3_500) { repo.following.first { it.isNotEmpty() } }
             _contactsResolved.value = true
         }
-        // Persist the friends list (followed users + resolved metadata) so the next
-        // launch shows avatars instantly. Only once kind:3 has loaded (so we don't
-        // overwrite the cache with the empty pre-load state); distinctUntilChanged
-        // keeps the metadata stream from re-writing identical snapshots.
+        // Persist the followed pubkey list so the next launch shows the sidebar rows
+        // instantly (their avatars/names come from the global metadata store). Only once
+        // kind:3 has loaded, so we don't overwrite the cache with the empty pre-load state.
         viewModelScope.launch {
-            friends
-                .map { list -> list.mapNotNull { it.metadata } }
-                .distinctUntilChanged()
-                .collect { metas ->
-                    val pk = repo.getPublicKey() ?: return@collect
-                    if (repo.following.value.isNotEmpty()) {
-                        SecureStorage.saveFriendsCacheFor(pk, metas)
-                    }
+            // repo.following is a StateFlow, so collect already only fires on actual changes.
+            repo.following.collect { following ->
+                val pk = repo.getPublicKey() ?: return@collect
+                if (following.isNotEmpty()) {
+                    SecureStorage.saveFollowingCacheFor(pk, following.toList())
                 }
+            }
         }
         // Backfill metadata for discovered friend groups. We aggregate every friend's
         // kind:10009 refs into a deduplicated relayUrl -> {groupId} map (each group once,

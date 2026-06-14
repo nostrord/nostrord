@@ -541,6 +541,7 @@ class GroupManager(
         const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
         const val REQUEST_COOLDOWN_MS = 2_000L // Prevents duplicate REQs within this window
         const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
+        const val GROUP_SNAPSHOT_EXTRA_CAP = 100 // Recently-seen non-joined groups kept per relay
     }
 
     private var currentPubkey: String? = null
@@ -2547,14 +2548,20 @@ class GroupManager(
     }
 
     /**
-     * Rebuild and persist the joined-group metadata snapshot for [relayUrl].
+     * Rebuild and persist the group metadata snapshot for [relayUrl]: every joined group
+     * (the rail / My groups) plus a capped set of the most recently seen non-joined groups,
+     * so discovery cards on relays you're already on also render their name/avatar instantly
+     * on the next launch. Bounded by [GROUP_SNAPSHOT_EXTRA_CAP] to keep the blob small.
      * No-op when [currentPubkey] is not set (unauthenticated state).
      */
     private fun persistJoinedGroupMetadataSnapshot(relayUrl: String) {
         val pubKey = currentPubkey ?: return
         val normalized = relayUrl.normalizeRelayUrl()
         val joinedIds = _joinedGroupsByRelay.value[normalized] ?: emptySet()
-        val snapshot = (_groupsByRelay.value[normalized] ?: emptyList()).filter { it.id in joinedIds }
+        val all = _groupsByRelay.value[normalized] ?: emptyList()
+        val joined = all.filter { it.id in joinedIds }
+        val others = all.filter { it.id !in joinedIds }.takeLast(GROUP_SNAPSHOT_EXTRA_CAP)
+        val snapshot = joined + others
         try {
             SecureStorage.saveJoinedGroupMetadata(pubKey, normalized, json.encodeToString(groupMetadataListSerializer, snapshot))
         } catch (_: Exception) {}
@@ -2666,11 +2673,11 @@ class GroupManager(
     }
 
     /**
-     * Restore only the joined-group metadata snapshot for fast startup display.
-     * Reads from the pubkey-scoped cache written by [persistJoinedGroupMetadataSnapshot],
-     * which contains only the kind:10009 groups — a small, bounded dataset.
-     * Does NOT restore [_fullGroupListFetchedRelays]: a joined-only restore does not
-     * constitute a full list fetch, so OTHER GROUPS will trigger a network fetch when opened.
+     * Restore the group metadata snapshot for fast startup display. Reads the pubkey-scoped
+     * cache written by [persistJoinedGroupMetadataSnapshot] — the joined groups plus a capped
+     * set of recently-seen others, a small, bounded dataset.
+     * Does NOT restore [_fullGroupListFetchedRelays]: this snapshot is not a full list fetch,
+     * so OTHER GROUPS still triggers a network fetch when opened.
      */
     fun restoreJoinedGroupMetadataFromStorage(pubkey: String, relayUrls: List<String>) {
         val now = epochSeconds()
