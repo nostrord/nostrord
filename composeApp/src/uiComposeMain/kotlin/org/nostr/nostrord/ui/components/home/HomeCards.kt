@@ -122,18 +122,9 @@ fun GroupCard(
                 }
             }
             if (people.isNotEmpty()) {
-                // Social proof (From friends / Recommended): the people in the group
-                // by name, then their overlapping avatars and the total count.
+                // Social proof (From friends / Recommended): the people in the group as
+                // overlapping avatars and the total count.
                 Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    people.joinToString(", ") { personName(it) },
-                    color = NostrordColors.TextSecondary,
-                    fontSize = 13.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.height(36.dp),
-                )
-                Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     AvatarStack(people)
                     Spacer(modifier = Modifier.width(8.dp))

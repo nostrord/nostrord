@@ -356,10 +356,6 @@ private fun ChildrenBuilder.discoverGroupCard(
         }
         if (dg.people.isNotEmpty()) {
             div {
-                className = ClassName("group-card-people-names")
-                +dg.people.joinToString(", ") { personName(it) }
-            }
-            div {
                 className = ClassName("group-card-people")
                 div {
                     className = ClassName("discover-avatars")

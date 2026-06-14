@@ -2681,24 +2681,12 @@ body {
 }
 
 /* Social proof on the From friends / Recommended discovery cards: the people in
-   the group by name, then their overlapping avatars and the total count. */
-.group-card-people-names {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    flex: 1;
-    min-height: 36px;
-    margin: 12px 0 8px;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-}
-
+   the group as overlapping avatars and the total count. */
 .group-card-people {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 12px;
+    margin: 12px 0;
 }
 
 /* Overlapping avatar row (prototype -space-x-2). The tiles are WebAvatars sized
@@ -8322,7 +8310,6 @@ body {
     flex-direction: column;
     align-items: stretch;
     gap: 12px;
-    padding: 8px 24px;
 }
 
 .home-filters {
@@ -8375,21 +8362,8 @@ body {
 }
 
 .home-search {
-    /* Native PickGroupSearch (HomeScreenDesktop.kt:353): fillMaxWidth(),
-       height 40.dp, RoundedCornerShape(4.dp), horizontal padding 12.dp.
-       The filter pill above used to share this row with width:280px — now
-       both sit on their own row, the search always spans 100%. */
-    width: 100%;
-    height: 40px;
-    box-sizing: border-box;
-    padding: 0 38px 0 38px;
-    font-size: 13px;
     font-family: inherit;
-    color: var(--color-text-primary);
-    background: var(--color-background-dark);
-    border: none;
-    border-radius: 4px;
-    outline: none;
+    width: 100%;
 }
 
 .home-search::placeholder {
