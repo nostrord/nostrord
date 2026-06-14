@@ -41,6 +41,7 @@ external interface HomePageProps : Props {
     var onJoinGroup: () -> Unit
     var onOpenDms: () -> Unit
     var onOpenNotifications: () -> Unit
+    var onOpenDrawer: () -> Unit
 }
 
 /**
@@ -72,6 +73,12 @@ val HomePage =
 
             div {
                 className = ClassName("page-header")
+                button {
+                    className = ClassName("icon-btn frame-menu-btn")
+                    title = "Menu"
+                    onClick = { props.onOpenDrawer() }
+                    icon(Ic.Menu)
+                }
                 icon(Ic.People)
                 span {
                     className = ClassName("page-header-title")

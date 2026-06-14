@@ -90,6 +90,8 @@ val AppFrame =
         // Notifications page open over the content (filter sidebar + list); one shared VM.
         val notifVm = useViewModel { NotificationsViewModel(repo) }
         val (notificationsOpen, setNotificationsOpen) = useState { false }
+        // Mobile nav drawer: below md the rail + sidebar slide in over the content.
+        val (drawerOpen, setDrawerOpen) = useState { false }
 
         // The hash is the navigation source of truth: state follows it (hashchange
         // covers pushes from this frame, back/forward, and hand-edited URLs).
@@ -103,6 +105,9 @@ val AppFrame =
                 window.asDynamic().removeEventListener("hashchange", listener)
             }
         }
+        // Close the mobile nav drawer whenever the destination changes (a rail/sidebar tap
+        // navigates or opens notifications), so it doesn't stay over the new screen.
+        useEffect(route, notificationsOpen) { setDrawerOpen(false) }
         val groupRoute = route as? GroupRoute
 
         // Mirror the legacy AppShell: cross-relay navigation switches the relay first;
@@ -176,7 +181,13 @@ val AppFrame =
                 ?: "Account"
 
         div {
-            className = ClassName("app-frame")
+            className = ClassName(if (drawerOpen) "app-frame drawer-open" else "app-frame")
+            if (drawerOpen) {
+                div {
+                    className = ClassName("app-frame-backdrop")
+                    onClick = { setDrawerOpen(false) }
+                }
+            }
             div {
                 className = ClassName("app-frame-nav")
 
@@ -317,7 +328,10 @@ val AppFrame =
                                             button {
                                                 key = friend.pubkey
                                                 className = ClassName("sidebar-friend")
-                                                onClick = { setProfileUser(friend.pubkey) }
+                                                onClick = {
+                                                    setDrawerOpen(false)
+                                                    setProfileUser(friend.pubkey)
+                                                }
                                                 WebAvatar {
                                                     url = friend.metadata?.picture
                                                     seed = friend.pubkey
@@ -459,6 +473,7 @@ val AppFrame =
                     notificationsOpen ->
                         NotificationsPage {
                             this.vm = notifVm
+                            onOpenDrawer = { setDrawerOpen(true) }
                             onOpen = { relay, gid, _ ->
                                 setNotificationsOpen(false)
                                 pushRoute(GroupRoute(relay, gid))
@@ -487,10 +502,11 @@ val AppFrame =
                             onNavigateGroup = { gid, relay ->
                                 pushRoute(GroupRoute(relay ?: r.relayUrl, gid))
                             }
-                            onOpenDrawer = { /* mobile drawer comes later */ }
+                            onOpenDrawer = { setDrawerOpen(true) }
                         }
                     else ->
                         HomePage {
+                            onOpenDrawer = { setDrawerOpen(true) }
                             onOpenGroup = { pushRoute(GroupRoute(it.relayUrl, it.meta.id)) }
                             onCreateGroup = { setAddGroupStep("create") }
                             onJoinGroup = { setAddGroupStep("join") }

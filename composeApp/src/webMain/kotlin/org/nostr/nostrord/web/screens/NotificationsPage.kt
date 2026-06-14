@@ -23,6 +23,7 @@ import web.cssom.ClassName
 external interface NotificationsPageProps : Props {
     var vm: NotificationsViewModel
     var onOpen: (relayUrl: String, groupId: String, messageId: String?) -> Unit
+    var onOpenDrawer: () -> Unit
 }
 
 /**
@@ -47,6 +48,12 @@ val NotificationsPage =
             className = ClassName("npage")
             div {
                 className = ClassName("npage-header")
+                button {
+                    className = ClassName("icon-btn frame-menu-btn")
+                    title = "Menu"
+                    onClick = { props.onOpenDrawer() }
+                    icon(Ic.Menu)
+                }
                 icon(Ic.Notifications)
                 span {
                     className = ClassName("npage-title")
