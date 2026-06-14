@@ -2627,7 +2627,6 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 12px;
 }
 
 /* Let the text column shrink below its content width so a long/space-less title
