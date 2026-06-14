@@ -22,8 +22,8 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,7 +59,7 @@ private val FILTERS = listOf("My groups", "From friends", "Recommended", "People
 private val FILTER_ICONS = listOf(
     Icons.Default.Forum,
     Icons.Default.People,
-    Icons.Default.Public,
+    Icons.Default.ThumbUp,
     Icons.Default.PersonAdd,
 )
 
@@ -174,19 +174,19 @@ fun HomePageScreen(
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    // Search + filter pills
-                    AppTextField(
-                        value = query,
-                        onValueChange = { vm.setQuery(it) },
-                        placeholder = "Search groups...",
-                        leadingIcon = Icons.Default.Search,
-                        modifier = Modifier.widthIn(max = 288.dp),
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
+                    // Filter pills, then the per-tab "Filter groups" box below them.
                     AppSegmentedTabs(
                         tabs = FILTERS.mapIndexed { i, label -> SegmentedTab(label, FILTER_ICONS[i]) },
                         selectedIndex = filter,
                         onSelect = { filter = it },
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    AppTextField(
+                        value = query,
+                        onValueChange = { vm.setQuery(it) },
+                        placeholder = "Filter groups",
+                        leadingIcon = Icons.Default.Search,
+                        modifier = Modifier.widthIn(max = 288.dp),
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))

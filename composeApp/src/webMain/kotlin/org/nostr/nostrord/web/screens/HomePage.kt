@@ -33,7 +33,7 @@ import web.html.text
 private val FILTERS = listOf("My groups", "From friends", "Recommended", "People")
 
 /** Per-filter icons: own chats, friends, public discovery, people to follow (matches native). */
-private val FILTER_ICONS = listOf(Ic.Forum, Ic.People, Ic.Public, Ic.PersonAdd)
+private val FILTER_ICONS = listOf(Ic.Forum, Ic.People, Ic.ThumbUp, Ic.PersonAdd)
 
 external interface HomePageProps : Props {
     var onOpenGroup: (JoinedGroup) -> Unit
@@ -123,20 +123,20 @@ val HomePage =
                     div {
                         className = ClassName("home-toolbar")
                         div {
-                            className = ClassName("home-search")
-                            iconInput(
-                                ic = Ic.Search,
-                                type = InputType.text,
-                                placeholder = "Search groups...",
-                                value = query,
-                                onChange = { vm.setQuery(it) },
-                            )
-                        }
-                        div {
                             className = ClassName("tab-strip")
                             FILTERS.forEachIndexed { index, label ->
                                 tabItem(filter == index, FILTER_ICONS[index], label) { setFilter(index) }
                             }
+                        }
+                        div {
+                            className = ClassName("home-search")
+                            iconInput(
+                                ic = Ic.Search,
+                                type = InputType.text,
+                                placeholder = "Filter groups",
+                                value = query,
+                                onChange = { vm.setQuery(it) },
+                            )
                         }
                     }
 

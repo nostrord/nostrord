@@ -71,6 +71,14 @@ class HomePageViewModel(
         _query.value = value
     }
 
+    /** The "Filter groups" box matches a group by name or about (empty needle = all). */
+    private fun matchesQuery(
+        meta: GroupMetadata,
+        needle: String,
+    ): Boolean = needle.isEmpty() ||
+        (meta.name ?: meta.id).lowercase().contains(needle) ||
+        meta.about.orEmpty().lowercase().contains(needle)
+
     /** Unread message counts per group id (drives the rail badges). */
     val unreadCounts: StateFlow<Map<String, Int>> = repo.unreadCounts
 
@@ -181,6 +189,7 @@ class HomePageViewModel(
                 repo.groupsByRelay,
                 repo.groupMembers,
                 repo.userMetadata,
+                _query,
             ),
         ) { arr ->
             val following = arr[0] as Set<String>
@@ -189,6 +198,7 @@ class HomePageViewModel(
             val byRelay = arr[3] as Map<String, List<GroupMetadata>>
             val members = arr[4] as Map<String, List<String>>
             val meta = arr[5] as Map<String, UserMetadata>
+            val needle = (arr[6] as String).trim().lowercase()
 
             if (following.isEmpty()) return@combine emptyList()
             val myGroupIds = joinedByRelay.values.flatten().toSet()
@@ -239,6 +249,7 @@ class HomePageViewModel(
                         memberCount = members[gid].orEmpty().size.takeIf { it > 0 } ?: friendPks.size,
                     )
                 }
+                .filter { matchesQuery(it.meta, needle) }
                 .sortedWith(
                     compareByDescending<DiscoverGroup> { it.people.size }
                         .thenBy { (it.meta.name ?: it.meta.id).lowercase() },
@@ -259,6 +270,7 @@ class HomePageViewModel(
                 repo.following,
                 repo.groupMembers,
                 repo.userMetadata,
+                _query,
             ),
         ) { arr ->
             val lists = arr[0] as Map<String, List<UserGroupRef>>
@@ -267,6 +279,7 @@ class HomePageViewModel(
             val following = arr[3] as Set<String>
             val members = arr[4] as Map<String, List<String>>
             val meta = arr[5] as Map<String, UserMetadata>
+            val needle = (arr[6] as String).trim().lowercase()
             val myGroupIds = joinedByRelay.values.flatten().toSet()
             lists[CURATOR_PUBKEY].orEmpty()
                 .filter { it.groupId !in myGroupIds }
@@ -294,6 +307,7 @@ class HomePageViewModel(
                         memberCount = memberPks.size,
                     )
                 }
+                .filter { matchesQuery(it.meta, needle) }
                 .distinctBy { it.meta.id }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
