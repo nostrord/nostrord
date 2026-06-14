@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.screens.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -16,6 +17,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -40,6 +43,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,7 +60,6 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
-import org.nostr.nostrord.ui.components.forms.AppTextField
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.home.EmptyStateCard
 import org.nostr.nostrord.ui.components.home.GroupCard
@@ -199,13 +210,11 @@ fun HomePageScreen(
                         onSelect = { filter = it },
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    AppTextField(
+                    HomeFilterField(
                         value = query,
                         onValueChange = { vm.setQuery(it) },
                         placeholder = if (filter == 3) "Filter follow packs" else "Filter groups",
-                        leadingIcon = Icons.Default.Search,
                         onEscape = { vm.setQuery("") },
-                        modifier = Modifier.fillMaxWidth(),
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -345,6 +354,64 @@ fun HomePageScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Compact filter field matching the web `.input-group`: a filled, rounded box with a
+ * search icon and a flat text field (not Material's taller OutlinedTextField). Esc clears
+ * and drops focus.
+ */
+@Composable
+private fun HomeFilterField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    onEscape: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val focusManager = LocalFocusManager.current
+    Row(
+        modifier =
+        modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(NostrordColors.BackgroundFloating)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = NostrordColors.TextMuted,
+            modifier = Modifier.size(18.dp),
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+            if (value.isEmpty()) {
+                Text(placeholder, color = NostrordColors.TextMuted, fontSize = 14.sp)
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = TextStyle(color = NostrordColors.TextContent, fontSize = 14.sp),
+                cursorBrush = SolidColor(NostrordColors.Primary),
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                            onEscape()
+                            focusManager.clearFocus()
+                            true
+                        } else {
+                            false
+                        }
+                    },
+            )
         }
     }
 }
