@@ -1,6 +1,7 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelChildren
@@ -21,6 +22,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.di.AppModule
@@ -269,6 +273,46 @@ class NostrRepository(
     // wins per pubkey; the active account's own list never lands here.
     private val _userGroupLists = MutableStateFlow<Map<String, List<UserGroupRef>>>(emptyMap())
     override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = _userGroupLists.asStateFlow()
+
+    private val userGroupListsSerializer =
+        MapSerializer(String.serializer(), ListSerializer(UserGroupRef.serializer()))
+    private var userGroupListsPersistJob: Job? = null
+
+    /** Most recently-seen pubkeys to keep when snapshotting the kind:10009 cache to disk. */
+    private val userGroupListsCacheCap = 500
+
+    /** Hydrate other users' kind:10009 lists from disk so discovery tabs render from cache. */
+    private fun restoreUserGroupListsFromCache() {
+        try {
+            val cached = SecureStorage.getUserGroupListsCache()
+            if (cached.isNullOrBlank()) return
+            val map = json.decodeFromString(userGroupListsSerializer, cached)
+            if (map.isNotEmpty()) _userGroupLists.value = map
+        } catch (_: Exception) {
+            // Corrupted cache — start fresh.
+        }
+    }
+
+    /** Debounced snapshot of the (recency-capped) kind:10009 cache to the global on-disk store. */
+    private fun scheduleUserGroupListsPersist() {
+        userGroupListsPersistJob?.cancel()
+        userGroupListsPersistJob =
+            scope.launch {
+                delay(5_000)
+                val snapshot = _userGroupLists.value
+                val capped =
+                    if (snapshot.size <= userGroupListsCacheCap) {
+                        snapshot
+                    } else {
+                        snapshot.entries.toList().takeLast(userGroupListsCacheCap).associate { it.toPair() }
+                    }
+                if (capped.isEmpty()) return@launch
+                try {
+                    SecureStorage.saveUserGroupListsCache(json.encodeToString(userGroupListsSerializer, capped))
+                } catch (_: Exception) {
+                }
+            }
+    }
     private val userGroupListCreatedAt = mutableMapOf<String, Long>()
 
     // The active account's own NIP-02 contact list (kind:3). [following] is the set
@@ -414,6 +458,9 @@ class NostrRepository(
         // Same for kind:0 profiles: hydrate names/avatars from the global on-disk store so they
         // show instantly on cold start instead of waiting for the network.
         metadataManager.restoreFromCache()
+        // And friends'/curator's kind:10009 so the From friends / Recommended tabs render from
+        // cache before the network answers; loadFriendsGroups/loadRecommended revalidate.
+        restoreUserGroupListsFromCache()
 
         val restored = sessionManager.restoreSession()
         if (restored) {
@@ -2509,6 +2556,7 @@ class NostrRepository(
                                 UserGroupRef(relayUrl = relay, groupId = gid)
                             }.distinct()
                         _userGroupLists.value = _userGroupLists.value + (eventPubkey to refs)
+                        scheduleUserGroupListsPersist()
                     }
                     return
                 }

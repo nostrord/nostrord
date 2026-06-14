@@ -1,6 +1,7 @@
 package org.nostr.nostrord.network
 
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.Serializable
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.GroupManager
@@ -15,6 +16,7 @@ import org.nostr.nostrord.utils.Result
  * Allows ViewModels to be tested with a fake implementation.
  */
 /** One entry of a user's public kind:10009 group list. */
+@Serializable
 data class UserGroupRef(
     val relayUrl: String,
     val groupId: String,

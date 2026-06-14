@@ -208,6 +208,13 @@ expect object SecureStorage {
 
     fun getUserMetadataCache(): String?
 
+    // Other users' kind:10009 group lists (friends + curator), so the From friends /
+    // Recommended tabs render from cache before the network answers. Public, non-sensitive,
+    // global (a user's list is the same for everyone).
+    fun saveUserGroupListsCache(json: String)
+
+    fun getUserGroupListsCache(): String?
+
     // Live subscription cursors — last-seen event timestamp per group per relay
     fun saveLiveCursors(
         relayUrl: String,

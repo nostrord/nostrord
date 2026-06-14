@@ -740,6 +740,25 @@ actual object SecureStorage {
         null
     }
 
+    private val userGroupListsFile: java.io.File by lazy {
+        val dir = java.io.File(System.getProperty("user.home"), ".nostrord")
+        dir.mkdirs()
+        java.io.File(dir, "user_group_lists.json")
+    }
+
+    actual fun saveUserGroupListsCache(json: String) {
+        try {
+            userGroupListsFile.writeText(json)
+        } catch (_: Exception) {
+        }
+    }
+
+    actual fun getUserGroupListsCache(): String? = try {
+        if (userGroupListsFile.exists()) userGroupListsFile.readText() else null
+    } catch (_: Exception) {
+        null
+    }
+
     actual fun saveLiveCursors(
         relayUrl: String,
         json: String,

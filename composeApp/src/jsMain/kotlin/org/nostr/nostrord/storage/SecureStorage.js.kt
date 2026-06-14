@@ -8,6 +8,7 @@ import kotlin.coroutines.suspendCoroutine
 // In-memory caches for IndexedDB-backed data (synchronous read access after preloadMetadata).
 private var relayMetaIdbCache: String? = null
 private var userMetaIdbCache: String? = null
+private var userGroupListsIdbCache: String? = null
 private val joinedGroupMetaIdbCache = mutableMapOf<String, String>()
 
 // Single persistent DB connection — set once by preloadMetadata(), reused for all writes.
@@ -55,6 +56,7 @@ actual object SecureStorage {
     // IDB key constants
     private const val IDB_RELAY_META_KEY = "relay_meta:relay_metadata"
     private const val IDB_USER_META_KEY = "user_meta:user_metadata"
+    private const val IDB_USER_GROUP_LISTS_KEY = "user_group_lists:user_group_lists"
     private const val IDB_JOINED_GROUP_META_PREFIX = "joined_group_meta:"
 
     actual fun savePrivateKey(privateKeyHex: String) {
@@ -308,6 +310,14 @@ actual object SecureStorage {
 
     actual fun getUserMetadataCache(): String? = userMetaIdbCache
 
+    // Other users' kind:10009 lists — backed by IndexedDB, read via in-memory cache.
+    actual fun saveUserGroupListsCache(json: String) {
+        userGroupListsIdbCache = json
+        idbWrite(IDB_USER_GROUP_LISTS_KEY, json)
+    }
+
+    actual fun getUserGroupListsCache(): String? = userGroupListsIdbCache
+
     actual fun saveLiveCursors(relayUrl: String, json: String) {
         val key = LIVE_CURSORS_PREFIX + relayUrl.hashCode()
         localStorage.setItem(key, json)
@@ -418,6 +428,7 @@ actual object SecureStorage {
 
             loaded[IDB_RELAY_META_KEY]?.let { relayMetaIdbCache = it }
             loaded[IDB_USER_META_KEY]?.let { userMetaIdbCache = it }
+            loaded[IDB_USER_GROUP_LISTS_KEY]?.let { userGroupListsIdbCache = it }
             loaded.forEach { (key, value) ->
                 if (key.startsWith(IDB_JOINED_GROUP_META_PREFIX)) {
                     joinedGroupMetaIdbCache[key.removePrefix(IDB_JOINED_GROUP_META_PREFIX)] = value
