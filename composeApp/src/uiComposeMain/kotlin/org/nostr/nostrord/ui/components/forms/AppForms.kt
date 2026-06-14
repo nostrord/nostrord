@@ -224,7 +224,10 @@ fun AppSegmentedTabs(
         shape = NostrordShapes.shapeMedium,
         color = NostrordColors.BackgroundFloating,
     ) {
-        Row(modifier = Modifier.padding(4.dp)) {
+        Row(
+            modifier = Modifier.padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             tabs.forEachIndexed { index, tab ->
                 val isSelected = index == selectedIndex
                 val backgroundColor by animateColorAsState(
