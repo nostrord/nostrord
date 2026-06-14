@@ -414,11 +414,6 @@ private val ChatComposer =
         fun send() {
             var text = draft.trim()
             if (text.isEmpty() || sending) return
-            if (text == "?" && pendingUploads.isEmpty()) {
-                // "?" is the hints trigger (popup above the frame), not a message.
-                setDraft("")
-                return
-            }
             // Resolve %group mentions to their nostr:naddr inline (native does this at send too);
             // @user mentions are resolved by sendMessage from the mentions map (+ p-tag).
             groupMentions.forEach { (name, ref) -> text = text.replace("%$name", ref) }
@@ -472,6 +467,10 @@ private val ChatComposer =
         // Markdown toolbar (prototype Composer): wraps the selection via execCommand
         // so edits join the textarea's NATIVE undo stack (Ctrl+Z works).
         val (toolbarOpen, setToolbarOpen) = useState { false }
+        // Hints popup (keyboard shortcuts on desktop, mention triggers on touch). It is an
+        // explicit toggle, not derived from the draft: "?" opens it without landing in the
+        // field, Esc (or typing) closes it, so "?" stays a normal message character.
+        val (showHints, setShowHints) = useState { false }
         val isTouch = window.matchMedia("(pointer: coarse)").matches
 
         fun insertAtCursor(replacement: String, caretBack: Int = 0) {
@@ -579,7 +578,7 @@ private val ChatComposer =
                 // textarea included (same failure mode as the chat-header note).
                 // Type "?" to surface hints (keyboard shortcuts on desktop, mention
                 // triggers on touch, where Enter is a newline).
-                if (draft.trim() == "?") {
+                if (showHints) {
                     div {
                         key = "composer-hints"
                         className = ClassName("composer-hints")
@@ -781,10 +780,18 @@ private val ChatComposer =
                                 rows = 1
                                 onChange = { event ->
                                     val v = event.currentTarget.value
-                                    setDraft(v)
-                                    val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
-                                    setMention(detectMention(v, cursor))
-                                    setMentionSelected(0)
+                                    if (isTouch && draft.isEmpty() && v == "?") {
+                                        // Touch keyboards don't emit a reliable keydown for "?", so open
+                                        // the hints from the value instead and keep the glyph out of the
+                                        // field (matches the desktop intercept below).
+                                        setShowHints(true)
+                                    } else {
+                                        if (showHints) setShowHints(false)
+                                        setDraft(v)
+                                        val cursor = (event.currentTarget.asDynamic().selectionStart as? Int) ?: v.length
+                                        setMention(detectMention(v, cursor))
+                                        setMentionSelected(0)
+                                    }
                                 }
                                 onKeyDown = { event ->
                                     val hasMentions = mention != null && mentionMatches.isNotEmpty()
@@ -805,6 +812,10 @@ private val ChatComposer =
                                             event.preventDefault()
                                             setMention(null)
                                         }
+                                        showHints && event.key == "Escape" -> {
+                                            event.preventDefault()
+                                            setShowHints(false)
+                                        }
                                         toolbarOpen && event.key == "Escape" -> {
                                             event.preventDefault()
                                             setToolbarOpen(false)
@@ -812,6 +823,11 @@ private val ChatComposer =
                                         props.replyingToId != null && event.key == "Escape" -> {
                                             event.preventDefault()
                                             props.onCancelReply()
+                                        }
+                                        !isTouch && event.key == "?" && draft.isEmpty() && !hasMentions -> {
+                                            // Open the shortcuts box; the glyph never lands in the field.
+                                            event.preventDefault()
+                                            setShowHints(true)
                                         }
                                         event.key == "Enter" && !event.shiftKey -> {
                                             // Inside a list: continue / exit it, never send. On touch,
@@ -898,9 +914,18 @@ private val ChatComposer =
                 div {
                     key = "composer-footer"
                     className = ClassName("composer-hint-footer")
-                    +"Type "
-                    kbd { +"?" }
-                    +(if (isTouch) " to see mention triggers" else " to see shortcuts")
+                    // Clickable affordance: toggles the same box, the only reliable opener on
+                    // touch (where "?" never reaches a keydown).
+                    onClick = { setShowHints(!showHints) }
+                    if (showHints && !isTouch) {
+                        +"Press "
+                        kbd { +"Esc" }
+                        +" to close"
+                    } else {
+                        +"Type "
+                        kbd { +"?" }
+                        +(if (isTouch) " to see mention triggers" else " to see shortcuts")
+                    }
                 }
             }
             uploadError?.let { error ->

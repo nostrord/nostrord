@@ -6041,6 +6041,10 @@ body {
     padding: 0 4px;
     font-size: 11px;
     color: var(--color-text-muted);
+    /* Clickable toggle, hit area bounded to the text. */
+    width: fit-content;
+    cursor: pointer;
+    user-select: none;
 }
 /* @user / %group mention autocomplete popover, floating above the composer
    frame (anchored to .composer-area; prototype: bottom-full left-4 w-[300px]). */
