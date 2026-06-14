@@ -67,9 +67,13 @@ import org.nostr.nostrord.auth.removeAccountDialogBody
 import org.nostr.nostrord.auth.removeAccountDialogTitle
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.accounts.AddAccountSheet
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
+import org.nostr.nostrord.ui.components.loading.SkeletonCircle
+import org.nostr.nostrord.ui.components.loading.SkeletonLine
+import org.nostr.nostrord.ui.components.zap.ZapModalHost
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.HashRoute
@@ -80,6 +84,7 @@ import org.nostr.nostrord.ui.screens.group.GroupScreen
 import org.nostr.nostrord.ui.screens.group.components.AddGroupModal
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.JoinGroupModal
+import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.screens.home.HomePageScreen
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
@@ -105,6 +110,10 @@ fun AppFrame() {
     val notificationUnread by vm.notificationUnread.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     var addGroupStep by remember { mutableStateOf<AddGroupStep?>(null) }
+    // Friend tapped in the home sidebar: open the quick profile modal first (no
+    // chat composer around, so no Mention action), with "View profile" inside it
+    // for the full page.
+    var profileUser by remember { mutableStateOf<String?>(null) }
     var route by remember { mutableStateOf<HashRoute?>(null) }
     val groupRoute = route as? GroupRoute
 
@@ -128,6 +137,8 @@ fun AppFrame() {
                 onCloseGroup = { route = null },
                 onConsumeInvite = { route = (route as? GroupRoute)?.copy(inviteCode = null) },
                 onEditProfile = { showSettings = true },
+                onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
+                onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
             )
         } else {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -220,7 +231,7 @@ fun AppFrame() {
                         HorizontalDivider(color = NostrordColors.Divider)
                         HomeHub(
                             vm = vm,
-                            onOpenUser = { route = UserRoute(it) },
+                            onOpenUser = { profileUser = it },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -236,6 +247,8 @@ fun AppFrame() {
                         onCloseGroup = { route = null },
                         onConsumeInvite = { route = (route as? GroupRoute)?.copy(inviteCode = null) },
                         onEditProfile = { showSettings = true },
+                        onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
+                        onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
                     )
                 }
             }
@@ -277,6 +290,22 @@ fun AppFrame() {
             null -> {}
         }
 
+        // Quick profile modal for a friend tapped in the home sidebar. No onMention
+        // (we're not in a group chat, so the Mention row stays hidden); "View profile"
+        // and "Message" route through the frame navigator to the full page / DM.
+        profileUser?.let { pubkey ->
+            val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
+            CompositionLocalProvider(LocalFrameNavigator provides { route = it }) {
+                UserProfileModal(
+                    pubkey = pubkey,
+                    metadata = userMetadata[pubkey],
+                    userMetadata = userMetadata,
+                    onUserClick = { profileUser = it },
+                    onDismiss = { profileUser = null },
+                )
+            }
+        }
+
         // Legacy Settings overlay, reachable from the account bar's gear until the
         // new-design settings page is ported. Its internal confirm runs before
         // onLogout, so the sign-out here is immediate.
@@ -292,6 +321,10 @@ fun AppFrame() {
                 },
             )
         }
+
+        // Zap modal host: mounted once so any ZapController.request(...) from a profile,
+        // profile modal or message renders the send-zap modal over the frame.
+        ZapModalHost()
     }
 }
 
@@ -304,10 +337,17 @@ private fun FrameContent(
     onCloseGroup: () -> Unit,
     onConsumeInvite: () -> Unit,
     onEditProfile: () -> Unit,
+    onCreateGroup: () -> Unit,
+    onJoinGroup: () -> Unit,
 ) {
     CompositionLocalProvider(LocalFrameNavigator provides onNavigate) {
         when (route) {
-            null -> HomePageScreen(onOpenGroup = { onNavigate(GroupRoute(it.relayUrl, it.meta.id)) })
+            null ->
+                HomePageScreen(
+                    onOpenGroup = { onNavigate(GroupRoute(it.relayUrl, it.meta.id)) },
+                    onCreateGroup = onCreateGroup,
+                    onJoinGroup = onJoinGroup,
+                )
             is UserRoute ->
                 ProfilePageScreen(
                     pubkey = route.pubkey,
@@ -431,6 +471,7 @@ private fun HomeHub(
 ) {
     var hub by remember { mutableStateOf(0) }
     val friends by vm.friends.collectAsState()
+    val friendsLoading by vm.friendsLoading.collectAsState()
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(8.dp),
     ) {
@@ -452,6 +493,10 @@ private fun HomeHub(
                     fontSize = 13.sp,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
                 )
+            friendsLoading ->
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    repeat(6) { FriendRowSkeleton() }
+                }
             friends.isEmpty() ->
                 Text(
                     "You don't follow anyone yet.",
@@ -504,6 +549,19 @@ private fun FriendRow(
     }
 }
 
+/** Placeholder row shown while the contact list / metadata are still loading. */
+@Composable
+private fun FriendRowSkeleton() {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        SkeletonCircle(size = 32.dp)
+        SkeletonLine(width = 120.dp, height = 12.dp)
+    }
+}
+
 @Composable
 private fun AccountBar(onOpenSettings: () -> Unit) {
     val accounts by AppModule.accountStore.accounts.collectAsState()
@@ -520,6 +578,13 @@ private fun AccountBar(onOpenSettings: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
     var confirmLogout by remember { mutableStateOf(false) }
     var isBusy by remember { mutableStateOf(false) }
+    var showAddAccount by remember { mutableStateOf(false) }
+
+    AddAccountSheet(
+        visible = showAddAccount,
+        onDismiss = { showAddAccount = false },
+        onAdded = { showAddAccount = false },
+    )
 
     if (confirmLogout && active != null) {
         val fallbackLabel =
@@ -655,7 +720,8 @@ private fun AccountBar(onOpenSettings: () -> Unit) {
             HorizontalDivider(color = NostrordColors.Divider)
             DropdownMenuItem(
                 onClick = {
-                    menuOpen = false /* add-account sheet: not wired in the new flow yet */
+                    menuOpen = false
+                    showAddAccount = true
                 },
                 leadingIcon = {
                     Icon(

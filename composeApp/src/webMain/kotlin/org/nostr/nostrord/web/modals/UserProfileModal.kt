@@ -201,11 +201,14 @@ val UserProfileModal =
                                 WebZapController.request(pubkey)
                                 props.onClose()
                             }
-                            // Mute / report join when their backends land (mute list,
-                            // NIP-56 reports). Mention is live when a chat composer is
-                            // around to receive it.
-                            actionRow(Ic.Reply, "Mention", disabled = props.onMention == null) {
-                                props.onMention?.invoke(pubkey)
+                            // Mention only exists inside a group chat (where a composer can
+                            // receive it); elsewhere the row is absent rather than shown
+                            // disabled. Mute / report join when their backends land (mute
+                            // list, NIP-56 reports).
+                            props.onMention?.let { onMention ->
+                                actionRow(Ic.Reply, "Mention") {
+                                    onMention(pubkey)
+                                }
                             }
                             actionRow(null, "Mute user", disabled = true, emoji = "🔕") {}
                             actionRow(Ic.Shield, "Report user", disabled = true) {}

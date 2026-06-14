@@ -341,15 +341,17 @@ fun UserProfileModal(
                                     ZapController.request(pubkey, null)
                                     onDismiss()
                                 }
-                                // Mute / report join when their backends land (mute list,
-                                // NIP-56 reports). Mention is live when a chat composer is
-                                // around to receive it.
-                                ProfileActionRow(
-                                    label = "Mention",
-                                    icon = Icons.AutoMirrored.Filled.Reply,
-                                    enabled = onMention != null,
-                                ) {
-                                    onMention?.invoke(pubkey)
+                                // Mention only exists inside a group chat (where a composer
+                                // can receive it); elsewhere (home sidebar, etc.) the row is
+                                // absent rather than shown disabled. Mute / report join when
+                                // their backends land (mute list, NIP-56 reports).
+                                if (onMention != null) {
+                                    ProfileActionRow(
+                                        label = "Mention",
+                                        icon = Icons.AutoMirrored.Filled.Reply,
+                                    ) {
+                                        onMention.invoke(pubkey)
+                                    }
                                 }
                                 ProfileActionRow(label = "Mute user", emoji = "🔕", enabled = false) {}
                                 ProfileActionRow(label = "Report user", icon = Icons.Default.Shield, enabled = false) {}

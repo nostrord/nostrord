@@ -20,11 +20,15 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.ZapModalHost
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.tabItem
+import org.nostr.nostrord.web.modals.AddAccountModal
 import org.nostr.nostrord.web.modals.AddGroupModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
 import org.nostr.nostrord.web.modals.JoinGroupModal
+import org.nostr.nostrord.web.modals.UserProfileModal
 import org.nostr.nostrord.web.navigation.consumeInviteInHash
 import org.nostr.nostrord.web.navigation.currentHashRoute
 import org.nostr.nostrord.web.navigation.pushHome
@@ -59,6 +63,7 @@ val AppFrame =
         val vm = useViewModel { HomePageViewModel(repo, AppModule.notificationHistoryStore) }
         val groups = useStateFlow(vm.myGroups)
         val friends = useStateFlow(vm.friends)
+        val friendsLoading = useStateFlow(vm.friendsLoading)
         val unreadCounts = useStateFlow(vm.unreadCounts)
         val notificationUnread = useStateFlow(vm.notificationUnread)
         val accounts = useStateFlow(AppModule.accountStore.accounts)
@@ -72,6 +77,12 @@ val AppFrame =
         val (showSettings, setShowSettings) = useState { false }
         // Which step of the rail "+" add-group flow is open: "chooser" / "create" / "join".
         val (addGroupStep, setAddGroupStep) = useState<String?> { null }
+        // Friend tapped in the home sidebar: open the quick profile modal first (no
+        // chat composer around, so no Mention action), with "View profile" inside it
+        // for the full page.
+        val (profileUser, setProfileUser) = useState<String?> { null }
+        // Add-account modal (login interface inside a modal card).
+        val (addAccountOpen, setAddAccountOpen) = useState { false }
 
         // The hash is the navigation source of truth: state follows it (hashchange
         // covers pushes from this frame, back/forward, and hand-edited URLs).
@@ -267,6 +278,11 @@ val AppFrame =
                                         className = ClassName("sidebar-note")
                                         +"Nothing saved yet."
                                     }
+                                friendsLoading ->
+                                    div {
+                                        className = ClassName("sidebar-friends")
+                                        repeat(6) { memberSkeleton() }
+                                    }
                                 friends.isEmpty() ->
                                     div {
                                         className = ClassName("sidebar-note")
@@ -283,7 +299,7 @@ val AppFrame =
                                             button {
                                                 key = friend.pubkey
                                                 className = ClassName("sidebar-friend")
-                                                onClick = { pushRoute(UserRoute(friend.pubkey)) }
+                                                onClick = { setProfileUser(friend.pubkey) }
                                                 WebAvatar {
                                                     url = friend.metadata?.picture
                                                     seed = friend.pubkey
@@ -362,7 +378,8 @@ val AppFrame =
                                 button {
                                     className = ClassName("account-pop-action")
                                     onClick = {
-                                        setMenuOpen(false) /* add-account sheet: not wired in the new flow yet */
+                                        setMenuOpen(false)
+                                        setAddAccountOpen(true)
                                     }
                                     icon(Ic.Add)
                                     +"Add account"
@@ -449,6 +466,8 @@ val AppFrame =
                     else ->
                         HomePage {
                             onOpenGroup = { pushRoute(GroupRoute(it.relayUrl, it.meta.id)) }
+                            onCreateGroup = { setAddGroupStep("create") }
+                            onJoinGroup = { setAddGroupStep("join") }
                         }
                 }
             }
@@ -474,6 +493,28 @@ val AppFrame =
                             pushRoute(GroupRoute(relayUrl.normalizeRelayUrl(), groupId, inviteCode))
                         }
                     }
+            }
+
+            // Quick profile modal for a friend tapped in the home sidebar. No groupId
+            // and no onMention (we're not in a group chat, so the admin section and the
+            // Mention row stay hidden); the modal's own "View profile" routes to the
+            // full page.
+            profileUser?.let { pubkey ->
+                UserProfileModal {
+                    this.pubkey = pubkey
+                    groupId = null
+                    iAmAdmin = false
+                    targetIsAdmin = false
+                    onClose = { setProfileUser(null) }
+                }
+            }
+
+            // Add account: the login interface inside a modal. A successful add warm-swaps
+            // to the new account and closes; the previous account stays registered.
+            if (addAccountOpen) {
+                AddAccountModal {
+                    onClose = { setAddAccountOpen(false) }
+                }
             }
 
             // Legacy Settings overlay, reachable from the account bar's gear until
@@ -535,6 +576,10 @@ val AppFrame =
                     }
                 }
             }
+
+            // Zap modal host: mounted once so any WebZapController.request(...) from a
+            // profile, profile modal or message renders the send-zap modal over the frame.
+            ZapModalHost {}
         }
     }
 
