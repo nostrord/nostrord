@@ -34,13 +34,17 @@ import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +65,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import org.nostr.nostrord.auth.AuthMethod
 import org.nostr.nostrord.auth.removeAccountBusyLabel
 import org.nostr.nostrord.auth.removeAccountConfirmLabel
@@ -135,11 +141,152 @@ fun AppFrame() {
         if (r != null) AppModule.nostrRepository.markGroupAsRead(r.groupId)
     }
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        if (maxWidth < 600.dp) {
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
+    val closeDrawer: () -> Unit = { drawerScope.launch { drawerState.close() } }
+
+    // The 72px rail + 240px sidebar, shared by the desktop Row and the mobile drawer.
+    val railContent: @Composable () -> Unit = {
+        Column(
+            modifier =
+            Modifier
+                .width(72.dp)
+                .fillMaxHeight()
+                .background(NostrordColors.BackgroundDark)
+                .padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // Top cluster fills all remaining height so the divider + DMs +
+            // notifications below it stay pinned to the bottom of the rail.
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                RailButton(icon = Icons.Default.Home, label = "Home", active = route == null && !showNotifications) {
+                    route = null
+                    showNotifications = false
+                    closeDrawer()
+                }
+                Column(
+                    modifier =
+                    Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    groups.forEach { group ->
+                        RailGroupButton(
+                            name = group.meta.name ?: group.meta.id,
+                            picture = group.meta.picture,
+                            groupId = group.meta.id,
+                            unread = unreadCounts[group.meta.id] ?: 0,
+                            active = groupRoute?.groupId == group.meta.id && !showNotifications,
+                        ) {
+                            route = GroupRoute(group.relayUrl, group.meta.id)
+                            showNotifications = false
+                            closeDrawer()
+                        }
+                    }
+                }
+                RailButton(icon = Icons.Default.Add, label = "Add group") {
+                    addGroupStep = AddGroupStep.CHOOSER
+                    closeDrawer()
+                }
+            }
+            HorizontalDivider(modifier = Modifier.width(32.dp), color = NostrordColors.Divider)
+            RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute && !showNotifications) {
+                route = DmRoute()
+                showNotifications = false
+                closeDrawer()
+            }
+            Box {
+                RailButton(
+                    icon = Icons.Default.Notifications,
+                    label = "Notifications",
+                    active = showNotifications,
+                ) {
+                    showNotifications = true
+                    closeDrawer()
+                }
+                if (notificationUnread > 0) {
+                    RailBadge(
+                        count = notificationUnread,
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    )
+                }
+            }
+        }
+    }
+
+    val sidebarContent: @Composable () -> Unit = {
+        Column(
+            modifier =
+            Modifier
+                .width(240.dp)
+                .fillMaxHeight()
+                .background(NostrordColors.Surface),
+        ) {
+            if (showNotifications) {
+                Box(modifier = Modifier.weight(1f)) {
+                    NotificationsSidebar(vm = notifVm)
+                }
+            } else if (groupRoute != null) {
+                Box(modifier = Modifier.weight(1f)) {
+                    GroupSidebar(route = groupRoute, onNavigateGroup = {
+                        route = it
+                        closeDrawer()
+                    })
+                }
+            } else if (route is DmRoute) {
+                Box(modifier = Modifier.weight(1f)) {
+                    DmSidebar(onOpenConversation = {
+                        route = it
+                        closeDrawer()
+                    })
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "nostrord",
+                        color = NostrordColors.TextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                HorizontalDivider(color = NostrordColors.Divider)
+                HomeHub(
+                    vm = vm,
+                    onOpenUser = {
+                        profileUser = it
+                        closeDrawer()
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            AccountBar(onOpenSettings = { showSettings = true })
+        }
+    }
+
+    val contentArea: @Composable (forceDesktop: Boolean, onOpenDrawer: (() -> Unit)?) -> Unit = { forceDesktop, onOpenDrawer ->
+        if (showNotifications) {
+            NotificationsPage(
+                vm = notifVm,
+                onOpenGroupAtRelay = { gid, _, relay, _ ->
+                    route = GroupRoute(relay, gid)
+                    showNotifications = false
+                },
+                onOpenDrawer = onOpenDrawer,
+            )
+        } else {
             FrameContent(
                 route = route,
-                forceDesktop = false,
+                forceDesktop = forceDesktop,
                 onNavigate = { route = it },
                 onCloseGroup = { route = null },
                 onConsumeInvite = { route = (route as? GroupRoute)?.copy(inviteCode = null) },
@@ -147,141 +294,37 @@ fun AppFrame() {
                 onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
                 onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
                 onOpenNotifications = { showNotifications = true },
+                onOpenDrawer = onOpenDrawer,
             )
+        }
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        // Below md (768) the rail + sidebar collapse into a slide-over drawer; a hamburger
+        // in each screen header opens it. At md+ they're persistent columns.
+        if (maxWidth < 768.dp) {
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    ModalDrawerSheet(
+                        drawerContainerColor = NostrordColors.BackgroundDark,
+                        modifier = Modifier.width(312.dp),
+                    ) {
+                        Row(modifier = Modifier.fillMaxSize()) {
+                            railContent()
+                            sidebarContent()
+                        }
+                    }
+                },
+            ) {
+                contentArea(false) { drawerScope.launch { drawerState.open() } }
+            }
         } else {
             Row(modifier = Modifier.fillMaxSize()) {
-                // ── Groups rail ──────────────────────────────────────────────
-                Column(
-                    modifier =
-                    Modifier
-                        .width(72.dp)
-                        .fillMaxHeight()
-                        .background(NostrordColors.BackgroundDark)
-                        .padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // Top cluster fills all remaining height so the divider + DMs +
-                    // notifications below it stay pinned to the bottom of the rail.
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        RailButton(icon = Icons.Default.Home, label = "Home", active = route == null && !showNotifications) {
-                            route = null
-                            showNotifications = false
-                        }
-                        Column(
-                            modifier =
-                            Modifier
-                                .weight(1f, fill = false)
-                                .verticalScroll(rememberScrollState()),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            groups.forEach { group ->
-                                RailGroupButton(
-                                    name = group.meta.name ?: group.meta.id,
-                                    picture = group.meta.picture,
-                                    groupId = group.meta.id,
-                                    unread = unreadCounts[group.meta.id] ?: 0,
-                                    active = groupRoute?.groupId == group.meta.id && !showNotifications,
-                                ) {
-                                    route = GroupRoute(group.relayUrl, group.meta.id)
-                                    showNotifications = false
-                                }
-                            }
-                        }
-                        RailButton(icon = Icons.Default.Add, label = "Add group") {
-                            addGroupStep = AddGroupStep.CHOOSER
-                        }
-                    }
-                    HorizontalDivider(modifier = Modifier.width(32.dp), color = NostrordColors.Divider)
-                    RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute && !showNotifications) {
-                        route = DmRoute()
-                        showNotifications = false
-                    }
-                    Box {
-                        RailButton(
-                            icon = Icons.Default.Notifications,
-                            label = "Notifications",
-                            active = showNotifications,
-                        ) { showNotifications = true }
-                        if (notificationUnread > 0) {
-                            RailBadge(
-                                count = notificationUnread,
-                                modifier = Modifier.align(Alignment.TopEnd),
-                            )
-                        }
-                    }
-                }
-
-                // ── Sidebar: home hub or the open group's tree ───────────────
-                Column(
-                    modifier =
-                    Modifier
-                        .width(240.dp)
-                        .fillMaxHeight()
-                        .background(NostrordColors.Surface),
-                ) {
-                    if (showNotifications) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            NotificationsSidebar(vm = notifVm)
-                        }
-                    } else if (groupRoute != null) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            GroupSidebar(route = groupRoute, onNavigateGroup = { route = it })
-                        }
-                    } else if (route is DmRoute) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            DmSidebar(onOpenConversation = { route = it })
-                        }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "nostrord",
-                                color = NostrordColors.TextPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                        HorizontalDivider(color = NostrordColors.Divider)
-                        HomeHub(
-                            vm = vm,
-                            onOpenUser = { profileUser = it },
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    AccountBar(onOpenSettings = { showSettings = true })
-                }
-
-                // ── Content ──────────────────────────────────────────────────
+                railContent()
+                sidebarContent()
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    if (showNotifications) {
-                        NotificationsPage(
-                            vm = notifVm,
-                            onOpenGroupAtRelay = { gid, _, relay, _ ->
-                                route = GroupRoute(relay, gid)
-                                showNotifications = false
-                            },
-                        )
-                    } else {
-                        FrameContent(
-                            route = route,
-                            forceDesktop = true,
-                            onNavigate = { route = it },
-                            onCloseGroup = { route = null },
-                            onConsumeInvite = { route = (route as? GroupRoute)?.copy(inviteCode = null) },
-                            onEditProfile = { showSettings = true },
-                            onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
-                            onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
-                            onOpenNotifications = { showNotifications = true },
-                        )
-                    }
+                    contentArea(true, null)
                 }
             }
         }
@@ -372,6 +415,7 @@ private fun FrameContent(
     onCreateGroup: () -> Unit,
     onJoinGroup: () -> Unit,
     onOpenNotifications: () -> Unit,
+    onOpenDrawer: (() -> Unit)? = null,
 ) {
     CompositionLocalProvider(LocalFrameNavigator provides onNavigate) {
         when (route) {
@@ -382,6 +426,7 @@ private fun FrameContent(
                     onJoinGroup = onJoinGroup,
                     onOpenDms = { onNavigate(DmRoute()) },
                     onOpenNotifications = onOpenNotifications,
+                    onOpenDrawer = onOpenDrawer,
                 )
             is UserRoute ->
                 ProfilePageScreen(

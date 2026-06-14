@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Mail
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
@@ -91,6 +92,7 @@ fun HomePageScreen(
     onJoinGroup: () -> Unit = {},
     onOpenDms: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    onOpenDrawer: (() -> Unit)? = null,
 ) {
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
     val myGroups by vm.myGroups.collectAsState()
@@ -113,6 +115,17 @@ fun HomePageScreen(
             modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            onOpenDrawer?.let { open ->
+                IconButton(onClick = open) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Menu",
+                        tint = NostrordColors.TextSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             Icon(
                 imageVector = Icons.Default.People,
                 contentDescription = null,

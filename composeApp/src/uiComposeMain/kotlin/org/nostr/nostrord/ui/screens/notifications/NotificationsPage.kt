@@ -18,9 +18,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,6 +59,7 @@ fun NotificationsPage(
     vm: NotificationsViewModel,
     onOpenGroupAtRelay: (groupId: String, groupName: String?, relayUrl: String, targetMessageId: String?) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenDrawer: (() -> Unit)? = null,
 ) {
     val shown by vm.filtered.collectAsState()
     val unread by vm.unreadCount.collectAsState()
@@ -75,6 +78,16 @@ fun NotificationsPage(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            onOpenDrawer?.let { open ->
+                IconButton(onClick = open, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Menu",
+                        tint = NostrordColors.TextSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
             Icon(
                 imageVector = Icons.Default.Notifications,
                 contentDescription = null,
