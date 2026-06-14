@@ -39,6 +39,8 @@ external interface HomePageProps : Props {
     var onOpenGroup: (JoinedGroup) -> Unit
     var onCreateGroup: () -> Unit
     var onJoinGroup: () -> Unit
+    var onOpenDms: () -> Unit
+    var onOpenNotifications: () -> Unit
 }
 
 /**
@@ -79,8 +81,14 @@ val HomePage =
                     className = ClassName("page-header-actions")
                     button {
                         className = ClassName("icon-btn")
+                        title = "Direct messages"
+                        onClick = { props.onOpenDms() }
+                        icon(Ic.Mail)
+                    }
+                    button {
+                        className = ClassName("icon-btn")
                         title = "Notifications"
-                        // Notifications: not ported to the new flow yet
+                        onClick = { props.onOpenNotifications() }
                         icon(Ic.Notifications)
                     }
                 }

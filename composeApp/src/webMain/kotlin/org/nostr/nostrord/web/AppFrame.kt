@@ -494,6 +494,11 @@ val AppFrame =
                             onOpenGroup = { pushRoute(GroupRoute(it.relayUrl, it.meta.id)) }
                             onCreateGroup = { setAddGroupStep("create") }
                             onJoinGroup = { setAddGroupStep("join") }
+                            onOpenDms = {
+                                setNotificationsOpen(false)
+                                pushRoute(DmRoute())
+                            }
+                            onOpenNotifications = { setNotificationsOpen(true) }
                         }
                 }
             }

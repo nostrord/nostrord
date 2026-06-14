@@ -146,6 +146,7 @@ fun AppFrame() {
                 onEditProfile = { showSettings = true },
                 onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
                 onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
+                onOpenNotifications = { showNotifications = true },
             )
         } else {
             Row(modifier = Modifier.fillMaxSize()) {
@@ -278,6 +279,7 @@ fun AppFrame() {
                             onEditProfile = { showSettings = true },
                             onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
                             onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
+                            onOpenNotifications = { showNotifications = true },
                         )
                     }
                 }
@@ -369,6 +371,7 @@ private fun FrameContent(
     onEditProfile: () -> Unit,
     onCreateGroup: () -> Unit,
     onJoinGroup: () -> Unit,
+    onOpenNotifications: () -> Unit,
 ) {
     CompositionLocalProvider(LocalFrameNavigator provides onNavigate) {
         when (route) {
@@ -377,6 +380,8 @@ private fun FrameContent(
                     onOpenGroup = { onNavigate(GroupRoute(it.relayUrl, it.meta.id)) },
                     onCreateGroup = onCreateGroup,
                     onJoinGroup = onJoinGroup,
+                    onOpenDms = { onNavigate(DmRoute()) },
+                    onOpenNotifications = onOpenNotifications,
                 )
             is UserRoute ->
                 ProfilePageScreen(

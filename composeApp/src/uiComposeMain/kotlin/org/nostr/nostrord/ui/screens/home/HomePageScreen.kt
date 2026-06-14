@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonAdd
@@ -75,6 +76,8 @@ fun HomePageScreen(
     onOpenGroup: (JoinedGroup) -> Unit = {},
     onCreateGroup: () -> Unit = {},
     onJoinGroup: () -> Unit = {},
+    onOpenDms: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
 ) {
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
     val myGroups by vm.myGroups.collectAsState()
@@ -111,7 +114,15 @@ fun HomePageScreen(
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = { /* notifications: not ported yet */ }) {
+            IconButton(onClick = onOpenDms) {
+                Icon(
+                    imageVector = Icons.Default.Mail,
+                    contentDescription = "Direct messages",
+                    tint = NostrordColors.TextSecondary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            IconButton(onClick = onOpenNotifications) {
                 Icon(
                     imageVector = Icons.Default.Notifications,
                     contentDescription = "Notifications",
