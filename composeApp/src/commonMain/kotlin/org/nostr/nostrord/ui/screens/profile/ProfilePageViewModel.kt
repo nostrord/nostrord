@@ -143,7 +143,9 @@ class ProfilePageViewModel(
         // The kind:0 may not be cached (deep link straight to a profile), and the
         // public group list (kind:10009) is only fetched on demand. The own contact
         // list (kind:3) drives the Follow button state.
-        viewModelScope.launch { repo.requestUserMetadata(setOf(pubkey)) }
+        // forceStale: opening a profile is an explicit "show me the latest" — revalidate
+        // even a cached-but-stale entry (still served instantly from cache meanwhile).
+        viewModelScope.launch { repo.requestUserMetadata(setOf(pubkey), forceStale = true) }
         viewModelScope.launch { repo.requestUserGroupList(pubkey) }
         viewModelScope.launch { repo.requestContactList() }
     }

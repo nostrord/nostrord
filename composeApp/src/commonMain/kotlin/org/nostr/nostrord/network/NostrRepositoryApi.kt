@@ -474,7 +474,9 @@ interface NostrRepositoryApi {
     fun getLastReadTimestamp(groupId: String): Long?
 
     // --- Metadata operations ---
-    suspend fun requestUserMetadata(pubkeys: Set<String>)
+    // [forceStale] re-fetches entries already cached but older than the staleness window
+    // (e.g. when the user explicitly opens a profile and wants the latest name/avatar).
+    suspend fun requestUserMetadata(pubkeys: Set<String>, forceStale: Boolean = false)
 
     /** Fetch [pubkey]'s public NIP-29 group list (kind:10009) into [userGroupLists]. */
     suspend fun requestUserGroupList(pubkey: String)

@@ -535,6 +535,18 @@ class NostrRepository(
                 liveCursorStore?.persistAll()
             }
         }
+
+        // Low-frequency revalidation of the metadata on screen (open-group authors/members
+        // and the followed sidebar) so a long-running session picks up renamed profiles and
+        // new avatars without needing a reconnect. Only stale entries are refetched.
+        scope.launch {
+            while (true) {
+                delay(MetadataManager.STALE_THRESHOLD_MS)
+                if (connectionManager.connectionState.value is ConnectionManager.ConnectionState.Connected) {
+                    refreshVisibleUserMetadata()
+                }
+            }
+        }
     }
 
     /**
@@ -1968,8 +1980,8 @@ class NostrRepository(
         handleRelayMessage(msg, client)
     }
 
-    override suspend fun requestUserMetadata(pubkeys: Set<String>) {
-        metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler)
+    override suspend fun requestUserMetadata(pubkeys: Set<String>, forceStale: Boolean) {
+        metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler, forceStale)
     }
 
     override suspend fun requestUserGroupList(pubkey: String) {
@@ -2118,13 +2130,16 @@ class NostrRepository(
         delay(3_000)
 
         val openedGroups = groupManager.getOpenedGroupIds()
-        if (openedGroups.isEmpty()) return
-        val pubkeys = openedGroups.flatMap { groupId ->
+        val groupPubkeys = openedGroups.flatMap { groupId ->
             val messagePubkeys = groupManager.messages.value[groupId]
                 ?.takeLast(50)?.map { it.pubkey } ?: emptyList()
             val memberPubkeys = groupManager.getMembersForGroup(groupId)
             messagePubkeys + memberPubkeys
-        }.toSet().filter { metadataManager.isStale(it) }.toSet()
+        }
+        // Also revalidate the followed users shown in the home sidebar so a friend's new
+        // name/avatar appears without having to open a group. Only stale entries are
+        // refetched (forceStale), and the request batches them into one REQ per relay.
+        val pubkeys = (groupPubkeys + _following.value).toSet().filter { metadataManager.isStale(it) }.toSet()
         if (pubkeys.isNotEmpty()) {
             metadataManager.requestUserMetadata(pubkeys, metadataMessageHandler, forceStale = true)
         }

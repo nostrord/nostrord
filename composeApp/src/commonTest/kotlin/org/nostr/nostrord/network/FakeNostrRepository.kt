@@ -336,7 +336,7 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override fun getLastReadTimestamp(groupId: String): Long? = null
 
-    override suspend fun requestUserMetadata(pubkeys: Set<String>) {}
+    override suspend fun requestUserMetadata(pubkeys: Set<String>, forceStale: Boolean) {}
 
     val _userGroupLists = MutableStateFlow<Map<String, List<UserGroupRef>>>(emptyMap())
     override val userGroupLists: StateFlow<Map<String, List<UserGroupRef>>> = _userGroupLists
