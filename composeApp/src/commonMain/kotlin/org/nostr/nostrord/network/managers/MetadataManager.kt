@@ -32,7 +32,11 @@ class MetadataManager(
     private val json = Json { ignoreUnknownKeys = true }
 
     companion object {
-        const val MAX_METADATA_CACHE_SIZE = 500
+        // Holds enough profiles for a large active room so members don't get evicted (and their
+        // avatars blanked) mid-session. A UserMetadata is small (a few hundred bytes), so a few
+        // thousand entries is ~1-2 MB. The disk-backed store (see docs/metadata-cache-plan.md)
+        // later makes eviction fall back to disk instead of the network.
+        const val MAX_METADATA_CACHE_SIZE = 5000
         const val MAX_EVENTS_CACHE_SIZE = 500
 
         /** Metadata older than this is considered stale and will be re-fetched. */

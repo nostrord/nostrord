@@ -53,7 +53,21 @@ val WebAvatar =
         val (loaded, setLoaded) = useState { false }
         val (failed, setFailed) = useState { false }
         val imgRef = useRef<HTMLImageElement>(null)
-        useEffect(props.url) {
+        val lastUrlRef = useRef<String>(null)
+
+        val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
+        val kind = props.kind ?: AvatarKind.USER
+        // Keep the last good picture if the URL transiently drops to null/blank (metadata churn,
+        // an LRU eviction that briefly removes the entry, or a parent remount): a once-loaded
+        // avatar must not blank out mid-session. Only fall back when we never had a picture.
+        val incoming = props.url?.takeIf { it.isNotBlank() }
+        if (incoming != null) lastUrlRef.current = incoming
+        // RELAY: when NIP-11 didn't publish an icon, fall back to a bundled brand asset for
+        // the relays the native UI ships (mirrors ui/util/RelayFallbacks.kt). Other kinds use
+        // the letter/gradient fallback below — only relays have a brand image worth seeding.
+        val url = incoming ?: lastUrlRef.current ?: if (kind == AvatarKind.RELAY) bundledRelayFallback(seed) else null
+
+        useEffect(url) {
             // A browser-cached image can already be `complete` before React attaches onLoad —
             // common when a second component mounts with a URL an earlier avatar already fetched.
             // onLoad then never fires, leaving the photo at opacity:0 with only the fallback
@@ -64,13 +78,6 @@ val WebAvatar =
             setFailed(false)
             setLoaded(cached)
         }
-
-        val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
-        val kind = props.kind ?: AvatarKind.USER
-        // RELAY: when NIP-11 didn't publish an icon, fall back to a bundled brand asset for
-        // the relays the native UI ships (mirrors ui/util/RelayFallbacks.kt). Other kinds use
-        // the letter/gradient fallback below — only relays have a brand image worth seeding.
-        val url = props.url ?: if (kind == AvatarKind.RELAY) bundledRelayFallback(seed) else null
 
         div {
             className = ClassName("avatar-tile ${props.cls} avatar-stack" + if (kind == AvatarKind.GROUP) " group" else "")
