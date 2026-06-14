@@ -88,6 +88,9 @@ import org.nostr.nostrord.ui.screens.group.components.UserProfileModal
 import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.screens.home.HomePageScreen
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
+import org.nostr.nostrord.ui.screens.notifications.NotificationsPage
+import org.nostr.nostrord.ui.screens.notifications.NotificationsSidebar
+import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
 import org.nostr.nostrord.ui.screens.profile.ProfilePageScreen
 import org.nostr.nostrord.ui.screens.settings.SettingsScreen
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -114,6 +117,10 @@ fun AppFrame() {
     // chat composer around, so no Mention action), with "View profile" inside it
     // for the full page.
     var profileUser by remember { mutableStateOf<String?>(null) }
+    // Notifications page open over the content, with the filter sidebar; one shared VM
+    // keeps the sidebar filters and the list in sync.
+    val notifVm = viewModel { NotificationsViewModel(AppModule.nostrRepository) }
+    var showNotifications by remember { mutableStateOf(false) }
     var route by remember { mutableStateOf<HashRoute?>(null) }
     val groupRoute = route as? GroupRoute
 
@@ -160,8 +167,9 @@ fun AppFrame() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        RailButton(icon = Icons.Default.Home, label = "Home", active = route == null) {
+                        RailButton(icon = Icons.Default.Home, label = "Home", active = route == null && !showNotifications) {
                             route = null
+                            showNotifications = false
                         }
                         Column(
                             modifier =
@@ -177,8 +185,11 @@ fun AppFrame() {
                                     picture = group.meta.picture,
                                     groupId = group.meta.id,
                                     unread = unreadCounts[group.meta.id] ?: 0,
-                                    active = groupRoute?.groupId == group.meta.id,
-                                ) { route = GroupRoute(group.relayUrl, group.meta.id) }
+                                    active = groupRoute?.groupId == group.meta.id && !showNotifications,
+                                ) {
+                                    route = GroupRoute(group.relayUrl, group.meta.id)
+                                    showNotifications = false
+                                }
                             }
                         }
                         RailButton(icon = Icons.Default.Add, label = "Add group") {
@@ -186,11 +197,16 @@ fun AppFrame() {
                         }
                     }
                     HorizontalDivider(modifier = Modifier.width(32.dp), color = NostrordColors.Divider)
-                    RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute) {
+                    RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute && !showNotifications) {
                         route = DmRoute()
+                        showNotifications = false
                     }
                     Box {
-                        RailButton(icon = Icons.Default.Notifications, label = "Notifications") { /* not ported yet */ }
+                        RailButton(
+                            icon = Icons.Default.Notifications,
+                            label = "Notifications",
+                            active = showNotifications,
+                        ) { showNotifications = true }
                         if (notificationUnread > 0) {
                             RailBadge(
                                 count = notificationUnread,
@@ -208,7 +224,11 @@ fun AppFrame() {
                         .fillMaxHeight()
                         .background(NostrordColors.Surface),
                 ) {
-                    if (groupRoute != null) {
+                    if (showNotifications) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            NotificationsSidebar(vm = notifVm)
+                        }
+                    } else if (groupRoute != null) {
                         Box(modifier = Modifier.weight(1f)) {
                             GroupSidebar(route = groupRoute, onNavigateGroup = { route = it })
                         }
@@ -240,16 +260,26 @@ fun AppFrame() {
 
                 // ── Content ──────────────────────────────────────────────────
                 Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    FrameContent(
-                        route = route,
-                        forceDesktop = true,
-                        onNavigate = { route = it },
-                        onCloseGroup = { route = null },
-                        onConsumeInvite = { route = (route as? GroupRoute)?.copy(inviteCode = null) },
-                        onEditProfile = { showSettings = true },
-                        onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
-                        onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
-                    )
+                    if (showNotifications) {
+                        NotificationsPage(
+                            vm = notifVm,
+                            onOpenGroupAtRelay = { gid, _, relay, _ ->
+                                route = GroupRoute(relay, gid)
+                                showNotifications = false
+                            },
+                        )
+                    } else {
+                        FrameContent(
+                            route = route,
+                            forceDesktop = true,
+                            onNavigate = { route = it },
+                            onCloseGroup = { route = null },
+                            onConsumeInvite = { route = (route as? GroupRoute)?.copy(inviteCode = null) },
+                            onEditProfile = { showSettings = true },
+                            onCreateGroup = { addGroupStep = AddGroupStep.CREATE },
+                            onJoinGroup = { addGroupStep = AddGroupStep.JOIN },
+                        )
+                    }
                 }
             }
         }
