@@ -4786,9 +4786,9 @@ body {
     }
 }
 
-/* Desktop: the members column is toggleable from the header (prototype behavior).
-   Below 1000px the same .members-open class drives the slide-over drawer instead. */
-@media (min-width: 1001px) {
+/* Desktop (lg, 1024+): the members column is toggleable from the header (prototype).
+   Below lg the same .members-open class drives the slide-over drawer instead. */
+@media (min-width: 1024px) {
     .chat:not(.members-open) .member-sidebar {
         display: none;
     }
@@ -6424,8 +6424,8 @@ body {
     display: none;
 }
 
-/* Member sidebar collapses to a right drawer on narrow screens */
-@media (max-width: 1000px) {
+/* Member sidebar collapses to a right drawer below lg (1024) */
+@media (max-width: 1023px) {
     .member-sidebar {
         position: fixed;
         top: 0;

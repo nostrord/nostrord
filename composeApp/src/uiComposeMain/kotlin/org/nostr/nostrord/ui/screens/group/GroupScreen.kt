@@ -1084,9 +1084,9 @@ fun GroupScreen(
                             pendingUploads = pendingUploads + upload
                         }
                     },
-                    showMemberSidebar = maxWidth >= 1080.dp && membersVisible,
+                    showMemberSidebar = maxWidth >= 1024.dp && membersVisible,
                     onToggleMembers = {
-                        if (maxWidth >= 1080.dp) {
+                        if (maxWidth >= 1024.dp) {
                             membersVisible = !membersVisible
                         } else {
                             showMemberSheet = true
