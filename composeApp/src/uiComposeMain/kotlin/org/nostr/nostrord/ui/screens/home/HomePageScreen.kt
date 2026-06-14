@@ -184,7 +184,7 @@ fun HomePageScreen(
                     AppTextField(
                         value = query,
                         onValueChange = { vm.setQuery(it) },
-                        placeholder = "Filter groups",
+                        placeholder = if (filter == 3) "Filter follow packs" else "Filter groups",
                         leadingIcon = Icons.Default.Search,
                         onEscape = { vm.setQuery("") },
                         modifier = Modifier.widthIn(max = 288.dp),
@@ -308,15 +308,23 @@ fun HomePageScreen(
                             }
                         else ->
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                // Layout-only: dummy packs shared with the onboarding step.
-                                onboardingFollowPacks.forEach { pack ->
-                                    PackCard(
-                                        emoji = pack.emoji,
-                                        name = pack.name,
-                                        description = pack.description,
-                                        people = pack.people,
-                                    )
-                                }
+                                // Layout-only: dummy packs shared with the onboarding step,
+                                // filtered by the "Filter follow packs" box.
+                                val needle = query.trim().lowercase()
+                                onboardingFollowPacks
+                                    .filter {
+                                        needle.isEmpty() ||
+                                            it.name.lowercase().contains(needle) ||
+                                            it.description.lowercase().contains(needle)
+                                    }
+                                    .forEach { pack ->
+                                        PackCard(
+                                            emoji = pack.emoji,
+                                            name = pack.name,
+                                            description = pack.description,
+                                            people = pack.people,
+                                        )
+                                    }
                             }
                     }
                 }

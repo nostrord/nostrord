@@ -133,7 +133,7 @@ val HomePage =
                             iconInput(
                                 ic = Ic.Search,
                                 type = InputType.text,
-                                placeholder = "Filter groups",
+                                placeholder = if (filter == 3) "Filter follow packs" else "Filter groups",
                                 value = query,
                                 onChange = { vm.setQuery(it) },
                                 onEscape = { vm.setQuery("") },
@@ -226,8 +226,14 @@ val HomePage =
                         else ->
                             div {
                                 className = ClassName("onb-pack-list")
-                                // Layout-only: dummy packs shared with the onboarding step.
-                                onboardingFollowPacks.forEach { pack ->
+                                // Layout-only: dummy packs shared with the onboarding step,
+                                // filtered by the "Filter follow packs" box.
+                                val needle = query.trim().lowercase()
+                                onboardingFollowPacks.filter {
+                                    needle.isEmpty() ||
+                                        it.name.lowercase().contains(needle) ||
+                                        it.description.lowercase().contains(needle)
+                                }.forEach { pack ->
                                     button {
                                         key = pack.name
                                         className = ClassName("pack-card")
