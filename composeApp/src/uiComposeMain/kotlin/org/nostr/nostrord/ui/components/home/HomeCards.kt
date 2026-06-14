@@ -142,9 +142,9 @@ fun GroupCard(
                     description.orEmpty().ifBlank { "No description" },
                     color = NostrordColors.TextSecondary,
                     fontSize = 13.sp,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.height(36.dp),
+                    modifier = Modifier.height(18.dp),
                 )
             }
             if (cta != null) {

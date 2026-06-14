@@ -2681,7 +2681,7 @@ body {
 
 .group-card-name {
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
     /* Break anywhere (covers space-less ids) and hyphenate real words, so the
@@ -2723,7 +2723,7 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 12px 0 0;
+    margin: 6px 0 0;
 }
 
 /* Overlapping avatar row (prototype -space-x-2). The tiles are WebAvatars sized
@@ -2750,15 +2750,15 @@ body {
 
 .group-card-desc {
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
-    /* Hard cap at two lines. `flex: 1` used to let this grow past the clamp, so a
-       third line bled out and got cut at the card edge; line-height + max-height
-       keep it to exactly two lines with a clean ellipsis. */
+    /* Single line with a clean ellipsis (native parity: GroupCard maxLines = 1).
+       line-height + matching min/max-height reserve exactly one line so cards in
+       the grid keep an even height. */
     line-height: 1.4;
-    min-height: 36px;
-    max-height: 2.8em;
+    min-height: 1.4em;
+    max-height: 1.4em;
     margin: 12px 0 0;
     font-size: 13px;
     color: var(--color-text-secondary);
