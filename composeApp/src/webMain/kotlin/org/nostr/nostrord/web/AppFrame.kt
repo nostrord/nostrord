@@ -12,6 +12,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.NotificationsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
@@ -88,8 +89,9 @@ val AppFrame =
         // Add-account modal (login interface inside a modal card).
         val (addAccountOpen, setAddAccountOpen) = useState { false }
         // Notifications page open over the content (filter sidebar + list); one shared VM.
+        // Open state is the #/notifications hash route (deep-linkable, survives refresh),
+        // derived from [route] below.
         val notifVm = useViewModel { NotificationsViewModel(repo) }
-        val (notificationsOpen, setNotificationsOpen) = useState { false }
         // Mobile nav drawer: below md the rail + sidebar slide in over the content.
         val (drawerOpen, setDrawerOpen) = useState { false }
 
@@ -107,8 +109,9 @@ val AppFrame =
         }
         // Close the mobile nav drawer whenever the destination changes (a rail/sidebar tap
         // navigates or opens notifications), so it doesn't stay over the new screen.
-        useEffect(route, notificationsOpen) { setDrawerOpen(false) }
+        useEffect(route) { setDrawerOpen(false) }
         val groupRoute = route as? GroupRoute
+        val notificationsOpen = route is NotificationsRoute
 
         // Mirror the legacy AppShell: cross-relay navigation switches the relay first;
         // the open group is tracked (notification suppression + unread clearing); an
@@ -197,10 +200,7 @@ val AppFrame =
                     button {
                         className = ClassName(if (route == null && !notificationsOpen) "rail-btn active" else "rail-btn")
                         title = "Home"
-                        onClick = {
-                            setNotificationsOpen(false)
-                            pushHome()
-                        }
+                        onClick = { pushHome() }
                         icon(Ic.Home)
                     }
 
@@ -217,10 +217,7 @@ val AppFrame =
                                             if (groupRoute?.groupId == group.meta.id && !notificationsOpen) "rail-group-btn active" else "rail-group-btn",
                                         )
                                     title = name
-                                    onClick = {
-                                        setNotificationsOpen(false)
-                                        pushRoute(GroupRoute(group.relayUrl, group.meta.id))
-                                    }
+                                    onClick = { pushRoute(GroupRoute(group.relayUrl, group.meta.id)) }
                                     WebAvatar {
                                         url = group.meta.picture
                                         seed = group.meta.id
@@ -250,10 +247,7 @@ val AppFrame =
                     button {
                         className = ClassName(if (route is DmRoute && !notificationsOpen) "rail-btn active" else "rail-btn")
                         title = "Direct messages"
-                        onClick = {
-                            setNotificationsOpen(false)
-                            pushRoute(DmRoute())
-                        }
+                        onClick = { pushRoute(DmRoute()) }
                         icon(Ic.Mail)
                     }
                     div {
@@ -261,7 +255,7 @@ val AppFrame =
                         button {
                             className = ClassName(if (notificationsOpen) "rail-btn active" else "rail-btn")
                             title = "Notifications"
-                            onClick = { setNotificationsOpen(true) }
+                            onClick = { pushRoute(NotificationsRoute) }
                             icon(Ic.Notifications)
                         }
                         if (notificationUnread > 0) {
@@ -474,10 +468,7 @@ val AppFrame =
                         NotificationsPage {
                             this.vm = notifVm
                             onOpenDrawer = { setDrawerOpen(true) }
-                            onOpen = { relay, gid, _ ->
-                                setNotificationsOpen(false)
-                                pushRoute(GroupRoute(relay, gid))
-                            }
+                            onOpen = { relay, gid, _ -> pushRoute(GroupRoute(relay, gid)) }
                         }
                     r is UserRoute ->
                         ProfilePage {
@@ -510,11 +501,8 @@ val AppFrame =
                             onOpenGroup = { pushRoute(GroupRoute(it.relayUrl, it.meta.id)) }
                             onCreateGroup = { setAddGroupStep("create") }
                             onJoinGroup = { setAddGroupStep("join") }
-                            onOpenDms = {
-                                setNotificationsOpen(false)
-                                pushRoute(DmRoute())
-                            }
-                            onOpenNotifications = { setNotificationsOpen(true) }
+                            onOpenDms = { pushRoute(DmRoute()) }
+                            onOpenNotifications = { pushRoute(NotificationsRoute) }
                         }
                 }
             }

@@ -2,10 +2,12 @@ package org.nostr.nostrord.ui
 
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.NotificationsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.navigation.parseDmHash
 import org.nostr.nostrord.ui.navigation.parseGroupHash
 import org.nostr.nostrord.ui.navigation.parseHashRoute
+import org.nostr.nostrord.ui.navigation.parseNotificationsHash
 import org.nostr.nostrord.ui.navigation.parseUserHash
 import org.nostr.nostrord.ui.navigation.toHash
 import kotlin.test.Test
@@ -54,6 +56,16 @@ class GroupRouteTest {
         assertEquals(route, parseHashRoute(route.toHash()))
         assertNull(parseDmHash("#/dm/not-a-key"))
         assertNull(parseDmHash("#/d"))
+    }
+
+    @Test
+    fun `notifications route round-trips and accepts the singular spelling`() {
+        assertEquals("#/notifications", NotificationsRoute.toHash())
+        assertEquals(NotificationsRoute, parseNotificationsHash("#/notifications"))
+        assertEquals(NotificationsRoute, parseNotificationsHash("#/notification"))
+        assertEquals(NotificationsRoute, parseHashRoute("#/notifications"))
+        assertNull(parseNotificationsHash("#/notif"))
+        assertNull(parseNotificationsHash("#/g/groups.0xchat.com/chachi"))
     }
 
     @Test

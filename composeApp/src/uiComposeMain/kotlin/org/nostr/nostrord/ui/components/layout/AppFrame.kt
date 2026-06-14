@@ -84,6 +84,7 @@ import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.HashRoute
 import org.nostr.nostrord.ui.navigation.LocalFrameNavigator
+import org.nostr.nostrord.ui.navigation.NotificationsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.dm.DmPageScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
@@ -435,6 +436,10 @@ private fun FrameContent(
                     onEditProfile = onEditProfile,
                 )
             is DmRoute -> DmPageScreen(pubkey = route.pubkey, onOpenProfile = onNavigate)
+            // Native opens notifications through the showNotifications overlay, not the
+            // route (there is no URL bar), so this arm is unreachable; the web hash router
+            // is the only producer of NotificationsRoute.
+            is NotificationsRoute -> {}
             is GroupRoute -> {
                 val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
                 val name = groupsByRelay[route.relayUrl]?.firstOrNull { it.id == route.groupId }?.name

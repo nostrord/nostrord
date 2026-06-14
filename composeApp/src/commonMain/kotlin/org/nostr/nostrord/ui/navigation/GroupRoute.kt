@@ -45,18 +45,34 @@ data class DmRoute(
     val pubkey: String? = null,
 ) : HashRoute
 
+/**
+ * Route for the notifications page: #/notifications (the singular #/notification is
+ * accepted on parse too). A parameterless page route mirrored like the others, so a
+ * refresh or a hand-typed/shared #/notifications reopens the page instead of falling
+ * back to Home.
+ */
+data object NotificationsRoute : HashRoute
+
 private const val GROUP_HASH_PREFIX = "#/g/"
 private const val USER_HASH_PREFIX = "#/u/"
 private const val DM_HASH_PREFIX = "#/dm"
+private const val NOTIFICATIONS_HASH = "#/notifications"
 private const val HEX = "0123456789ABCDEF"
 
 fun HashRoute.toHash(): String = when (this) {
     is GroupRoute -> toHash()
     is UserRoute -> toHash()
     is DmRoute -> toHash()
+    is NotificationsRoute -> NOTIFICATIONS_HASH
 }
 
-fun parseHashRoute(hash: String): HashRoute? = parseGroupHash(hash) ?: parseUserHash(hash) ?: parseDmHash(hash)
+fun parseHashRoute(hash: String): HashRoute? = parseGroupHash(hash) ?: parseUserHash(hash) ?: parseDmHash(hash) ?: parseNotificationsHash(hash)
+
+/** Parses `#/notifications` (or the singular `#/notification`); null for any other hash. */
+fun parseNotificationsHash(hash: String): NotificationsRoute? {
+    val path = hash.substringBefore('?')
+    return if (path == NOTIFICATIONS_HASH || path == "#/notification") NotificationsRoute else null
+}
 
 fun UserRoute.toHash(): String = "$USER_HASH_PREFIX${encodePubkeySegment(pubkey)}"
 
