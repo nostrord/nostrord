@@ -295,8 +295,6 @@ fun HomePageScreen(
                                                     groupId = fg.meta.id,
                                                     memberCount = fg.memberCount,
                                                     restricted = fg.meta.isRestricted,
-                                                    cta = if (fg.meta.isOpen) "Join" else "Preview",
-                                                    ctaPrimary = true,
                                                     people = fg.people,
                                                     onClick = { onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta)) },
                                                 )
@@ -322,8 +320,6 @@ fun HomePageScreen(
                                                 groupId = group.meta.id,
                                                 memberCount = group.memberCount,
                                                 restricted = group.meta.isRestricted,
-                                                cta = if (group.meta.isOpen) "Join" else "Preview",
-                                                ctaPrimary = true,
                                                 people = group.people,
                                                 onClick = { onOpenGroup(JoinedGroup(group.relayUrl, group.meta)) },
                                             )

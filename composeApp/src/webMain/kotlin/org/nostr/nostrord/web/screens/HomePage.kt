@@ -384,10 +384,6 @@ private fun ChildrenBuilder.discoverGroupCard(
                 }
             }
         }
-        span {
-            className = ClassName("group-card-cta")
-            +(if (meta.isOpen) "Join" else "Preview")
-        }
     }
 }
 

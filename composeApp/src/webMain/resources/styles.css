@@ -2685,7 +2685,7 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 12px 0;
+    margin: 12px 0 0;
 }
 
 /* Overlapping avatar row (prototype -space-x-2). The tiles are WebAvatars sized
@@ -2721,7 +2721,7 @@ body {
     line-height: 1.4;
     min-height: 36px;
     max-height: 2.8em;
-    margin: 0 0 12px;
+    margin: 0;
     font-size: 13px;
     color: var(--color-text-secondary);
 }
