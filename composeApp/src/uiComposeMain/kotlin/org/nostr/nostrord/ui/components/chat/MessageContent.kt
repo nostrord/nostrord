@@ -1956,6 +1956,76 @@ private fun QuotedEventContent(
                             },
                         )
                     }
+                    is VideoPart -> {
+                        // Quoted event with a video: same players as the main message
+                        // (these were silently dropped before, so a nevent pointing at a
+                        // video rendered as an empty card).
+                        Spacer(modifier = Modifier.height(6.dp))
+                        if (firstPart.videoId != null) {
+                            YouTubeLinkCard(
+                                videoId = firstPart.videoId!!,
+                                url = firstPart.url,
+                                onClick = {
+                                    try {
+                                        uriHandler.openUri(firstPart.url)
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                            )
+                        } else {
+                            PlatformVideoPlayer(
+                                url = firstPart.url,
+                                thumbnailUrl = null,
+                                aspectRatio = 16f / 9f,
+                                onFallbackClick = {
+                                    try {
+                                        uriHandler.openUri(firstPart.url)
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                                modifier = Modifier
+                                    .widthIn(max = 280.dp)
+                                    .heightIn(max = 220.dp),
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is AudioPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val audioPlayer = rememberAudioPlayer()
+                        AudioPlayerContent(url = firstPart.url, player = audioPlayer)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is CodeBlockPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        CodeBlockContent(code = firstPart.code, language = firstPart.language)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is RelayPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        RelayContent(
+                            url = firstPart.url,
+                            onClick = {
+                                try {
+                                    uriHandler.openUri(
+                                        firstPart.url.replace("wss://", "https://").replace("ws://", "http://"),
+                                    )
+                                } catch (_: Exception) {
+                                }
+                            },
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is CashuPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        CashuContent(token = firstPart.token, isRequest = false)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                    is CashuRequestPart -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        CashuContent(token = firstPart.request, isRequest = true)
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                     else -> {}
                 }
             } else {
