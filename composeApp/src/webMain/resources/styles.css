@@ -2758,6 +2758,30 @@ body {
     color: var(--color-text-secondary);
 }
 
+/* Host relay line under the description: small relay icon + short hostname, muted, so the
+   same group on two relays is told apart. */
+.group-card-relay {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.group-card-relay-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.group-card-relay-host {
+    overflow: hidden;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .group-card-cta {
     align-self: flex-start;
     /* Pin to the card bottom now that the description no longer flex-grows. */

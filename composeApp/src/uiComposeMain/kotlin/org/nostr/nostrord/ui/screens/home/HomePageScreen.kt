@@ -100,6 +100,7 @@ fun HomePageScreen(
     val friends by vm.friends.collectAsState()
     val friendsGroups by vm.friendsGroups.collectAsState()
     val recommendedGroups by vm.recommendedGroups.collectAsState()
+    val relayMetadata by vm.relayMetadata.collectAsState()
     var filter by remember { mutableStateOf(0) }
 
     // Fetch the discovery lists lazily, only when their tab is shown.
@@ -271,6 +272,8 @@ fun HomePageScreen(
                                                     memberCount = group.memberCount,
                                                     restricted = group.meta.isRestricted,
                                                     people = group.people,
+                                                    relayUrl = group.relayUrl,
+                                                    relayIconUrl = relayMetadata[group.relayUrl]?.icon,
                                                     onClick = { onOpenGroup(JoinedGroup(group.relayUrl, group.meta)) },
                                                 )
                                             }
@@ -309,6 +312,8 @@ fun HomePageScreen(
                                                     memberCount = fg.memberCount,
                                                     restricted = fg.meta.isRestricted,
                                                     people = fg.people,
+                                                    relayUrl = fg.relayUrl,
+                                                    relayIconUrl = relayMetadata[fg.relayUrl]?.icon,
                                                     onClick = { onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta)) },
                                                 )
                                             }
@@ -334,6 +339,8 @@ fun HomePageScreen(
                                                 memberCount = group.memberCount,
                                                 restricted = group.meta.isRestricted,
                                                 people = group.people,
+                                                relayUrl = group.relayUrl,
+                                                relayIconUrl = relayMetadata[group.relayUrl]?.icon,
                                                 onClick = { onOpenGroup(JoinedGroup(group.relayUrl, group.meta)) },
                                             )
                                         }

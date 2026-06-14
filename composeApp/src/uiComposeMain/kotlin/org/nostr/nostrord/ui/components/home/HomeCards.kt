@@ -37,6 +37,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.loading.shimmerEffect
 import org.nostr.nostrord.ui.screens.home.Friend
+import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 
@@ -58,6 +59,8 @@ fun GroupCard(
     cta: String? = null,
     ctaPrimary: Boolean = false,
     people: List<Friend> = emptyList(),
+    relayUrl: String = "",
+    relayIconUrl: String? = null,
     onClick: () -> Unit = {},
 ) {
     Surface(
@@ -161,6 +164,23 @@ fun GroupCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.height(18.dp),
             )
+            // Host relay on its own muted line: a small relay icon + the short hostname, so
+            // the same group on two relays is told apart.
+            if (relayUrl.isNotBlank()) {
+                val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RelayHeaderIcon(relayUrl = relayUrl, iconUrl = relayIconUrl, label = relayHost, size = 16.dp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        relayHost,
+                        color = NostrordColors.TextMuted,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             if (cta != null) {
                 // Push the CTA to the bottom so equal-height cards line their chips up.
                 Spacer(modifier = Modifier.weight(1f).heightIn(min = 12.dp))

@@ -16,6 +16,7 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.network.UserMetadata
+import org.nostr.nostrord.nostr.Nip11RelayInfo
 import org.nostr.nostrord.notifications.NotificationHistoryStore
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.loadFollowingCacheFor
@@ -86,6 +87,9 @@ class HomePageViewModel(
         notificationHistoryStore.entries
             .map { list -> list.count { !it.read } }
             .stateIn(viewModelScope, SharingStarted.Eagerly, 0)
+
+    /** Relay NIP-11 metadata (icon/name), so a card can show which relay hosts the group. */
+    val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = repo.relayMetadata
 
     /** Known member counts per group id (only groups whose member list was fetched). */
     val memberCounts: StateFlow<Map<String, Int>> =

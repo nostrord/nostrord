@@ -59,6 +59,7 @@ val HomePage =
         val friends = useStateFlow(vm.friends)
         val friendsGroups = useStateFlow(vm.friendsGroups)
         val recommendedGroups = useStateFlow(vm.recommendedGroups)
+        val relayMeta = useStateFlow(vm.relayMetadata)
         val (filter, setFilter) = useState { 0 }
 
         // Fetch the discovery lists lazily, only when their tab is shown.
@@ -184,7 +185,7 @@ val HomePage =
                                     div {
                                         className = ClassName("card-grid")
                                         myGroups.forEach { group ->
-                                            discoverGroupCard(group) {
+                                            discoverGroupCard(group, relayMeta[group.relayUrl]?.icon) {
                                                 props.onOpenGroup(JoinedGroup(group.relayUrl, group.meta))
                                             }
                                         }
@@ -214,7 +215,7 @@ val HomePage =
                                     div {
                                         className = ClassName("card-grid")
                                         friendsGroups.forEach { fg ->
-                                            discoverGroupCard(fg) {
+                                            discoverGroupCard(fg, relayMeta[fg.relayUrl]?.icon) {
                                                 props.onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta))
                                             }
                                         }
@@ -231,7 +232,7 @@ val HomePage =
                                 div {
                                     className = ClassName("card-grid")
                                     recommendedGroups.forEach { group ->
-                                        discoverGroupCard(group) {
+                                        discoverGroupCard(group, relayMeta[group.relayUrl]?.icon) {
                                             props.onOpenGroup(JoinedGroup(group.relayUrl, group.meta))
                                         }
                                     }
@@ -291,10 +292,12 @@ val HomePage =
  */
 private fun ChildrenBuilder.discoverGroupCard(
     dg: DiscoverGroup,
+    relayIconUrl: String?,
     onOpen: () -> Unit,
 ) {
     val meta = dg.meta
     val name = meta.name ?: meta.id
+    val relayHost = dg.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
     val count = if (dg.people.isNotEmpty()) maxOf(dg.memberCount, dg.people.size) else dg.memberCount
     // No resolved people and an unknown count means the member list is still loading
     // (NIP-29 groups always have at least an admin, so 0 here is "not fetched yet").
@@ -361,6 +364,24 @@ private fun ChildrenBuilder.discoverGroupCard(
         p {
             className = ClassName("group-card-desc")
             +(meta.about.orEmpty().ifBlank { "No description" })
+        }
+        // Host relay on its own muted line (icon + short hostname), so the same group on
+        // two relays is told apart.
+        if (relayHost.isNotBlank()) {
+            div {
+                className = ClassName("group-card-relay")
+                WebAvatar {
+                    url = relayIconUrl
+                    seed = dg.relayUrl
+                    this.name = relayHost
+                    kind = AvatarKind.RELAY
+                    cls = "group-card-relay-icon"
+                }
+                span {
+                    className = ClassName("group-card-relay-host")
+                    +relayHost
+                }
+            }
         }
     }
 }
