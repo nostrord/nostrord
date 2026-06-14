@@ -126,6 +126,8 @@ fun AppTextField(
     maxLines: Int = 1,
     enabled: Boolean = true,
     onDone: (() -> Unit)? = null,
+    // Opt-in: when set, Escape clears focus and invokes this (filters clear with it).
+    onEscape: (() -> Unit)? = null,
 ) {
     val focusManager = LocalFocusManager.current
     Column(modifier = modifier) {
@@ -153,6 +155,11 @@ fun AppTextField(
                         }
                         onDone != null && (event.key == Key.Enter || event.key == Key.NumPadEnter) -> {
                             onDone()
+                            true
+                        }
+                        onEscape != null && event.key == Key.Escape -> {
+                            onEscape()
+                            focusManager.clearFocus()
                             true
                         }
                         else -> false

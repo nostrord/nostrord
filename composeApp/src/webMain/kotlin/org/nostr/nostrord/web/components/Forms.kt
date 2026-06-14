@@ -81,6 +81,8 @@ fun ChildrenBuilder.iconInput(
     autoFocus: Boolean = false,
     onChange: (String) -> Unit,
     onEnter: () -> Unit = {},
+    // Opt-in: when set, Escape blurs the field and invokes this (filters clear with it).
+    onEscape: (() -> Unit)? = null,
     trailing: (ChildrenBuilder.() -> Unit)? = null,
 ) {
     div {
@@ -96,7 +98,16 @@ fun ChildrenBuilder.iconInput(
             this.value = value
             this.autoFocus = autoFocus
             this.onChange = { event -> onChange(event.currentTarget.value) }
-            onKeyDown = { event -> if (event.key == "Enter") onEnter() }
+            onKeyDown = { event ->
+                when (event.key) {
+                    "Enter" -> onEnter()
+                    "Escape" ->
+                        if (onEscape != null) {
+                            onEscape()
+                            event.currentTarget.blur()
+                        }
+                }
+            }
         }
         trailing?.invoke(this)
     }

@@ -186,6 +186,7 @@ fun HomePageScreen(
                         onValueChange = { vm.setQuery(it) },
                         placeholder = "Filter groups",
                         leadingIcon = Icons.Default.Search,
+                        onEscape = { vm.setQuery("") },
                         modifier = Modifier.widthIn(max = 288.dp),
                     )
 

@@ -136,6 +136,7 @@ val HomePage =
                                 placeholder = "Filter groups",
                                 value = query,
                                 onChange = { vm.setQuery(it) },
+                                onEscape = { vm.setQuery("") },
                             )
                         }
                     }
