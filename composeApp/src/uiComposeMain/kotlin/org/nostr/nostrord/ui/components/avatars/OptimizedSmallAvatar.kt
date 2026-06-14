@@ -101,8 +101,9 @@ fun OptimizedSmallAvatar(
             },
         )
 
-    // For tiny sizes or no image, use the gradient fallback
-    if (sizeCategory == AvatarSizeCategory.TINY || imageUrl.isNullOrBlank()) {
+    // No picture → gradient fallback. Tiny sizes still load the real picture (web does
+    // too, and the people/member avatar stacks would otherwise be all gradients).
+    if (imageUrl.isNullOrBlank()) {
         SmallAvatarPlaceholder(
             identifier = identifier,
             displayName = displayName,
@@ -119,7 +120,9 @@ fun OptimizedSmallAvatar(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
     ) {
-        var imageState by remember { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
+        // Key on imageUrl so a composable reused for a different user (list slot reuse)
+        // resets its load state instead of showing the previous user's avatar.
+        var imageState by remember(imageUrl) { mutableStateOf<AsyncImagePainter.State>(AsyncImagePainter.State.Empty) }
 
         val showPlaceholder =
             imageState is AsyncImagePainter.State.Loading ||

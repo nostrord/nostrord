@@ -54,12 +54,21 @@ val WebAvatar =
         val (failed, setFailed) = useState { false }
         val imgRef = useRef<HTMLImageElement>(null)
         val lastUrlRef = useRef<String>(null)
+        val lastSeedRef = useRef<String>(null)
 
         val seed = props.seed?.takeIf { it.isNotBlank() } ?: props.name
         val kind = props.kind ?: AvatarKind.USER
-        // Keep the last good picture if the URL transiently drops to null/blank (metadata churn,
-        // an LRU eviction that briefly removes the entry, or a parent remount): a once-loaded
-        // avatar must not blank out mid-session. Only fall back when we never had a picture.
+        // Drop the retained URL when this component is reused for a DIFFERENT identity (list
+        // slot reuse): without this, a member row recycled for another user would briefly show
+        // the previous user's avatar (leaked picture).
+        if (lastSeedRef.current != seed) {
+            lastSeedRef.current = seed
+            lastUrlRef.current = null
+        }
+        // Keep the last good picture if the URL transiently drops to null/blank for the SAME
+        // identity (metadata churn, an LRU eviction that briefly removes the entry, or a parent
+        // remount): a once-loaded avatar must not blank out mid-session. Only fall back when we
+        // never had a picture for this identity.
         val incoming = props.url?.takeIf { it.isNotBlank() }
         if (incoming != null) lastUrlRef.current = incoming
         // RELAY: when NIP-11 didn't publish an icon, fall back to a bundled brand asset for
