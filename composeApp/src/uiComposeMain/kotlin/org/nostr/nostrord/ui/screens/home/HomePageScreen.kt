@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -154,33 +156,38 @@ fun HomePageScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp, vertical = 24.dp),
                 ) {
-                    // Title row + actions
-                    Column {
-                        Text(
-                            "Groups",
-                            color = NostrordColors.TextPrimary,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Text(
-                            "Your groups and new ones to discover through your friends",
-                            color = NostrordColors.TextMuted,
-                            fontSize = 14.sp,
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppButton(
-                            text = "Join group",
-                            onClick = onJoinGroup,
-                            variant = AppButtonVariant.Secondary,
-                            icon = Icons.Default.Link,
-                        )
-                        AppButton(
-                            text = "Create group",
-                            onClick = onCreateGroup,
-                            icon = Icons.Default.Add,
-                        )
+                    // Title (left) + actions (right) on one row, matching the web layout.
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Groups",
+                                color = NostrordColors.TextPrimary,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "Your groups and new ones to discover through your friends",
+                                color = NostrordColors.TextMuted,
+                                fontSize = 14.sp,
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AppButton(
+                                text = "Join group",
+                                onClick = onJoinGroup,
+                                variant = AppButtonVariant.Secondary,
+                                icon = Icons.Default.Link,
+                            )
+                            AppButton(
+                                text = "Create group",
+                                onClick = onCreateGroup,
+                                icon = Icons.Default.Add,
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -198,7 +205,7 @@ fun HomePageScreen(
                         placeholder = if (filter == 3) "Filter follow packs" else "Filter groups",
                         leadingIcon = Icons.Default.Search,
                         onEscape = { vm.setQuery("") },
-                        modifier = Modifier.widthIn(max = 288.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     )
 
                     Spacer(modifier = Modifier.height(20.dp))
@@ -242,8 +249,6 @@ fun HomePageScreen(
                                                     groupId = group.meta.id,
                                                     memberCount = memberCounts[group.meta.id] ?: 0,
                                                     restricted = group.meta.isRestricted,
-                                                    cta = "Open",
-                                                    ctaPrimary = false,
                                                     onClick = { onOpenGroup(group) },
                                                 )
                                             }
@@ -353,9 +358,15 @@ private fun CardGrid(
     val cards = content()
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         cards.chunked(columns).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // IntrinsicSize.Max makes every card in the row as tall as the tallest one,
+            // so a short card doesn't leave the row ragged (cards fill the height and pin
+            // their CTA to the bottom). Mirrors the web grid's equal-height rows.
+            Row(
+                modifier = Modifier.height(IntrinsicSize.Max),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
                 row.forEach { card ->
-                    Column(modifier = Modifier.weight(1f)) { card() }
+                    Column(modifier = Modifier.weight(1f).fillMaxHeight()) { card() }
                 }
                 repeat(columns - row.size) {
                     Spacer(modifier = Modifier.weight(1f))

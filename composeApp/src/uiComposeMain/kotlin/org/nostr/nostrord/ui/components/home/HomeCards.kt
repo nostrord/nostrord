@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -54,19 +56,19 @@ fun GroupCard(
     groupId: String,
     memberCount: Int,
     restricted: Boolean,
-    cta: String,
-    ctaPrimary: Boolean,
     modifier: Modifier = Modifier,
+    cta: String? = null,
+    ctaPrimary: Boolean = false,
     people: List<Friend> = emptyList(),
     onClick: () -> Unit = {},
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth().clip(NostrordShapes.shapeLarge),
+        modifier = modifier.fillMaxWidth().fillMaxHeight().clip(NostrordShapes.shapeLarge),
         shape = NostrordShapes.shapeLarge,
         color = NostrordColors.Surface,
         onClick = onClick,
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.fillMaxHeight().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OptimizedSmallAvatar(
                     imageUrl = picture,
@@ -145,18 +147,21 @@ fun GroupCard(
                     modifier = Modifier.height(36.dp),
                 )
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            Surface(
-                shape = NostrordShapes.shapeMedium,
-                color = if (ctaPrimary) NostrordColors.Primary else NostrordColors.BackgroundFloating,
-            ) {
-                Text(
-                    cta,
-                    color = if (ctaPrimary) Color.White else NostrordColors.TextSecondary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                )
+            if (cta != null) {
+                // Push the CTA to the bottom so equal-height cards line their chips up.
+                Spacer(modifier = Modifier.weight(1f).heightIn(min = 12.dp))
+                Surface(
+                    shape = NostrordShapes.shapeMedium,
+                    color = if (ctaPrimary) NostrordColors.Primary else NostrordColors.BackgroundFloating,
+                ) {
+                    Text(
+                        cta,
+                        color = if (ctaPrimary) Color.White else NostrordColors.TextSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
             }
         }
     }

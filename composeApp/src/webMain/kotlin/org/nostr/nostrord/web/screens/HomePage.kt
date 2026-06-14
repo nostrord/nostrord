@@ -321,10 +321,6 @@ private fun ChildrenBuilder.groupCard(
             className = ClassName("group-card-desc")
             +(meta.about.orEmpty().ifBlank { "No description" })
         }
-        span {
-            className = ClassName("group-card-cta")
-            +"Open"
-        }
     }
 }
 
