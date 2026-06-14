@@ -7,6 +7,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.hoverable
@@ -125,9 +126,11 @@ fun MessagesList(
     isInitialLoading: Boolean = false,
     isPendingApproval: Boolean = false,
     isGroupRestricted: Boolean = false,
-    // True while the composer is in reply mode; entering it re-pins the feed to the
-    // bottom so the reply bar doesn't hide the last message.
+    // True while the composer is in reply mode; entering it nudges the replied-to
+    // message into view if the grown reply bar would cover it.
     isReplying: Boolean = false,
+    // Id of the message being replied to, for the reply-scroll nudge above.
+    replyTargetId: String? = null,
     isLoadingMore: Boolean = false,
     hasMoreMessages: Boolean = true,
     onLoadMore: () -> Unit = {},
@@ -371,13 +374,26 @@ fun MessagesList(
         }.collect { atBottom -> if (atBottom != null) pinnedAtBottom.value = atBottom }
     }
 
-    // Entering reply mode grows the composer with the reply bar; if the feed was pinned at
-    // the bottom, re-scroll so the replied-to last message stays visible instead of sliding
-    // behind the bar (web parity). Uses the tracked flag, not a one-shot layoutInfo read.
-    LaunchedEffect(isReplying) {
-        if (!isReplying || !pinnedAtBottom.value) return@LaunchedEffect
-        val total = listState.layoutInfo.totalItemsCount
-        if (total > 0) listState.animateScrollToItem(total - 1)
+    // Entering reply mode grows the composer with the reply bar, which can cover the
+    // message being replied to. Nudge that row just into view above the composer
+    // (Compose equivalent of the web's scrollIntoView block:'nearest'): only scroll
+    // if the row is actually below the shrunken viewport, so replying to an already
+    // visible message doesn't yank the feed.
+    LaunchedEffect(replyTargetId) {
+        val id = replyTargetId ?: return@LaunchedEffect
+        // Wait for the reply bar to grow and the list to relayout before measuring.
+        kotlinx.coroutines.delay(50)
+        val idx = chatItems.indexOfFirst { it is ChatItem.Message && it.message.id == id }
+        if (idx < 0) return@LaunchedEffect
+        val info = listState.layoutInfo
+        val item = info.visibleItemsInfo.firstOrNull { it.index == idx }
+        if (item == null) {
+            // Not in view at all (covered below, or scrolled off): bring it to the bottom.
+            listState.animateScrollToItem(idx)
+        } else {
+            val overflow = (item.offset + item.size) - info.viewportEndOffset
+            if (overflow > 0) listState.animateScrollBy(overflow.toFloat())
+        }
     }
 
     // hasMoreMessages and isLoadingMore are keys so the effect re-fires on the

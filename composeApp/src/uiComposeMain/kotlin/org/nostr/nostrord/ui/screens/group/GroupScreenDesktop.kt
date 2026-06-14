@@ -225,6 +225,7 @@ fun GroupScreenDesktop(
                     currentUserPubkey = currentUserPubkey,
                     isJoined = isJoined,
                     isReplying = replyingToMessage != null,
+                    replyTargetId = replyingToMessage?.id,
                     isInitialLoading = isInitialLoading,
                     isPendingApproval = isPendingApproval,
                     isGroupRestricted = isGroupRestricted,

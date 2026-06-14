@@ -304,6 +304,10 @@ private val ChatComposer =
         val (uploadError, setUploadError) = useState<String?> { null }
         // Composer emoji picker open state.
         val (emojiOpen, setEmojiOpen) = useState { false }
+        // Esc closes the emoji picker (its search input steals focus, so the
+        // textarea's own onKeyDown never sees the Escape). Document-level, same
+        // as the message reaction picker.
+        useEscClose { if (emojiOpen) setEmojiOpen(false) }
         // Active @user / %group mention being typed in the composer.
         val (mention, setMention) = useState<MentionCtx?> { null }
         // displayName -> pubkeyHex for @user mentions chosen from the popup.
@@ -1165,13 +1169,19 @@ val ChatScreen =
         // then the next tap drops to the bottom. Reset per group on entry.
         val dividerSeen = useRef(false)
 
-        // Entering reply mode grows the composer with the reply banner; if the feed
-        // was at the bottom, the last message would slide behind it. Re-pin to the
-        // bottom so the replied-to message stays visible (native parity).
+        // Entering reply mode grows the composer with the reply banner, which can
+        // cover the message being replied to. Once the banner has grown (.chat-messages
+        // shrinks, it's a flex sibling above .composer-area), scroll that message just
+        // into view above the composer (prototype MessageList: scrollIntoView
+        // block:'nearest'). 'nearest' only moves the feed if the row is actually
+        // covered, so a reply to an already-visible message doesn't jump.
         useEffect(replyingToId) {
-            if (replyingToId != null && atBottom.current == true) {
-                setJumpNonce { it + 1 }
-            }
+            val id = replyingToId ?: return@useEffect
+            // Wait a frame for the reply banner to render and the list to reflow.
+            delay(48)
+            document.getElementById("msg-$id")?.asDynamic()
+                ?.scrollIntoView(js("({ block: 'nearest', behavior: 'smooth' })"))
+            Unit
         }
 
         // "New messages" divider snapshot. Captured once on group entry, then
