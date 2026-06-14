@@ -296,6 +296,9 @@ private fun ChildrenBuilder.discoverGroupCard(
     val meta = dg.meta
     val name = meta.name ?: meta.id
     val count = if (dg.people.isNotEmpty()) maxOf(dg.memberCount, dg.people.size) else dg.memberCount
+    // No resolved people and an unknown count means the member list is still loading
+    // (NIP-29 groups always have at least an admin, so 0 here is "not fetched yet").
+    val peopleLoading = dg.people.isEmpty() && dg.memberCount == 0
     button {
         key = meta.id
         className = ClassName("group-card")
@@ -316,24 +319,35 @@ private fun ChildrenBuilder.discoverGroupCard(
                 }
                 div {
                     className = ClassName("group-card-people")
-                    if (dg.people.isNotEmpty()) {
-                        div {
-                            className = ClassName("discover-avatars")
-                            dg.people.take(5).forEach { person ->
-                                WebAvatar {
-                                    url = person.metadata?.picture
-                                    seed = person.pubkey
-                                    this.name = personName(person)
-                                    cls = "discover-avatar"
+                    when {
+                        dg.people.isNotEmpty() ->
+                            div {
+                                className = ClassName("discover-avatars")
+                                dg.people.take(5).forEach { person ->
+                                    WebAvatar {
+                                        url = person.metadata?.picture
+                                        seed = person.pubkey
+                                        this.name = personName(person)
+                                        cls = "discover-avatar"
+                                    }
                                 }
                             }
-                        }
+                        peopleLoading ->
+                            div {
+                                className = ClassName("discover-avatars")
+                                repeat(4) {
+                                    div { className = ClassName("discover-avatar skel") }
+                                }
+                            }
                     }
-                    if (count > 0) {
-                        span {
-                            className = ClassName("group-card-people-count")
-                            +"$count people"
-                        }
+                    when {
+                        count > 0 ->
+                            span {
+                                className = ClassName("group-card-people-count")
+                                +"$count people"
+                            }
+                        peopleLoading ->
+                            div { className = ClassName("skel group-card-people-skel") }
                     }
                     if (meta.isRestricted) {
                         span {

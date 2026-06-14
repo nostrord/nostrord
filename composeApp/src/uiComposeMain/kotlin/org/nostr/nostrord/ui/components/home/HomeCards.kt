@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
+import org.nostr.nostrord.ui.components.loading.shimmerEffect
 import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -89,18 +90,47 @@ fun GroupCard(
                     // avatars (when known) and the total "N people" count, with the
                     // restricted badge riding along.
                     val peopleCount = if (people.isNotEmpty()) maxOf(memberCount, people.size) else memberCount
-                    if (peopleCount > 0 || restricted) {
+                    // No resolved people and an unknown count means the member list is still
+                    // loading (NIP-29 groups always have at least an admin, so 0 is "not
+                    // fetched yet"): show a shimmer placeholder for the people row.
+                    val peopleLoading = people.isEmpty() && memberCount == 0
+                    if (peopleCount > 0 || restricted || peopleLoading) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (people.isNotEmpty()) {
-                                AvatarStack(people)
-                                Spacer(modifier = Modifier.width(8.dp))
+                            when {
+                                people.isNotEmpty() -> {
+                                    AvatarStack(people)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                peopleLoading -> {
+                                    Row(horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
+                                        repeat(4) {
+                                            Box(
+                                                modifier =
+                                                Modifier
+                                                    .size(20.dp)
+                                                    .clip(CircleShape)
+                                                    .shimmerEffect(),
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
                             }
                             if (peopleCount > 0) {
                                 Text(
                                     "$peopleCount people",
                                     color = NostrordColors.TextMuted,
                                     fontSize = 12.sp,
+                                )
+                            } else if (peopleLoading) {
+                                Box(
+                                    modifier =
+                                    Modifier
+                                        .width(56.dp)
+                                        .height(12.dp)
+                                        .clip(NostrordShapes.shapeSmall)
+                                        .shimmerEffect(),
                                 )
                             }
                             if (restricted) {

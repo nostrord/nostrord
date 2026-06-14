@@ -418,12 +418,12 @@ class HomePageViewModel(
                 if (relayToGroups.isNotEmpty()) repo.fetchGroupPreviews(relayToGroups)
             }
         }
-        // Member lists (kind:39002) for discovered groups, so the social cards on the
-        // From friends / Recommended tabs show a real "N people" count and member
-        // avatars. Each group is requested once; the flows only emit after their tab
-        // loads, so this stays off the cold-start path.
+        // Member lists (kind:39002) for every group card (My groups + From friends +
+        // Recommended), so each shows a real "N people" count and member avatars and the
+        // people-row skeleton resolves. Each group is requested once; the discovery flows
+        // only emit after their tab loads, so this stays off the cold-start path.
         viewModelScope.launch {
-            combine(friendsGroups, recommendedGroups) { a, b -> a + b }
+            combine(myGroups, friendsGroups, recommendedGroups) { a, b, c -> a + b + c }
                 .collect { discovered ->
                     discovered.forEach { g ->
                         if (requestedMembers.add(g.meta.id)) {
@@ -432,11 +432,11 @@ class HomePageViewModel(
                     }
                 }
         }
-        // Resolve kind:0 for the people previewed on Recommended cards (members who
-        // are not already followed have no metadata yet). Friends' metadata is
-        // already fetched above from [following].
+        // Resolve kind:0 for the people previewed on My groups / Recommended cards
+        // (members who are not already followed have no metadata yet). Friends' metadata
+        // is already fetched above from [following].
         viewModelScope.launch {
-            recommendedGroups
+            combine(myGroups, recommendedGroups) { a, b -> a + b }
                 .map { groups -> groups.flatMap { it.people }.map { it.pubkey }.toSet() }
                 .collect { pks ->
                     val missing = pks - requestedPeopleMeta
