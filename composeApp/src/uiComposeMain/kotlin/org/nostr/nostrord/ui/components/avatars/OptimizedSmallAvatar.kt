@@ -241,7 +241,7 @@ private fun Modifier.subtleVignette(): Modifier = this.drawWithContent {
 }
 
 /**
- * Convenience composable for server/group icons in the ServerRail.
+ * Convenience composable for server/group icons in the groups rail.
  * Uses RoundedCornerShape with animated corners.
  */
 @Composable

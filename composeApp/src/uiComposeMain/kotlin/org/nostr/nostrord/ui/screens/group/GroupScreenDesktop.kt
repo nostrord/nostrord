@@ -36,14 +36,14 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 /**
  * Desktop group screen layout.
  *
- * Two-column layout (when inside DesktopShell with ServerRail):
+ * Two-column layout (the groups rail is provided by the parent AppFrame):
  * ┌───────────────────────┬──────────────┐
  * │       Messages        │    Members   │
  * │                       │    Sidebar   │
  * │       (flex)          │    (240dp)   │
  * └───────────────────────┴──────────────┘
  *
- * Note: ServerRail (72dp) is handled by DesktopShell wrapper,
+ * Note: the 72dp groups rail is handled by the parent AppFrame,
  * not this component.
  */
 @Composable

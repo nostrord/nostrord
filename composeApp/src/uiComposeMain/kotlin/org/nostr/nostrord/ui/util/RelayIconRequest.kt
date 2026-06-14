@@ -8,7 +8,7 @@ import org.nostr.nostrord.utils.getImageUrl
 /**
  * Canonical ImageRequest for relay icons.
  *
- * All relay icon composables (ServerRail, HomeScreenDesktop, AddRelayModal) MUST use this
+ * All relay icon composables (RelayHeaderIcon, AddRelayModal) MUST use this
  * function and nothing else. Identical parameters across all call sites guarantee a single
  * Coil memory-cache entry per icon URL — the first composable to load pays the network cost;
  * every subsequent composable on any screen gets an instant memory-cache hit.
