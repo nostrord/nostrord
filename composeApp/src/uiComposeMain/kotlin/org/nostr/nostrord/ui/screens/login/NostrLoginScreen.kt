@@ -22,11 +22,6 @@ import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
 import org.nostr.nostrord.nostr.Nip07
-import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
-import org.nostr.nostrord.ui.components.forms.SegmentedTab
-import org.nostr.nostrord.ui.screens.login.components.BunkerLoginTab
-import org.nostr.nostrord.ui.screens.login.components.ExtensionLoginTab
-import org.nostr.nostrord.ui.screens.login.components.PrivateKeyLoginTab
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 
@@ -46,15 +41,7 @@ fun NostrLoginScreen(
     modifier: Modifier = Modifier,
     onLoginSuccess: () -> Unit,
 ) {
-    var selectedTab by remember { mutableStateOf<LoginTab>(LoginTab.PrivateKey) }
-    val tabs =
-        remember {
-            buildList {
-                add(LoginTab.PrivateKey)
-                add(LoginTab.Bunker)
-                if (Nip07.isAvailable()) add(LoginTab.Extension)
-            }
-        }
+    val showExtension = remember { Nip07.isAvailable() }
 
     Box(
         modifier =
@@ -84,7 +71,7 @@ fun NostrLoginScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             // Main login card — wider when 3 tabs are shown to prevent label cramming
-            val cardMaxWidth = if (tabs.size >= 3) 500.dp else 448.dp
+            val cardMaxWidth = if (showExtension) 500.dp else 448.dp
             Card(
                 modifier =
                 Modifier
@@ -125,21 +112,8 @@ fun NostrLoginScreen(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    // Tab selector (shared segmented-tabs component)
-                    AppSegmentedTabs(
-                        tabs = tabs.map { SegmentedTab(it.title, it.icon) },
-                        selectedIndex = tabs.indexOf(selectedTab),
-                        onSelect = { selectedTab = tabs[it] },
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Tab content
-                    when (selectedTab) {
-                        LoginTab.PrivateKey -> PrivateKeyLoginTab(onLoginSuccess)
-                        LoginTab.Bunker -> BunkerLoginTab(onLoginSuccess)
-                        LoginTab.Extension -> ExtensionLoginTab(onLoginSuccess)
-                    }
+                    // Tab selector + content (shared with the add-account modal)
+                    LoginMethods(onLoginSuccess = onLoginSuccess)
                 }
             }
         }
