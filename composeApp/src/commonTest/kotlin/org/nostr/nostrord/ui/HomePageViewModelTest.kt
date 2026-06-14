@@ -133,7 +133,7 @@ class HomePageViewModelTest {
 
         val fgs = vm.friendsGroups.value
         assertEquals(listOf("g1"), fgs.map { it.meta.id })
-        assertEquals(setOf("alice", "bob"), fgs.single().mutualFriends.map { it.pubkey }.toSet())
+        assertEquals(setOf("alice", "bob"), fgs.single().people.map { it.pubkey }.toSet())
         assertEquals("Group One", fgs.single().meta.name)
     }
 

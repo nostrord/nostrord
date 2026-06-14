@@ -7,14 +7,20 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.notifications.NotificationHistoryStore
+import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.loadFriendsCacheFor
+import org.nostr.nostrord.storage.saveFriendsCacheFor
 
 /**
  * Curator whose public group list (kind:10009) seeds the "Recommended" tab: the
@@ -35,14 +41,16 @@ data class Friend(
 )
 
 /**
- * A group discovered through the social graph: a group some of the people you
- * follow are in, that you are NOT already in. [mutualFriends] are those friends,
- * for the "Alice, Bob +2" hint and ranking.
+ * A discoverable group (you are NOT already in) shown on the From friends and
+ * Recommended tabs. [people] is the preview shown on the card: the friends you
+ * follow who are in the group (From friends, and Recommended when any), falling
+ * back to the group's members as social proof on Recommended. [memberCount] is
+ * the total used for the "N people" label.
  */
-data class FriendsGroup(
+data class DiscoverGroup(
     val relayUrl: String,
     val meta: GroupMetadata,
-    val mutualFriends: List<Friend>,
+    val people: List<Friend>,
     val memberCount: Int,
 )
 
@@ -116,18 +124,45 @@ class HomePageViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
+     * Last-known friends persisted to disk (followed users + their kind:0 metadata),
+     * so the sidebar shows names + avatars instantly on launch instead of waiting for
+     * kind:3 + kind:0 to re-arrive. Refreshed below whenever live data resolves.
+     */
+    private val cachedFriends: List<Friend> =
+        SecureStorage.loadFriendsCacheFor(repo.getPublicKey().orEmpty())
+            .map { Friend(it.pubkey, it) }
+
+    /** Friends with resolved avatars first, then by display name. */
+    private fun sortFriends(list: List<Friend>): List<Friend> = list.sortedWith(
+        compareByDescending<Friend> { it.metadata?.picture?.isNotBlank() == true }
+            .thenBy { (it.metadata?.displayName ?: it.metadata?.name ?: it.pubkey).lowercase() },
+    )
+
+    /**
      * The users the active account follows (kind:3), each enriched with their kind:0
-     * metadata when known, sorted by display name. Drives the Friends list in the
-     * home sidebar.
+     * metadata (live, or the disk cache until it re-arrives), avatars first. Falls back
+     * to the cached list while kind:3 is still loading so the sidebar isn't empty.
      */
     val friends: StateFlow<List<Friend>> =
         combine(repo.following, repo.userMetadata) { following, meta ->
-            following
-                .map { pk -> Friend(pk, meta[pk]) }
-                .sortedBy {
-                    (it.metadata?.displayName ?: it.metadata?.name ?: it.pubkey).lowercase()
-                }
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            if (following.isEmpty()) {
+                // kind:3 not loaded yet (or genuinely empty): show the cache meanwhile.
+                sortFriends(cachedFriends)
+            } else {
+                val cacheByPk = cachedFriends.associateBy { it.pubkey }
+                sortFriends(following.map { pk -> Friend(pk, meta[pk] ?: cacheByPk[pk]?.metadata) })
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, sortFriends(cachedFriends))
+
+    /**
+     * True while we don't yet know who the user follows AND have nothing to show: the
+     * sidebar renders a skeleton instead of the "You don't follow anyone yet." empty
+     * state, which must appear only once we're sure the list is genuinely empty.
+     */
+    private val _contactsResolved = MutableStateFlow(cachedFriends.isNotEmpty())
+    val friendsLoading: StateFlow<Boolean> =
+        combine(_contactsResolved, friends) { resolved, fr -> !resolved && fr.isEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, cachedFriends.isEmpty())
 
     /**
      * Groups people you follow are in that you are NOT already in (discovery via
@@ -137,7 +172,7 @@ class HomePageViewModel(
      * Populated on demand by [loadFriendsGroups] (the "From friends" tab).
      */
     @Suppress("UNCHECKED_CAST")
-    val friendsGroups: StateFlow<List<FriendsGroup>> =
+    val friendsGroups: StateFlow<List<DiscoverGroup>> =
         combine(
             listOf(
                 repo.following,
@@ -187,7 +222,7 @@ class HomePageViewModel(
                     val relay = relayByGroup[gid] ?: return@mapNotNull null
                     val m = byRelay[relay].orEmpty().find { it.id == gid }
                         ?: byRelay.values.flatten().find { it.id == gid }
-                    FriendsGroup(
+                    DiscoverGroup(
                         relayUrl = relay,
                         meta =
                         m ?: GroupMetadata(
@@ -198,12 +233,14 @@ class HomePageViewModel(
                             isPublic = true,
                             isOpen = true,
                         ),
-                        mutualFriends = friendPks.map { Friend(it, meta[it]) },
-                        memberCount = members[gid].orEmpty().size,
+                        people = friendPks.map { Friend(it, meta[it]) },
+                        // Prefer the relay's full member count; fall back to the
+                        // known friends until the member list (kind:39002) arrives.
+                        memberCount = members[gid].orEmpty().size.takeIf { it > 0 } ?: friendPks.size,
                     )
                 }
                 .sortedWith(
-                    compareByDescending<FriendsGroup> { it.mutualFriends.size }
+                    compareByDescending<DiscoverGroup> { it.people.size }
                         .thenBy { (it.meta.name ?: it.meta.id).lowercase() },
                 )
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -212,25 +249,49 @@ class HomePageViewModel(
      * Curated "Recommended" groups: the [CURATOR_PUBKEY]'s public kind:10009 list,
      * minus the groups you already joined. Populated on demand by [loadRecommended].
      */
-    val recommendedGroups: StateFlow<List<JoinedGroup>> =
-        combine(repo.userGroupLists, repo.joinedGroupsByRelay, repo.groupsByRelay) { lists, joinedByRelay, byRelay ->
+    @Suppress("UNCHECKED_CAST")
+    val recommendedGroups: StateFlow<List<DiscoverGroup>> =
+        combine(
+            listOf(
+                repo.userGroupLists,
+                repo.joinedGroupsByRelay,
+                repo.groupsByRelay,
+                repo.following,
+                repo.groupMembers,
+                repo.userMetadata,
+            ),
+        ) { arr ->
+            val lists = arr[0] as Map<String, List<UserGroupRef>>
+            val joinedByRelay = arr[1] as Map<String, Set<String>>
+            val byRelay = arr[2] as Map<String, List<GroupMetadata>>
+            val following = arr[3] as Set<String>
+            val members = arr[4] as Map<String, List<String>>
+            val meta = arr[5] as Map<String, UserMetadata>
             val myGroupIds = joinedByRelay.values.flatten().toSet()
             lists[CURATOR_PUBKEY].orEmpty()
                 .filter { it.groupId !in myGroupIds }
                 .map { ref ->
-                    val meta = byRelay[ref.relayUrl].orEmpty().find { it.id == ref.groupId }
-                        ?: byRelay.values.flatten().find { it.id == ref.groupId }
-                    JoinedGroup(
+                    val gid = ref.groupId
+                    val memberPks = members[gid].orEmpty()
+                    // "Friends, otherwise members": surface the people you follow who
+                    // are here; if none, fall back to members as social proof.
+                    val friendsHere = memberPks.filter { it in following }
+                    val preview = (friendsHere.ifEmpty { memberPks }).take(8)
+                    DiscoverGroup(
                         relayUrl = ref.relayUrl,
                         meta =
-                        meta ?: GroupMetadata(
-                            id = ref.groupId,
-                            name = null,
-                            about = null,
-                            picture = null,
-                            isPublic = true,
-                            isOpen = true,
-                        ),
+                        byRelay[ref.relayUrl].orEmpty().find { it.id == gid }
+                            ?: byRelay.values.flatten().find { it.id == gid }
+                            ?: GroupMetadata(
+                                id = gid,
+                                name = null,
+                                about = null,
+                                picture = null,
+                                isPublic = true,
+                                isOpen = true,
+                            ),
+                        people = preview.map { Friend(it, meta[it]) },
+                        memberCount = memberPks.size,
                     )
                 }
                 .distinctBy { it.meta.id }
@@ -250,6 +311,12 @@ class HomePageViewModel(
 
     /** "relayUrl|groupId" pairs already sent for metadata, so we request each once. */
     private val requestedPreviews = mutableSetOf<String>()
+
+    /** Group ids whose member list (kind:39002) we've already requested for a card. */
+    private val requestedMembers = mutableSetOf<String>()
+
+    /** Pubkeys whose kind:0 we've requested for a Recommended card preview. */
+    private val requestedPeopleMeta = mutableSetOf<String>()
 
     /**
      * Fetch the public group list (kind:10009) of each followed user not yet
@@ -271,6 +338,28 @@ class HomePageViewModel(
         viewModelScope.launch { repo.requestContactList() }
         viewModelScope.launch {
             repo.following.collect { pks -> if (pks.isNotEmpty()) repo.requestUserMetadata(pks) }
+        }
+        // Stop showing the skeleton once we know who the user follows, or after a short
+        // grace period (covers the genuinely-follows-nobody case, where kind:3 never
+        // arrives). With a non-empty cache this is already resolved at construction.
+        viewModelScope.launch {
+            withTimeoutOrNull(3_500) { repo.following.first { it.isNotEmpty() } }
+            _contactsResolved.value = true
+        }
+        // Persist the friends list (followed users + resolved metadata) so the next
+        // launch shows avatars instantly. Only once kind:3 has loaded (so we don't
+        // overwrite the cache with the empty pre-load state); distinctUntilChanged
+        // keeps the metadata stream from re-writing identical snapshots.
+        viewModelScope.launch {
+            friends
+                .map { list -> list.mapNotNull { it.metadata } }
+                .distinctUntilChanged()
+                .collect { metas ->
+                    val pk = repo.getPublicKey() ?: return@collect
+                    if (repo.following.value.isNotEmpty()) {
+                        SecureStorage.saveFriendsCacheFor(pk, metas)
+                    }
+                }
         }
         // Backfill metadata for discovered friend groups. We aggregate every friend's
         // kind:10009 refs into a deduplicated relayUrl -> {groupId} map (each group once,
@@ -296,6 +385,34 @@ class HomePageViewModel(
             }.collect { relayToGroups ->
                 if (relayToGroups.isNotEmpty()) repo.fetchGroupPreviews(relayToGroups)
             }
+        }
+        // Member lists (kind:39002) for discovered groups, so the social cards on the
+        // From friends / Recommended tabs show a real "N people" count and member
+        // avatars. Each group is requested once; the flows only emit after their tab
+        // loads, so this stays off the cold-start path.
+        viewModelScope.launch {
+            combine(friendsGroups, recommendedGroups) { a, b -> a + b }
+                .collect { discovered ->
+                    discovered.forEach { g ->
+                        if (requestedMembers.add(g.meta.id)) {
+                            launch { repo.requestGroupMembers(g.meta.id) }
+                        }
+                    }
+                }
+        }
+        // Resolve kind:0 for the people previewed on Recommended cards (members who
+        // are not already followed have no metadata yet). Friends' metadata is
+        // already fetched above from [following].
+        viewModelScope.launch {
+            recommendedGroups
+                .map { groups -> groups.flatMap { it.people }.map { it.pubkey }.toSet() }
+                .collect { pks ->
+                    val missing = pks - requestedPeopleMeta
+                    if (missing.isNotEmpty()) {
+                        requestedPeopleMeta.addAll(missing)
+                        repo.requestUserMetadata(missing)
+                    }
+                }
         }
     }
 }

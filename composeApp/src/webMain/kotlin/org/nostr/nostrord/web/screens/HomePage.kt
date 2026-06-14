@@ -2,8 +2,8 @@ package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.screens.home.DiscoverGroup
 import org.nostr.nostrord.ui.screens.home.Friend
-import org.nostr.nostrord.ui.screens.home.FriendsGroup
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.home.JoinedGroup
 import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
@@ -37,6 +37,8 @@ private val FILTER_ICONS = listOf(Ic.Forum, Ic.People, Ic.Public, Ic.PersonAdd)
 
 external interface HomePageProps : Props {
     var onOpenGroup: (JoinedGroup) -> Unit
+    var onCreateGroup: () -> Unit
+    var onJoinGroup: () -> Unit
 }
 
 /**
@@ -105,13 +107,13 @@ val HomePage =
                             className = ClassName("home-actions")
                             button {
                                 className = ClassName("btn-secondary")
-                                // Join modal: not wired yet
+                                onClick = { props.onJoinGroup() }
                                 icon(Ic.Link)
                                 +"Join group"
                             }
                             button {
                                 className = ClassName("btn-primary")
-                                // Create modal: not wired yet
+                                onClick = { props.onCreateGroup() }
                                 icon(Ic.Add)
                                 +"Create group"
                             }
@@ -151,6 +153,7 @@ val HomePage =
                                     ) {
                                         button {
                                             className = ClassName("btn-primary")
+                                            onClick = { props.onJoinGroup() }
                                             icon(Ic.Link)
                                             +"Join by link"
                                         }
@@ -196,7 +199,7 @@ val HomePage =
                                     div {
                                         className = ClassName("card-grid")
                                         friendsGroups.forEach { fg ->
-                                            friendsGroupCard(fg) {
+                                            discoverGroupCard(fg) {
                                                 props.onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta))
                                             }
                                         }
@@ -213,8 +216,8 @@ val HomePage =
                                 div {
                                     className = ClassName("card-grid")
                                     recommendedGroups.forEach { group ->
-                                        groupCard(group, memberCounts[group.meta.id] ?: 0) {
-                                            props.onOpenGroup(group)
+                                        discoverGroupCard(group) {
+                                            props.onOpenGroup(JoinedGroup(group.relayUrl, group.meta))
                                         }
                                     }
                                 }
@@ -310,12 +313,16 @@ private fun ChildrenBuilder.groupCard(
     }
 }
 
-/** Discovery card for a group some of your friends are in (the "From friends" tab). */
-private fun ChildrenBuilder.friendsGroupCard(
-    fg: FriendsGroup,
+/**
+ * Discovery card for the From friends / Recommended tabs: group name, the people in
+ * it by name, then their overlapping avatars and the total "N people" count. [people]
+ * is the friends you follow who are here, falling back to members on Recommended.
+ */
+private fun ChildrenBuilder.discoverGroupCard(
+    dg: DiscoverGroup,
     onOpen: () -> Unit,
 ) {
-    val meta = fg.meta
+    val meta = dg.meta
     val name = meta.name ?: meta.id
     button {
         key = meta.id
@@ -335,13 +342,9 @@ private fun ChildrenBuilder.friendsGroupCard(
                     className = ClassName("group-card-name")
                     +name
                 }
-                div {
-                    className = ClassName("group-card-meta")
-                    if (fg.memberCount > 0) {
-                        icon(Ic.People)
-                        +"${fg.memberCount}"
-                    }
-                    if (!meta.isOpen) {
+                if (!meta.isOpen) {
+                    div {
+                        className = ClassName("group-card-meta")
                         span {
                             className = ClassName("badge-restricted")
                             +"restricted"
@@ -350,10 +353,29 @@ private fun ChildrenBuilder.friendsGroupCard(
                 }
             }
         }
-        div {
-            className = ClassName("group-card-friends")
-            icon(Ic.People)
-            +friendsNote(fg.mutualFriends)
+        if (dg.people.isNotEmpty()) {
+            div {
+                className = ClassName("group-card-people-names")
+                +dg.people.joinToString(", ") { personName(it) }
+            }
+            div {
+                className = ClassName("group-card-people")
+                div {
+                    className = ClassName("discover-avatars")
+                    dg.people.take(5).forEach { person ->
+                        WebAvatar {
+                            url = person.metadata?.picture
+                            seed = person.pubkey
+                            this.name = personName(person)
+                            cls = "discover-avatar"
+                        }
+                    }
+                }
+                span {
+                    className = ClassName("group-card-people-count")
+                    +"${maxOf(dg.memberCount, dg.people.size)} people"
+                }
+            }
         }
         span {
             className = ClassName("group-card-cta")
@@ -362,15 +384,10 @@ private fun ChildrenBuilder.friendsGroupCard(
     }
 }
 
-/** "Alice", "Alice, Bob" or "Alice, Bob +2" from the friends in a discovered group. */
-private fun friendsNote(friends: List<Friend>): String {
-    fun shortName(f: Friend) = f.metadata?.displayName?.takeIf { it.isNotBlank() }
-        ?: f.metadata?.name?.takeIf { it.isNotBlank() }
-        ?: (runCatching { Nip19.encodeNpub(f.pubkey) }.getOrDefault(f.pubkey).take(10) + "…")
-    val shown = friends.take(2).joinToString(", ") { shortName(it) }
-    val extra = friends.size - 2
-    return if (extra > 0) "$shown +$extra" else shown
-}
+/** A person's display name for a discovery card: profile name, then a short npub. */
+private fun personName(friend: Friend): String = friend.metadata?.displayName?.takeIf { it.isNotBlank() }
+    ?: friend.metadata?.name?.takeIf { it.isNotBlank() }
+    ?: (runCatching { Nip19.encodeNpub(friend.pubkey) }.getOrDefault(friend.pubkey).take(10) + "…")
 
 private fun ChildrenBuilder.emptyCard(
     emoji: String,

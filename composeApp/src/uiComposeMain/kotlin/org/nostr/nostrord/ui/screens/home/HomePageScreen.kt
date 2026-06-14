@@ -73,6 +73,8 @@ private val FILTER_ICONS = listOf(
 fun HomePageScreen(
     modifier: Modifier = Modifier,
     onOpenGroup: (JoinedGroup) -> Unit = {},
+    onCreateGroup: () -> Unit = {},
+    onJoinGroup: () -> Unit = {},
 ) {
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
     val myGroups by vm.myGroups.collectAsState()
@@ -159,13 +161,13 @@ fun HomePageScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         AppButton(
                             text = "Join group",
-                            onClick = { /* join modal: not wired yet */ },
+                            onClick = onJoinGroup,
                             variant = AppButtonVariant.Secondary,
                             icon = Icons.Default.Link,
                         )
                         AppButton(
                             text = "Create group",
-                            onClick = { /* create modal: not wired yet */ },
+                            onClick = onCreateGroup,
                             icon = Icons.Default.Add,
                         )
                     }
@@ -202,7 +204,7 @@ fun HomePageScreen(
                                     ) {
                                         AppButton(
                                             text = "Join by link",
-                                            onClick = { /* join modal: not wired yet */ },
+                                            onClick = onJoinGroup,
                                             icon = Icons.Default.Link,
                                         )
                                         AppButton(
@@ -269,7 +271,7 @@ fun HomePageScreen(
                                                     restricted = !fg.meta.isOpen,
                                                     cta = if (fg.meta.isOpen) "Join" else "Preview",
                                                     ctaPrimary = true,
-                                                    friendsNote = friendsNote(fg.mutualFriends),
+                                                    people = fg.people,
                                                     onClick = { onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta)) },
                                                 )
                                             }
@@ -292,11 +294,12 @@ fun HomePageScreen(
                                                 description = group.meta.about,
                                                 picture = group.meta.picture,
                                                 groupId = group.meta.id,
-                                                memberCount = memberCounts[group.meta.id] ?: 0,
+                                                memberCount = group.memberCount,
                                                 restricted = !group.meta.isOpen,
                                                 cta = if (group.meta.isOpen) "Join" else "Preview",
                                                 ctaPrimary = true,
-                                                onClick = { onOpenGroup(group) },
+                                                people = group.people,
+                                                onClick = { onOpenGroup(JoinedGroup(group.relayUrl, group.meta)) },
                                             )
                                         }
                                     }
@@ -319,16 +322,6 @@ fun HomePageScreen(
             }
         }
     }
-}
-
-/** "Alice", "Alice, Bob" or "Alice, Bob +2" from the friends in a discovered group. */
-private fun friendsNote(friends: List<Friend>): String {
-    fun shortName(f: Friend) = f.metadata?.displayName?.takeIf { it.isNotBlank() }
-        ?: f.metadata?.name?.takeIf { it.isNotBlank() }
-        ?: (runCatching { org.nostr.nostrord.nostr.Nip19.encodeNpub(f.pubkey) }.getOrDefault(f.pubkey).take(10) + "…")
-    val shown = friends.take(2).joinToString(", ") { shortName(it) }
-    val extra = friends.size - 2
-    return if (extra > 0) "$shown +$extra" else shown
 }
 
 /** Fixed-column grid built from rows (content is small; avoids nested lazy scrolling). */

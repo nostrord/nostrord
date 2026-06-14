@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.components.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,10 +9,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.Icon
@@ -31,7 +34,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
+import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 
@@ -52,7 +57,7 @@ fun GroupCard(
     cta: String,
     ctaPrimary: Boolean,
     modifier: Modifier = Modifier,
-    friendsNote: String? = null,
+    people: List<Friend> = emptyList(),
     onClick: () -> Unit = {},
 ) {
     Surface(
@@ -82,7 +87,10 @@ fun GroupCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (memberCount > 0) {
+                        // The member count rides with the people row below on discovery
+                        // cards; in the header it only shows when there is no people row.
+                        val showHeaderCount = people.isEmpty() && memberCount > 0
+                        if (showHeaderCount) {
                             Icon(
                                 imageVector = Icons.Default.People,
                                 contentDescription = null,
@@ -97,7 +105,7 @@ fun GroupCard(
                             )
                         }
                         if (restricted) {
-                            if (memberCount > 0) Spacer(modifier = Modifier.width(6.dp))
+                            if (showHeaderCount) Spacer(modifier = Modifier.width(6.dp))
                             Surface(
                                 shape = NostrordShapes.shapeSmall,
                                 color = NostrordColors.BackgroundFloating,
@@ -113,33 +121,38 @@ fun GroupCard(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                description.orEmpty().ifBlank { "No description" },
-                color = NostrordColors.TextSecondary,
-                fontSize = 13.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.height(36.dp),
-            )
-            if (friendsNote != null) {
+            if (people.isNotEmpty()) {
+                // Social proof (From friends / Recommended): the people in the group
+                // by name, then their overlapping avatars and the total count.
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    people.joinToString(", ") { personName(it) },
+                    color = NostrordColors.TextSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.height(36.dp),
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.People,
-                        contentDescription = null,
-                        tint = NostrordColors.Primary,
-                        modifier = Modifier.size(12.dp),
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
+                    AvatarStack(people)
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        friendsNote,
-                        color = NostrordColors.Primary,
+                        "${maxOf(memberCount, people.size)} people",
+                        color = NostrordColors.TextMuted,
                         fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
+            } else {
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    description.orEmpty().ifBlank { "No description" },
+                    color = NostrordColors.TextSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.height(36.dp),
+                )
             }
             Spacer(modifier = Modifier.height(12.dp))
             Surface(
@@ -152,6 +165,43 @@ fun GroupCard(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+/** A person's display name for a discovery card: profile name, then a short npub. */
+private fun personName(friend: Friend): String = friend.metadata?.displayName?.takeIf { it.isNotBlank() }
+    ?: friend.metadata?.name?.takeIf { it.isNotBlank() }
+    ?: (Nip19.encodeNpub(friend.pubkey).take(10) + "…")
+
+/** Overlapping avatar row (prototype `-space-x-2`), capped at [max] previews. */
+@Composable
+private fun AvatarStack(
+    people: List<Friend>,
+    max: Int = 5,
+) {
+    val shown = people.take(max)
+    if (shown.isEmpty()) return
+    val size = 20.dp
+    val overlap = 6.dp
+    Box(modifier = Modifier.height(size).width(size + (size - overlap) * (shown.size - 1))) {
+        shown.forEachIndexed { index, friend ->
+            Box(
+                modifier =
+                Modifier
+                    .offset(x = (size - overlap) * index)
+                    .size(size)
+                    .clip(CircleShape)
+                    .border(1.5.dp, NostrordColors.Surface, CircleShape),
+            ) {
+                OptimizedSmallAvatar(
+                    imageUrl = friend.metadata?.picture,
+                    identifier = friend.pubkey,
+                    displayName = personName(friend),
+                    size = size,
+                    shape = CircleShape,
                 )
             }
         }

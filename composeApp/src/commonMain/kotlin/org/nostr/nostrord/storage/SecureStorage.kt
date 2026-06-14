@@ -1,9 +1,11 @@
 package org.nostr.nostrord.storage
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.nostr.Crypto
 import org.nostr.nostrord.nostr.toHexString
 
@@ -476,6 +478,37 @@ fun SecureStorage.clearRelayListFor(pubkey: String) {
     if (pubkey.isBlank()) return
     saveStringPref(relayListForAccountKey(pubkey), "")
     saveStringPref(legacyHashRelayListForAccountKey(pubkey), "")
+}
+
+// ── Per-account friends cache ───────────────────────────────────────────────
+// Last-known followed users (kind:3) with their resolved kind:0 metadata, so the
+// home sidebar shows names + avatars instantly on launch instead of re-fetching
+// every time. Refreshed from live data and on follow/unfollow.
+private fun friendsCacheKey(pubkey: String) = "friends_cache_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.saveFriendsCacheFor(
+    pubkey: String,
+    friends: List<UserMetadata>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(
+            friendsCacheKey(pubkey),
+            Json.encodeToString(ListSerializer(UserMetadata.serializer()), friends),
+        )
+    } catch (_: Exception) {
+    }
+}
+
+fun SecureStorage.loadFriendsCacheFor(pubkey: String): List<UserMetadata> {
+    if (pubkey.isBlank()) return emptyList()
+    val raw = getStringPref(friendsCacheKey(pubkey), "")
+    if (raw.isBlank()) return emptyList()
+    return try {
+        Json.decodeFromString(ListSerializer(UserMetadata.serializer()), raw)
+    } catch (_: Exception) {
+        emptyList()
+    }
 }
 
 // ── Per-account "current relay" pointer ─────────────────────────────────────
