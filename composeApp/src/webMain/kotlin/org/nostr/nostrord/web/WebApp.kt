@@ -118,7 +118,13 @@ val WebApp =
                 // restores the group the instant loggedIn flips (and a genuine deep link
                 // survives the login screen).
                 showingLogin -> if (currentHashRoute() == null) applyWebRoute(WebRoute.Login)
-                loggedIn && showingOnboarding -> applyWebRoute(WebRoute.Onboarding)
+                // Same guard as login: `needsOnboarding` can blip true on cold load
+                // (relay discovery finishes before the kind:10009 group list arrives),
+                // and clobbering #/g/... to #/onboarding here is what bounced a group
+                // deep-link / refresh to Home. The onboarding screen still renders from
+                // `showingOnboarding` below; we just keep the hash so AppFrame restores
+                // the group once it resolves.
+                loggedIn && showingOnboarding -> if (currentHashRoute() == null) applyWebRoute(WebRoute.Onboarding)
                 loggedIn && currentHashRoute() == null -> applyWebRoute(WebRoute.Home)
             }
         }
