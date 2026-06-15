@@ -27,6 +27,7 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.h1
+import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useEffect
@@ -51,7 +52,6 @@ val ProfilePage =
         val vm = useViewModel("profile-${props.pubkey}") { ProfilePageViewModel(AppModule.nostrRepository, props.pubkey) }
         val metadata = useStateFlow(vm.metadata)
         val groups = useStateFlow(vm.userGroups)
-        val isAdminSomewhere = useStateFlow(vm.isAdminSomewhere)
         val isFollowing = useStateFlow(vm.isFollowing)
         val isFollowBusy = useStateFlow(vm.isFollowBusy)
         val allMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
@@ -86,6 +86,16 @@ val ProfilePage =
                         div {
                             className = ClassName("profile-page-banner")
                             style = unsafeJso { background = profileBannerCss(props.pubkey).unsafeCast<Background>() }
+                            // Real banner over the seeded gradient: covers it once loaded, falls
+                            // back to the gradient if missing or it fails.
+                            metadata?.banner?.takeIf { it.isNotBlank() }?.let { bannerUrl ->
+                                img {
+                                    className = ClassName("profile-page-banner-img")
+                                    src = bannerUrl
+                                    alt = ""
+                                    onError = { e -> e.currentTarget.asDynamic().style.display = "none" }
+                                }
+                            }
                         }
                         div {
                             className = ClassName("profile-page-card-body")
@@ -125,12 +135,6 @@ val ProfilePage =
                                 h1 {
                                     className = ClassName("profile-page-name")
                                     +name
-                                }
-                                if (isAdminSomewhere) {
-                                    span {
-                                        className = ClassName("admin-chip")
-                                        +"ADMIN"
-                                    }
                                 }
                             }
                             metadata?.nip05?.takeIf { isValidNip05(it) }?.let {

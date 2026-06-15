@@ -38,12 +38,14 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil3.compose.AsyncImage
 import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip57
@@ -82,7 +84,6 @@ fun ProfilePageScreen(
     val vm = viewModel(key = "profile-$pubkey") { ProfilePageViewModel(AppModule.nostrRepository, pubkey) }
     val metadata by vm.metadata.collectAsState()
     val groups by vm.userGroups.collectAsState()
-    val isAdminSomewhere by vm.isAdminSomewhere.collectAsState()
     val isFollowing by vm.isFollowing.collectAsState()
     val isFollowBusy by vm.isFollowBusy.collectAsState()
 
@@ -113,7 +114,7 @@ fun ProfilePageScreen(
                 // Identity card: banner + avatar + name + about + npub.
                 Surface(shape = NostrordShapes.shapeXLarge, color = NostrordColors.Surface) {
                     Column {
-                        ProfileBanner(seed = pubkey)
+                        ProfileBanner(seed = pubkey, bannerUrl = metadata?.banner)
                         Column(modifier = Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.xl)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().offset(y = (-40).dp),
@@ -174,7 +175,6 @@ fun ProfilePageScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
-                                    if (isAdminSomewhere) AdminBadge()
                                 }
                                 metadata?.nip05?.takeIf { isValidNip05(it) }?.let {
                                     Text(it, color = NostrordColors.Success, fontSize = 14.sp)
@@ -264,9 +264,13 @@ fun ProfilePageScreen(
     }
 }
 
-/** Banner from the user's avatar identity hues, darkened (prototype: u.color into dark). */
+/**
+ * Banner from the user's avatar identity hues, darkened (prototype: u.color into dark),
+ * with the user's real banner image loaded over it when present (covers the gradient
+ * once it loads; the gradient stays as the fallback if missing or it fails).
+ */
 @Composable
-private fun ProfileBanner(seed: String) {
+private fun ProfileBanner(seed: String, bannerUrl: String?) {
     val gradient = remember(seed) { AvatarGradients.user(seed) }
     val dark = NostrordColors.BackgroundDark
     Box(
@@ -288,22 +292,15 @@ private fun ProfileBanner(seed: String) {
                     ),
                 )
             },
-    )
-}
-
-@Composable
-private fun AdminBadge() {
-    Surface(
-        shape = NostrordShapes.shapeSmall,
-        color = NostrordColors.Primary.copy(alpha = 0.2f),
     ) {
-        Text(
-            "ADMIN",
-            color = NostrordColors.Primary,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-        )
+        bannerUrl?.takeIf { it.isNotBlank() }?.let { url ->
+            AsyncImage(
+                model = url,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
     }
 }
 
