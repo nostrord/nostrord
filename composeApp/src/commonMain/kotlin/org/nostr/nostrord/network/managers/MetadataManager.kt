@@ -23,6 +23,7 @@ import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.epochMillis
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 class MetadataManager(
     private val connectionManager: ConnectionManager,
@@ -239,6 +240,16 @@ class MetadataManager(
             outboxManager.bootstrapRelays
                 .filter { it !in nip29Relays }
 
+        // Relays we have already dispatched this batch's author set to. Re-sending
+        // the identical filter to the same relay a few seconds later cannot yield a
+        // different result, so retries skip them and target only relays we could
+        // NOT reach yet (offline / not connected), which is the loop's real
+        // purpose. This is send-based, not EOSE-based, on purpose: a relay whose
+        // EOSE we never observe (e.g. metadata that rode the NIP-46 bunker socket,
+        // whose handler does not route metadata EOSE) would otherwise be re-queried
+        // every attempt forever — it was ~2/3 of all metadata REQs.
+        val completedRelays = mutableSetOf<String>()
+
         repeat(MAX_FETCH_ATTEMPTS) { attempt ->
             val missing =
                 pubkeys.filter { pk ->
@@ -246,6 +257,13 @@ class MetadataManager(
                     fetchedAt == null || fetchedAt < fetchStartedAt
                 }
             if (missing.isEmpty()) return
+
+            // completedRelays is keyed by the client's own (normalized) URL, the
+            // same key notifyMetadataEose removes by, so compare candidates the
+            // same way.
+            val activeCandidates = candidates.filter { it.normalizeRelayUrl() !in completedRelays }
+            // Every reachable relay has already answered — nothing left to retry.
+            if (activeCandidates.isEmpty()) return
 
             // Register the batch BEFORE sending any REQ so a fast relay's EOSE
             // is not dropped between dispatch and registration.
@@ -257,9 +275,23 @@ class MetadataManager(
                 id to relays
             }
 
+            // Relays we actually dispatched to this attempt (kept even after their
+            // EOSE removes them from pendingRelays), so we can mark the EOSEd ones
+            // complete once the wait settles.
+            val sentRelays = mutableSetOf<String>()
+
             suspend fun trySendOn(client: NostrGroupClient?, relayUrl: String): Boolean {
                 if (client == null || !client.isConnected()) return false
-                metadataBatchesMutex.withLock { pendingRelays.add(relayUrl) }
+                // Key the relay by the client's own URL (normalized), because the
+                // EOSE handler reports the source as client.getRelayUrl(); the
+                // bootstrap-list string can differ (e.g. a bunker relay carries a
+                // trailing slash), and a mismatch left the relay forever "pending"
+                // so the batch always timed out and re-queried just that relay.
+                val key = client.getRelayUrl().normalizeRelayUrl()
+                metadataBatchesMutex.withLock {
+                    pendingRelays.add(key)
+                    sentRelays.add(key)
+                }
                 return try {
                     missing.chunked(BATCH_SIZE).forEach { chunk ->
                         client.requestMetadata(chunk, subId)
@@ -267,7 +299,8 @@ class MetadataManager(
                     true
                 } catch (_: Exception) {
                     val complete = metadataBatchesMutex.withLock {
-                        pendingRelays.remove(relayUrl) && pendingRelays.isEmpty()
+                        sentRelays.remove(key)
+                        pendingRelays.remove(key) && pendingRelays.isEmpty()
                     }
                     if (complete) deferred.complete(Unit)
                     false
@@ -277,7 +310,7 @@ class MetadataManager(
             // Dispatch in parallel so we don't pay per-relay round-trip latency
             // serially — all REQs go in flight before we start waiting on EOSE.
             coroutineScope {
-                candidates.map { relayUrl ->
+                activeCandidates.map { relayUrl ->
                     async { trySendOn(connectionManager.getClientForRelay(relayUrl), relayUrl) }
                 }.awaitAll()
             }
@@ -287,7 +320,7 @@ class MetadataManager(
             if (!anySent) {
                 val handler = messageHandler
                 if (handler != null) {
-                    candidates.firstOrNull { relayUrl ->
+                    activeCandidates.firstOrNull { relayUrl ->
                         runCatching {
                             trySendOn(connectionManager.getOrConnectRelay(relayUrl, handler), relayUrl)
                         }.getOrDefault(false)
@@ -300,7 +333,12 @@ class MetadataManager(
                 // Wait for EOSE from every relay we sent to; bounded fallback in
                 // case a relay never EOSEs so we don't hang the next attempt.
                 withTimeoutOrNull(EOSE_FALLBACK_MS) { deferred.await() }
-                metadataBatchesMutex.withLock { metadataBatches.remove(subId) }
+                metadataBatchesMutex.withLock {
+                    // Every relay we successfully sent to is done for this batch,
+                    // whether or not we observed its EOSE. Re-querying it can't help.
+                    completedRelays.addAll(sentRelays)
+                    metadataBatches.remove(subId)
+                }
 
                 val allFresh =
                     pubkeys.all { pk ->
@@ -325,9 +363,10 @@ class MetadataManager(
      */
     suspend fun notifyMetadataEose(subId: String, sourceRelayUrl: String) {
         if (!subId.startsWith("metadata_batch_")) return
+        val key = sourceRelayUrl.normalizeRelayUrl()
         val toComplete = metadataBatchesMutex.withLock {
             val batch = metadataBatches[subId] ?: return@withLock null
-            batch.pendingRelays.remove(sourceRelayUrl)
+            batch.pendingRelays.remove(key)
             if (batch.pendingRelays.isEmpty()) batch.deferred else null
         }
         toComplete?.complete(Unit)

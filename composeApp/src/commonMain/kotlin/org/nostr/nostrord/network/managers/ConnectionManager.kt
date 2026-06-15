@@ -190,13 +190,25 @@ class ConnectionManager(
 
     /**
      * Returns the client for a specific relay URL.
-     * Checks the primary first, then the pool.
-     * Does not create new connections — returns null if relay is not connected.
+     * Checks the primary first, then the pool, then any in-flight connect.
+     * Does not START a new connection, but if one is already in flight for this
+     * URL (the [getOrConnectRelay] singleflight, e.g. the bootstrap fan-out)
+     * this awaits it instead of reporting "not connected".
+     *
+     * Awaiting the pending connect is what keeps cold start from opening
+     * duplicate sockets: the metadata / nip65 / contacts readers all call this
+     * the instant the app boots, while the bootstrap relays are still
+     * connecting. Returning null there made each reader treat the relay as
+     * down and open its own socket (observed: 8 concurrent sockets to nos.lol).
+     * Converging on the shared singleflight deferred collapses that to one.
      */
     suspend fun getClientForRelay(relayUrl: String): NostrGroupClient? {
         val normalized = relayUrl.normalizeRelayUrl()
         if (_currentRelayUrl.value == normalized) return primaryClient
-        return poolMutex.withLock { relayPool[normalized] }
+        val (pooled, pending) =
+            poolMutex.withLock { relayPool[normalized] to pendingConnects[normalized] }
+        if (pooled != null) return pooled
+        return pending?.await()
     }
 
     /**
@@ -476,6 +488,14 @@ class ConnectionManager(
         onMessage: (String, NostrGroupClient) -> Unit,
     ): NostrGroupClient? {
         val normalized = relayUrl.normalizeRelayUrl()
+        // The primary NIP-29 relay lives in primaryClient, not relayPool. Without
+        // this check a caller asking for the primary's URL (e.g. the mux refresh
+        // for a group hosted on the primary) misses the pool, becomes a connect
+        // leader, and opens a SECOND socket to a relay we are already connected
+        // to. getClientForRelay already short-circuits the primary the same way.
+        if (_currentRelayUrl.value == normalized) {
+            primaryClient?.let { return it }
+        }
         // Fast-path: already pooled.
         poolMutex.withLock {
             relayPool[normalized]?.let { return it }

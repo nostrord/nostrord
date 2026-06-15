@@ -861,9 +861,14 @@ class GroupManager(
         if (!client.isConnected()) return
         for (groupId in uncached) {
             try {
+                // Metadata is always missing here (that is the "uncached" criterion),
+                // but members/admins may have already arrived from the eager
+                // pre-AUTH fetch on public groups. Re-requesting them just because
+                // metadata is absent doubled the kind:39002/39001 REQs on cold
+                // start; only ask for what we still lack.
                 client.requestGroupMetadata(groupId)
-                client.requestGroupMembers(groupId)
-                client.requestGroupAdmins(groupId)
+                if (groupId !in _groupMembers.value) client.requestGroupMembers(groupId)
+                if (groupId !in _groupAdmins.value) client.requestGroupAdmins(groupId)
             } catch (_: Exception) {}
         }
     }
