@@ -59,6 +59,21 @@ fun pushHome() {
 }
 
 /**
+ * Mirrors a route into the hash WITHOUT a history entry or a hashchange event
+ * (replaceState). Used for in-place state that should survive a refresh and be
+ * shareable but not pollute the back stack, e.g. the Home discovery tab. A null
+ * route (default Home) clears the fragment entirely.
+ */
+fun replaceHashRoute(route: HashRoute?) {
+    val hash = route?.toHash().orEmpty()
+    window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search + hash,
+    )
+}
+
+/**
  * Strips a consumed ?invite= from the hash without adding a history entry, so a
  * back/forward replay or a copied URL doesn't re-join.
  */

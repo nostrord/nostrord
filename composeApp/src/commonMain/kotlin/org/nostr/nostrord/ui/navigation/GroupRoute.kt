@@ -53,10 +53,33 @@ data class DmRoute(
  */
 data object NotificationsRoute : HashRoute
 
+/**
+ * Route for the settings page: #/settings. A parameterless page route mirrored like
+ * the others, so a refresh or a hand-typed/shared #/settings reopens settings instead
+ * of falling back to Home.
+ */
+data object SettingsRoute : HashRoute
+
+/** The Home page tabs, in pill order. [Groups] is the default home (no hash). */
+enum class HomeTab { Groups, Friends, Recommended, People }
+
+/**
+ * The Home page on a specific discovery tab: #/friends, #/recommended, #/people. The
+ * default [HomeTab.Groups] is plain Home (root, no hash) and is represented by a null
+ * route, so only the non-default tabs ever become a [HomeRoute]. Mirrored into the hash
+ * (replaceState, not pushState) so a refresh or a shared link restores the tab without
+ * piling tab switches onto the back stack.
+ */
+data class HomeRoute(val tab: HomeTab) : HashRoute
+
 private const val GROUP_HASH_PREFIX = "#/g/"
 private const val USER_HASH_PREFIX = "#/u/"
 private const val DM_HASH_PREFIX = "#/dm"
 private const val NOTIFICATIONS_HASH = "#/notifications"
+private const val SETTINGS_HASH = "#/settings"
+private const val FRIENDS_HASH = "#/friends"
+private const val RECOMMENDED_HASH = "#/recommended"
+private const val PEOPLE_HASH = "#/people"
 private const val HEX = "0123456789ABCDEF"
 
 fun HashRoute.toHash(): String = when (this) {
@@ -64,14 +87,35 @@ fun HashRoute.toHash(): String = when (this) {
     is UserRoute -> toHash()
     is DmRoute -> toHash()
     is NotificationsRoute -> NOTIFICATIONS_HASH
+    is SettingsRoute -> SETTINGS_HASH
+    is HomeRoute -> when (tab) {
+        HomeTab.Groups -> "" // default home is the root, no hash
+        HomeTab.Friends -> FRIENDS_HASH
+        HomeTab.Recommended -> RECOMMENDED_HASH
+        HomeTab.People -> PEOPLE_HASH
+    }
 }
 
-fun parseHashRoute(hash: String): HashRoute? = parseGroupHash(hash) ?: parseUserHash(hash) ?: parseDmHash(hash) ?: parseNotificationsHash(hash)
+fun parseHashRoute(hash: String): HashRoute? = parseGroupHash(hash) ?: parseUserHash(hash) ?: parseDmHash(hash) ?: parseNotificationsHash(hash) ?: parseSettingsHash(hash) ?: parseHomeTabHash(hash)
+
+/** Parses the discovery-tab hashes (#/friends, #/recommended, #/people); null otherwise. */
+fun parseHomeTabHash(hash: String): HomeRoute? = when (hash.substringBefore('?')) {
+    FRIENDS_HASH -> HomeRoute(HomeTab.Friends)
+    RECOMMENDED_HASH -> HomeRoute(HomeTab.Recommended)
+    PEOPLE_HASH -> HomeRoute(HomeTab.People)
+    else -> null
+}
 
 /** Parses `#/notifications` (or the singular `#/notification`); null for any other hash. */
 fun parseNotificationsHash(hash: String): NotificationsRoute? {
     val path = hash.substringBefore('?')
     return if (path == NOTIFICATIONS_HASH || path == "#/notification") NotificationsRoute else null
+}
+
+/** Parses `#/settings`; null for any other hash. */
+fun parseSettingsHash(hash: String): SettingsRoute? {
+    val path = hash.substringBefore('?')
+    return if (path == SETTINGS_HASH) SettingsRoute else null
 }
 
 fun UserRoute.toHash(): String = "$USER_HASH_PREFIX${encodePubkeySegment(pubkey)}"

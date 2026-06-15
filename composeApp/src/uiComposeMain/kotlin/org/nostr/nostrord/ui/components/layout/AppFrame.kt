@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
@@ -83,8 +84,11 @@ import org.nostr.nostrord.ui.components.zap.ZapModalHost
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.HashRoute
+import org.nostr.nostrord.ui.navigation.HomeRoute
+import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.navigation.LocalFrameNavigator
 import org.nostr.nostrord.ui.navigation.NotificationsRoute
+import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.dm.DmPageScreen
 import org.nostr.nostrord.ui.screens.group.GroupScreen
@@ -165,7 +169,7 @@ fun AppFrame() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                RailButton(icon = Icons.Default.Home, label = "Home", active = route == null && !showNotifications) {
+                RailButton(icon = Icons.Default.Home, label = "Home", active = (route == null || route is HomeRoute) && !showNotifications) {
                     route = null
                     showNotifications = false
                     closeDrawer()
@@ -270,7 +274,10 @@ fun AppFrame() {
                     modifier = Modifier.weight(1f),
                 )
             }
-            AccountBar(onOpenSettings = { showSettings = true })
+            AccountBar(
+                onOpenSettings = { showSettings = true },
+                onViewProfile = { pubkey -> route = UserRoute(pubkey) },
+            )
         }
     }
 
@@ -289,6 +296,7 @@ fun AppFrame() {
                 route = route,
                 forceDesktop = forceDesktop,
                 onNavigate = { route = it },
+                onSelectHomeTab = { tab -> route = if (tab == HomeTab.Groups) null else HomeRoute(tab) },
                 onCloseGroup = { route = null },
                 onConsumeInvite = { route = (route as? GroupRoute)?.copy(inviteCode = null) },
                 onEditProfile = { showSettings = true },
@@ -410,6 +418,7 @@ private fun FrameContent(
     route: HashRoute?,
     forceDesktop: Boolean,
     onNavigate: (HashRoute) -> Unit,
+    onSelectHomeTab: (HomeTab) -> Unit,
     onCloseGroup: () -> Unit,
     onConsumeInvite: () -> Unit,
     onEditProfile: () -> Unit,
@@ -420,8 +429,10 @@ private fun FrameContent(
 ) {
     CompositionLocalProvider(LocalFrameNavigator provides onNavigate) {
         when (route) {
-            null ->
+            null, is HomeRoute ->
                 HomePageScreen(
+                    tab = (route as? HomeRoute)?.tab ?: HomeTab.Groups,
+                    onSelectTab = onSelectHomeTab,
                     onOpenGroup = { onNavigate(GroupRoute(it.relayUrl, it.meta.id)) },
                     onCreateGroup = onCreateGroup,
                     onJoinGroup = onJoinGroup,
@@ -436,10 +447,12 @@ private fun FrameContent(
                     onEditProfile = onEditProfile,
                 )
             is DmRoute -> DmPageScreen(pubkey = route.pubkey, onOpenProfile = onNavigate)
-            // Native opens notifications through the showNotifications overlay, not the
-            // route (there is no URL bar), so this arm is unreachable; the web hash router
-            // is the only producer of NotificationsRoute.
+            // Native opens notifications and settings through full-screen overlays
+            // (showNotifications / showSettings), not the route (there is no URL bar), so
+            // these arms are unreachable; the web hash router is the only producer of
+            // NotificationsRoute / SettingsRoute.
             is NotificationsRoute -> {}
+            is SettingsRoute -> {}
             is GroupRoute -> {
                 val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
                 val name = groupsByRelay[route.relayUrl]?.firstOrNull { it.id == route.groupId }?.name
@@ -649,7 +662,7 @@ private fun FriendRowSkeleton() {
 }
 
 @Composable
-private fun AccountBar(onOpenSettings: () -> Unit) {
+private fun AccountBar(onOpenSettings: () -> Unit, onViewProfile: (String) -> Unit) {
     val accounts by AppModule.accountStore.accounts.collectAsState()
     val activeId by AppModule.accountStore.activeId.collectAsState()
     val userMetadata by AppModule.nostrRepository.userMetadata.collectAsState()
@@ -804,6 +817,23 @@ private fun AccountBar(onOpenSettings: () -> Unit) {
                 )
             }
             HorizontalDivider(color = NostrordColors.Divider)
+            active?.let { acct ->
+                DropdownMenuItem(
+                    onClick = {
+                        menuOpen = false
+                        onViewProfile(acct.pubkey)
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = null,
+                            tint = NostrordColors.TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    },
+                    text = { Text("View profile", color = NostrordColors.TextSecondary, fontSize = 14.sp) },
+                )
+            }
             DropdownMenuItem(
                 onClick = {
                     menuOpen = false

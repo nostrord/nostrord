@@ -2,6 +2,7 @@ package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.screens.home.DiscoverGroup
 import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
@@ -25,7 +26,6 @@ import react.dom.html.ReactHTML.h2
 import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useEffect
-import react.useState
 import web.cssom.ClassName
 import web.html.InputType
 import web.html.text
@@ -36,6 +36,9 @@ private val FILTERS = listOf("My groups", "From friends", "Recommended", "People
 private val FILTER_ICONS = listOf(Ic.Forum, Ic.People, Ic.ThumbUp, Ic.PersonAdd)
 
 external interface HomePageProps : Props {
+    /** Active discovery tab, owned by the router so it survives refresh / is shareable. */
+    var tab: HomeTab
+    var onSelectTab: (HomeTab) -> Unit
     var onOpenGroup: (JoinedGroup) -> Unit
     var onCreateGroup: () -> Unit
     var onJoinGroup: () -> Unit
@@ -60,7 +63,9 @@ val HomePage =
         val friendsGroups = useStateFlow(vm.friendsGroups)
         val recommendedGroups = useStateFlow(vm.recommendedGroups)
         val relayMeta = useStateFlow(vm.relayMetadata)
-        val (filter, setFilter) = useState { 0 }
+        // Tab index derived from the router-owned tab; selecting a tab routes (mirror).
+        val filter = props.tab.ordinal
+        val setFilter = { index: Int -> props.onSelectTab(HomeTab.entries[index]) }
 
         // Fetch the discovery lists lazily, only when their tab is shown.
         useEffect(filter) {
@@ -79,10 +84,10 @@ val HomePage =
                     onClick = { props.onOpenDrawer() }
                     icon(Ic.Menu)
                 }
-                icon(Ic.People)
+                icon(Ic.Home)
                 span {
                     className = ClassName("page-header-title")
-                    +"Groups"
+                    +"Home"
                 }
                 div {
                     className = ClassName("page-header-actions")

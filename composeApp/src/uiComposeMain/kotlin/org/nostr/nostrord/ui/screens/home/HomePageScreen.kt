@@ -23,6 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Menu
@@ -39,9 +40,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +63,7 @@ import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.home.EmptyStateCard
 import org.nostr.nostrord.ui.components.home.GroupCard
 import org.nostr.nostrord.ui.components.onboarding.PackCard
+import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
 import org.nostr.nostrord.ui.theme.NostrordColors
 
@@ -87,6 +86,8 @@ private val FILTER_ICONS = listOf(
 @Composable
 fun HomePageScreen(
     modifier: Modifier = Modifier,
+    tab: HomeTab = HomeTab.Groups,
+    onSelectTab: (HomeTab) -> Unit = {},
     onOpenGroup: (JoinedGroup) -> Unit = {},
     onCreateGroup: () -> Unit = {},
     onJoinGroup: () -> Unit = {},
@@ -101,7 +102,9 @@ fun HomePageScreen(
     val friendsGroups by vm.friendsGroups.collectAsState()
     val recommendedGroups by vm.recommendedGroups.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
-    var filter by remember { mutableStateOf(0) }
+    // Active tab is owned by the router; selecting routes (mirror) instead of local state.
+    val filter = tab.ordinal
+    val setFilter = { index: Int -> onSelectTab(HomeTab.entries[index]) }
 
     // Fetch the discovery lists lazily, only when their tab is shown.
     LaunchedEffect(filter) {
@@ -127,14 +130,14 @@ fun HomePageScreen(
                 Spacer(modifier = Modifier.width(4.dp))
             }
             Icon(
-                imageVector = Icons.Default.People,
+                imageVector = Icons.Default.Home,
                 contentDescription = null,
                 tint = NostrordColors.TextMuted,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(modifier = Modifier.width(10.dp))
             Text(
-                "Groups",
+                "Home",
                 color = NostrordColors.TextPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -220,7 +223,7 @@ fun HomePageScreen(
                     AppSegmentedTabs(
                         tabs = FILTERS.mapIndexed { i, label -> SegmentedTab(label, FILTER_ICONS[i]) },
                         selectedIndex = filter,
-                        onSelect = { filter = it },
+                        onSelect = { setFilter(it) },
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     HomeFilterField(
@@ -250,7 +253,7 @@ fun HomePageScreen(
                                         )
                                         AppButton(
                                             text = "See friends' groups",
-                                            onClick = { filter = 1 },
+                                            onClick = { setFilter(1) },
                                             variant = AppButtonVariant.Secondary,
                                         )
                                     }
@@ -290,7 +293,7 @@ fun HomePageScreen(
                                     ) {
                                         AppButton(
                                             text = "See people to follow",
-                                            onClick = { filter = 3 },
+                                            onClick = { setFilter(3) },
                                             variant = AppButtonVariant.Secondary,
                                         )
                                     }

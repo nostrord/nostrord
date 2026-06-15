@@ -12,7 +12,10 @@ import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.HomeRoute
+import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.navigation.NotificationsRoute
+import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
@@ -36,6 +39,7 @@ import org.nostr.nostrord.web.navigation.consumeInviteInHash
 import org.nostr.nostrord.web.navigation.currentHashRoute
 import org.nostr.nostrord.web.navigation.pushHome
 import org.nostr.nostrord.web.navigation.pushRoute
+import org.nostr.nostrord.web.navigation.replaceHashRoute
 import org.nostr.nostrord.web.screens.ChatScreen
 import org.nostr.nostrord.web.screens.DmPage
 import org.nostr.nostrord.web.screens.HomePage
@@ -79,7 +83,6 @@ val AppFrame =
         val (menuOpen, setMenuOpen) = useState { false }
         val (confirmLogout, setConfirmLogout) = useState { false }
         val (logoutBusy, setLogoutBusy) = useState { false }
-        val (showSettings, setShowSettings) = useState { false }
         // Which step of the rail "+" add-group flow is open: "chooser" / "create" / "join".
         val (addGroupStep, setAddGroupStep) = useState<String?> { null }
         // Friend tapped in the home sidebar: open the quick profile modal first (no
@@ -112,6 +115,20 @@ val AppFrame =
         useEffect(route) { setDrawerOpen(false) }
         val groupRoute = route as? GroupRoute
         val notificationsOpen = route is NotificationsRoute
+        // Settings is its own deep-linkable page (#/settings), survives refresh.
+        val settingsOpen = route is SettingsRoute
+        // Home discovery tab (My groups / From friends / Recommended / People). The
+        // non-default tabs are HomeRoutes; Groups is plain Home (null route).
+        val homeTab = (route as? HomeRoute)?.tab ?: HomeTab.Groups
+        // Switching tabs mirrors into the hash via replaceState (survives refresh, shareable)
+        // and updates the in-memory route, but adds no back-stack entry (replaceState fires no
+        // hashchange, so we setRoute ourselves to keep the frame in sync).
+        val selectHomeTab = { tab: HomeTab ->
+            val r = if (tab == HomeTab.Groups) null else HomeRoute(tab)
+            replaceHashRoute(r)
+            setRoute(r)
+        }
+        val isHome = route == null || route is HomeRoute
 
         // Mirror the legacy AppShell: cross-relay navigation switches the relay first;
         // the open group is tracked (notification suppression + unread clearing); an
@@ -198,7 +215,7 @@ val AppFrame =
                 div {
                     className = ClassName("rail")
                     button {
-                        className = ClassName(if (route == null && !notificationsOpen) "rail-btn active" else "rail-btn")
+                        className = ClassName(if (isHome && !notificationsOpen) "rail-btn active" else "rail-btn")
                         title = "Home"
                         onClick = { pushHome() }
                         icon(Ic.Home)
@@ -401,6 +418,17 @@ val AppFrame =
                                     }
                                 }
                                 div { className = ClassName("account-pop-divider") }
+                                active?.let { acct ->
+                                    button {
+                                        className = ClassName("account-pop-action")
+                                        onClick = {
+                                            setMenuOpen(false)
+                                            pushRoute(UserRoute(acct.pubkey))
+                                        }
+                                        icon(Ic.Person)
+                                        +"View profile"
+                                    }
+                                }
                                 button {
                                     className = ClassName("account-pop-action")
                                     onClick = {
@@ -452,7 +480,7 @@ val AppFrame =
                             button {
                                 className = ClassName("icon-btn")
                                 title = "Settings"
-                                onClick = { setShowSettings(true) }
+                                onClick = { pushRoute(SettingsRoute) }
                                 icon(Ic.Settings)
                             }
                         }
@@ -474,7 +502,7 @@ val AppFrame =
                         ProfilePage {
                             pubkey = r.pubkey
                             onOpenGroup = { pushRoute(it) }
-                            onEditProfile = { setShowSettings(true) }
+                            onEditProfile = { pushRoute(SettingsRoute) }
                         }
                     r is DmRoute ->
                         DmPage {
@@ -497,6 +525,8 @@ val AppFrame =
                         }
                     else ->
                         HomePage {
+                            this.tab = homeTab
+                            onSelectTab = selectHomeTab
                             onOpenDrawer = { setDrawerOpen(true) }
                             onOpenGroup = { pushRoute(GroupRoute(it.relayUrl, it.meta.id)) }
                             onCreateGroup = { setAddGroupStep("create") }
@@ -552,16 +582,14 @@ val AppFrame =
                 }
             }
 
-            // Legacy Settings overlay, reachable from the account bar's gear until
-            // the new-design settings page is ported.
-            if (showSettings) {
+            // Settings page (#/settings): a full-screen route reachable from the account
+            // bar's gear. Close returns to the previous page via browser history.
+            if (settingsOpen) {
                 SettingsScreen {
-                    onClose = { setShowSettings(false) }
-                    // Settings already confirmed the logout internally.
-                    onLogoutWithChoice = {
-                        setShowSettings(false)
-                        performLogout()
-                    }
+                    onClose = { window.history.back() }
+                    // Settings already confirmed the logout internally; performLogout tears
+                    // down the session and the shell falls back to the login page.
+                    onLogoutWithChoice = { performLogout() }
                 }
             }
 
