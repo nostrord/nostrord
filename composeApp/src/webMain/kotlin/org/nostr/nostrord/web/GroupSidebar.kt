@@ -60,10 +60,10 @@ val GroupSidebar =
             className = ClassName("group-side")
             // Gradient identity banner (prototype GroupBanner): same hue pair as the
             // group's conic avatar, darkened for legible white text.
-            button {
+            // Identity banner: purely decorative. Group info opens from the info row
+            // below (group-side-row), so the banner is no longer clickable.
+            div {
                 className = ClassName("group-side-banner")
-                title = name
-                onClick = { setShowInfo(true) }
                 style = unsafeJso { background = bannerGradientCss(route.groupId).unsafeCast<Background>() }
                 div { className = ClassName("group-side-banner-scrim") }
                 div {
@@ -78,10 +78,6 @@ val GroupSidebar =
                     span {
                         className = ClassName("group-side-banner-name")
                         +name
-                    }
-                    span {
-                        className = ClassName("group-side-banner-chevron")
-                        icon(Ic.ChevronRight)
                     }
                 }
             }
