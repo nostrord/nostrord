@@ -38,8 +38,8 @@ import org.nostr.nostrord.web.modals.UserProfileModal
 import org.nostr.nostrord.web.navigation.consumeInviteInHash
 import org.nostr.nostrord.web.navigation.currentHashRoute
 import org.nostr.nostrord.web.navigation.pushHome
+import org.nostr.nostrord.web.navigation.pushHashRoute
 import org.nostr.nostrord.web.navigation.pushRoute
-import org.nostr.nostrord.web.navigation.replaceHashRoute
 import org.nostr.nostrord.web.screens.ChatScreen
 import org.nostr.nostrord.web.screens.DmPage
 import org.nostr.nostrord.web.screens.HomePage
@@ -120,12 +120,13 @@ val AppFrame =
         // Home discovery tab (My groups / From friends / Recommended / People). The
         // non-default tabs are HomeRoutes; Groups is plain Home (null route).
         val homeTab = (route as? HomeRoute)?.tab ?: HomeTab.Groups
-        // Switching tabs mirrors into the hash via replaceState (survives refresh, shareable)
-        // and updates the in-memory route, but adds no back-stack entry (replaceState fires no
-        // hashchange, so we setRoute ourselves to keep the frame in sync).
+        // Switching tabs PUSHES a hash history entry (so back/forward traverses the
+        // discovery tabs) and updates the in-memory route. pushState fires no
+        // hashchange, so we setRoute ourselves; the back/forward replay later changes
+        // the hash and the hashchange listener above re-syncs.
         val selectHomeTab = { tab: HomeTab ->
             val r = if (tab == HomeTab.Groups) null else HomeRoute(tab)
-            replaceHashRoute(r)
+            pushHashRoute(r)
             setRoute(r)
         }
         val isHome = route == null || route is HomeRoute

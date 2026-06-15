@@ -74,6 +74,21 @@ fun replaceHashRoute(route: HashRoute?) {
 }
 
 /**
+ * Like [replaceHashRoute] but PUSHES a history entry, so back/forward traverses the
+ * change. Used by the Home discovery tabs (My groups / From friends / Recommended /
+ * People), which the user expects to navigate back through. A null route (Groups)
+ * pushes the bare root. pushState fires no hashchange, so the caller updates its own
+ * route state; the back/forward replay then fires hashchange and re-syncs.
+ */
+fun pushHashRoute(route: HashRoute?) {
+    window.history.pushState(
+        null,
+        "",
+        window.location.pathname + window.location.search + route?.toHash().orEmpty(),
+    )
+}
+
+/**
  * Strips a consumed ?invite= from the hash without adding a history entry, so a
  * back/forward replay or a copied URL doesn't re-join.
  */
