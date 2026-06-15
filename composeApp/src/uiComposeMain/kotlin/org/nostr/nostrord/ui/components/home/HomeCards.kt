@@ -60,6 +60,9 @@ fun GroupCard(
     ctaPrimary: Boolean = false,
     people: List<Friend> = emptyList(),
     peopleLoading: Boolean = false,
+    isPublic: Boolean = true,
+    isOpen: Boolean = true,
+    hasMetadata: Boolean = false,
     relayUrl: String = "",
     relayIconUrl: String? = null,
     onClick: () -> Unit = {},
@@ -97,7 +100,10 @@ fun GroupCard(
                     // peopleLoading is owned by the VM: it stays true only while the
                     // member list is in flight, and flips off (skeleton stops) once the
                     // list arrives or the fetch times out.
-                    if (peopleCount > 0 || restricted || peopleLoading) {
+                    // No one to preview (and not loading): fall back to the group's
+                    // access-tag badges so the row carries info instead of sitting empty.
+                    val showTags = people.isEmpty() && !peopleLoading && hasMetadata
+                    if (peopleCount > 0 || restricted || peopleLoading || showTags) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             when {
@@ -119,8 +125,20 @@ fun GroupCard(
                                     }
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
+                                showTags -> {
+                                    TagBadge(
+                                        text = if (isPublic) "Public" else "Private",
+                                        color = if (isPublic) NostrordColors.Success else NostrordColors.Warning,
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    TagBadge(
+                                        text = if (isOpen) "Open" else "Closed",
+                                        color = if (isOpen) NostrordColors.Primary else NostrordColors.WarningOrange,
+                                    )
+                                    if (peopleCount > 0 || restricted) Spacer(modifier = Modifier.width(6.dp))
+                                }
                             }
-                            if (peopleCount > 0) {
+                            if (!showTags && peopleCount > 0) {
                                 Text(
                                     "$peopleCount people",
                                     color = NostrordColors.TextMuted,
@@ -198,6 +216,26 @@ fun GroupCard(
                 }
             }
         }
+    }
+}
+
+/** Access-tag pill (Public/Private, Open/Closed) shown when a card has no people. */
+@Composable
+private fun TagBadge(
+    text: String,
+    color: Color,
+) {
+    Surface(
+        shape = NostrordShapes.shapeSmall,
+        color = color.copy(alpha = 0.15f),
+    ) {
+        Text(
+            text,
+            color = color,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
     }
 }
 

@@ -1,6 +1,7 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.screens.home.DiscoverGroup
@@ -327,6 +328,9 @@ private fun ChildrenBuilder.discoverGroupCard(
                 }
                 div {
                     className = ClassName("group-card-people")
+                    // No one to preview (and not still loading): fall back to the group's
+                    // access-tag badges so the row carries info instead of sitting empty.
+                    val showTags = dg.people.isEmpty() && !peopleLoading && dg.hasMetadata
                     when {
                         dg.people.isNotEmpty() ->
                             div {
@@ -347,9 +351,10 @@ private fun ChildrenBuilder.discoverGroupCard(
                                     div { className = ClassName("discover-avatar skel") }
                                 }
                             }
+                        showTags -> groupTagBadges(meta)
                     }
                     when {
-                        count > 0 ->
+                        !showTags && count > 0 ->
                             span {
                                 className = ClassName("group-card-people-count")
                                 +"$count people"
@@ -395,6 +400,22 @@ private fun ChildrenBuilder.discoverGroupCard(
 private fun personName(friend: Friend): String = friend.metadata?.displayName?.takeIf { it.isNotBlank() }
     ?: friend.metadata?.name?.takeIf { it.isNotBlank() }
     ?: (runCatching { Nip19.encodeNpub(friend.pubkey) }.getOrDefault(friend.pubkey).take(10) + "…")
+
+/**
+ * Access-tag pills (NIP-29 kind:39000 tags) shown on a card when it has no people
+ * to preview. Same tones as the group info modal: Public green / Private yellow,
+ * Open purple / Closed orange.
+ */
+private fun ChildrenBuilder.groupTagBadges(meta: GroupMetadata) {
+    span {
+        className = ClassName(if (meta.isPublic) "info-badge success" else "info-badge warning")
+        +(if (meta.isPublic) "Public" else "Private")
+    }
+    span {
+        className = ClassName(if (meta.isOpen) "info-badge primary" else "info-badge orange")
+        +(if (meta.isOpen) "Open" else "Closed")
+    }
+}
 
 private fun ChildrenBuilder.emptyCard(
     emoji: String,

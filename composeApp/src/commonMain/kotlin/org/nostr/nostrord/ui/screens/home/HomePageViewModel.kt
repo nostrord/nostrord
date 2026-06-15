@@ -67,6 +67,11 @@ data class DiscoverGroup(
     val memberCount: Int,
     /** True while the member list is still being fetched and no people are known yet. */
     val peopleLoading: Boolean = false,
+    /**
+     * True when [meta] came from a real kind:39000 (not the bare-id placeholder), so
+     * the card may show the group's access-tag badges when it has no people to preview.
+     */
+    val hasMetadata: Boolean = false,
 )
 
 /**
@@ -187,6 +192,7 @@ class HomePageViewModel(
                             people = preview,
                             memberCount = memberPks.size,
                             peopleLoading = preview.isEmpty() && id !in resolved,
+                            hasMetadata = metas[id] != null,
                         )
                     }
                 }
@@ -321,6 +327,7 @@ class HomePageViewModel(
                         memberCount = members[gid].orEmpty().size.takeIf { it > 0 } ?: friendPks.size,
                         // A friend group always has at least one friend to show.
                         peopleLoading = false,
+                        hasMetadata = true,
                     )
                 }
                 .filter { it.relayUrl.normalizeRelayUrl() !in unreachable }
@@ -380,6 +387,7 @@ class HomePageViewModel(
                         people = preview,
                         memberCount = memberPks.size,
                         peopleLoading = preview.isEmpty() && gid !in resolved,
+                        hasMetadata = true,
                     )
                 }
                 .filter { matchesQuery(it.meta, needle) }
