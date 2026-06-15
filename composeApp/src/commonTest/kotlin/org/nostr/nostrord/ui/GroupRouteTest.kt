@@ -29,6 +29,22 @@ class GroupRouteTest {
     }
 
     @Test
+    fun `round-trips a local ws relay as a scheme-less segment`() {
+        val route = GroupRoute("ws://127.0.0.1:9888", "g1")
+        // The scheme is stripped in the hash and restored (ws for loopback) on parse.
+        assertEquals("#/g/127.0.0.1%3A9888/g1", route.toHash())
+        assertEquals(route, parseGroupHash(route.toHash()))
+    }
+
+    @Test
+    fun `parses a legacy hash that encoded the full ws scheme`() {
+        // Older links encoded the full ws:// URL; they must still resolve to ws://, not
+        // get a second wss:// prepended (the wss://ws://… bug).
+        val parsed = parseGroupHash("#/g/ws%3A%2F%2F127.0.0.1%3A9888/g1")
+        assertEquals(GroupRoute("ws://127.0.0.1:9888", "g1"), parsed)
+    }
+
+    @Test
     fun `encodes a path-bearing relay into a single segment`() {
         val route = GroupRoute("wss://example.com/nip29", "id")
         val hash = route.toHash()

@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.navigation
 
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.utils.toRelayUrl
 
 /**
  * A new-design page addressable by the web hash (and mirrored as native navigation
@@ -154,7 +155,10 @@ private fun decodePubkeySegment(segment: String): String? {
 }
 
 fun GroupRoute.toHash(): String {
-    val relay = encodeSegment(relayUrl.removePrefix("wss://"))
+    // Strip the scheme for a clean segment; the scheme is restored on parse via
+    // toRelayUrl (wss:// by default, ws:// for loopback). Strip BOTH so a local
+    // ws:// relay doesn't leak its scheme into the segment.
+    val relay = encodeSegment(relayUrl.removePrefix("wss://").removePrefix("ws://"))
     val id = encodeSegment(groupId)
     val invite = inviteCode?.let { "?invite=${encodeSegment(it)}" } ?: ""
     return "$GROUP_HASH_PREFIX$relay/$id$invite"
@@ -176,7 +180,10 @@ fun parseGroupHash(hash: String): GroupRoute? {
             ?.takeIf { it.isNotEmpty() }
             ?.let(::decodeSegment)
     return GroupRoute(
-        relayUrl = "wss://" + decodeSegment(parts[0]),
+        // toRelayUrl restores the scheme: wss:// for normal hosts, ws:// for loopback,
+        // and it also tolerates a segment that already carries a scheme (older links
+        // like #/g/ws%3A%2F%2F127.0.0.1%3A9888/… that encoded the full ws:// URL).
+        relayUrl = decodeSegment(parts[0]).toRelayUrl(),
         groupId = decodeSegment(parts[1]),
         inviteCode = invite,
     )
