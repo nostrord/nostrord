@@ -297,6 +297,7 @@ fun GroupScreenMobile(
                         pendingRequestedAtSeconds = pendingRequestedAtSeconds,
                         onCancelJoinRequest = onCancelJoinRequest,
                         isJoined = isJoined,
+                        isGroupClosed = isClosed,
                         selectedChannel = selectedChannel,
                         groupId = groupId,
                         groupName = groupName,

@@ -109,6 +109,16 @@ object MessageContentParser {
             val content: String,
         ) : ParsedPart()
 
+        /** Strikethrough text (~~text~~) */
+        data class Strikethrough(
+            val content: String,
+        ) : ParsedPart()
+
+        /** Spoiler text (||text||) hidden until tapped (Discord-style). */
+        data class Spoiler(
+            val content: String,
+        ) : ParsedPart()
+
         // Code blocks (block-level)
 
         /** Fenced code block (```language\ncode```) */
@@ -734,6 +744,12 @@ object MessageContentParser {
      */
     private val monospaceRegex = Regex("`([^`]+)`")
 
+    /** Strikethrough: ~~text~~ (non-greedy, at least one char). */
+    private val strikethroughRegex = Regex("~~([\\s\\S]+?)~~")
+
+    /** Spoiler: ||text|| (non-greedy, at least one char). */
+    private val spoilerRegex = Regex("\\|\\|([\\s\\S]+?)\\|\\|")
+
     /**
      * Find text formatting (bold, italic, monospace) in non-covered regions.
      */
@@ -744,9 +760,25 @@ object MessageContentParser {
         val coveredPositions = buildCoveredPositions(coveredRanges)
         val matches = mutableListOf<ParsedMatch>()
 
+        fun overlapsExisting(range: IntRange) = matches.any { existing -> range.first <= existing.range.last && range.last >= existing.range.first }
+
+        // Find spoiler ||text|| and strikethrough ~~text~~ first (their double markers
+        // don't collide with the single * _ ` tokens, but claiming them up front keeps
+        // an inner * from being read as bold).
+        spoilerRegex.findAll(content).forEach { match ->
+            if (!match.range.any { it in coveredPositions }) {
+                matches.add(ParsedMatch(match.range, ParsedPart.Spoiler(match.groupValues[1])))
+            }
+        }
+        strikethroughRegex.findAll(content).forEach { match ->
+            if (!match.range.any { it in coveredPositions } && !overlapsExisting(match.range)) {
+                matches.add(ParsedMatch(match.range, ParsedPart.Strikethrough(match.groupValues[1])))
+            }
+        }
+
         // Find bold *text*
         boldRegex.findAll(content).forEach { match ->
-            if (!match.range.any { it in coveredPositions }) {
+            if (!match.range.any { it in coveredPositions } && !overlapsExisting(match.range)) {
                 matches.add(ParsedMatch(match.range, ParsedPart.Bold(match.groupValues[1])))
             }
         }

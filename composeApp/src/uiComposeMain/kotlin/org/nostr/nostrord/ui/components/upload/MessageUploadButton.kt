@@ -97,7 +97,9 @@ fun MessageUploadButton(
         interactionSource = interaction,
         modifier =
         modifier
-            .size(32.dp)
+            // Sized close to the icon (web .composer-btn padding:0) so the composer
+            // icons sit tight rather than spread across 32dp squares.
+            .size(width = 26.dp, height = 32.dp)
             .pointerHoverIcon(PointerIcon.Hand),
     ) {
         if (busy) {

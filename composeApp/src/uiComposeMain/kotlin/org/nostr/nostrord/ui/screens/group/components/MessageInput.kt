@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.FormatStrikethrough
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.EmojiEmotions
@@ -42,12 +43,14 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.launch
@@ -87,6 +90,7 @@ import org.nostr.nostrord.utils.formatTimestamp
 @Composable
 fun MessageInput(
     isJoined: Boolean,
+    isGroupClosed: Boolean = false,
     isPendingApproval: Boolean = false,
     pendingRequestedAtSeconds: Long? = null,
     onCancelJoinRequest: () -> Unit = {},
@@ -124,6 +128,9 @@ fun MessageInput(
     var groupMentionQuery by remember { mutableStateOf("") }
     var groupMentionSelectedIndex by remember { mutableStateOf(0) }
     var showEmojiPicker by remember { mutableStateOf(false) }
+    // Keyboard-shortcuts hint, opened by typing "?" in an empty field or clicking the
+    // footer pill (web parity: ChatScreen showHints).
+    var showHints by remember { mutableStateOf(false) }
     val anyOverlayOpen = showMentionPopup || showGroupMentionPopup || showEmojiPicker
     val currentOnOverlayVisibilityChange by rememberUpdatedState(onOverlayVisibilityChange)
     LaunchedEffect(anyOverlayOpen) {
@@ -287,6 +294,14 @@ fun MessageInput(
             }
             return
         }
+        // "?" in an empty field opens the shortcuts hint instead of typing the glyph
+        // (web parity). Works across platforms since it keys off the resulting value,
+        // not a physical key code.
+        if (textFieldValue.text.isEmpty() && newValue.text == "?") {
+            showHints = true
+            return
+        }
+        if (showHints) showHints = false
         textFieldValue = newValue
         updateMentionState(newValue)
         updateGroupMentionState(newValue)
@@ -419,27 +434,46 @@ fun MessageInput(
 
     if (!isJoined) {
         Box(
+            // Inset rounded card matching the web .composer-join (16dp side + bottom margin,
+            // rounded, surface-variant) rather than a full-bleed bar.
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = Spacing.lg)
+                .padding(bottom = Spacing.lg)
+                .clip(NostrordShapes.shapeMedium)
                 .background(NostrordColors.SurfaceVariant)
-                .padding(Spacing.lg),
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = "Join the group to send messages",
-                    color = NostrordColors.TextMuted,
+                    color = NostrordColors.TextSecondary,
                     style = NostrordTypography.MessageBody,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                TextButton(
+                Spacer(modifier = Modifier.width(Spacing.md))
+                // Filled primary button on the right (web .composer-join-btn): icon + label,
+                // "Request to Join" for closed groups, "Join Now" for open.
+                Button(
                     onClick = { onJoinGroup(null) },
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.Primary),
+                    colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+                    shape = NostrordShapes.shapeMedium,
                 ) {
-                    Text("Join Now", style = NostrordTypography.Button)
+                    Icon(
+                        Icons.Default.PersonAdd,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        if (isGroupClosed) "Request to Join" else "Join Now",
+                        style = NostrordTypography.Button,
+                    )
                 }
             }
         }
@@ -479,10 +513,17 @@ fun MessageInput(
             if (lineTo == -1) lineTo = text.length
             val lines = text.substring(lineFrom, lineTo).split('\n')
             val re = if (ordered) Regex("^\\d+\\.\\s") else Regex("^[-*+]\\s")
+            // Either list marker, so switching types replaces instead of stacking (the
+            // "1. - foo" bug). Toggle-off only when every line already has the requested type.
+            val anyMarker = Regex("^(?:\\d+\\.|[-*+])\\s")
             val allListed = lines.all { it.isBlank() || re.containsMatchIn(it) }
             val out =
                 lines.mapIndexed { i, ln ->
-                    if (allListed) ln.replaceFirst(re, "") else (if (ordered) "${i + 1}. " else "- ") + ln
+                    if (allListed) {
+                        ln.replaceFirst(re, "")
+                    } else {
+                        (if (ordered) "${i + 1}. " else "- ") + ln.replaceFirst(anyMarker, "")
+                    }
                 }.joinToString("\n")
             val newText = text.substring(0, lineFrom) + out + text.substring(lineTo)
             applyEdit(TextFieldValue(newText, TextRange(lineFrom + out.length)))
@@ -595,7 +636,7 @@ fun MessageInput(
                 }
             }
 
-            Box(
+            Column(
                 // Inset the composer from the window edges and round it into a single
                 // surface "pill" (web .composer parity: margin 0 16px 16px, radius 8px).
                 modifier = Modifier
@@ -603,6 +644,11 @@ fun MessageInput(
                     .padding(horizontal = Spacing.lg)
                     .padding(bottom = Spacing.lg),
             ) {
+                // Shortcuts hint card, floating just above the pill (web .composer-hints).
+                if (showHints) {
+                    ComposerHints(isTouch = isAndroid)
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -624,10 +670,12 @@ fun MessageInput(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         // Markdown toolbar toggle (prototype: the leftmost composer button).
+                        // Buttons are sized close to the icon (web .composer-btn has padding:0)
+                        // so the row reads tight instead of spread across 32dp squares.
                         IconButton(
                             onClick = { toolbarOpen = !toolbarOpen },
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(width = 26.dp, height = 32.dp)
                                 .pointerHoverIcon(PointerIcon.Hand),
                         ) {
                             Icon(
@@ -703,6 +751,12 @@ fun MessageInput(
                                             event.key == Key.Escape &&
                                             toolbarOpen -> {
                                             toolbarOpen = false
+                                            true
+                                        }
+                                        event.type == KeyEventType.KeyDown &&
+                                            event.key == Key.Escape &&
+                                            showHints -> {
+                                            showHints = false
                                             true
                                         }
                                         // Esc exits reply mode once no popup/picker is open (desktop).
@@ -860,7 +914,7 @@ fun MessageInput(
                                 },
                                 interactionSource = emojiInteraction,
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(width = 26.dp, height = 32.dp)
                                     .pointerHoverIcon(PointerIcon.Hand),
                             ) {
                                 Icon(
@@ -882,7 +936,7 @@ fun MessageInput(
                             // Disabled while a paste upload finishes (its URL must land in
                             // the draft first), but the spinner now shows on the attach icon.
                             enabled = textFieldValue.text.isNotBlank() && !isSending && !isUploadingPaste,
-                            modifier = Modifier.size(32.dp),
+                            modifier = Modifier.size(width = 26.dp, height = 32.dp),
                         ) {
                             if (isSending) {
                                 CircularProgressIndicator(
@@ -1034,6 +1088,13 @@ fun MessageInput(
                         }
                     }
                 }
+                // Footer pill below the composer: discoverability cue + click toggle
+                // (web .composer-hint-footer).
+                ComposerHintFooter(
+                    showHints = showHints,
+                    isTouch = isAndroid,
+                    onToggle = { showHints = !showHints },
+                )
             }
         }
 
@@ -1065,6 +1126,95 @@ fun MessageInput(
                 confirmButton = {
                     TextButton(onClick = { pasteError = null }) { Text("OK") }
                 },
+            )
+        }
+    }
+}
+
+/** A small monospace key cap, matching the web `kbd` chips in the composer hints. */
+@Composable
+private fun KbdChip(label: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(NostrordColors.BackgroundDark)
+            .padding(horizontal = 6.dp, vertical = 1.dp),
+    ) {
+        Text(
+            label,
+            color = NostrordColors.TextSecondary,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+        )
+    }
+}
+
+/**
+ * Shortcuts / mention-triggers card shown above the composer when "?" is typed in an
+ * empty field (web .composer-hints). Touch shows only the mention triggers (Enter is a
+ * newline there); desktop adds the Enter / Shift+Enter send shortcuts.
+ */
+@Composable
+private fun ComposerHints(isTouch: Boolean) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(NostrordShapes.shapeMedium)
+            .background(NostrordColors.Surface)
+            .border(1.dp, NostrordColors.Divider, NostrordShapes.shapeMedium)
+            .padding(Spacing.xs),
+    ) {
+        Text(
+            if (isTouch) "MENTIONS" else "SHORTCUTS",
+            color = NostrordColors.TextMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = 2.dp),
+        )
+        val rows = buildList {
+            if (!isTouch) {
+                add("Enter" to "send")
+                add("Shift + Enter" to "new line")
+            }
+            add("@" to "mention a person")
+            add("%" to "mention a group")
+        }
+        rows.forEach { (key, desc) ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+            ) {
+                KbdChip(key)
+                Text(desc, color = NostrordColors.TextSecondary, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+/** "Type ? to see shortcuts" cue below the composer, clickable to toggle the hints. */
+@Composable
+private fun ComposerHintFooter(showHints: Boolean, isTouch: Boolean, onToggle: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(top = Spacing.xs)
+            .clip(RoundedCornerShape(4.dp))
+            .clickable(onClick = onToggle)
+            .pointerHoverIcon(PointerIcon.Hand)
+            .padding(horizontal = Spacing.xs, vertical = 2.dp),
+    ) {
+        if (showHints && !isTouch) {
+            Text("Press ", color = NostrordColors.TextMuted, fontSize = 11.sp)
+            KbdChip("Esc")
+            Text(" to close", color = NostrordColors.TextMuted, fontSize = 11.sp)
+        } else {
+            Text("Type ", color = NostrordColors.TextMuted, fontSize = 11.sp)
+            KbdChip("?")
+            Text(
+                if (isTouch) " to see mention triggers" else " to see shortcuts",
+                color = NostrordColors.TextMuted,
+                fontSize = 11.sp,
             )
         }
     }
@@ -1225,13 +1375,13 @@ private fun ComposerToolbar(
     ) {
         FmtIconButton(Icons.Default.FormatBold, "Bold") { onWrap("*", "*") }
         FmtIconButton(Icons.Default.FormatItalic, "Italic") { onWrap("_", "_") }
-        FmtIconButton(Icons.Default.FormatStrikethrough, "Strikethrough (Coming soon)", enabled = false) {}
+        FmtIconButton(Icons.Default.FormatStrikethrough, "Strikethrough") { onWrap("~~", "~~") }
         FmtIconButton(Icons.Default.Code, "Code") { onWrap("`", "`") }
         FmtIconButton(Icons.Default.DataObject, "Code block") { onWrap("```\n", "\n```") }
         FmtIconButton(Icons.Default.FormatQuote, "Quote") { onWrap("> ", "") }
         FmtIconButton(Icons.AutoMirrored.Filled.FormatListBulleted, "Bulleted list") { onList(false) }
         FmtIconButton(Icons.Default.FormatListNumbered, "Numbered list") { onList(true) }
-        FmtIconButton(Icons.Default.VisibilityOff, "Spoiler (Coming soon)", enabled = false) {}
+        FmtIconButton(Icons.Default.VisibilityOff, "Spoiler") { onWrap("||", "||") }
         Spacer(modifier = Modifier.weight(1f))
         FmtIconButton(Icons.Default.Close, "Close formatting (Esc)") { onClose() }
     }

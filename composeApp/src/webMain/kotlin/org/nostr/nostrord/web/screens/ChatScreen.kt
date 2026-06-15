@@ -37,6 +37,7 @@ import org.nostr.nostrord.web.components.ChatMessageList
 import org.nostr.nostrord.web.components.ChatVideo
 import org.nostr.nostrord.web.components.EmojiPicker
 import org.nostr.nostrord.web.components.Ic
+import org.nostr.nostrord.web.components.Spoiler
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
@@ -54,6 +55,7 @@ import org.nostr.nostrord.web.modals.EditGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
 import org.nostr.nostrord.web.modals.InviteCodesModal
 import org.nostr.nostrord.web.modals.JoinRequestsModal
+import org.nostr.nostrord.web.modals.JoinWithCodeModal
 import org.nostr.nostrord.web.modals.ManageChildrenModal
 import org.nostr.nostrord.web.modals.MemberManagementModal
 import org.nostr.nostrord.web.modals.ShareGroupModal
@@ -70,6 +72,7 @@ import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.kbd
 import react.dom.html.ReactHTML.pre
+import react.dom.html.ReactHTML.s
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useEffect
@@ -518,10 +521,17 @@ private val ChatComposer =
             if (end == -1) end = v.length
             val lines = v.substring(start, end).split('\n')
             val re = if (ordered) Regex("^\\d+\\.\\s") else Regex("^[-*+]\\s")
+            // Either list marker, so switching types replaces instead of stacking (the
+            // "1. - foo" bug). Toggle-off only when every line already has the requested type.
+            val anyMarker = Regex("^(?:\\d+\\.|[-*+])\\s")
             val allListed = lines.all { it.isBlank() || re.containsMatchIn(it) }
             val out =
                 lines.mapIndexed { i, ln ->
-                    if (allListed) ln.replaceFirst(re, "") else (if (ordered) "${i + 1}. " else "- ") + ln
+                    if (allListed) {
+                        ln.replaceFirst(re, "")
+                    } else {
+                        (if (ordered) "${i + 1}. " else "- ") + ln.replaceFirst(anyMarker, "")
+                    }
                 }.joinToString("\n")
             ta.focus()
             ta.asDynamic().setSelectionRange(start, end)
@@ -711,22 +721,22 @@ private val ChatComposer =
                     }
 
                     // Markdown toolbar (toggleable). Tokens match what the message
-                    // renderer understands: *bold*, _italic_, `code`, ``` blocks;
-                    // quote/lists are plain-text conventions. Strikethrough and
-                    // spoiler wait on renderer support (Coming soon).
+                    // renderer understands: *bold*, _italic_, `code`, ``` blocks,
+                    // ~~strikethrough~~ and ||spoiler||; quote/lists are plain-text
+                    // conventions.
                     if (toolbarOpen) {
                         div {
                             key = "composer-toolbar"
                             className = ClassName("composer-toolbar")
                             fmtBtn(Ic.FormatBold, "Bold") { wrapSelection("*") }
                             fmtBtn(Ic.FormatItalic, "Italic") { wrapSelection("_") }
-                            fmtBtn(Ic.FormatStrikethrough, "Strikethrough", disabled = true) {}
+                            fmtBtn(Ic.FormatStrikethrough, "Strikethrough") { wrapSelection("~~") }
                             fmtBtn(Ic.Code, "Code") { wrapSelection("`") }
                             fmtBtn(Ic.DataObject, "Code block") { wrapSelection("```\n", "\n```") }
                             fmtBtn(Ic.FormatQuote, "Quote") { wrapSelection("> ", "") }
                             fmtBtn(Ic.FormatListBulleted, "Bulleted list") { insertList(false) }
                             fmtBtn(Ic.FormatListNumbered, "Numbered list") { insertList(true) }
-                            fmtBtn(Ic.VisibilityOff, "Spoiler", disabled = true) {}
+                            fmtBtn(Ic.VisibilityOff, "Spoiler") { wrapSelection("||") }
                             button {
                                 className = ClassName("fmt-btn fmt-close")
                                 title = "Close formatting (Esc)"
@@ -1042,27 +1052,30 @@ val ChatScreen =
         val isMember = myPubkey != null && myPubkey in members
         val inMyList = group.id in joinedByRelay[relayUrl].orEmpty()
         // Pending approval (native parity): the group is in our joined list, the kind:39002
-        // member list has loaded, and we're not in it -> awaiting an admin. The members-loaded
-        // gate (!membersLoading && members.isNotEmpty()) avoids a false "pending" during the
-        // fetch window or right after an account swap when the member list is momentarily empty.
+        // member list has loaded, and we're not in it -> awaiting an admin. The decision keys off
+        // members.isNotEmpty() ONLY (not the loadingMembers flag): once we have a member list, the
+        // verdict is stable. requestGroupMembers re-fires on every resubscribe and flips
+        // loadingMembers true->false each time while the list stays populated, so gating on
+        // !membersLoading made the pending bar blink off and on with each background refresh.
         // This is authoritative for BOTH the composer and the chat/members panels, so they no
         // longer disagree (the composer used to allow posting in an open group we hadn't actually
         // been approved into).
         val isPendingApproval =
             inMyList &&
                 myPubkey != null &&
-                !membersLoading &&
                 members.isNotEmpty() &&
                 myPubkey !in members
         // Post only as a confirmed kind:39002 member. (The old `|| (isOpen && inMyList)` let us
         // post optimistically before the member list loaded, which flashed the composer before we
         // knew we were actually still pending.)
         val canPost = isMember
-        // We can only tell composer vs pending vs join once the member list is known. While it's
-        // still loading for a group we're in our list of, render NEITHER (no "Request pending" /
-        // pending bar / Join flash on a fresh page load) until the data is there.
+        // We can only tell composer vs pending vs join once the member list is known. On a FRESH
+        // load (no member data yet) render NEITHER (no "Request pending" / pending bar / Join
+        // flash) until the list arrives. Keyed on members.isEmpty() alone, NOT membersLoading: a
+        // background re-fetch keeps the list populated, so it must not drop us back into the
+        // resolving state (that was the other half of the pending-bar flicker).
         val membersResolving =
-            inMyList && myPubkey != null && !isMember && (membersLoading || members.isEmpty())
+            inMyList && myPubkey != null && !isMember && members.isEmpty()
         // Pending = in our list, the member list has loaded, and we're not in it (conservative).
         val composerPending = isPendingApproval
         // When the request was sent (latest own kind:9021), for the pending bar's "Requested ..." line.
@@ -1666,18 +1679,12 @@ val ChatScreen =
                             }
                         } else {
                             // Closed groups: surface an "Invite Code" button next to
-                            // Join (matches native GroupHeader.kt:208-232). Uses
-                            // window.prompt for the code input — quick & matches the
-                            // single-field native modal without a new component.
+                            // Join (matches native GroupHeader.kt:208-232). Opens the
+                            // JoinWithCodeModal — the web port of native InviteCodeJoinModal.
                             if (!group.isOpen) {
                                 button {
                                     className = ClassName("chat-invite-btn")
-                                    onClick = {
-                                        val code = window.prompt("Enter invite code", "")?.trim()
-                                        if (!code.isNullOrBlank()) {
-                                            vm.joinGroup(code)
-                                        }
-                                    }
+                                    onClick = { setModal("joincode") }
                                     icon(Ic.Key)
                                     span { +"Invite Code" }
                                 }
@@ -2268,6 +2275,12 @@ val ChatScreen =
                 "invite" ->
                     InviteCodesModal {
                         groupId = group.id
+                        onClose = { setModal(null) }
+                    }
+                "joincode" ->
+                    JoinWithCodeModal {
+                        initialCode = null
+                        onJoin = { code -> vm.joinGroup(code) }
                         onClose = { setModal(null) }
                     }
                 "requests" ->
@@ -3307,7 +3320,7 @@ private fun ChildrenBuilder.renderEntities(
     var last = 0
     for (match in URL_REGEX.findAll(content)) {
         if (match.range.first > last) {
-            renderTextWithEmojis(content.substring(last, match.range.first), emojiMap)
+            renderFormattedText(content.substring(last, match.range.first), emojiMap)
         }
         val token = match.value
         if (token.startsWith("data:image/")) {
@@ -3392,7 +3405,33 @@ private fun ChildrenBuilder.renderEntities(
         }
         last = match.range.last + 1
     }
-    if (last < content.length) renderTextWithEmojis(content.substring(last), emojiMap)
+    if (last < content.length) renderFormattedText(content.substring(last), emojiMap)
+}
+
+private val STRIKE_OR_SPOILER_REGEX = Regex("~~[\\s\\S]+?~~|\\|\\|[\\s\\S]+?\\|\\|")
+
+/**
+ * Render inline ~~strikethrough~~ and ||spoiler|| in a non-URL text run, delegating the
+ * remaining text to [renderTextWithEmojis]. Mirrors native MessageContent's Strikethrough
+ * / Spoiler parts.
+ */
+private fun ChildrenBuilder.renderFormattedText(text: String, emojiMap: Map<String, String>) {
+    var last = 0
+    for (m in STRIKE_OR_SPOILER_REGEX.findAll(text)) {
+        if (m.range.first > last) renderTextWithEmojis(text.substring(last, m.range.first), emojiMap)
+        val token = m.value
+        val inner = token.substring(2, token.length - 2)
+        if (token.startsWith("~~")) {
+            s {
+                className = ClassName("msg-strike")
+                renderTextWithEmojis(inner, emojiMap)
+            }
+        } else {
+            Spoiler { content = inner }
+        }
+        last = m.range.last + 1
+    }
+    if (last < text.length) renderTextWithEmojis(text.substring(last), emojiMap)
 }
 
 private fun ChildrenBuilder.mentionSpan(pubkey: String, userMetadata: Map<String, UserMetadata>, onUser: (String) -> Unit) {

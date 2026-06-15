@@ -42,6 +42,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -94,6 +95,8 @@ private typealias CustomEmojiPart = MessageContentParser.ParsedPart.CustomEmoji
 private typealias BoldPart = MessageContentParser.ParsedPart.Bold
 private typealias ItalicPart = MessageContentParser.ParsedPart.Italic
 private typealias MonospacePart = MessageContentParser.ParsedPart.Monospace
+private typealias StrikethroughPart = MessageContentParser.ParsedPart.Strikethrough
+private typealias SpoilerPart = MessageContentParser.ParsedPart.Spoiler
 private typealias CodeBlockPart = MessageContentParser.ParsedPart.CodeBlock
 private typealias HashtagPart = MessageContentParser.ParsedPart.Hashtag
 private typealias VideoPart = MessageContentParser.ParsedPart.Video
@@ -572,8 +575,11 @@ private fun InlineContentWithEmojis(
 
     // Build the annotated string — each emoji references its shortcode key
     val emojiFontFamily = rememberEmojiFontFamily()
+    // Spoilers start hidden; tapping one toggles its index here (Discord-style).
+    var revealedSpoilers by remember(parts) { mutableStateOf(emptySet<Int>()) }
     val annotatedString =
-        remember(parts, userMetadata, emojiFontFamily) {
+        remember(parts, userMetadata, emojiFontFamily, revealedSpoilers) {
+            var spoilerIndex = 0
             buildAnnotatedString {
                 parts.forEach { part ->
                     when (part) {
@@ -665,6 +671,21 @@ private fun InlineContentWithEmojis(
                                 append(part.content)
                             }
                         }
+                        is StrikethroughPart -> {
+                            withStyle(
+                                SpanStyle(
+                                    textDecoration = TextDecoration.LineThrough,
+                                    color = NostrordColors.TextMuted,
+                                ),
+                            ) {
+                                append(part.content)
+                            }
+                        }
+                        is SpoilerPart -> {
+                            appendSpoiler(part.content, spoilerIndex++, revealedSpoilers) { i ->
+                                revealedSpoilers = revealedSpoilers.toggle(i)
+                            }
+                        }
                         is HashtagPart -> {
                             withLink(
                                 LinkAnnotation.Clickable(
@@ -694,6 +715,37 @@ private fun InlineContentWithEmojis(
     )
 }
 
+private fun Set<Int>.toggle(i: Int): Set<Int> = if (i in this) this - i else this + i
+
+/**
+ * Append a spoiler span: hidden as a muted block with transparent text until tapped,
+ * then revealed with a floating background. Tap toggles it (LinkAnnotation.Clickable,
+ * same tap path as mentions). Mirrors the prototype Discord-style spoiler.
+ */
+private fun AnnotatedString.Builder.appendSpoiler(
+    content: String,
+    index: Int,
+    revealed: Set<Int>,
+    onToggle: (Int) -> Unit,
+) {
+    val shown = index in revealed
+    val style =
+        if (shown) {
+            SpanStyle(background = NostrordColors.BackgroundFloating, color = NostrordColors.TextContent)
+        } else {
+            SpanStyle(background = NostrordColors.TextMuted.copy(alpha = 0.3f), color = Color.Transparent)
+        }
+    withLink(
+        LinkAnnotation.Clickable(
+            tag = "spoiler_$index",
+            styles = TextLinkStyles(style = style),
+            linkInteractionListener = { onToggle(index) },
+        ),
+    ) {
+        append(content)
+    }
+}
+
 /**
  * Renders inline content WITHOUT custom emojis.
  * Supports full text selection.
@@ -707,8 +759,10 @@ private fun InlineContentTextOnly(
     onHashtagClick: (String) -> Unit = {},
 ) {
     val emojiFontFamily = rememberEmojiFontFamily()
+    var revealedSpoilers by remember(parts) { mutableStateOf(emptySet<Int>()) }
     val annotatedString =
-        remember(parts, userMetadata, emojiFontFamily) {
+        remember(parts, userMetadata, emojiFontFamily, revealedSpoilers) {
+            var spoilerIndex = 0
             buildAnnotatedString {
                 parts.forEach { part ->
                     when (part) {
@@ -792,6 +846,21 @@ private fun InlineContentTextOnly(
                                 ),
                             ) {
                                 append(part.content)
+                            }
+                        }
+                        is StrikethroughPart -> {
+                            withStyle(
+                                SpanStyle(
+                                    textDecoration = TextDecoration.LineThrough,
+                                    color = NostrordColors.TextMuted,
+                                ),
+                            ) {
+                                append(part.content)
+                            }
+                        }
+                        is SpoilerPart -> {
+                            appendSpoiler(part.content, spoilerIndex++, revealedSpoilers) { i ->
+                                revealedSpoilers = revealedSpoilers.toggle(i)
                             }
                         }
                         is HashtagPart -> {

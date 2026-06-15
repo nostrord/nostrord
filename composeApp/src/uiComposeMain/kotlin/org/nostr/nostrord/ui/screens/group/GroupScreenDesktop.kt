@@ -2,12 +2,12 @@ package org.nostr.nostrord.ui.screens.group
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -179,16 +179,16 @@ fun GroupScreenDesktop(
                     // Members toggle (prototype): highlighted while the column is visible.
                     IconButton(
                         onClick = onToggleMembers,
-                        modifier =
-                        Modifier
-                            .size(32.dp)
-                            .then(
-                                if (showMemberSidebar) {
-                                    Modifier.background(NostrordColors.SurfaceVariant, RoundedCornerShape(6.dp))
-                                } else {
-                                    Modifier
-                                },
-                            ),
+                        modifier = Modifier.size(30.dp),
+                        // Active fill via the IconButton container so it matches the hover
+                        // state-layer circle exactly (a manual .background fills the full box,
+                        // which reads larger than the hover).
+                        colors =
+                        if (showMemberSidebar) {
+                            IconButtonDefaults.iconButtonColors(containerColor = NostrordColors.SurfaceVariant)
+                        } else {
+                            IconButtonDefaults.iconButtonColors()
+                        },
                     ) {
                         Icon(
                             Icons.Default.People,
@@ -259,6 +259,7 @@ fun GroupScreenDesktop(
                 pendingRequestedAtSeconds = pendingRequestedAtSeconds,
                 onCancelJoinRequest = onCancelJoinRequest,
                 isJoined = isJoined,
+                isGroupClosed = isClosed,
                 selectedChannel = selectedChannel,
                 groupId = groupId,
                 groupName = groupName,
