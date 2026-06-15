@@ -7560,6 +7560,46 @@ body {
     height: 16px;
 }
 
+/* Pending-approval bar: title + "Requested ..." stacked on the left, the Cancel request
+   button (.btn-secondary.btn-sm) on the right via .composer-join's space-between. */
+.composer-pending-text {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.composer-pending-title {
+    font-size: 14px;
+    color: var(--color-text-secondary);
+}
+
+.composer-pending-time {
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+
+/* Outlined cancel button: contrasts with the surface-variant bar (a filled secondary
+   button would blend in), reads clearly as a button, stays understated. */
+.composer-cancel-btn {
+    flex-shrink: 0;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: 1px solid var(--color-divider);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.composer-cancel-btn:hover {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+    border-color: var(--color-text-muted);
+}
+
 .composer-join-btn:hover {
     background: var(--color-primary-variant);
 }

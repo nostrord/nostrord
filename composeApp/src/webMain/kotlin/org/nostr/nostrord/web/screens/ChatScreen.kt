@@ -264,6 +264,11 @@ private external interface ChatComposerProps : Props {
     var onSent: () -> Unit
     var onJoin: () -> Unit
 
+    /** When the request to join a closed group is pending: the time it was sent (for the
+     *  "Requested ..." line) and the action to cancel it (mirrors native MessageInput). */
+    var pendingRequestedAtSeconds: Long?
+    var onCancelJoinRequest: () -> Unit
+
     /** Mention requested from the profile modal ("Mention" action); nonce dedupes. */
     var mentionRequest: MentionRequest?
 
@@ -555,7 +560,24 @@ private val ChatComposer =
             div {
                 className = ClassName("composer-join")
                 if (props.isPending) {
-                    span { +"Your request to join is pending approval." }
+                    div {
+                        className = ClassName("composer-pending-text")
+                        span {
+                            className = ClassName("composer-pending-title")
+                            +"Your join request is pending admin approval"
+                        }
+                        props.pendingRequestedAtSeconds?.let { ts ->
+                            span {
+                                className = ClassName("composer-pending-time")
+                                +"Requested ${formatTimestamp(ts)}"
+                            }
+                        }
+                    }
+                    button {
+                        className = ClassName("composer-cancel-btn")
+                        onClick = { props.onCancelJoinRequest() }
+                        +"Cancel request"
+                    }
                 } else {
                     span { +"Join the group to send messages" }
                     button {
@@ -1010,33 +1032,31 @@ val ChatScreen =
                 .filter { it.createdAt >= tenMinutesAgo }
                 .map { it.pubkey }
                 .toSet()
-        // Can post = an actual member (kind:39002), or in our list for an open group.
         val isMember = myPubkey != null && myPubkey in members
         val inMyList = group.id in joinedByRelay[relayUrl].orEmpty()
-        val canPost = isMember || (group.isOpen && inMyList)
-        // Pending = we sent a join request (kind 9021) but aren't a member yet.
-        val isPending = !canPost && myPubkey != null && messages.any { it.kind == 9021 && it.pubkey == myPubkey }
-        // Restricted: relay returned a CLOSED "restricted" frame for this group.
-        // Used to render the "Private group" UI in place of skeletons when the
-        // account has no read access (NIP-29 private+closed group).
-        val restrictedGroups = useStateFlow(vm.restrictedGroups)
-        val isGroupRestricted = group.id in restrictedGroups
-        // Pending approval: joined a closed group, kind:39002 came back and
-        // we're not in it. Only fires when we have DATA — !membersLoading
-        // AND members.isNotEmpty(). Without those gates, an empty members
-        // list during the fetch window (or right after an account swap when
-        // _groupMembers was wiped + not yet re-loaded) made the screen
-        // wrongly assert "Awaiting" for actual members. Native's
-        // `members.isEmpty() && !group.isOpen` branch (GroupScreen.kt:237)
-        // is too optimistic — better to fall through to skeleton / empty
-        // state until we know than to assert pending and persist that UI
-        // through every transient empty.
+        // Pending approval (native parity): the group is in our joined list, the kind:39002
+        // member list has loaded, and we're not in it -> awaiting an admin. The members-loaded
+        // gate (!membersLoading && members.isNotEmpty()) avoids a false "pending" during the
+        // fetch window or right after an account swap when the member list is momentarily empty.
+        // This is authoritative for BOTH the composer and the chat/members panels, so they no
+        // longer disagree (the composer used to allow posting in an open group we hadn't actually
+        // been approved into).
         val isPendingApproval =
             inMyList &&
                 myPubkey != null &&
                 !membersLoading &&
                 members.isNotEmpty() &&
                 myPubkey !in members
+        // Post only as an actual member, or in an OPEN group we're in and not awaiting approval.
+        val canPost = isMember || (group.isOpen && inMyList && !isPendingApproval)
+        // When the request was sent (latest own kind:9021), for the pending bar's "Requested ..." line.
+        val pendingRequestedAt =
+            if (isPendingApproval) messages.filter { it.kind == 9021 && it.pubkey == myPubkey }.maxOfOrNull { it.createdAt } else null
+        // Restricted: relay returned a CLOSED "restricted" frame for this group.
+        // Used to render the "Private group" UI in place of skeletons when the
+        // account has no read access (NIP-29 private+closed group).
+        val restrictedGroups = useStateFlow(vm.restrictedGroups)
+        val isGroupRestricted = group.id in restrictedGroups
         // Pending join-request count — admin/closed-group only, drives the header badge.
         // Same logic as JoinRequestsModal: latest 9021 per pubkey, minus current members
         // and anyone whose most-recent event is a 9022 leave.
@@ -1623,7 +1643,7 @@ val ChatScreen =
                         icon(Ic.People)
                     }
                     if (!canPost) {
-                        if (isPending) {
+                        if (isPendingApproval) {
                             span {
                                 className = ClassName("chat-pending")
                                 +"Request pending"
@@ -2022,7 +2042,7 @@ val ChatScreen =
                     this.groupName = groupName
                     this.groupIsOpen = group.isOpen
                     this.canPost = canPost
-                    this.isPending = isPending
+                    this.isPending = isPendingApproval
                     this.mentionRequest = mentionRequest
                     this.members = members
                     this.allGroups = allGroups
@@ -2039,6 +2059,12 @@ val ChatScreen =
                     this.onCancelReply = { setReplyingToId(null) }
                     this.onSent = { setReplyingToId(null) }
                     this.onJoin = { join() }
+                    this.pendingRequestedAtSeconds = pendingRequestedAt
+                    // Cancel a pending join request = leave the group, then navigate away.
+                    this.onCancelJoinRequest = {
+                        launchApp { repo.leaveGroup(group.id) }
+                        props.onLeave()
+                    }
                 }
             }
 

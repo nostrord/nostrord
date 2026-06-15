@@ -1,6 +1,7 @@
 package org.nostr.nostrord.ui.screens.group.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -390,12 +391,22 @@ fun MessageInput(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(Spacing.sm))
-                TextButton(
-                    onClick = onCancelJoinRequest,
-                    colors = ButtonDefaults.textButtonColors(contentColor = NostrordColors.TextSecondary),
+                Spacer(modifier = Modifier.width(Spacing.md))
+                // Outlined button: contrasts with the SurfaceVariant bar (a filled secondary
+                // button would blend in), reads clearly as a button, stays understated.
+                Box(
+                    modifier =
+                    Modifier
+                        .clip(NostrordShapes.shapeMedium)
+                        .border(1.dp, NostrordColors.Divider, NostrordShapes.shapeMedium)
+                        .clickable(onClick = onCancelJoinRequest)
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
                 ) {
-                    Text("Cancel request", style = NostrordTypography.Button)
+                    Text(
+                        "Cancel request",
+                        color = NostrordColors.TextSecondary,
+                        style = NostrordTypography.Button,
+                    )
                 }
             }
         }
