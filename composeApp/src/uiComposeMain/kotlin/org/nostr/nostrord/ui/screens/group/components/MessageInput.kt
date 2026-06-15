@@ -363,23 +363,27 @@ fun MessageInput(
 
     if (isPendingApproval) {
         Box(
+            // Inset rounded card matching the web .composer-join (16dp side + bottom margin,
+            // rounded, surface-variant) rather than a full-bleed bar.
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = Spacing.lg)
+                .padding(bottom = Spacing.lg)
+                .clip(NostrordShapes.shapeMedium)
                 .background(NostrordColors.SurfaceVariant)
                 .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(
                     modifier = Modifier.weight(1f, fill = false),
-                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
                         text = "Your join request is pending admin approval",
-                        color = NostrordColors.TextMuted,
+                        color = NostrordColors.TextSecondary,
                         style = NostrordTypography.MessageBody,
                     )
                     if (pendingRequestedAtSeconds != null) {
