@@ -116,13 +116,14 @@ class HomePageViewModel(
         following: Set<String>,
         meta: Map<String, UserMetadata>,
         priorityFirst: List<String> = emptyList(),
+        includeSelf: Boolean = false,
     ): List<Friend> {
         val ordered = LinkedHashSet<String>()
         ordered.addAll(priorityFirst)
         ordered.addAll(memberPks.filter { it in following })
         ordered.addAll(memberPks)
         return ordered.asSequence()
-            .filter { it.isNotBlank() && it != selfPubkey }
+            .filter { it.isNotBlank() && (includeSelf || it != selfPubkey) }
             .take(PEOPLE_PREVIEW)
             .map { Friend(it, meta[it]) }
             .toList()
@@ -177,7 +178,14 @@ class HomePageViewModel(
                     val metas = groupsByRelay[relay].orEmpty().associateBy { it.id }
                     ids.map { id ->
                         val memberPks = members[id].orEmpty()
-                        val preview = previewPeople(memberPks, following, meta)
+                        // Small joined groups (<=5 members) include your own avatar so the
+                        // row isn't near-empty; larger ones still omit it (My groups only).
+                        val preview = previewPeople(
+                            memberPks = memberPks,
+                            following = following,
+                            meta = meta,
+                            includeSelf = memberPks.size <= PEOPLE_PREVIEW,
+                        )
                         DiscoverGroup(
                             relayUrl = relay,
                             meta =

@@ -193,6 +193,30 @@ class HomePageViewModelTest {
     }
 
     @Test
+    fun `myGroups small group includes the logged-in user, large group excludes it`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.fakePublicKey = "me"
+        fake._groupsByRelay.value =
+            mapOf("wss://a" to listOf(meta("small", "Small"), meta("big", "Big")))
+        fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("small", "big"))
+        fake._following.value = emptySet()
+        fake._groupMembers.value =
+            mapOf(
+                // <=5 members: self shown.
+                "small" to listOf("me", "x1", "x2"),
+                // >5 members: self omitted.
+                "big" to listOf("me", "x1", "x2", "x3", "x4", "x5"),
+            )
+
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        val byId = vm.myGroups.value.associate { it.meta.id to it.people.map { p -> p.pubkey } }
+        assertEquals(listOf("me", "x1", "x2"), byId["small"])
+        assertEquals(listOf("x1", "x2", "x3", "x4", "x5"), byId["big"])
+    }
+
+    @Test
     fun `friendsGroups people shows friends first then fills with other members`() = runTest {
         val fake = FakeNostrRepository()
         fake.fakePublicKey = "me"
