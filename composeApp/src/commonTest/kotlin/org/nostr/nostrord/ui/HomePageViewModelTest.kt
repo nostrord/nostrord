@@ -171,6 +171,48 @@ class HomePageViewModelTest {
     }
 
     @Test
+    fun `myGroups people preview shows friends first then fills excluding self capped at five`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.fakePublicKey = "me"
+        fake._groupsByRelay.value = mapOf("wss://a" to listOf(meta("g1", "Alpha")))
+        fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g1"))
+        fake._following.value = setOf("f1", "f2")
+        // self + 2 friends + 4 others, interleaved, to prove ordering and the self/cap rules.
+        fake._groupMembers.value = mapOf("g1" to listOf("me", "x1", "f1", "x2", "x3", "f2", "x4"))
+
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Friends first (member order), then other members to fill, self excluded, max 5.
+        assertEquals(
+            listOf("f1", "f2", "x1", "x2", "x3"),
+            vm.myGroups.value.single().people.map { it.pubkey },
+        )
+        // The "N people" count is the full membership (self included).
+        assertEquals(7, vm.myGroups.value.single().memberCount)
+    }
+
+    @Test
+    fun `friendsGroups people shows friends first then fills with other members`() = runTest {
+        val fake = FakeNostrRepository()
+        fake.fakePublicKey = "me"
+        fake._following.value = setOf("alice")
+        fake._userGroupLists.value =
+            mapOf("alice" to listOf(org.nostr.nostrord.network.UserGroupRef("wss://a", "g1")))
+        fake._groupsByRelay.value = mapOf("wss://a" to listOf(meta("g1", "One")))
+        // Member list: the friend plus three non-friends to fill the row.
+        fake._groupMembers.value = mapOf("g1" to listOf("alice", "o1", "o2", "o3"))
+
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(
+            listOf("alice", "o1", "o2", "o3"),
+            vm.friendsGroups.value.single().people.map { it.pubkey },
+        )
+    }
+
+    @Test
     fun `recommendedGroups reads the curator's list excluding mine`() = runTest {
         val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
         val fake = FakeNostrRepository()

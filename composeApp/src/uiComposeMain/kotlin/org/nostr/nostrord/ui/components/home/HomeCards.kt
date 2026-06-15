@@ -59,6 +59,7 @@ fun GroupCard(
     cta: String? = null,
     ctaPrimary: Boolean = false,
     people: List<Friend> = emptyList(),
+    peopleLoading: Boolean = false,
     relayUrl: String = "",
     relayIconUrl: String? = null,
     onClick: () -> Unit = {},
@@ -93,10 +94,9 @@ fun GroupCard(
                     // avatars (when known) and the total "N people" count, with the
                     // restricted badge riding along.
                     val peopleCount = if (people.isNotEmpty()) maxOf(memberCount, people.size) else memberCount
-                    // No resolved people and an unknown count means the member list is still
-                    // loading (NIP-29 groups always have at least an admin, so 0 is "not
-                    // fetched yet"): show a shimmer placeholder for the people row.
-                    val peopleLoading = people.isEmpty() && memberCount == 0
+                    // peopleLoading is owned by the VM: it stays true only while the
+                    // member list is in flight, and flips off (skeleton stops) once the
+                    // list arrives or the fetch times out.
                     if (peopleCount > 0 || restricted || peopleLoading) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {

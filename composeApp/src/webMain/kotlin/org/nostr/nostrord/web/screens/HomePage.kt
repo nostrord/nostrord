@@ -304,9 +304,9 @@ private fun ChildrenBuilder.discoverGroupCard(
     val name = meta.name ?: meta.id
     val relayHost = dg.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
     val count = if (dg.people.isNotEmpty()) maxOf(dg.memberCount, dg.people.size) else dg.memberCount
-    // No resolved people and an unknown count means the member list is still loading
-    // (NIP-29 groups always have at least an admin, so 0 here is "not fetched yet").
-    val peopleLoading = dg.people.isEmpty() && dg.memberCount == 0
+    // peopleLoading is owned by the VM: true only while the member list is in flight,
+    // and flips off (skeleton stops) once the list arrives or the fetch times out.
+    val peopleLoading = dg.peopleLoading
     button {
         key = meta.id
         className = ClassName("group-card")

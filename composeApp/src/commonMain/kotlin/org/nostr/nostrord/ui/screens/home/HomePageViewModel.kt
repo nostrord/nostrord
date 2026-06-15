@@ -6,10 +6,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.nostr.nostrord.network.GroupMetadata
@@ -27,6 +29,16 @@ import org.nostr.nostrord.storage.saveFollowingCacheFor
  * groups we hand-pick are simply the ones this account joins.
  */
 private const val CURATOR_PUBKEY = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
+
+/** Avatars shown on a group card's people row. */
+private const val PEOPLE_PREVIEW = 5
+
+/**
+ * How long to wait for a group's member list (kind:39002) before giving up on the
+ * people-row skeleton. Without this the skeleton spins forever for groups whose
+ * relay never returns a member list (common on Recommended).
+ */
+private const val MEMBERS_RESOLVE_TIMEOUT_MS = 8_000L
 
 /** A joined group together with the relay that hosts it (needed for navigation). */
 data class JoinedGroup(
@@ -52,6 +64,8 @@ data class DiscoverGroup(
     val meta: GroupMetadata,
     val people: List<Friend>,
     val memberCount: Int,
+    /** True while the member list is still being fetched and no people are known yet. */
+    val peopleLoading: Boolean = false,
 )
 
 /**
@@ -78,6 +92,35 @@ class HomePageViewModel(
     ): Boolean = needle.isEmpty() ||
         (meta.name ?: meta.id).lowercase().contains(needle) ||
         meta.about.orEmpty().lowercase().contains(needle)
+
+    /** The active account, excluded from card previews so a card never previews just you. */
+    private val selfPubkey: String? = repo.getPublicKey()
+
+    /** Group ids whose member list either arrived or timed out, so the skeleton can stop. */
+    private val _membersResolved = MutableStateFlow<Set<String>>(emptySet())
+
+    /**
+     * The avatars shown on a group card: people you follow first, then any other
+     * members to fill up to [PEOPLE_PREVIEW], excluding the active account.
+     * [priorityFirst] is surfaced ahead of [memberPks] for "From friends", where a
+     * friend discovered via their kind:10009 may not be in the member list yet.
+     */
+    private fun previewPeople(
+        memberPks: List<String>,
+        following: Set<String>,
+        meta: Map<String, UserMetadata>,
+        priorityFirst: List<String> = emptyList(),
+    ): List<Friend> {
+        val ordered = LinkedHashSet<String>()
+        ordered.addAll(priorityFirst)
+        ordered.addAll(memberPks.filter { it in following })
+        ordered.addAll(memberPks)
+        return ordered.asSequence()
+            .filter { it.isNotBlank() && it != selfPubkey }
+            .take(PEOPLE_PREVIEW)
+            .map { Friend(it, meta[it]) }
+            .toList()
+    }
 
     /** Unread message counts per group id (drives the rail badges). */
     val unreadCounts: StateFlow<Map<String, Int>> = repo.unreadCounts
@@ -113,6 +156,7 @@ class HomePageViewModel(
                 repo.following,
                 repo.userMetadata,
                 _query,
+                _membersResolved,
             ),
         ) { arr ->
             val groupsByRelay = arr[0] as Map<String, List<GroupMetadata>>
@@ -121,13 +165,13 @@ class HomePageViewModel(
             val following = arr[3] as Set<String>
             val meta = arr[4] as Map<String, UserMetadata>
             val needle = (arr[5] as String).trim().lowercase()
+            val resolved = arr[6] as Set<String>
             joinedByRelay
                 .flatMap { (relay, ids) ->
                     val metas = groupsByRelay[relay].orEmpty().associateBy { it.id }
                     ids.map { id ->
                         val memberPks = members[id].orEmpty()
-                        val friendsHere = memberPks.filter { it in following }
-                        val preview = (friendsHere.ifEmpty { memberPks }).take(8)
+                        val preview = previewPeople(memberPks, following, meta)
                         DiscoverGroup(
                             relayUrl = relay,
                             meta =
@@ -139,8 +183,9 @@ class HomePageViewModel(
                                 isPublic = true,
                                 isOpen = true,
                             ),
-                            people = preview.map { Friend(it, meta[it]) },
+                            people = preview,
                             memberCount = memberPks.size,
+                            peopleLoading = preview.isEmpty() && id !in resolved,
                         )
                     }
                 }
@@ -265,15 +310,25 @@ class HomePageViewModel(
                             isPublic = true,
                             isOpen = true,
                         ),
-                        people = friendPks.map { Friend(it, meta[it]) },
+                        // Friends discovered here first, then other members fill the
+                        // row up to PEOPLE_PREVIEW.
+                        people = previewPeople(
+                            memberPks = members[gid].orEmpty(),
+                            following = following,
+                            meta = meta,
+                            priorityFirst = friendPks.toList(),
+                        ),
                         // Prefer the relay's full member count; fall back to the
                         // known friends until the member list (kind:39002) arrives.
                         memberCount = members[gid].orEmpty().size.takeIf { it > 0 } ?: friendPks.size,
+                        // A friend group always has at least one friend to show.
+                        peopleLoading = false,
                     )
                 }
                 .filter { matchesQuery(it.meta, needle) }
                 .sortedWith(
-                    compareByDescending<DiscoverGroup> { it.people.size }
+                    // Rank by friend overlap (people are friends-first), then name.
+                    compareByDescending<DiscoverGroup> { dg -> dg.people.count { it.pubkey in following } }
                         .thenBy { (it.meta.name ?: it.meta.id).lowercase() },
                 )
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -293,6 +348,7 @@ class HomePageViewModel(
                 repo.groupMembers,
                 repo.userMetadata,
                 _query,
+                _membersResolved,
             ),
         ) { arr ->
             val lists = arr[0] as Map<String, List<UserGroupRef>>
@@ -302,16 +358,15 @@ class HomePageViewModel(
             val members = arr[4] as Map<String, List<String>>
             val meta = arr[5] as Map<String, UserMetadata>
             val needle = (arr[6] as String).trim().lowercase()
+            val resolved = arr[7] as Set<String>
             val myGroupIds = joinedByRelay.values.flatten().toSet()
             lists[CURATOR_PUBKEY].orEmpty()
                 .filter { it.groupId !in myGroupIds }
                 .map { ref ->
                     val gid = ref.groupId
                     val memberPks = members[gid].orEmpty()
-                    // "Friends, otherwise members": surface the people you follow who
-                    // are here; if none, fall back to members as social proof.
-                    val friendsHere = memberPks.filter { it in following }
-                    val preview = (friendsHere.ifEmpty { memberPks }).take(8)
+                    // People you follow first, then other members as social proof.
+                    val preview = previewPeople(memberPks, following, meta)
                     DiscoverGroup(
                         relayUrl = ref.relayUrl,
                         meta =
@@ -325,8 +380,9 @@ class HomePageViewModel(
                                 isPublic = true,
                                 isOpen = true,
                             ),
-                        people = preview.map { Friend(it, meta[it]) },
+                        people = preview,
                         memberCount = memberPks.size,
+                        peopleLoading = preview.isEmpty() && gid !in resolved,
                     )
                 }
                 .filter { matchesQuery(it.meta, needle) }
@@ -429,15 +485,22 @@ class HomePageViewModel(
                     discovered.forEach { g ->
                         if (requestedMembers.add(g.meta.id)) {
                             launch { repo.requestGroupMembers(g.meta.id) }
+                            // Stop the people-row skeleton after a grace period even if
+                            // the relay never returns a member list, so a card never
+                            // shimmers forever.
+                            launch {
+                                delay(MEMBERS_RESOLVE_TIMEOUT_MS)
+                                _membersResolved.update { it + g.meta.id }
+                            }
                         }
                     }
                 }
         }
-        // Resolve kind:0 for the people previewed on My groups / Recommended cards
-        // (members who are not already followed have no metadata yet). Friends' metadata
-        // is already fetched above from [following].
+        // Resolve kind:0 for the people previewed on every card (members who are not
+        // already followed have no metadata yet). Friends' own metadata is already
+        // fetched above from [following].
         viewModelScope.launch {
-            combine(myGroups, recommendedGroups) { a, b -> a + b }
+            combine(myGroups, friendsGroups, recommendedGroups) { a, b, c -> a + b + c }
                 .map { groups -> groups.flatMap { it.people }.map { it.pubkey }.toSet() }
                 .collect { pks ->
                     val missing = pks - requestedPeopleMeta
