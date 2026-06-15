@@ -38,6 +38,10 @@ import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordTypography
 import org.nostr.nostrord.ui.theme.Spacing
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.toRelayUrl
+
+/** Sentinel relay value that reveals the custom-relay text field. */
+private const val CUSTOM_RELAY = "__custom__"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,8 +81,13 @@ fun CreateGroupModal(
         }
     var selectedRelay by remember(currentRelayUrl) { mutableStateOf(currentRelayUrl) }
     var relayDropdownExpanded by remember { mutableStateOf(false) }
+    // Custom relay: picking "Custom relay…" reveals a text field so a group can be
+    // created on any relay, not just the known ones.
+    var customRelay by remember { mutableStateOf("") }
+    val usingCustomRelay = selectedRelay == CUSTOM_RELAY
+    val effectiveRelay = if (usingCustomRelay) customRelay.trim().toRelayUrl() else selectedRelay
 
-    val relayWebUrl = selectedRelay.replace("wss://", "https://").replace("ws://", "http://")
+    val relayWebUrl = effectiveRelay.replace("wss://", "https://").replace("ws://", "http://")
 
     fun cancelCreation() {
         creatingJob?.cancel()
@@ -237,7 +246,7 @@ fun CreateGroupModal(
                         onExpandedChange = { if (!isCreating) relayDropdownExpanded = it },
                     ) {
                         OutlinedTextField(
-                            value = selectedRelay.removePrefix("wss://"),
+                            value = if (usingCustomRelay) "Custom relay…" else selectedRelay.removePrefix("wss://"),
                             onValueChange = {},
                             readOnly = true,
                             trailingIcon = {
@@ -276,7 +285,38 @@ fun CreateGroupModal(
                                     },
                                 )
                             }
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Custom relay…",
+                                        color = if (usingCustomRelay) NostrordColors.Primary else NostrordColors.TextPrimary,
+                                        style = NostrordTypography.MessageBody,
+                                    )
+                                },
+                                onClick = {
+                                    selectedRelay = CUSTOM_RELAY
+                                    errorMessage = null
+                                    relayDropdownExpanded = false
+                                },
+                            )
                         }
+                    }
+
+                    if (usingCustomRelay) {
+                        Spacer(modifier = Modifier.height(Spacing.xs))
+                        OutlinedTextField(
+                            value = customRelay,
+                            onValueChange = {
+                                customRelay = it
+                                errorMessage = null
+                            },
+                            singleLine = true,
+                            placeholder = { Text("relay.example.com", color = NostrordColors.TextMuted) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = fieldColors(),
+                            shape = RoundedCornerShape(8.dp),
+                            enabled = !isCreating,
+                        )
                     }
 
                     // Always show a direct link to create the group on the relay's website.
@@ -455,7 +495,7 @@ fun CreateGroupModal(
                                                         parentGroupId = parentGroupId,
                                                         name = name.trim(),
                                                         about = about.trim().ifBlank { null },
-                                                        relayUrl = selectedRelay,
+                                                        relayUrl = effectiveRelay,
                                                         isPrivate = isPrivate,
                                                         isClosed = isClosed,
                                                         isRestricted = isRestricted,
@@ -467,7 +507,7 @@ fun CreateGroupModal(
                                                     AppModule.nostrRepository.createGroup(
                                                         name = name.trim(),
                                                         about = about.trim().ifBlank { null },
-                                                        relayUrl = selectedRelay,
+                                                        relayUrl = effectiveRelay,
                                                         isPrivate = isPrivate,
                                                         isClosed = isClosed,
                                                         isRestricted = isRestricted,
@@ -492,7 +532,7 @@ fun CreateGroupModal(
                                         }
                                     }
                             },
-                            enabled = !isCreating && name.isNotBlank(),
+                            enabled = !isCreating && name.isNotBlank() && effectiveRelay.isNotBlank(),
                             colors =
                             ButtonDefaults.buttonColors(
                                 containerColor = NostrordColors.Primary,

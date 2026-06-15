@@ -2,6 +2,7 @@ package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
@@ -20,6 +21,9 @@ import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useState
 import web.cssom.ClassName
+
+/** Sentinel select value that reveals the custom-relay text input. */
+private const val CUSTOM_RELAY = "__custom__"
 
 external interface CreateGroupModalProps : Props {
     var onClose: () -> Unit
@@ -55,6 +59,11 @@ val CreateGroupModal =
         val (name, setName) = useState { "" }
         val (groupId, setGroupId) = useState { "" }
         val (selectedRelay, setSelectedRelay) = useState { props.relayUrl ?: currentRelayUrl }
+        // Custom relay: picking "Custom relay…" in the select reveals a text input so a
+        // group can be created on any relay, not just the known ones.
+        val (customRelay, setCustomRelay) = useState { "" }
+        val usingCustom = selectedRelay == CUSTOM_RELAY
+        val effectiveRelay = if (usingCustom) customRelay.trim().toRelayUrl() else selectedRelay
         val (about, setAbout) = useState { "" }
         val (picture, setPicture) = useState { "" }
         val (isPrivate, setIsPrivate) = useState { false }
@@ -64,11 +73,15 @@ val CreateGroupModal =
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
 
-        val relayWebUrl = selectedRelay.replace("wss://", "https://").replace("ws://", "http://")
+        val relayWebUrl = effectiveRelay.replace("wss://", "https://").replace("ws://", "http://")
 
         fun submit() {
             if (name.isBlank()) {
                 setError("Group name is required.")
+                return
+            }
+            if (effectiveRelay.isBlank()) {
+                setError(if (usingCustom) "Enter a relay URL." else "Pick a relay.")
                 return
             }
             setError(null)
@@ -80,7 +93,7 @@ val CreateGroupModal =
                             parentGroupId = props.parentGroupId!!,
                             name = name.trim(),
                             about = about.trim().ifBlank { null },
-                            relayUrl = selectedRelay,
+                            relayUrl = effectiveRelay,
                             isPrivate = isPrivate,
                             isClosed = isClosed,
                             isRestricted = isRestricted,
@@ -92,7 +105,7 @@ val CreateGroupModal =
                         repo.createGroup(
                             name = name.trim(),
                             about = about.trim().ifBlank { null },
-                            relayUrl = selectedRelay,
+                            relayUrl = effectiveRelay,
                             isPrivate = isPrivate,
                             isClosed = isClosed,
                             isRestricted = isRestricted,
@@ -189,6 +202,21 @@ val CreateGroupModal =
                         option {
                             value = relay
                             +relay.removePrefix("wss://")
+                        }
+                    }
+                    option {
+                        value = CUSTOM_RELAY
+                        +"Custom relay…"
+                    }
+                }
+                if (usingCustom) {
+                    input {
+                        className = ClassName("modal-input")
+                        placeholder = "relay.example.com"
+                        value = customRelay
+                        onChange = { event ->
+                            setCustomRelay(event.currentTarget.value)
+                            setError(null)
                         }
                     }
                 }
@@ -290,7 +318,7 @@ val CreateGroupModal =
                     }
                     button {
                         className = ClassName("btn-primary")
-                        disabled = name.isBlank() || busy
+                        disabled = name.isBlank() || effectiveRelay.isBlank() || busy
                         onClick = { submit() }
                         +(
                             if (busy) {
