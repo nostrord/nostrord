@@ -7275,6 +7275,11 @@ body {
     color: var(--color-error);
 }
 
+.info-badge.info {
+    background: color-mix(in srgb, var(--color-text-link) 15%, transparent);
+    color: var(--color-text-link);
+}
+
 /* Prototype InfoRadio: bordered option cards for the notification level. */
 .info-radio-list {
     display: flex;

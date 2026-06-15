@@ -171,6 +171,13 @@ fun GroupInfoModal(
                                     tinted = true,
                                 )
                             }
+                            if (groupMetadata?.isHidden == true) {
+                                StatusBadge(
+                                    text = "Hidden",
+                                    color = NostrordColors.TextLink,
+                                    tinted = true,
+                                )
+                            }
                             if (memberCount > 0) {
                                 StatusBadge(
                                     text = "$memberCount members",

@@ -125,6 +125,12 @@ val GroupInfoModal =
                                 +"Restricted"
                             }
                         }
+                        if (group.isHidden) {
+                            span {
+                                className = ClassName("info-badge info")
+                                +"Hidden"
+                            }
+                        }
                         if (memberCount > 0) {
                             span {
                                 className = ClassName("info-badge")
