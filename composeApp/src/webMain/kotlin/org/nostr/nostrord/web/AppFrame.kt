@@ -37,8 +37,8 @@ import org.nostr.nostrord.web.modals.JoinGroupModal
 import org.nostr.nostrord.web.modals.UserProfileModal
 import org.nostr.nostrord.web.navigation.consumeInviteInHash
 import org.nostr.nostrord.web.navigation.currentHashRoute
-import org.nostr.nostrord.web.navigation.pushHome
 import org.nostr.nostrord.web.navigation.pushHashRoute
+import org.nostr.nostrord.web.navigation.pushHome
 import org.nostr.nostrord.web.navigation.pushRoute
 import org.nostr.nostrord.web.screens.ChatScreen
 import org.nostr.nostrord.web.screens.DmPage
@@ -548,7 +548,15 @@ val AppFrame =
                         onJoin = { setAddGroupStep("join") }
                         onCreate = { setAddGroupStep("create") }
                     }
-                "create" -> CreateGroupModal { onClose = { setAddGroupStep(null) } }
+                "create" ->
+                    CreateGroupModal {
+                        onClose = { setAddGroupStep(null) }
+                        // Open the freshly created group; normalized to match the relay
+                        // keys used everywhere else (the route effect switches relays).
+                        onCreated = { relayUrl, groupId ->
+                            pushRoute(GroupRoute(relayUrl.normalizeRelayUrl(), groupId))
+                        }
+                    }
                 "join" ->
                     JoinGroupModal {
                         onClose = { setAddGroupStep(null) }

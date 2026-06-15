@@ -50,7 +50,9 @@ fun CreateGroupModal(
     userRelays: Set<String> = emptySet(),
     parentGroupId: String? = null,
     onDismiss: () -> Unit,
-    onGroupCreated: (groupId: String, groupName: String) -> Unit,
+    // relayUrl is the relay the group was actually created on (may be a custom relay,
+    // not currentRelayUrl), so the caller navigates to the right place.
+    onGroupCreated: (relayUrl: String, groupId: String, groupName: String) -> Unit,
 ) {
     val isSubgroup = parentGroupId != null
     val scope = rememberCoroutineScope()
@@ -519,7 +521,7 @@ fun CreateGroupModal(
                                             isCreating = false
                                             creatingJob = null
                                             when (result) {
-                                                is Result.Success -> onGroupCreated(result.data, name.trim())
+                                                is Result.Success -> onGroupCreated(effectiveRelay, result.data, name.trim())
                                                 is Result.Error -> {
                                                     val raw = result.error.cause?.message ?: result.error.message
                                                     errorMessage = friendlyError(raw)

@@ -457,7 +457,7 @@ fun GroupScreen(
             currentRelayUrl = currentRelayUrl,
             parentGroupId = groupId,
             onDismiss = { showCreateSubgroupModal = false },
-            onGroupCreated = { newId, newName ->
+            onGroupCreated = { _, newId, newName ->
                 showCreateSubgroupModal = false
                 onNavigateToGroup(newId, newName, null)
             },

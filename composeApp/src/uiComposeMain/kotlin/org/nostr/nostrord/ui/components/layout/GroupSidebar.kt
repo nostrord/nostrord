@@ -195,9 +195,9 @@ fun GroupSidebar(
             userRelays = kind10009Relays,
             parentGroupId = route.groupId,
             onDismiss = { showCreateSubgroup = false },
-            onGroupCreated = { newId, _ ->
+            onGroupCreated = { relayUrl, newId, _ ->
                 showCreateSubgroup = false
-                onNavigateGroup(GroupRoute(route.relayUrl, newId))
+                onNavigateGroup(GroupRoute(relayUrl, newId))
             },
         )
     }

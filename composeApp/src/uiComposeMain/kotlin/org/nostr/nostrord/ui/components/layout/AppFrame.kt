@@ -354,9 +354,9 @@ fun AppFrame() {
                     currentRelayUrl = currentRelayUrl,
                     userRelays = kind10009Relays,
                     onDismiss = { addGroupStep = null },
-                    onGroupCreated = { groupId, _ ->
+                    onGroupCreated = { relayUrl, groupId, _ ->
                         addGroupStep = null
-                        route = GroupRoute(currentRelayUrl, groupId)
+                        route = GroupRoute(relayUrl, groupId)
                     },
                 )
             }

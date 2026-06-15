@@ -28,6 +28,9 @@ private const val CUSTOM_RELAY = "__custom__"
 external interface CreateGroupModalProps : Props {
     var onClose: () -> Unit
 
+    /** Navigate to the freshly created group (relay, groupId). Called before [onClose]. */
+    var onCreated: ((relayUrl: String, groupId: String) -> Unit)?
+
     /** When true, render as "Create Subgroup" (a child of the current group). */
     var subgroup: Boolean?
 
@@ -116,7 +119,11 @@ val CreateGroupModal =
                     }
                 setBusy(false)
                 when (result) {
-                    is Result.Success -> props.onClose()
+                    is Result.Success -> {
+                        // Open the new group's page, then dismiss the modal.
+                        props.onCreated?.invoke(effectiveRelay, result.data)
+                        props.onClose()
+                    }
                     is Result.Error -> setError(result.error.message.ifBlank { "Failed to create group." })
                 }
             }
