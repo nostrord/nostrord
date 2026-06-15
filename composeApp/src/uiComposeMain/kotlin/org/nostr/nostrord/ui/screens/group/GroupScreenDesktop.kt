@@ -288,6 +288,7 @@ fun GroupScreenDesktop(
                 isLoading = isMembersLoading,
                 isPendingApproval = isPendingApproval,
                 isGroupRestricted = isGroupRestricted,
+                isPublic = groupMetadata?.isPublic == true,
                 onMemberClick = { member -> onUserClick(member.pubkey) },
                 isCurrentUserAdmin = isCurrentUserAdmin,
                 currentUserPubkey = currentUserPubkey,
@@ -312,6 +313,7 @@ fun GroupScreenDesktop(
                 isLoading = isMembersLoading,
                 isPendingApproval = isPendingApproval,
                 isGroupRestricted = isGroupRestricted,
+                isPublic = groupMetadata?.isPublic == true,
                 onMemberClick = { member ->
                     onShowMemberSheet(false)
                     onUserClick(member.pubkey)

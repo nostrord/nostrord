@@ -71,6 +71,7 @@ fun MemberSidebar(
     isLoading: Boolean = false,
     isPendingApproval: Boolean = false,
     isGroupRestricted: Boolean = false,
+    isPublic: Boolean = false,
     onMemberClick: (MemberInfo) -> Unit = {},
     isCurrentUserAdmin: Boolean = false,
     currentUserPubkey: String? = null,
@@ -82,10 +83,12 @@ fun MemberSidebar(
     var searchQuery by remember { mutableStateOf("") }
     var showAddMemberModal by remember { mutableStateOf(false) }
 
-    // Hide the member list while the user is pending approval or the group is
-    // restricted — the lock placeholder rendered below should be authoritative,
-    // not whatever pubkeys leaked in via the message-sender fallback.
-    val visibleMembers = if (isPendingApproval || isGroupRestricted) emptyList() else members
+    // A public group's member list (kind:39002) is served to everyone, so show it even while
+    // pending approval. Hide only for PRIVATE groups (where the relay serves no member list and
+    // `members` would otherwise be just the pubkeys that leaked in via the message-sender
+    // fallback); the lock placeholder below is authoritative there.
+    val membersHidden = (isPendingApproval || isGroupRestricted) && !isPublic
+    val visibleMembers = if (membersHidden) emptyList() else members
     val filteredMembers =
         remember(visibleMembers, searchQuery) {
             if (searchQuery.isBlank()) {
@@ -304,7 +307,7 @@ fun MemberSidebar(
                 if (!isLoading &&
                     filteredMembers.isEmpty() &&
                     searchQuery.isBlank() &&
-                    (isPendingApproval || isGroupRestricted)
+                    membersHidden
                 ) {
                     item {
                         Column(

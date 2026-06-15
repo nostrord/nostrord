@@ -336,6 +336,7 @@ fun GroupScreenMobile(
                 isLoading = isMembersLoading,
                 isPendingApproval = isPendingApproval,
                 isGroupRestricted = isGroupRestricted,
+                isPublic = groupMetadata?.isPublic == true,
                 onMemberClick = { member ->
                     showMemberSheet = false
                     onUserClick(member.pubkey)

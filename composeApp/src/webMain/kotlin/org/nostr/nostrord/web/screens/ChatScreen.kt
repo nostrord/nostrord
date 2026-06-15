@@ -2116,11 +2116,11 @@ val ChatScreen =
                     // section, so the role info isn't lost.
                     val online = filtered.filter { it in recentlyActiveMembers }
                     val offline = filtered.filter { it !in recentlyActiveMembers }
-                    if (isGroupRestricted || isPendingApproval) {
-                        // Mirror native MemberSidebar.kt:296-324 — a private
-                        // group's member list is hidden until you join /
-                        // get approved, surfaced as a centered lock panel
-                        // instead of a skeleton or an empty list.
+                    if ((isGroupRestricted || isPendingApproval) && !props.group.isPublic) {
+                        // A private group's member list is hidden until you join / get
+                        // approved, surfaced as a centered lock panel instead of a skeleton
+                        // or an empty list. A PUBLIC group's members are served to everyone,
+                        // so they show even while pending (parity with native MemberSidebar).
                         div {
                             className = ClassName("member-private")
                             icon(Ic.Lock, "member-private-icon")
