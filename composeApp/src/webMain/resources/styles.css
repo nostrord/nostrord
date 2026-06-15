@@ -1618,7 +1618,18 @@ body {
 
 /* Banner from the user's avatar identity hue; background set inline per seed. */
 .profile-page-banner {
+    position: relative;
     height: 112px;
+    overflow: hidden;
+}
+
+/* Real banner image over the seeded gradient (covers it once loaded). */
+.profile-page-banner-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .profile-page-card-body {
@@ -2613,19 +2624,23 @@ body {
 /* Responsive card grid (1 / 2 / 3 columns) */
 .card-grid {
     display: grid;
-    grid-template-columns: 1fr;
+    /* minmax(0, 1fr), not the bare 1fr (= minmax(auto, 1fr)): a card whose
+       min-content is wide (long space-less id/URL in the name or description)
+       would otherwise stretch its track past 1fr and break the even columns.
+       The 0 floor lets every track shrink so the clamped text just clips. */
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
 }
 
 @media (min-width: 640px) {
     .card-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (min-width: 1024px) {
     .card-grid {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
@@ -5578,6 +5593,35 @@ body {
     color: #e3e5e8;
 }
 
+/* ~~strikethrough~~ */
+.msg-strike {
+    color: var(--color-text-muted);
+    text-decoration: line-through;
+}
+
+/* ||spoiler||: Discord-style, blurred until clicked (matches the prototype Spoiler). */
+.msg-spoiler {
+    padding: 0 2px;
+    border: none;
+    border-radius: 4px;
+    font: inherit;
+    color: var(--color-text-body, var(--color-text-content));
+    background: rgba(117, 114, 130, 0.25);
+    cursor: pointer;
+    user-select: none;
+    filter: blur(4px);
+    transition: filter 0.1s ease, background 0.1s ease;
+    vertical-align: baseline;
+}
+.msg-spoiler:hover {
+    background: rgba(117, 114, 130, 0.35);
+}
+.msg-spoiler.shown {
+    background: var(--color-floating);
+    filter: none;
+    user-select: text;
+}
+
 .msg-mention {
     color: var(--color-mention);
     font-weight: 500;
@@ -7378,7 +7422,7 @@ body {
     background: transparent;
     border: none;
     color: var(--color-text-secondary);
-    border-radius: 4px;
+    border-radius: 8px;
     cursor: pointer;
 }
 
@@ -7426,7 +7470,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 18px;
+    padding: 8px 12px;
     font-size: 13px;
     font-weight: 600;
     color: #ffffff;
@@ -7448,6 +7492,7 @@ body {
     color: var(--color-warning-orange);
     background: rgba(255, 165, 0, 0.15);
     border-radius: 8px;
+    margin-left: 8px;
 }
 
 .chat-join-btn:hover {
@@ -7470,7 +7515,6 @@ body {
     border: none;
     border-radius: 8px;
     cursor: pointer;
-    margin-right: 8px;
 }
 .chat-invite-btn:hover {
     background: var(--color-hover);
