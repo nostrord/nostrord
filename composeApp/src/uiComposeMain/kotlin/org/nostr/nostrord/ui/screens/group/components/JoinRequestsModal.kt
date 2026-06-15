@@ -64,7 +64,7 @@ fun JoinRequestsModal(
             Card(
                 modifier =
                 Modifier
-                    .widthIn(max = 420.dp)
+                    .widthIn(max = 480.dp)
                     .fillMaxWidth(0.9f)
                     .heightIn(max = 500.dp)
                     .clickable(

@@ -95,7 +95,7 @@ fun AddMemberModal(
             Card(
                 modifier =
                 Modifier
-                    .widthIn(max = 440.dp)
+                    .widthIn(max = 420.dp)
                     .fillMaxWidth(0.9f)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },

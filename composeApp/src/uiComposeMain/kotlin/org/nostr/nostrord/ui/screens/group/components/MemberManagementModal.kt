@@ -112,7 +112,7 @@ fun MemberManagementModal(
             Card(
                 modifier =
                 Modifier
-                    .widthIn(max = 520.dp)
+                    .widthIn(max = 480.dp)
                     .fillMaxWidth(0.9f)
                     .heightIn(max = 600.dp)
                     .clickable(

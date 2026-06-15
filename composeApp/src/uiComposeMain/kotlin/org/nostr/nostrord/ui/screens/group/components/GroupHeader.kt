@@ -36,9 +36,9 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.ui.components.avatars.GroupGradientAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.Spacing
-import org.nostr.nostrord.ui.util.generateColorFromString
 
 /** Group header with avatar, name, join/invite actions, and admin menu. */
 @Composable
@@ -172,89 +172,93 @@ fun GroupHeader(
             }
 
             // Header actions in prototype order: Search, Invite, Info, Members.
+            // Square 30dp buttons with a 4dp gap, matching the web .chat-icon-btn row.
             var showShareModal by remember { mutableStateOf(false) }
 
-            if (isAdmin && pendingJoinRequestCount > 0) {
-                Box {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isAdmin && pendingJoinRequestCount > 0) {
+                    Box {
+                        IconButton(
+                            onClick = onJoinRequestsClick,
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.PersonAdd,
+                                contentDescription = "Join requests",
+                                tint = NostrordColors.TextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Box(
+                            modifier =
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .offset(x = (-4).dp, y = 4.dp)
+                                .size(18.dp)
+                                .background(NostrordColors.Error, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+
+                IconButton(
+                    onClick = onSearchClick,
+                    modifier = Modifier.size(30.dp),
+                    // Active fill via the container so it matches the hover state-layer circle.
+                    colors =
+                    if (searchActive) {
+                        IconButtonDefaults.iconButtonColors(containerColor = NostrordColors.SurfaceVariant)
+                    } else {
+                        IconButtonDefaults.iconButtonColors()
+                    },
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Search messages",
+                        tint = if (searchActive) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
                     IconButton(
-                        onClick = onJoinRequestsClick,
-                        modifier = Modifier.size(32.dp),
+                        onClick = { showShareModal = true },
+                        modifier = Modifier.size(30.dp),
                     ) {
                         Icon(
-                            Icons.Default.PersonAdd,
-                            contentDescription = "Join requests",
+                            Icons.Default.Link,
+                            contentDescription = "Invite",
                             tint = NostrordColors.TextSecondary,
                             modifier = Modifier.size(18.dp),
                         )
                     }
-                    Box(
-                        modifier =
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = (-4).dp, y = 4.dp)
-                            .size(18.dp)
-                            .background(NostrordColors.Error, CircleShape),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = if (pendingJoinRequestCount > 9) "9+" else pendingJoinRequestCount.toString(),
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
                 }
-            }
 
-            IconButton(
-                onClick = onSearchClick,
-                modifier =
-                Modifier
-                    .size(32.dp)
-                    .then(
-                        if (searchActive) {
-                            Modifier.background(NostrordColors.SurfaceVariant, RoundedCornerShape(6.dp))
-                        } else {
-                            Modifier
-                        },
-                    ),
-            ) {
-                Icon(
-                    Icons.Default.Search,
-                    contentDescription = "Search messages",
-                    tint = if (searchActive) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-
-            if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
                 IconButton(
-                    onClick = { showShareModal = true },
-                    modifier = Modifier.size(32.dp),
+                    onClick = onTitleClick,
+                    modifier = Modifier.size(30.dp),
                 ) {
                     Icon(
-                        Icons.Default.Link,
-                        contentDescription = "Invite",
+                        Icons.Outlined.Info,
+                        contentDescription = "Group info",
                         tint = NostrordColors.TextSecondary,
                         modifier = Modifier.size(18.dp),
                     )
                 }
-            }
 
-            IconButton(
-                onClick = onTitleClick,
-                modifier = Modifier.size(32.dp),
-            ) {
-                Icon(
-                    Icons.Outlined.Info,
-                    contentDescription = "Group info",
-                    tint = NostrordColors.TextSecondary,
-                    modifier = Modifier.size(18.dp),
-                )
-            }
-
-            if (trailingIcon != null) {
-                trailingIcon()
+                if (trailingIcon != null) {
+                    trailingIcon()
+                }
             }
 
             if (showShareModal && relayUrl.isNotBlank() && groupId.isNotBlank()) {
@@ -266,6 +270,9 @@ fun GroupHeader(
             }
 
             Row(
+                // 4dp from the icon-button cluster, then 4dp between the buttons —
+                // the same uniform gap as the web .chat-header row.
+                modifier = Modifier.padding(start = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -287,21 +294,29 @@ fun GroupHeader(
                             Icon(
                                 Icons.Default.VpnKey,
                                 contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(14.dp),
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("Invite Code", style = MaterialTheme.typography.labelMedium)
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
                     }
 
                     Button(
                         onClick = { onJoinClick(null) },
                         colors = ButtonDefaults.buttonColors(containerColor = NostrordColors.Primary),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text("Join", style = MaterialTheme.typography.labelMedium)
+                        Icon(
+                            Icons.Default.PersonAdd,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            if (isClosed) "Request to Join" else "Join",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                     }
 
                     if (showInviteModal) {
@@ -433,16 +448,16 @@ internal fun GroupHeaderIcon(
         Modifier
             .size(size)
             .clip(iconShape)
-            .background(if (!showImage) generateColorFromString(groupId) else NostrordColors.BackgroundDark),
+            .background(if (showImage) NostrordColors.BackgroundDark else Color.Transparent),
         contentAlignment = Alignment.Center,
     ) {
         if (!showImage) {
-            Text(
-                text = displayName.take(1).uppercase(),
-                color = Color.White,
-                // Letter scales with the avatar (26dp header icon → 12sp, 32dp mobile → 15sp).
-                fontSize = (size.value * 0.46f).sp,
-                fontWeight = FontWeight.Bold,
+            // Seeded conic-swirl gradient + initial letter, matching the web group
+            // avatar fallback (groupGradientCss). The outer Box clips it to iconShape.
+            GroupGradientAvatar(
+                seed = groupId,
+                name = displayName,
+                size = size,
             )
         }
         if (!pictureUrl.isNullOrBlank()) {

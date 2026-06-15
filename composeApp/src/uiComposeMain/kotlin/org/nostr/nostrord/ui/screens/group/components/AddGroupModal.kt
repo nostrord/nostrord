@@ -52,7 +52,7 @@ fun AddGroupModal(
             shape = NostrordShapes.shapeXLarge,
             color = NostrordColors.Surface,
         ) {
-            Column(modifier = Modifier.width(400.dp).padding(Spacing.xxl)) {
+            Column(modifier = Modifier.width(420.dp).padding(Spacing.xxl)) {
                 Text(
                     "Add group",
                     color = NostrordColors.TextPrimary,
