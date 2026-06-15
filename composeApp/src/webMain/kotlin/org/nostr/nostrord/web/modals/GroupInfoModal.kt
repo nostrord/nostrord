@@ -112,11 +112,11 @@ val GroupInfoModal =
                     div {
                         className = ClassName("info-badges")
                         span {
-                            className = ClassName(if (group.isPublic) "info-badge success" else "info-badge")
+                            className = ClassName(if (group.isPublic) "info-badge success" else "info-badge warning")
                             +(if (group.isPublic) "Public" else "Private")
                         }
                         span {
-                            className = ClassName(if (group.isOpen) "info-badge primary" else "info-badge")
+                            className = ClassName(if (group.isOpen) "info-badge primary" else "info-badge orange")
                             +(if (group.isOpen) "Open" else "Closed")
                         }
                         if (memberCount > 0) {

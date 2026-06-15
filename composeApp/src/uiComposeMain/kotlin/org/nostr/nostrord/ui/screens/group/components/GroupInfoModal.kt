@@ -152,15 +152,17 @@ fun GroupInfoModal(
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
+                            // Restrictive states get warm tones (Private yellow, Closed
+                            // orange) so they read as states, not neutral chips.
                             StatusBadge(
                                 text = if (groupMetadata?.isPublic == true) "Public" else "Private",
-                                color = if (groupMetadata?.isPublic == true) NostrordColors.Success else NostrordColors.TextMuted,
-                                tinted = groupMetadata?.isPublic == true,
+                                color = if (groupMetadata?.isPublic == true) NostrordColors.Success else NostrordColors.Warning,
+                                tinted = true,
                             )
                             StatusBadge(
                                 text = if (groupMetadata?.isOpen == true) "Open" else "Closed",
-                                color = if (groupMetadata?.isOpen == true) NostrordColors.Primary else NostrordColors.TextMuted,
-                                tinted = groupMetadata?.isOpen == true,
+                                color = if (groupMetadata?.isOpen == true) NostrordColors.Primary else NostrordColors.WarningOrange,
+                                tinted = true,
                             )
                             if (memberCount > 0) {
                                 StatusBadge(

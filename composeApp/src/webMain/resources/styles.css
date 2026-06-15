@@ -7267,6 +7267,18 @@ body {
     color: var(--color-primary);
 }
 
+/* Restrictive NIP-29 states get warm tones (escalating): Private yellow,
+   Closed/Restricted orange — so they read as states, not neutral chips. */
+.info-badge.warning {
+    background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+    color: var(--color-warning);
+}
+
+.info-badge.orange {
+    background: color-mix(in srgb, var(--color-warning-orange) 18%, transparent);
+    color: var(--color-warning-orange);
+}
+
 /* Prototype InfoRadio: bordered option cards for the notification level. */
 .info-radio-list {
     display: flex;
