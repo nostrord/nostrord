@@ -266,6 +266,22 @@ class NostrRepository(
     // Expose NIP-11 relay metadata
     private val _relayMetadataManager = relayMetadataManager ?: RelayMetadataManager(scope)
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadataManager.relayMetadata
+
+    // Relays we could not reach (normalized URLs): the WebSocket connect failed, or
+    // the NIP-11 HTTP fetch exhausted its retries, AND no socket is currently up. A
+    // relay whose socket connected is always reachable even if its NIP-11 is missing
+    // (many NIP-29 relays do not serve a NIP-11 document). Discovery surfaces hide
+    // groups hosted on these.
+    override val unreachableRelays: StateFlow<Set<String>> =
+        combine(
+            connectionManager.relayReachability,
+            _relayMetadataManager.failedRelays,
+        ) { reachability, nip11Failed ->
+            val socketOk = reachability.filterValues { it }.keys
+            val socketFailed = reachability.filterValues { !it }.keys.toSet()
+            val nip11Bad = nip11Failed.map { it.normalizeRelayUrl() }.toSet()
+            (socketFailed + (nip11Bad - socketOk)).toSet()
+        }.stateIn(scope, SharingStarted.Eagerly, emptySet())
     override val kind10009Relays: StateFlow<Set<String>> = outboxManager.kind10009Relays
     override val groupTagRelays: StateFlow<Set<String>> = outboxManager.groupTagRelays
 

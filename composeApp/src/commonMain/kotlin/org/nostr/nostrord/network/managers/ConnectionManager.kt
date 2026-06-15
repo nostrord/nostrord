@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -51,6 +52,19 @@ class ConnectionManager(
     // Shared relay pool for all auxiliary connections (outbox, metadata, NIP-65)
     private val poolMutex = Mutex()
     private val relayPool = mutableMapOf<String, NostrGroupClient>()
+
+    // Per-relay (normalized URL) outcome of the most recent WebSocket connect:
+    // true = opened, false = failed. Drives reachability filtering on discovery
+    // surfaces. A relay that connected then dropped stays `true` (it is reachable,
+    // just reconnecting) so flaky relays are not hidden.
+    private val _relayReachability = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val relayReachability: StateFlow<Map<String, Boolean>> = _relayReachability.asStateFlow()
+
+    private fun markReachability(relayUrl: String, reachable: Boolean) {
+        _relayReachability.update { current ->
+            if (current[relayUrl] == reachable) current else current + (relayUrl to reachable)
+        }
+    }
 
     // Singleflight: in-flight connection attempts per URL. Without this,
     // concurrent callers of getOrConnectRelay for the same URL each create
@@ -249,10 +263,12 @@ class ConnectionManager(
                     _connectionState.value = ConnectionState.Error("Connection timed out")
                 }
                 connStats?.onConnectFailed(relayUrl)
+                markReachability(relayUrl.normalizeRelayUrl(), false)
                 return@withLock false
             }
             _connectionState.value = ConnectionState.Connected
             connStats?.onConnected(relayUrl)
+            markReachability(relayUrl.normalizeRelayUrl(), true)
             // Feed adaptive config: relay connection latency
             connStats?.getStats()?.get(relayUrl)?.lastReconnectMs?.let { latency ->
                 adaptiveConfig?.recordRelayLatency(relayUrl, latency)
@@ -541,10 +557,12 @@ class ConnectionManager(
             if (!connected) {
                 newClient.disconnect()
                 connStats?.onConnectFailed(normalized)
+                markReachability(normalized, false)
                 result = null
             } else {
                 poolMutex.withLock { relayPool[normalized] = newClient }
                 connStats?.onConnected(normalized)
+                markReachability(normalized, true)
                 connStats?.getStats()?.get(normalized)?.lastReconnectMs?.let { latency ->
                     adaptiveConfig?.recordRelayLatency(normalized, latency)
                 }
@@ -552,6 +570,7 @@ class ConnectionManager(
             }
         } catch (e: Exception) {
             connStats?.onConnectFailed(normalized)
+            markReachability(normalized, false)
             result = null
         } finally {
             poolMutex.withLock { pendingConnects.remove(normalized) }

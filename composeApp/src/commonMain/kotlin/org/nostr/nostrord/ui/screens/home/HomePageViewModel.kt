@@ -2,11 +2,11 @@ package org.nostr.nostrord.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -23,6 +23,7 @@ import org.nostr.nostrord.notifications.NotificationHistoryStore
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.loadFollowingCacheFor
 import org.nostr.nostrord.storage.saveFollowingCacheFor
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
  * Curator whose public group list (kind:10009) seeds the "Recommended" tab: the
@@ -257,6 +258,7 @@ class HomePageViewModel(
                 repo.groupMembers,
                 repo.userMetadata,
                 _query,
+                repo.unreachableRelays,
             ),
         ) { arr ->
             val following = arr[0] as Set<String>
@@ -266,6 +268,7 @@ class HomePageViewModel(
             val members = arr[4] as Map<String, List<String>>
             val meta = arr[5] as Map<String, UserMetadata>
             val needle = (arr[6] as String).trim().lowercase()
+            val unreachable = arr[7] as Set<String>
 
             if (following.isEmpty()) return@combine emptyList()
             val myGroupIds = joinedByRelay.values.flatten().toSet()
@@ -325,6 +328,7 @@ class HomePageViewModel(
                         peopleLoading = false,
                     )
                 }
+                .filter { it.relayUrl.normalizeRelayUrl() !in unreachable }
                 .filter { matchesQuery(it.meta, needle) }
                 .sortedWith(
                     // Rank by friend overlap (people are friends-first), then name.
@@ -349,6 +353,7 @@ class HomePageViewModel(
                 repo.userMetadata,
                 _query,
                 _membersResolved,
+                repo.unreachableRelays,
             ),
         ) { arr ->
             val lists = arr[0] as Map<String, List<UserGroupRef>>
@@ -359,9 +364,11 @@ class HomePageViewModel(
             val meta = arr[5] as Map<String, UserMetadata>
             val needle = (arr[6] as String).trim().lowercase()
             val resolved = arr[7] as Set<String>
+            val unreachable = arr[8] as Set<String>
             val myGroupIds = joinedByRelay.values.flatten().toSet()
             lists[CURATOR_PUBKEY].orEmpty()
                 .filter { it.groupId !in myGroupIds }
+                .filter { it.relayUrl.normalizeRelayUrl() !in unreachable }
                 .map { ref ->
                     val gid = ref.groupId
                     val memberPks = members[gid].orEmpty()

@@ -104,6 +104,13 @@ interface NostrRepositoryApi {
     val userRelayList: StateFlow<List<Nip65Relay>>
     val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>>
 
+    /**
+     * Relay URLs (normalized) we could not reach: the WebSocket connect failed, or
+     * the NIP-11 HTTP fetch exhausted its retries with no working socket. Discovery
+     * surfaces (From friends, Recommended) hide groups hosted on these.
+     */
+    val unreachableRelays: StateFlow<Set<String>>
+
     /** Relay URLs present as explicit "r" tags in the user's kind:10009 event. */
     val kind10009Relays: StateFlow<Set<String>>
 

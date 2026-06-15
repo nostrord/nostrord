@@ -235,6 +235,39 @@ class HomePageViewModelTest {
     }
 
     @Test
+    fun `friendsGroups and recommendedGroups hide groups on unreachable relays`() = runTest {
+        val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
+        val fake = FakeNostrRepository()
+        fake._following.value = setOf("alice")
+        fake._userGroupLists.value =
+            mapOf(
+                "alice" to
+                    listOf(
+                        org.nostr.nostrord.network.UserGroupRef("wss://up", "gf"),
+                        org.nostr.nostrord.network.UserGroupRef("wss://down", "gd"),
+                    ),
+                curator to
+                    listOf(
+                        org.nostr.nostrord.network.UserGroupRef("wss://up", "gr"),
+                        org.nostr.nostrord.network.UserGroupRef("wss://down", "grd"),
+                    ),
+            )
+        fake._groupsByRelay.value =
+            mapOf(
+                "wss://up" to listOf(meta("gf", "Friend Up"), meta("gr", "Rec Up")),
+                "wss://down" to listOf(meta("gd", "Friend Down"), meta("grd", "Rec Down")),
+            )
+        // wss://down failed NIP-11 / socket: its groups must not appear on discovery.
+        fake._unreachableRelays.value = setOf("wss://down")
+
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("gf"), vm.friendsGroups.value.map { it.meta.id })
+        assertEquals(listOf("gr"), vm.recommendedGroups.value.map { it.meta.id })
+    }
+
+    @Test
     fun `notificationUnread counts only unread entries`() = runTest {
         fun entry(
             id: String,

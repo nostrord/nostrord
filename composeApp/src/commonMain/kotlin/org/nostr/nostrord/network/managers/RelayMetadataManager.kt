@@ -6,6 +6,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -39,6 +40,12 @@ class RelayMetadataManager(
 
     private val _relayMetadata = MutableStateFlow<Map<String, Nip11RelayInfo>>(emptyMap())
     val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadata.asStateFlow()
+
+    // Relays whose NIP-11 HTTP fetch exhausted all retries: the document host is
+    // unreachable. Cleared if a later fetch succeeds. Used (with socket reachability)
+    // to hide groups on dead relays from the discovery surfaces.
+    private val _failedRelays = MutableStateFlow<Set<String>>(emptySet())
+    val failedRelays: StateFlow<Set<String>> = _failedRelays.asStateFlow()
 
     // URLs that resolved successfully — never re-fetch these
     private val succeeded = mutableSetOf<String>()
@@ -120,6 +127,7 @@ class RelayMetadataManager(
                         inProgress.remove(relayUrl)
                         succeeded.add(relayUrl)
                     }
+                    _failedRelays.update { it - relayUrl }
                     val updated = _relayMetadata.value + (relayUrl to info)
                     _relayMetadata.value = updated
                     try {
@@ -141,7 +149,9 @@ class RelayMetadataManager(
                             mutex.withLock { inProgress.remove(relayUrl) }
                         }
                     } else {
+                        // Retries exhausted: the NIP-11 host is unreachable for this session.
                         mutex.withLock { inProgress.remove(relayUrl) }
+                        _failedRelays.update { it + relayUrl }
                     }
                 }
             } finally {

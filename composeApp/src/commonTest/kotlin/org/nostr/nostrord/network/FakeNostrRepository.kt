@@ -44,6 +44,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     val _unreadCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
     val _userRelayList = MutableStateFlow<List<Nip65Relay>>(emptyList())
     val _relayMetadata = MutableStateFlow<Map<String, Nip11RelayInfo>>(emptyMap())
+    val _unreachableRelays = MutableStateFlow<Set<String>>(emptySet())
     val _loadingMembers = MutableStateFlow<Set<String>>(emptySet())
 
     // Configurable behaviour
@@ -109,6 +110,7 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val unreadByRelay: StateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
     override val userRelayList: StateFlow<List<Nip65Relay>> = _userRelayList
     override val relayMetadata: StateFlow<Map<String, Nip11RelayInfo>> = _relayMetadata
+    override val unreachableRelays: StateFlow<Set<String>> = _unreachableRelays
     override val loadingMembers: StateFlow<Set<String>> = _loadingMembers
 
     override fun forceInitialized() {
