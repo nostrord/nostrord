@@ -261,12 +261,18 @@ class HomePageViewModel(
         combine(_contactsResolved, friends) { resolved, fr -> !resolved && fr.isEmpty() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, cachedFriends.isEmpty())
 
+    // Frozen first-seen display order for From friends (groupId -> slot), so the grid
+    // doesn't reshuffle as member counts and new groups stream in.
+    private val friendsOrder = mutableMapOf<String, Int>()
+    private var friendsOrderNext = 0
+
     /**
      * Groups people you follow are in that you are NOT already in (discovery via
      * the social graph). Two signals are merged per group: a friend's public
      * kind:10009 list, and friends who appear in a group's member list (kind:39002)
-     * for groups whose metadata we already have. Ranked by friend overlap, then name.
-     * Populated on demand by [loadFriendsGroups] (the "From friends" tab).
+     * for groups whose metadata we already have. New groups append after those
+     * already shown (stable order); within a batch, ranked by friend overlap, then
+     * name. Populated on demand by [loadFriendsGroups] (the "From friends" tab).
      */
     @Suppress("UNCHECKED_CAST")
     val friendsGroups: StateFlow<List<DiscoverGroup>> =
@@ -346,12 +352,21 @@ class HomePageViewModel(
                     )
                 }
                 .filter { it.relayUrl.normalizeRelayUrl() !in unreachable }
-                .filter { matchesQuery(it.meta, needle) }
-                .sortedWith(
-                    // Rank by friend overlap (people are friends-first), then name.
-                    compareByDescending<DiscoverGroup> { dg -> dg.people.count { it.pubkey in following } }
-                        .thenBy { (it.meta.name ?: it.meta.id).lowercase() },
-                )
+                .let { all ->
+                    // Freeze display order: a group keeps its slot once shown, and
+                    // newcomers (ranked by friend overlap, then name, among themselves)
+                    // are appended after it. Without this the whole grid reshuffles every
+                    // time a member count or a new group streams in (see screencasts).
+                    all.asSequence()
+                        .filter { it.meta.id !in friendsOrder }
+                        .sortedWith(
+                            compareByDescending<DiscoverGroup> { dg -> dg.people.count { it.pubkey in following } }
+                                .thenBy { (it.meta.name ?: it.meta.id).lowercase() },
+                        )
+                        .forEach { friendsOrder.getOrPut(it.meta.id) { friendsOrderNext++ } }
+                    all.filter { matchesQuery(it.meta, needle) }
+                        .sortedBy { friendsOrder[it.meta.id] ?: Int.MAX_VALUE }
+                }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
