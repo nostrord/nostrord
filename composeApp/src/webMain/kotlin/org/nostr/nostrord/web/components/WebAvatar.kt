@@ -110,7 +110,7 @@ val WebAvatar =
                             style = unsafeJso { background = userGradientCss(seed).unsafeCast<Background>() }
                         }
                     AvatarKind.GROUP -> letterAvatar(seed, props.name, background = groupGradientCss(seed))
-                    AvatarKind.RELAY -> letterAvatar(seed, props.name)
+                    AvatarKind.RELAY -> letterAvatar(seed, props.name, background = relayGradientCss(seed))
                 }
             }
 
@@ -188,4 +188,10 @@ private fun userGradientCss(seed: String): String {
 private fun groupGradientCss(seed: String): String {
     val g = AvatarGradients.group(seed)
     return "conic-gradient(from ${g.fromDeg}deg, ${hsl(g.c1)}, ${hsl(g.c2)}, ${hsl(g.c3)}, ${hsl(g.c1)})"
+}
+
+/** Relay fallback: a three-stop diagonal band seeded by the relay URL (gradientRelayAvatar). */
+private fun relayGradientCss(seed: String): String {
+    val g = AvatarGradients.relay(seed)
+    return "linear-gradient(${g.angleDeg}deg, ${hsl(g.start)} 0%, ${hsl(g.mid)} 50%, ${hsl(g.end)} 100%)"
 }

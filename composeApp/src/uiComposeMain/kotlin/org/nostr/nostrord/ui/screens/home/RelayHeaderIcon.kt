@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -17,20 +16,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
 import kotlinx.coroutines.delay
 import org.nostr.nostrord.nostr.isValidIconUrl
+import org.nostr.nostrord.ui.components.avatars.RelayGradientAvatar
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.util.buildRelayIconRequest
-import org.nostr.nostrord.ui.util.generateColorFromString
 import org.nostr.nostrord.ui.util.relayFallbackPainter
 
 /**
@@ -64,7 +60,7 @@ internal fun RelayHeaderIcon(
         Modifier
             .size(size)
             .clip(RoundedCornerShape(14.dp))
-            .background(if (imageLoaded && hasIcon) NostrordColors.BackgroundDark else generateColorFromString(relayUrl)),
+            .background(NostrordColors.BackgroundDark),
         contentAlignment = Alignment.Center,
     ) {
         // Base layer: fallback shown until image overlays it
@@ -76,12 +72,8 @@ internal fun RelayHeaderIcon(
                 contentScale = ContentScale.Crop,
             )
         } else if (!imageLoaded) {
-            Text(
-                text = label.take(1).uppercase(),
-                color = Color.White,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            // Seeded relay gradient + initial letter (web .avatar-letter on relayGradientCss).
+            RelayGradientAvatar(seed = relayUrl, name = label, size = size)
         }
         if (hasIcon) {
             key(retryCount) {

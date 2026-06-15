@@ -35,6 +35,19 @@ object AvatarGradients {
         val fromDeg: Int,
     )
 
+    /**
+     * Tri-tone diagonal band for relays: a three-stop linear gradient (start -> mid ->
+     * end) at [angleDeg] (CSS convention). The extra middle stop and the ordered hue
+     * march set relays apart from the user's two-tone duotone and the group's conic
+     * swirl, so a relay avatar reads as a relay at a glance.
+     */
+    data class Relay(
+        val start: Hsl,
+        val mid: Hsl,
+        val end: Hsl,
+        val angleDeg: Int,
+    )
+
     fun user(seed: String): User {
         val rnd = Lcg(fnv1a(seed.ifEmpty { "anon" }))
         val h1 = (rnd.next() * 360).toInt()
@@ -77,6 +90,21 @@ object AvatarGradients {
             c2 = Hsl(h2, 70, 44),
             c3 = Hsl(h1, 58, 36),
             fromDeg = from,
+        )
+    }
+
+    fun relay(seed: String): Relay {
+        val rnd = Lcg(fnv1a(seed.ifEmpty { "relay" }))
+        val h1 = (rnd.next() * 360).toInt()
+        // Tight, ordered hue march for a smooth three-band ramp (vs the user's wide split).
+        val h2 = (h1 + 25 + (rnd.next() * 45).toInt()) % 360
+        val h3 = (h2 + 25 + (rnd.next() * 45).toInt()) % 360
+        val angle = 145 + (rnd.next() * 70).toInt()
+        return Relay(
+            start = Hsl(h1, 60, 55),
+            mid = Hsl(h2, 58, 44),
+            end = Hsl(h3, 54, 32),
+            angleDeg = angle,
         )
     }
 

@@ -85,6 +85,43 @@ fun GroupGradientAvatar(
     }
 }
 
+/**
+ * Deterministic gradient fallback for relay avatars (prototype gradientRelayAvatar): a
+ * three-stop diagonal band seeded by the relay URL, with the relay's initial letter on
+ * top. Distinct from the user duotone and the group conic. The caller clips to the
+ * avatar shape.
+ */
+@Composable
+fun RelayGradientAvatar(
+    seed: String,
+    name: String?,
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
+    val gradient = remember(seed) { AvatarGradients.relay(seed) }
+    val letter =
+        (
+            name?.firstOrNull { !it.isWhitespace() }
+                ?: seed.firstOrNull { !it.isWhitespace() }
+            )?.uppercaseChar()?.toString()
+    Box(
+        modifier =
+        modifier.size(size).drawBehind {
+            drawRelayGradient(gradient)
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (letter != null) {
+            Text(
+                letter,
+                color = Color.White,
+                fontSize = (size.value * 0.5f).sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
 private fun Hsl.toColor(): Color = Color.hsl(hue.toFloat(), saturation / 100f, lightness / 100f)
 
 /**
@@ -130,6 +167,30 @@ private fun DrawScope.drawUserGradient(g: AvatarGradients.User) {
  * sweep brush starts at 3 o'clock, hence the -90 in the rotation; the rect is
  * inflated to the diagonal so the rotation leaves no uncovered corners.
  */
+/**
+ * CSS linear-gradient(angle, start 0%, mid 50%, end 100%). Same diagonal-line math as
+ * the user gradient (CSS angle clockwise from "to top"), with a middle stop so the ramp
+ * matches the web relay band pixel-for-pixel.
+ */
+private fun DrawScope.drawRelayGradient(g: AvatarGradients.Relay) {
+    val a = g.angleDeg * PI / 180.0
+    val dir = Offset(sin(a).toFloat(), -cos(a).toFloat())
+    val half = (abs(size.width * sin(a)) + abs(size.height * cos(a))).toFloat() / 2f
+    drawRect(
+        brush =
+        Brush.linearGradient(
+            colorStops =
+            arrayOf(
+                0f to g.start.toColor(),
+                0.5f to g.mid.toColor(),
+                1f to g.end.toColor(),
+            ),
+            start = center - dir * half,
+            end = center + dir * half,
+        ),
+    )
+}
+
 private fun DrawScope.drawGroupGradient(g: AvatarGradients.Group) {
     val r = hypot(size.width, size.height) / 2f
     rotate(degrees = g.fromDeg - 90f) {
