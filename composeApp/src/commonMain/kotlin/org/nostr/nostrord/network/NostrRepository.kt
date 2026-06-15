@@ -2667,21 +2667,7 @@ class NostrRepository(
                             fetchZapReceiptsFromGeneralRelays(messageIds)
                         }
                     }
-                    // Close one-shot subs after EOSE so the relay slot is freed.
-                    if (subId.startsWith("meta_") ||
-                        subId.startsWith("admins_") ||
-                        subId.startsWith("members_") ||
-                        subId.startsWith("metadata_") ||
-                        subId.startsWith("e_") ||
-                        subId.startsWith("a_") ||
-                        subId.startsWith("reactions_") ||
-                        subId.startsWith("zaps_") ||
-                        subId.startsWith("event_")
-                    ) {
-                        try {
-                            client.send("""["CLOSE","$subId"]""")
-                        } catch (_: Exception) {}
-                    }
+                    closeOneShotSubAfterEose(subId, client)
                 }
             }
 
@@ -2904,6 +2890,32 @@ class NostrRepository(
         }
     }
 
+    /**
+     * CLOSE one-shot subscriptions once their EOSE arrives so the relay frees the
+     * slot. Live subscriptions (mux_*, group-list) are intentionally absent and
+     * stay open. Shared by both message handlers so the light metadata/outbox
+     * handler ([handleRelayMessage]) cleans up the same way the full one does.
+     */
+    private fun closeOneShotSubAfterEose(subId: String, client: NostrGroupClient) {
+        if (subId.startsWith("meta_") ||
+            subId.startsWith("admins_") ||
+            subId.startsWith("members_") ||
+            subId.startsWith("metadata_") ||
+            subId.startsWith("msg_") ||
+            subId.startsWith("e_") ||
+            subId.startsWith("a_") ||
+            subId.startsWith("reactions_") ||
+            subId.startsWith("zaps_") ||
+            subId.startsWith("event_")
+        ) {
+            scope.launch {
+                try {
+                    client.send("""["CLOSE","$subId"]""")
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     private fun handleRelayMessage(msg: String, client: NostrGroupClient) {
         try {
             val arr = json.parseToJsonElement(msg).jsonArray
@@ -2912,6 +2924,10 @@ class NostrRepository(
             if (arr.size >= 2 && arr[0].jsonPrimitive.content == "EOSE") {
                 val subId = arr[1].jsonPrimitive.content
                 outboxManager.handleEose(subId)
+                // Relays connected via the metadata/outbox path route here and
+                // would otherwise never close their one-shot fetches (observed:
+                // zap-receipt subs leaking on nos.lol/damus).
+                closeOneShotSubAfterEose(subId, client)
                 return
             }
 
