@@ -164,6 +164,13 @@ fun GroupInfoModal(
                                 color = if (groupMetadata?.isOpen == true) NostrordColors.Primary else NostrordColors.WarningOrange,
                                 tinted = true,
                             )
+                            if (groupMetadata?.isRestricted == true) {
+                                StatusBadge(
+                                    text = "Restricted",
+                                    color = NostrordColors.Error,
+                                    tinted = true,
+                                )
+                            }
                             if (memberCount > 0) {
                                 StatusBadge(
                                     text = "$memberCount members",

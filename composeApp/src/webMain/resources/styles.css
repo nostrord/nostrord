@@ -2701,15 +2701,6 @@ body {
     height: 12px;
 }
 
-.badge-restricted {
-    margin-left: 4px;
-    padding: 2px 6px;
-    font-size: 10px;
-    color: var(--color-warning);
-    background: var(--color-floating);
-    border-radius: var(--radius-sm);
-}
-
 /* Social proof on the From friends / Recommended discovery cards: the people in
    the group as overlapping avatars and the total count. */
 .group-card-people {
@@ -7277,6 +7268,11 @@ body {
 .info-badge.orange {
     background: color-mix(in srgb, var(--color-warning-orange) 18%, transparent);
     color: var(--color-warning-orange);
+}
+
+.info-badge.danger {
+    background: color-mix(in srgb, var(--color-error) 15%, transparent);
+    color: var(--color-error);
 }
 
 /* Prototype InfoRadio: bordered option cards for the notification level. */

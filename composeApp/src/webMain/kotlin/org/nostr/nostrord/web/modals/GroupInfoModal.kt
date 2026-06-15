@@ -119,6 +119,12 @@ val GroupInfoModal =
                             className = ClassName(if (group.isOpen) "info-badge primary" else "info-badge orange")
                             +(if (group.isOpen) "Open" else "Closed")
                         }
+                        if (group.isRestricted) {
+                            span {
+                                className = ClassName("info-badge danger")
+                                +"Restricted"
+                            }
+                        }
                         if (memberCount > 0) {
                             span {
                                 className = ClassName("info-badge")

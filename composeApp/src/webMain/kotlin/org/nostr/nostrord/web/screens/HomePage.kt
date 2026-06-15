@@ -364,8 +364,8 @@ private fun ChildrenBuilder.discoverGroupCard(
                     }
                     if (meta.isRestricted) {
                         span {
-                            className = ClassName("badge-restricted")
-                            +"restricted"
+                            className = ClassName("info-badge danger")
+                            +"Restricted"
                         }
                     }
                 }

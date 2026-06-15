@@ -155,18 +155,8 @@ fun GroupCard(
                                 )
                             }
                             if (restricted) {
-                                if (peopleCount > 0) Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    shape = NostrordShapes.shapeSmall,
-                                    color = NostrordColors.BackgroundFloating,
-                                ) {
-                                    Text(
-                                        "restricted",
-                                        color = NostrordColors.Warning,
-                                        fontSize = 10.sp,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    )
-                                }
+                                if (peopleCount > 0 && !showTags) Spacer(modifier = Modifier.width(6.dp))
+                                TagBadge(text = "Restricted", color = NostrordColors.Error)
                             }
                         }
                     }
