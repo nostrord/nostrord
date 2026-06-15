@@ -116,9 +116,13 @@ val WebAvatar =
 
             // Real picture on top: hidden until it loads, removed on error so the fallback shows.
             if (!url.isNullOrBlank() && !failed) {
+                // White backdrop for transparent user/group pictures (PNG with alpha) so they
+                // sit on white, not the surface colour. Relays keep a transparent backdrop: a
+                // white-on-transparent relay logo would vanish on white.
+                val whiteBg = if (kind != AvatarKind.RELAY) " avatar-photo-white" else ""
                 img {
                     ref = imgRef
-                    className = ClassName(if (loaded) "avatar-photo loaded" else "avatar-photo")
+                    className = ClassName((if (loaded) "avatar-photo loaded" else "avatar-photo") + whiteBg)
                     src = url
                     alt = props.name
                     onLoad = { setLoaded(true) }

@@ -2906,6 +2906,11 @@ body {
 .avatar-photo.loaded {
     opacity: 1;
 }
+/* White backdrop for transparent user/group pictures so alpha areas show white
+   rather than the tile's surface colour. Relays opt out (see WebAvatar). */
+.avatar-photo-white {
+    background: #fff;
+}
 /* Groups are rounded squares (users stay circular via their cls). */
 .avatar-stack.group {
     border-radius: 25%;

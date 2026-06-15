@@ -1,5 +1,6 @@
 package org.nostr.nostrord.ui.components.avatars
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -160,6 +161,9 @@ fun OptimizedSmallAvatar(
                 Modifier
                     .fillMaxSize()
                     .clip(shape)
+                    // White backdrop so a transparent avatar (PNG with alpha) shows on
+                    // white instead of the surface colour bleeding through.
+                    .background(Color.White)
                     .then(
                         // Add subtle edge definition for smaller sizes
                         if (edgeColor.alpha > 0f) {
