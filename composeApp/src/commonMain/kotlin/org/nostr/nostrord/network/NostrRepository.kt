@@ -2052,7 +2052,16 @@ class NostrRepository(
         }
     }
 
+    // Serialize check-and-set: the Home and Profile view models both fire this on
+    // startup, and without the lock both pass the `contactListRequested` guard
+    // before either latches it (the guard is set only after the suspending relay
+    // send), doubling the kind:3 REQ to every relay.
     override suspend fun requestContactList() {
+        contactListMutex.withLock { requestContactListLocked() }
+    }
+
+    /** Body of [requestContactList]; caller must hold [contactListMutex]. */
+    private suspend fun requestContactListLocked() {
         val pubKey = sessionManager.getPublicKey() ?: return
         if (contactListRequested) return
 
@@ -2107,7 +2116,7 @@ class NostrRepository(
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return contactListMutex.withLock {
             if (!contactListRequested) {
-                requestContactList()
+                requestContactListLocked() // already holding contactListMutex
                 // Wait briefly for a relay to return the existing list before we
                 // overwrite it; absence is treated as "no prior list" after this.
                 withTimeoutOrNull(3_000L) { following.first { contactListCreatedAt > 0L } }
