@@ -547,7 +547,11 @@ fun MessagesList(
         LocalImageViewerUrl provides imageViewerUrl,
     ) {
         when {
-            isPendingApproval || isGroupRestricted -> {
+            // The lock placeholder only when there are no messages to show: a PUBLIC group
+            // that needs approval still serves its chat, so once messages exist we render
+            // them even while the join request is pending (parity with web). Only private /
+            // truly-restricted groups stay empty and fall here.
+            (isPendingApproval || isGroupRestricted) && chatItems.isEmpty() -> {
                 Column(
                     modifier =
                     Modifier
