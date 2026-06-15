@@ -1047,11 +1047,20 @@ val ChatScreen =
                 !membersLoading &&
                 members.isNotEmpty() &&
                 myPubkey !in members
-        // Post only as an actual member, or in an OPEN group we're in and not awaiting approval.
-        val canPost = isMember || (group.isOpen && inMyList && !isPendingApproval)
+        // Post only as a confirmed kind:39002 member. (The old `|| (isOpen && inMyList)` let us
+        // post optimistically before the member list loaded, which flashed the composer before we
+        // knew we were actually still pending.)
+        val canPost = isMember
+        // Composer + header pending state: show pending DIRECTLY. While the member list is still
+        // loading for a group we're already in our list of (not yet a confirmed member), assume
+        // pending rather than flashing the composer/join first (native shows pending directly).
+        // Resolves to the composer once kind:39002 confirms membership.
+        val composerPending =
+            isPendingApproval ||
+                (inMyList && myPubkey != null && !isMember && (membersLoading || members.isEmpty()))
         // When the request was sent (latest own kind:9021), for the pending bar's "Requested ..." line.
         val pendingRequestedAt =
-            if (isPendingApproval) messages.filter { it.kind == 9021 && it.pubkey == myPubkey }.maxOfOrNull { it.createdAt } else null
+            if (composerPending) messages.filter { it.kind == 9021 && it.pubkey == myPubkey }.maxOfOrNull { it.createdAt } else null
         // Restricted: relay returned a CLOSED "restricted" frame for this group.
         // Used to render the "Private group" UI in place of skeletons when the
         // account has no read access (NIP-29 private+closed group).
@@ -1643,7 +1652,7 @@ val ChatScreen =
                         icon(Ic.People)
                     }
                     if (!canPost) {
-                        if (isPendingApproval) {
+                        if (composerPending) {
                             span {
                                 className = ClassName("chat-pending")
                                 +"Request pending"
@@ -2042,7 +2051,7 @@ val ChatScreen =
                     this.groupName = groupName
                     this.groupIsOpen = group.isOpen
                     this.canPost = canPost
-                    this.isPending = isPendingApproval
+                    this.isPending = composerPending
                     this.mentionRequest = mentionRequest
                     this.members = members
                     this.allGroups = allGroups
