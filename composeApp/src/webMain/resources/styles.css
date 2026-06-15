@@ -8150,6 +8150,22 @@ body {
     height: 12px;
 }
 
+/* Group-card-shaped loading placeholder (see groupCardSkeleton). */
+.skel-card {
+    cursor: default;
+}
+.skel-card-lines {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.skel-card-desc {
+    width: 90%;
+    margin-top: 12px;
+}
+
 .w-30 {
     width: 30%;
 }

@@ -41,6 +41,13 @@ private const val PEOPLE_PREVIEW = 5
  */
 private const val MEMBERS_RESOLVE_TIMEOUT_MS = 8_000L
 
+/**
+ * How long a discovery tab shows group-card skeletons before falling back to its
+ * empty state, so a still-loading tab doesn't flash "no groups yet". Resolves
+ * early the moment the first group arrives.
+ */
+private const val DISCOVERY_GRACE_MS = 6_000L
+
 /** A joined group together with the relay that hosts it (needed for navigation). */
 data class JoinedGroup(
     val relayUrl: String,
@@ -402,13 +409,40 @@ class HomePageViewModel(
                 .distinctBy { it.meta.id }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    // Each tab shows skeletons while empty AND unresolved; the empty-state message
+    // appears only once resolved (first group arrived, or the grace period elapsed).
+    // The stateIn seed must already be the loading value so the empty message never
+    // flashes for a frame before the combine emits (the bug the tab-load videos show).
+    private val _myGroupsResolved = MutableStateFlow(false)
+    val myGroupsLoading: StateFlow<Boolean> =
+        combine(_myGroupsResolved, myGroups) { resolved, list -> !resolved && list.isEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    private val _friendsGroupsResolved = MutableStateFlow(false)
+    val friendsGroupsLoading: StateFlow<Boolean> =
+        combine(_friendsGroupsResolved, friendsGroups, friends) { resolved, list, fr ->
+            // Only "loading" when you actually follow people; with nobody followed the
+            // tab shows the "follow someone" empty state, not skeletons.
+            !resolved && list.isEmpty() && fr.isNotEmpty()
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
+    private val _recommendedResolved = MutableStateFlow(false)
+    val recommendedGroupsLoading: StateFlow<Boolean> =
+        combine(_recommendedResolved, recommendedGroups) { resolved, list -> !resolved && list.isEmpty() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     private var recommendedRequested = false
+    private var friendsGraceStarted = false
 
     /** Fetch the curator's kind:10009 once, when the "Recommended" tab opens. */
     fun loadRecommended() {
         if (recommendedRequested) return
         recommendedRequested = true
         viewModelScope.launch { repo.requestUserGroupList(CURATOR_PUBKEY) }
+        viewModelScope.launch {
+            withTimeoutOrNull(DISCOVERY_GRACE_MS) { recommendedGroups.first { it.isNotEmpty() } }
+            _recommendedResolved.value = true
+        }
     }
 
     /** Friends whose kind:10009 we've already requested, so a tab re-open doesn't refire. */
@@ -429,6 +463,13 @@ class HomePageViewModel(
      * cold start; picks up newly followed users on a later call.
      */
     fun loadFriendsGroups() {
+        if (!friendsGraceStarted) {
+            friendsGraceStarted = true
+            viewModelScope.launch {
+                withTimeoutOrNull(DISCOVERY_GRACE_MS) { friendsGroups.first { it.isNotEmpty() } }
+                _friendsGroupsResolved.value = true
+            }
+        }
         viewModelScope.launch {
             val pks = repo.following.value - requestedFriendLists
             if (pks.isEmpty()) return@launch
@@ -438,6 +479,11 @@ class HomePageViewModel(
     }
 
     init {
+        // My groups skeletons until the first joined group resolves or the grace elapses.
+        viewModelScope.launch {
+            withTimeoutOrNull(DISCOVERY_GRACE_MS) { myGroups.first { it.isNotEmpty() } }
+            _myGroupsResolved.value = true
+        }
         // Load the own contact list and resolve names for each followed user so the
         // Friends list renders display names rather than bare npubs.
         viewModelScope.launch { repo.requestContactList() }

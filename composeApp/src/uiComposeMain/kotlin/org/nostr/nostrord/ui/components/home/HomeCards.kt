@@ -266,6 +266,30 @@ private fun AvatarStack(
     }
 }
 
+/** Shimmer placeholder shaped like a [GroupCard], shown while a tab is still loading. */
+@Composable
+fun GroupCardSkeleton(modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth().fillMaxHeight().clip(NostrordShapes.shapeLarge),
+        shape = NostrordShapes.shapeLarge,
+        color = NostrordColors.Surface,
+    ) {
+        Column(modifier = Modifier.fillMaxHeight().padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).clip(NostrordShapes.shapeMedium).shimmerEffect())
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Box(Modifier.fillMaxWidth(0.6f).height(14.dp).clip(NostrordShapes.shapeSmall).shimmerEffect())
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(Modifier.width(80.dp).height(12.dp).clip(NostrordShapes.shapeSmall).shimmerEffect())
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth(0.9f).height(13.dp).clip(NostrordShapes.shapeSmall).shimmerEffect())
+        }
+    }
+}
+
 /** Dashed-border empty state with an emoji tile, title, description and action slot. */
 @Composable
 fun EmptyStateCard(

@@ -63,6 +63,9 @@ val HomePage =
         val friends = useStateFlow(vm.friends)
         val friendsGroups = useStateFlow(vm.friendsGroups)
         val recommendedGroups = useStateFlow(vm.recommendedGroups)
+        val myGroupsLoading = useStateFlow(vm.myGroupsLoading)
+        val friendsGroupsLoading = useStateFlow(vm.friendsGroupsLoading)
+        val recommendedGroupsLoading = useStateFlow(vm.recommendedGroupsLoading)
         val relayMeta = useStateFlow(vm.relayMetadata)
         // Tab index derived from the router-owned tab; selecting a tab routes (mirror).
         val filter = props.tab.ordinal
@@ -165,7 +168,10 @@ val HomePage =
                     when (filter) {
                         0 ->
                             when {
-                                myGroups.isEmpty() && query.isBlank() ->
+                                myGroups.isEmpty() && query.isNotBlank() ->
+                                    emptyCard("🔍", "No group found", "Try another search term.")
+                                myGroups.isEmpty() && myGroupsLoading -> skeletonGrid()
+                                myGroups.isEmpty() ->
                                     emptyCard(
                                         emoji = "👋",
                                         title = "You're not in any group yet",
@@ -185,8 +191,6 @@ val HomePage =
                                             +"See friends' groups"
                                         }
                                     }
-                                myGroups.isEmpty() ->
-                                    emptyCard("🔍", "No group found", "Try another search term.")
                                 else ->
                                     div {
                                         className = ClassName("card-grid")
@@ -211,6 +215,7 @@ val HomePage =
                                             +"See people to follow"
                                         }
                                     }
+                                friendsGroups.isEmpty() && friendsGroupsLoading -> skeletonGrid()
                                 friendsGroups.isEmpty() ->
                                     emptyCard(
                                         emoji = "🔭",
@@ -228,7 +233,9 @@ val HomePage =
                                     }
                             }
                         2 ->
-                            if (recommendedGroups.isEmpty()) {
+                            if (recommendedGroups.isEmpty() && recommendedGroupsLoading) {
+                                skeletonGrid()
+                            } else if (recommendedGroups.isEmpty()) {
                                 emptyCard(
                                     emoji = "✨",
                                     title = "No recommendations yet",
@@ -400,6 +407,34 @@ private fun ChildrenBuilder.discoverGroupCard(
 private fun personName(friend: Friend): String = friend.metadata?.displayName?.takeIf { it.isNotBlank() }
     ?: friend.metadata?.name?.takeIf { it.isNotBlank() }
     ?: (runCatching { Nip19.encodeNpub(friend.pubkey) }.getOrDefault(friend.pubkey).take(10) + "…")
+
+/** How many group-card skeletons to show while a discovery tab is still loading. */
+private const val SKELETON_CARD_COUNT = 6
+
+/** A grid of shimmer cards shown while a discovery tab is still loading. */
+private fun ChildrenBuilder.skeletonGrid() {
+    div {
+        className = ClassName("card-grid")
+        repeat(SKELETON_CARD_COUNT) { groupCardSkeleton() }
+    }
+}
+
+/** Shimmer placeholder shaped like a .group-card. */
+private fun ChildrenBuilder.groupCardSkeleton() {
+    div {
+        className = ClassName("group-card skel-card")
+        div {
+            className = ClassName("group-card-head")
+            div { className = ClassName("group-card-avatar skel") }
+            div {
+                className = ClassName("skel-card-lines")
+                div { className = ClassName("skel skel-line w-60") }
+                div { className = ClassName("skel skel-line w-30") }
+            }
+        }
+        div { className = ClassName("skel skel-line skel-card-desc") }
+    }
+}
 
 /**
  * Access-tag pills (NIP-29 kind:39000 tags) shown on a card when it has no people

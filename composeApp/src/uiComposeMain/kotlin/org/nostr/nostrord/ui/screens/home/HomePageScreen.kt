@@ -62,6 +62,7 @@ import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.home.EmptyStateCard
 import org.nostr.nostrord.ui.components.home.GroupCard
+import org.nostr.nostrord.ui.components.home.GroupCardSkeleton
 import org.nostr.nostrord.ui.components.onboarding.PackCard
 import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
@@ -83,6 +84,9 @@ private val FILTER_ICONS = listOf(
  * (kind:10009); friends / communities are layout-only empty states and People reuses
  * the dummy follow packs until the follow logic lands.
  */
+/** How many group-card skeletons to show while a discovery tab is still loading. */
+private const val SKELETON_CARD_COUNT = 6
+
 @Composable
 fun HomePageScreen(
     modifier: Modifier = Modifier,
@@ -101,6 +105,9 @@ fun HomePageScreen(
     val friends by vm.friends.collectAsState()
     val friendsGroups by vm.friendsGroups.collectAsState()
     val recommendedGroups by vm.recommendedGroups.collectAsState()
+    val myGroupsLoading by vm.myGroupsLoading.collectAsState()
+    val friendsGroupsLoading by vm.friendsGroupsLoading.collectAsState()
+    val recommendedGroupsLoading by vm.recommendedGroupsLoading.collectAsState()
     val relayMetadata by vm.relayMetadata.collectAsState()
     // Active tab is owned by the router; selecting routes (mirror) instead of local state.
     val filter = tab.ordinal
@@ -238,7 +245,15 @@ fun HomePageScreen(
                     when (filter) {
                         0 ->
                             when {
-                                myGroups.isEmpty() && query.isBlank() ->
+                                myGroups.isEmpty() && query.isNotBlank() ->
+                                    EmptyStateCard(
+                                        emoji = "🔍",
+                                        title = "No group found",
+                                        description = "Try another search term.",
+                                    )
+                                myGroups.isEmpty() && myGroupsLoading ->
+                                    CardGrid(columns) { List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } } }
+                                myGroups.isEmpty() ->
                                     EmptyStateCard(
                                         emoji = "👋",
                                         title = "You're not in any group yet",
@@ -257,12 +272,6 @@ fun HomePageScreen(
                                             variant = AppButtonVariant.Secondary,
                                         )
                                     }
-                                myGroups.isEmpty() ->
-                                    EmptyStateCard(
-                                        emoji = "🔍",
-                                        title = "No group found",
-                                        description = "Try another search term.",
-                                    )
                                 else ->
                                     CardGrid(columns) {
                                         myGroups.map { group ->
@@ -301,6 +310,8 @@ fun HomePageScreen(
                                             variant = AppButtonVariant.Secondary,
                                         )
                                     }
+                                friendsGroups.isEmpty() && friendsGroupsLoading ->
+                                    CardGrid(columns) { List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } } }
                                 friendsGroups.isEmpty() ->
                                     EmptyStateCard(
                                         emoji = "🔭",
@@ -332,7 +343,9 @@ fun HomePageScreen(
                                     }
                             }
                         2 ->
-                            if (recommendedGroups.isEmpty()) {
+                            if (recommendedGroups.isEmpty() && recommendedGroupsLoading) {
+                                CardGrid(columns) { List(SKELETON_CARD_COUNT) { { GroupCardSkeleton() } } }
+                            } else if (recommendedGroups.isEmpty()) {
                                 EmptyStateCard(
                                     emoji = "✨",
                                     title = "No recommendations yet",
