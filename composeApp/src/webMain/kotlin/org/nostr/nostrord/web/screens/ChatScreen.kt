@@ -269,6 +269,10 @@ private external interface ChatComposerProps : Props {
     var pendingRequestedAtSeconds: Long?
     var onCancelJoinRequest: () -> Unit
 
+    /** True while the member list is still loading for a group we're in our list of: render
+     *  neither the composer nor the pending/join state until we know which to show. */
+    var membersResolving: Boolean
+
     /** Mention requested from the profile modal ("Mention" action); nonce dedupes. */
     var mentionRequest: MentionRequest?
 
@@ -555,7 +559,10 @@ private val ChatComposer =
             return true
         }
 
-        if (!props.canPost) {
+        if (props.membersResolving) {
+            // Member list still loading for a group we're in our list of: render neither the
+            // composer nor the pending/join bar until we know which to show (no flash on refresh).
+        } else if (!props.canPost) {
             // Not a member — prompt to join (or show pending) instead of the composer.
             div {
                 className = ClassName("composer-join")
@@ -1051,13 +1058,13 @@ val ChatScreen =
         // post optimistically before the member list loaded, which flashed the composer before we
         // knew we were actually still pending.)
         val canPost = isMember
-        // Composer + header pending state: show pending DIRECTLY. While the member list is still
-        // loading for a group we're already in our list of (not yet a confirmed member), assume
-        // pending rather than flashing the composer/join first (native shows pending directly).
-        // Resolves to the composer once kind:39002 confirms membership.
-        val composerPending =
-            isPendingApproval ||
-                (inMyList && myPubkey != null && !isMember && (membersLoading || members.isEmpty()))
+        // We can only tell composer vs pending vs join once the member list is known. While it's
+        // still loading for a group we're in our list of, render NEITHER (no "Request pending" /
+        // pending bar / Join flash on a fresh page load) until the data is there.
+        val membersResolving =
+            inMyList && myPubkey != null && !isMember && (membersLoading || members.isEmpty())
+        // Pending = in our list, the member list has loaded, and we're not in it (conservative).
+        val composerPending = isPendingApproval
         // When the request was sent (latest own kind:9021), for the pending bar's "Requested ..." line.
         val pendingRequestedAt =
             if (composerPending) messages.filter { it.kind == 9021 && it.pubkey == myPubkey }.maxOfOrNull { it.createdAt } else null
@@ -1651,7 +1658,7 @@ val ChatScreen =
                         onClick = { setMembersOpen(!membersOpen) }
                         icon(Ic.People)
                     }
-                    if (!canPost) {
+                    if (!canPost && !membersResolving) {
                         if (composerPending) {
                             span {
                                 className = ClassName("chat-pending")
@@ -2069,6 +2076,7 @@ val ChatScreen =
                     this.onSent = { setReplyingToId(null) }
                     this.onJoin = { join() }
                     this.pendingRequestedAtSeconds = pendingRequestedAt
+                    this.membersResolving = membersResolving
                     // Cancel a pending join request = leave the group, then navigate away.
                     this.onCancelJoinRequest = {
                         launchApp { repo.leaveGroup(group.id) }
