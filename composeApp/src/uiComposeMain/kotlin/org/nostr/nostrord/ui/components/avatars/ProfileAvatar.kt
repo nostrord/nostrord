@@ -29,11 +29,11 @@ fun ProfileAvatar(
 ) {
     val context = LocalPlatformContext.current
     val density = LocalDensity.current
-    // Request at the real display density with retina headroom and a high floor, so the avatar
-    // is as sharp as the web <img> (which downscales from the full-resolution source). The old
-    // `size.value * 2` ignored density and under-resolved on HiDPI, softening the picture; Coil
-    // then downsampled to that small size, which read as a worse/"zoomed" render than web.
-    val sizeInPx = remember(size, density) { maxOf(with(density) { size.roundToPx() } * 2, 256) }
+    // Request at the real display density with retina headroom (2x). The old `size.value * 2`
+    // ignored density, so on HiDPI screens (mobile is ~2.6-3x) a 40dp avatar's real ~110px was
+    // served from an 80px decode and looked soft. roundToPx() uses the actual density, so it is
+    // crisp everywhere and identical to the old value at 1x desktop (no needless over-fetch).
+    val sizeInPx = remember(size, density) { with(density) { size.roundToPx() } * 2 }
 
     if (imageUrl.isNullOrBlank()) {
         AvatarPlaceholder(displayName, pubkey, modifier.size(size), size)
