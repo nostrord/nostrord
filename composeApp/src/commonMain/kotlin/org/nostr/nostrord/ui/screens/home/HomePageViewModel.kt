@@ -300,19 +300,14 @@ class HomePageViewModel(
             friendsByGroup.entries
                 .mapNotNull { (gid, friendPks) ->
                     val relay = relayByGroup[gid] ?: return@mapNotNull null
+                    // Require real kind:39000 metadata: a group the relay never
+                    // described is not shown on discovery (no bare-id placeholders).
                     val m = byRelay[relay].orEmpty().find { it.id == gid }
                         ?: byRelay.values.flatten().find { it.id == gid }
+                        ?: return@mapNotNull null
                     DiscoverGroup(
                         relayUrl = relay,
-                        meta =
-                        m ?: GroupMetadata(
-                            id = gid,
-                            name = null,
-                            about = null,
-                            picture = null,
-                            isPublic = true,
-                            isOpen = true,
-                        ),
+                        meta = m,
                         // Friends discovered here first, then other members fill the
                         // row up to PEOPLE_PREVIEW.
                         people = previewPeople(
@@ -369,24 +364,19 @@ class HomePageViewModel(
             lists[CURATOR_PUBKEY].orEmpty()
                 .filter { it.groupId !in myGroupIds }
                 .filter { it.relayUrl.normalizeRelayUrl() !in unreachable }
-                .map { ref ->
+                .mapNotNull { ref ->
                     val gid = ref.groupId
+                    // Require real kind:39000 metadata: a group the relay never
+                    // described is not shown on discovery (no bare-id placeholders).
+                    val m = byRelay[ref.relayUrl].orEmpty().find { it.id == gid }
+                        ?: byRelay.values.flatten().find { it.id == gid }
+                        ?: return@mapNotNull null
                     val memberPks = members[gid].orEmpty()
                     // People you follow first, then other members as social proof.
                     val preview = previewPeople(memberPks, following, meta)
                     DiscoverGroup(
                         relayUrl = ref.relayUrl,
-                        meta =
-                        byRelay[ref.relayUrl].orEmpty().find { it.id == gid }
-                            ?: byRelay.values.flatten().find { it.id == gid }
-                            ?: GroupMetadata(
-                                id = gid,
-                                name = null,
-                                about = null,
-                                picture = null,
-                                isPublic = true,
-                                isOpen = true,
-                            ),
+                        meta = m,
                         people = preview,
                         memberCount = memberPks.size,
                         peopleLoading = preview.isEmpty() && gid !in resolved,

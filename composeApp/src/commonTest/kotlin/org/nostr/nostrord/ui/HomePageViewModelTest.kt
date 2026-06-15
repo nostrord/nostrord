@@ -235,6 +235,35 @@ class HomePageViewModelTest {
     }
 
     @Test
+    fun `discovery hides groups without kind39000 metadata`() = runTest {
+        val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
+        val fake = FakeNostrRepository()
+        fake._following.value = setOf("alice")
+        fake._userGroupLists.value =
+            mapOf(
+                "alice" to
+                    listOf(
+                        org.nostr.nostrord.network.UserGroupRef("wss://a", "known"),
+                        org.nostr.nostrord.network.UserGroupRef("wss://a", "unknown"),
+                    ),
+                curator to
+                    listOf(
+                        org.nostr.nostrord.network.UserGroupRef("wss://a", "rknown"),
+                        org.nostr.nostrord.network.UserGroupRef("wss://a", "runknown"),
+                    ),
+            )
+        // Only "known"/"rknown" got their kind:39000; the others must not appear.
+        fake._groupsByRelay.value =
+            mapOf("wss://a" to listOf(meta("known", "Known"), meta("rknown", "Rec Known")))
+
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("known"), vm.friendsGroups.value.map { it.meta.id })
+        assertEquals(listOf("rknown"), vm.recommendedGroups.value.map { it.meta.id })
+    }
+
+    @Test
     fun `friendsGroups and recommendedGroups hide groups on unreachable relays`() = runTest {
         val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
         val fake = FakeNostrRepository()
