@@ -288,6 +288,44 @@ class HomePageViewModelTest {
     }
 
     @Test
+    fun `discovery hides groups tagged Hidden`() = runTest {
+        val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
+        val fake = FakeNostrRepository()
+        fake._following.value = setOf("alice")
+        fake._userGroupLists.value =
+            mapOf(
+                "alice" to
+                    listOf(
+                        org.nostr.nostrord.network.UserGroupRef("wss://a", "visible"),
+                        org.nostr.nostrord.network.UserGroupRef("wss://a", "hidden"),
+                    ),
+                curator to
+                    listOf(
+                        org.nostr.nostrord.network.UserGroupRef("wss://a", "rvisible"),
+                        org.nostr.nostrord.network.UserGroupRef("wss://a", "rhidden"),
+                    ),
+            )
+        fun g(id: String, name: String, hidden: Boolean) =
+            GroupMetadata(id = id, name = name, about = null, picture = null, isPublic = true, isOpen = true, isHidden = hidden)
+        fake._groupsByRelay.value =
+            mapOf(
+                "wss://a" to
+                    listOf(
+                        g("visible", "Visible", false),
+                        g("hidden", "Hidden one", true),
+                        g("rvisible", "Rec Visible", false),
+                        g("rhidden", "Rec Hidden", true),
+                    ),
+            )
+
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("visible"), vm.friendsGroups.value.map { it.meta.id })
+        assertEquals(listOf("rvisible"), vm.recommendedGroups.value.map { it.meta.id })
+    }
+
+    @Test
     fun `friendsGroups and recommendedGroups hide groups on unreachable relays`() = runTest {
         val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
         val fake = FakeNostrRepository()

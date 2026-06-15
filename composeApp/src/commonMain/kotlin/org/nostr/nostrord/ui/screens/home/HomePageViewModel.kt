@@ -352,6 +352,9 @@ class HomePageViewModel(
                     )
                 }
                 .filter { it.relayUrl.normalizeRelayUrl() !in unreachable }
+                // Hidden groups are not discoverable (NIP-29), so never list them here
+                // even if a friend's list or a relay returns them.
+                .filter { !it.meta.isHidden }
                 .let { all ->
                     // Freeze display order: a group keeps its slot once shown, and
                     // newcomers (ranked by friend overlap, then name, among themselves)
@@ -420,6 +423,8 @@ class HomePageViewModel(
                         hasMetadata = true,
                     )
                 }
+                // Hidden groups are not discoverable (NIP-29); never recommend them.
+                .filter { !it.meta.isHidden }
                 .filter { matchesQuery(it.meta, needle) }
                 .distinctBy { it.meta.id }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
