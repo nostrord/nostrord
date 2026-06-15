@@ -53,6 +53,7 @@ import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.ui.theme.AvatarGradients
 import org.nostr.nostrord.ui.theme.Hsl
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -80,6 +81,7 @@ fun GroupSidebar(
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
+    val relayMetadata by vm.relayMetadata.collectAsState()
 
     val relayGroups = groupsByRelay[route.relayUrl].orEmpty()
     val meta = relayGroups.firstOrNull { it.id == route.groupId }
@@ -88,6 +90,10 @@ fun GroupSidebar(
     val isAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[route.groupId].orEmpty()
     val memberCount = groupMembers[route.groupId].orEmpty().size
     val subgroupIds = childrenByParent[route.groupId].orEmpty()
+    // Only relays that advertise nip29:{subgroups:true} in their NIP-11 host subgroups.
+    val supportsSubgroups =
+        (relayMetadata[route.relayUrl] ?: relayMetadata[route.relayUrl.normalizeRelayUrl()])
+            ?.supportsSubgroups == true
     val parent = meta?.parent?.let { pid -> relayGroups.firstOrNull { it.id == pid } }
 
     var showInfo by remember { mutableStateOf(false) }
@@ -138,7 +144,7 @@ fun GroupSidebar(
                     letterSpacing = 0.5.sp,
                     modifier = Modifier.weight(1f),
                 )
-                if (isAdmin) {
+                if (isAdmin && supportsSubgroups) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add subgroup",
@@ -152,22 +158,31 @@ fun GroupSidebar(
                 }
             }
             Spacer(modifier = Modifier.height(Spacing.xs))
-            subgroupIds.forEach { subId ->
-                val sub = relayGroups.firstOrNull { it.id == subId }
-                SubgroupRow(
-                    groupId = subId,
-                    name = sub?.name ?: subId,
-                    picture = sub?.picture,
-                    unread = unreadCounts[subId] ?: 0,
-                ) { onNavigateGroup(GroupRoute(route.relayUrl, subId)) }
-            }
-            if (subgroupIds.isEmpty()) {
+            if (!supportsSubgroups) {
                 Text(
-                    "No subgroups.",
+                    "This relay doesn't support subgroups.",
                     color = NostrordColors.TextMuted,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
                 )
+            } else {
+                subgroupIds.forEach { subId ->
+                    val sub = relayGroups.firstOrNull { it.id == subId }
+                    SubgroupRow(
+                        groupId = subId,
+                        name = sub?.name ?: subId,
+                        picture = sub?.picture,
+                        unread = unreadCounts[subId] ?: 0,
+                    ) { onNavigateGroup(GroupRoute(route.relayUrl, subId)) }
+                }
+                if (subgroupIds.isEmpty()) {
+                    Text(
+                        "No subgroups.",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+                    )
+                }
             }
         }
     }

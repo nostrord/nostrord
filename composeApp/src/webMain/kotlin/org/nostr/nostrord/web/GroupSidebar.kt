@@ -4,6 +4,7 @@ import js.objects.unsafeJso
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
@@ -42,6 +43,7 @@ val GroupSidebar =
         val childrenByParent = useStateFlow(vm.childrenByParent)
         val groupMembers = useStateFlow(vm.groupMembers)
         val groupAdmins = useStateFlow(vm.groupAdmins)
+        val relayMetadata = useStateFlow(vm.relayMetadata)
         val unreadCounts = useStateFlow(AppModule.nostrRepository.unreadCounts)
         val (showInfo, setShowInfo) = useState { false }
         val (showCreateSubgroup, setShowCreateSubgroup) = useState { false }
@@ -54,6 +56,10 @@ val GroupSidebar =
         val isAdmin = currentUserPubkey != null && currentUserPubkey in groupAdmins[route.groupId].orEmpty()
         val memberCount = groupMembers[route.groupId].orEmpty().size
         val subgroupIds = childrenByParent[route.groupId].orEmpty()
+        // Only relays that advertise nip29:{subgroups:true} in their NIP-11 host subgroups.
+        val supportsSubgroups =
+            (relayMetadata[route.relayUrl] ?: relayMetadata[route.relayUrl.normalizeRelayUrl()])
+                ?.supportsSubgroups == true
         val parent = meta?.parent?.let { pid -> relayGroups.firstOrNull { it.id == pid } }
 
         div {
@@ -119,7 +125,7 @@ val GroupSidebar =
                 div {
                     className = ClassName("group-side-label")
                     span { +"Subgroups · ${subgroupIds.size}" }
-                    if (isAdmin) {
+                    if (isAdmin && supportsSubgroups) {
                         button {
                             className = ClassName("group-side-label-add")
                             title = "Add subgroup"
@@ -128,6 +134,13 @@ val GroupSidebar =
                         }
                     }
                 }
+                if (!supportsSubgroups) {
+                    div {
+                        className = ClassName("group-side-empty")
+                        +"This relay doesn't support subgroups."
+                    }
+                }
+                if (supportsSubgroups) {
                 subgroupIds.forEach { subId ->
                     val sub = relayGroups.firstOrNull { it.id == subId }
                     val subName = sub?.name ?: subId
@@ -160,6 +173,7 @@ val GroupSidebar =
                         className = ClassName("group-side-empty")
                         +"No subgroups."
                     }
+                }
                 }
             }
         }
