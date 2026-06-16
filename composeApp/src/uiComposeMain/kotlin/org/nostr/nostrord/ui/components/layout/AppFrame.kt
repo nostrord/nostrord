@@ -240,10 +240,17 @@ fun AppFrame() {
                 }
             } else if (groupRoute != null) {
                 Box(modifier = Modifier.weight(1f)) {
-                    GroupSidebar(route = groupRoute, onNavigateGroup = {
-                        route = it
-                        closeDrawer()
-                    })
+                    GroupSidebar(
+                        route = groupRoute,
+                        onNavigateGroup = {
+                            route = it
+                            closeDrawer()
+                        },
+                        onNavigateHome = {
+                            route = null
+                            closeDrawer()
+                        },
+                    )
                 }
             } else if (route is DmRoute) {
                 Box(modifier = Modifier.weight(1f)) {

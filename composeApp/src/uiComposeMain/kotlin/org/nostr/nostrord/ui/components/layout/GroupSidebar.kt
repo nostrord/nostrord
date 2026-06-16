@@ -71,6 +71,7 @@ import org.nostr.nostrord.ui.theme.Spacing
 fun GroupSidebar(
     route: GroupRoute,
     onNavigateGroup: (GroupRoute) -> Unit,
+    onNavigateHome: () -> Unit = {},
 ) {
     val vm = viewModel(key = route.groupId) { GroupViewModel(AppModule.nostrRepository, route.groupId) }
     val groupsByRelay by vm.groupsByRelay.collectAsState()
@@ -202,6 +203,11 @@ fun GroupSidebar(
             currentMetadata = meta,
             onDismiss = { showManage = false },
             onGroupUpdated = { showManage = false },
+            onDeleted = {
+                showManage = false
+                onNavigateHome()
+            },
+            showSubgroupControls = supportsSubgroups,
         )
     }
     if (showCreateSubgroup) {

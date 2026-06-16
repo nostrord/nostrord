@@ -471,6 +471,10 @@ fun GroupScreen(
             currentMetadata = currentGroupMetadata,
             onDismiss = { showEditGroupModal = false },
             onGroupUpdated = { showEditGroupModal = false },
+            onDeleted = {
+                showEditGroupModal = false
+                onNavigateHome()
+            },
             showSubgroupControls = subgroupsEnabled,
         )
     }

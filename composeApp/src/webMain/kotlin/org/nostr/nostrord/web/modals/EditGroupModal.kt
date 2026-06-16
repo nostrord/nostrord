@@ -10,6 +10,7 @@ import org.nostr.nostrord.web.components.IdentifierRow
 import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.useEscClose
+import org.nostr.nostrord.web.navigation.pushHome
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -41,6 +42,26 @@ val EditGroupModal =
         val (isHidden, setIsHidden) = useState { group.isHidden }
         val (busy, setBusy) = useState { false }
         val (error, setError) = useState<String?> { null }
+        val (confirmDelete, setConfirmDelete) = useState { false }
+        val (deleting, setDeleting) = useState { false }
+
+        fun delete() {
+            setDeleting(true)
+            setError(null)
+            launchApp {
+                when (val result = AppModule.nostrRepository.deleteGroup(group.id)) {
+                    is Result.Success -> {
+                        // The group is gone; leave its (now dead) page for Home.
+                        props.onClose()
+                        pushHome()
+                    }
+                    is Result.Error -> {
+                        setDeleting(false)
+                        setError(result.error.message.ifBlank { "Failed to delete group." })
+                    }
+                }
+            }
+        }
 
         fun submit() {
             if (name.isBlank()) {
@@ -155,6 +176,38 @@ val EditGroupModal =
                     +"GROUP ID"
                 }
                 IdentifierRow { ids = listOf(Identifier("group id", group.id)) }
+
+                div {
+                    className = ClassName("access-section-title")
+                    +"DANGER ZONE"
+                }
+                if (!confirmDelete) {
+                    button {
+                        className = ClassName("btn-danger")
+                        onClick = { setConfirmDelete(true) }
+                        +"Delete group"
+                    }
+                } else {
+                    div {
+                        className = ClassName("modal-subtitle")
+                        +"This permanently deletes the group from the relay. This cannot be undone."
+                    }
+                    div {
+                        className = ClassName("manage-actions")
+                        button {
+                            className = ClassName("btn-text")
+                            disabled = deleting
+                            onClick = { setConfirmDelete(false) }
+                            +"Cancel"
+                        }
+                        button {
+                            className = ClassName("btn-danger")
+                            disabled = deleting
+                            onClick = { delete() }
+                            +(if (deleting) "Deleting…" else "Delete group")
+                        }
+                    }
+                }
 
                 if (error != null) {
                     div {

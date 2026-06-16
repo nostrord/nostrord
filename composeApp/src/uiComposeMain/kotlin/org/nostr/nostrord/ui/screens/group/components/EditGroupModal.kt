@@ -49,6 +49,9 @@ fun EditGroupModal(
     currentMetadata: GroupMetadata?,
     onDismiss: () -> Unit,
     onGroupUpdated: () -> Unit,
+    // Called after the group is deleted from the relay so the caller can leave its
+    // (now dead) page. Defaults to [onGroupUpdated].
+    onDeleted: () -> Unit = onGroupUpdated,
     showSubgroupControls: Boolean = true,
 ) {
     val scope = rememberCoroutineScope()
@@ -66,6 +69,8 @@ fun EditGroupModal(
 
     var isSaving by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
 
     // Refresh metadata when the modal opens so fields show current relay state
     LaunchedEffect(groupId) {
@@ -327,6 +332,73 @@ fun EditGroupModal(
                             style = NostrordTypography.Caption,
                             color = NostrordColors.Error,
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(Spacing.xxl))
+
+                    // Danger zone: delete the group from the relay (kind:9008).
+                    Text(
+                        "DANGER ZONE",
+                        color = NostrordColors.TextMuted,
+                        style = NostrordTypography.Caption,
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.sm))
+                    if (!confirmDelete) {
+                        OutlinedButton(
+                            onClick = { confirmDelete = true },
+                            enabled = !isSaving && !isDeleting,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = NostrordColors.Error),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
+                        ) {
+                            Text("Delete group", style = NostrordTypography.Button)
+                        }
+                    } else {
+                        Text(
+                            "This permanently deletes the group from the relay. This cannot be undone.",
+                            color = NostrordColors.TextSecondary,
+                            style = NostrordTypography.Caption,
+                        )
+                        Spacer(modifier = Modifier.height(Spacing.sm))
+                        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            TextButton(onClick = { confirmDelete = false }, enabled = !isDeleting) {
+                                Text("Cancel", color = NostrordColors.TextSecondary)
+                            }
+                            Button(
+                                onClick = {
+                                    isDeleting = true
+                                    scope.launch {
+                                        when (val result = AppModule.nostrRepository.deleteGroup(groupId)) {
+                                            is Result.Success -> onDeleted()
+                                            is Result.Error -> {
+                                                isDeleting = false
+                                                errorMessage = result.error.message.ifBlank { "Failed to delete group." }
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isDeleting,
+                                colors =
+                                ButtonDefaults.buttonColors(
+                                    containerColor = NostrordColors.Error,
+                                    contentColor = Color.White,
+                                    disabledContainerColor = NostrordColors.Error.copy(alpha = 0.5f),
+                                    disabledContentColor = Color.White.copy(alpha = 0.5f),
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.pointerHoverIcon(PointerIcon.Hand),
+                            ) {
+                                if (isDeleting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp,
+                                    )
+                                    Spacer(modifier = Modifier.width(Spacing.sm))
+                                }
+                                Text("Delete group", style = NostrordTypography.Button)
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(Spacing.xxl))
