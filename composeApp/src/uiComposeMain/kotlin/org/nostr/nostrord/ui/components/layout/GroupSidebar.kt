@@ -53,12 +53,12 @@ import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
 import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
-import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.ui.theme.AvatarGradients
 import org.nostr.nostrord.ui.theme.Hsl
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
+import org.nostr.nostrord.utils.normalizeRelayUrl
 
 /**
  * Second column when a group is open (prototype ChannelsSidebar group mode): the

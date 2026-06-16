@@ -305,8 +305,7 @@ class HomePageViewModelTest {
                         org.nostr.nostrord.network.UserGroupRef("wss://a", "rhidden"),
                     ),
             )
-        fun g(id: String, name: String, hidden: Boolean) =
-            GroupMetadata(id = id, name = name, about = null, picture = null, isPublic = true, isOpen = true, isHidden = hidden)
+        fun g(id: String, name: String, hidden: Boolean) = GroupMetadata(id = id, name = name, about = null, picture = null, isPublic = true, isOpen = true, isHidden = hidden)
         fake._groupsByRelay.value =
             mapOf(
                 "wss://a" to
