@@ -122,58 +122,58 @@ val GroupSidebar =
                     }
                 }
 
-                div {
-                    className = ClassName("group-side-label")
-                    span { +"Subgroups · ${subgroupIds.size}" }
-                    if (isAdmin && supportsSubgroups) {
-                        button {
-                            className = ClassName("group-side-label-add")
-                            title = "Add subgroup"
-                            onClick = { setShowCreateSubgroup(true) }
-                            icon(Ic.Add)
-                        }
-                    }
-                }
                 if (!supportsSubgroups) {
+                    // No "Subgroups · 0" header on relays that can't host subgroups.
                     div {
                         className = ClassName("group-side-empty")
-                        +"This relay doesn't support subgroups."
+                        +"This group doesn't support subgroups."
                     }
-                }
-                if (supportsSubgroups) {
-                subgroupIds.forEach { subId ->
-                    val sub = relayGroups.firstOrNull { it.id == subId }
-                    val subName = sub?.name ?: subId
-                    button {
-                        key = subId
-                        className = ClassName("group-side-row")
-                        onClick = { props.onNavigateGroup(GroupRoute(route.relayUrl, subId)) }
-                        WebAvatar {
-                            url = sub?.picture
-                            seed = subId
-                            this.name = subName
-                            kind = org.nostr.nostrord.web.components.AvatarKind.GROUP
-                            cls = "group-side-row-avatar"
-                        }
-                        span {
-                            className = ClassName("group-side-row-label")
-                            +subName
-                        }
-                        val unread = unreadCounts[subId] ?: 0
-                        if (unread > 0) {
-                            span {
-                                className = ClassName("count-badge")
-                                +(if (unread > 99) "99+" else "$unread")
+                } else {
+                    div {
+                        className = ClassName("group-side-label")
+                        span { +"Subgroups · ${subgroupIds.size}" }
+                        if (isAdmin) {
+                            button {
+                                className = ClassName("group-side-label-add")
+                                title = "Add subgroup"
+                                onClick = { setShowCreateSubgroup(true) }
+                                icon(Ic.Add)
                             }
                         }
                     }
-                }
-                if (subgroupIds.isEmpty()) {
-                    div {
-                        className = ClassName("group-side-empty")
-                        +"No subgroups."
+                    subgroupIds.forEach { subId ->
+                        val sub = relayGroups.firstOrNull { it.id == subId }
+                        val subName = sub?.name ?: subId
+                        button {
+                            key = subId
+                            className = ClassName("group-side-row")
+                            onClick = { props.onNavigateGroup(GroupRoute(route.relayUrl, subId)) }
+                            WebAvatar {
+                                url = sub?.picture
+                                seed = subId
+                                this.name = subName
+                                kind = org.nostr.nostrord.web.components.AvatarKind.GROUP
+                                cls = "group-side-row-avatar"
+                            }
+                            span {
+                                className = ClassName("group-side-row-label")
+                                +subName
+                            }
+                            val unread = unreadCounts[subId] ?: 0
+                            if (unread > 0) {
+                                span {
+                                    className = ClassName("count-badge")
+                                    +(if (unread > 99) "99+" else "$unread")
+                                }
+                            }
+                        }
                     }
-                }
+                    if (subgroupIds.isEmpty()) {
+                        div {
+                            className = ClassName("group-side-empty")
+                            +"No subgroups."
+                        }
+                    }
                 }
             }
         }

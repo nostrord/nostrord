@@ -133,40 +133,41 @@ fun GroupSidebar(
             }
 
             Spacer(modifier = Modifier.height(Spacing.md))
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "SUBGROUPS · ${subgroupIds.size}",
-                    color = NostrordColors.TextMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp,
-                    modifier = Modifier.weight(1f),
-                )
-                if (isAdmin && supportsSubgroups) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add subgroup",
-                        tint = NostrordColors.TextMuted,
-                        modifier =
-                        Modifier
-                            .size(16.dp)
-                            .clip(NostrordShapes.shapeSmall)
-                            .clickable { showCreateSubgroup = true },
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(Spacing.xs))
             if (!supportsSubgroups) {
+                // No "SUBGROUPS · 0" header on relays that can't host subgroups.
                 Text(
-                    "This relay doesn't support subgroups.",
+                    "This group doesn't support subgroups.",
                     color = NostrordColors.TextMuted,
                     fontSize = 12.sp,
                     modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
                 )
             } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "SUBGROUPS · ${subgroupIds.size}",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (isAdmin) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add subgroup",
+                            tint = NostrordColors.TextMuted,
+                            modifier =
+                            Modifier
+                                .size(16.dp)
+                                .clip(NostrordShapes.shapeSmall)
+                                .clickable { showCreateSubgroup = true },
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(Spacing.xs))
                 subgroupIds.forEach { subId ->
                     val sub = relayGroups.firstOrNull { it.id == subId }
                     SubgroupRow(
