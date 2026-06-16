@@ -1440,6 +1440,28 @@ body {
     border-bottom: 1px solid var(--color-divider);
 }
 
+.group-side-banner.clickable {
+    cursor: pointer;
+}
+
+/* Read-only member roster row (MembersModal): full-width tappable, opens the profile. */
+.member-row-btn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 4px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    text-align: left;
+}
+
+.member-row-btn:hover {
+    background: var(--color-hover);
+}
+
 .group-side-banner-scrim {
     position: absolute;
     inset: auto 0 0 0;
@@ -7665,6 +7687,106 @@ body {
     display: block;
     width: 100%;
     margin-bottom: 8px;
+}
+
+/* Manage-group modal: wide card with a left tab nav over the moderation sections. */
+.manage-modal {
+    max-width: 640px;
+}
+
+/* Info tab: square group avatar preview next to the Change-photo upload button. */
+.manage-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+}
+
+.manage-avatar {
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+    border-radius: var(--radius-lg);
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.manage-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.manage-nav {
+    display: flex;
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+}
+
+.manage-nav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.manage-nav-item:hover {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+}
+
+.manage-nav-item.selected {
+    color: var(--color-text-primary);
+    background: var(--color-surface-variant);
+}
+
+.manage-content {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Danger tab: destructive delete kept apart from the edit-and-save flow. */
+.manage-danger {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    border: 1px solid var(--color-error);
+    border-radius: var(--radius-lg);
+}
+
+.manage-danger-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--color-error);
+}
+
+.manage-danger > .btn-danger {
+    align-self: flex-start;
+}
+
+@media (min-width: 600px) {
+    .manage-layout {
+        flex-direction: row;
+        gap: 20px;
+    }
+
+    .manage-nav {
+        flex-direction: column;
+        width: 160px;
+        flex-shrink: 0;
+        overflow-x: visible;
+    }
 }
 
 .mod-tabs {

@@ -4,8 +4,8 @@ import js.objects.unsafeJso
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.navigation.GroupRoute
-import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
@@ -13,8 +13,9 @@ import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.bannerGradientCss
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.modals.CreateGroupModal
-import org.nostr.nostrord.web.modals.EditGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
+import org.nostr.nostrord.web.modals.ManageGroupModal
+import org.nostr.nostrord.web.modals.MembersModal
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -46,8 +47,11 @@ val GroupSidebar =
         val relayMetadata = useStateFlow(vm.relayMetadata)
         val unreadCounts = useStateFlow(AppModule.nostrRepository.unreadCounts)
         val (showInfo, setShowInfo) = useState { false }
+        val (showMembers, setShowMembers) = useState { false }
         val (showCreateSubgroup, setShowCreateSubgroup) = useState { false }
         val (showManage, setShowManage) = useState { false }
+        // Tab the Manage modal opens on: the Members row jumps admins straight to "Members".
+        val (manageTab, setManageTab) = useState<String?> { null }
 
         val relayGroups = groupsByRelay[route.relayUrl].orEmpty()
         val meta = relayGroups.firstOrNull { it.id == route.groupId }
@@ -65,11 +69,11 @@ val GroupSidebar =
         div {
             className = ClassName("group-side")
             // Gradient identity banner (prototype GroupBanner): same hue pair as the
-            // group's conic avatar, darkened for legible white text.
-            // Identity banner: purely decorative. Group info opens from the info row
-            // below (group-side-row), so the banner is no longer clickable.
+            // group's conic avatar, darkened for legible white text. Clicking it opens
+            // group info (the Members row below now opens the roster / manage instead).
             div {
-                className = ClassName("group-side-banner")
+                className = ClassName("group-side-banner clickable")
+                onClick = { setShowInfo(true) }
                 style = unsafeJso { background = bannerGradientCss(route.groupId).unsafeCast<Background>() }
                 div { className = ClassName("group-side-banner-scrim") }
                 div {
@@ -103,7 +107,15 @@ val GroupSidebar =
                 }
                 button {
                     className = ClassName("group-side-row")
-                    onClick = { setShowInfo(true) }
+                    // Admins manage members in the Manage modal; everyone else sees the roster.
+                    onClick = {
+                        if (isAdmin) {
+                            setManageTab("members")
+                            setShowManage(true)
+                        } else {
+                            setShowMembers(true)
+                        }
+                    }
                     icon(Ic.People)
                     span {
                         className = ClassName("group-side-row-label")
@@ -113,7 +125,10 @@ val GroupSidebar =
                 if (isAdmin) {
                     button {
                         className = ClassName("group-side-row")
-                        onClick = { setShowManage(true) }
+                        onClick = {
+                            setManageTab(null)
+                            setShowManage(true)
+                        }
                         icon(Ic.Settings)
                         span {
                             className = ClassName("group-side-row-label")
@@ -184,9 +199,16 @@ val GroupSidebar =
                 onClose = { setShowInfo(false) }
             }
         }
+        if (showMembers) {
+            MembersModal {
+                groupId = route.groupId
+                onClose = { setShowMembers(false) }
+            }
+        }
         if (showManage) {
-            EditGroupModal {
+            ManageGroupModal {
                 group = meta ?: placeholderMeta(route.groupId)
+                initialTab = manageTab
                 onClose = { setShowManage(false) }
             }
         }

@@ -41,6 +41,9 @@ external interface UploadButtonProps : Props {
     /** Idle icon shown when not uploading. */
     var icon: Ic
 
+    /** Optional text rendered after the icon, turning the button into a labelled control. */
+    var label: String?
+
     /**
      * Optional external busy flag. When the caller owns an upload that does not go
      * through this button's file input (paste / drag-and-drop), set this true so the
@@ -106,6 +109,7 @@ val UploadButton =
             } else {
                 icon(props.icon)
             }
+            props.label?.let { +it }
             input {
                 ref = inputRef
                 className = ClassName("upload-file-input")

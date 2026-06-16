@@ -51,12 +51,12 @@ import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.components.zapBadge
 import org.nostr.nostrord.web.modals.AddMemberModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
-import org.nostr.nostrord.web.modals.EditGroupModal
 import org.nostr.nostrord.web.modals.GroupInfoModal
 import org.nostr.nostrord.web.modals.InviteCodesModal
 import org.nostr.nostrord.web.modals.JoinRequestsModal
 import org.nostr.nostrord.web.modals.JoinWithCodeModal
 import org.nostr.nostrord.web.modals.ManageChildrenModal
+import org.nostr.nostrord.web.modals.ManageGroupModal
 import org.nostr.nostrord.web.modals.MemberManagementModal
 import org.nostr.nostrord.web.modals.ShareGroupModal
 import org.nostr.nostrord.web.modals.UserProfileModal
@@ -2253,7 +2253,7 @@ val ChatScreen =
 
             when (modal) {
                 "edit" ->
-                    EditGroupModal {
+                    ManageGroupModal {
                         this.group = group
                         onClose = { setModal(null) }
                     }
