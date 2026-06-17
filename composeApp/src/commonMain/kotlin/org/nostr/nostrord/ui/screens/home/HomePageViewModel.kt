@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -331,14 +332,22 @@ class HomePageViewModel(
             friendsByGroup.entries
                 .mapNotNull { (gid, friendPks) ->
                     val relay = relayByGroup[gid] ?: return@mapNotNull null
-                    // Require real kind:39000 metadata: a group the relay never
-                    // described is not shown on discovery (no bare-id placeholders).
+                    // Prefer real kind:39000 metadata; until it streams in, show a
+                    // bare-id placeholder so the friend's group is visible right away
+                    // (it upgrades to the named card once the relay's metadata lands,
+                    // and the access-tag badges are gated on [hasMetadata]).
                     val m = byRelay[relay].orEmpty().find { it.id == gid }
                         ?: byRelay.values.flatten().find { it.id == gid }
-                        ?: return@mapNotNull null
                     DiscoverGroup(
                         relayUrl = relay,
-                        meta = m,
+                        meta = m ?: GroupMetadata(
+                            id = gid,
+                            name = null,
+                            about = null,
+                            picture = null,
+                            isPublic = true,
+                            isOpen = true,
+                        ),
                         // Friends discovered here first, then other members fill the
                         // row up to PEOPLE_PREVIEW.
                         people = previewPeople(
@@ -352,7 +361,7 @@ class HomePageViewModel(
                         memberCount = members[gid].orEmpty().size.takeIf { it > 0 } ?: friendPks.size,
                         // A friend group always has at least one friend to show.
                         peopleLoading = false,
-                        hasMetadata = true,
+                        hasMetadata = m != null,
                     )
                 }
                 .filter { it.relayUrl.normalizeRelayUrl() !in unreachable }
@@ -472,9 +481,6 @@ class HomePageViewModel(
     /** Friends whose kind:10009 we've already requested, so a tab re-open doesn't refire. */
     private val requestedFriendLists = mutableSetOf<String>()
 
-    /** "relayUrl|groupId" pairs already sent for metadata, so we request each once. */
-    private val requestedPreviews = mutableSetOf<String>()
-
     /** Group ids whose member list (kind:39002) we've already requested for a card. */
     private val requestedMembers = mutableSetOf<String>()
 
@@ -536,26 +542,32 @@ class HomePageViewModel(
         }
         // Backfill metadata for discovered friend groups. We aggregate every friend's
         // kind:10009 refs into a deduplicated relayUrl -> {groupId} map (each group once,
-        // each relay once) and hand it to the repo, which connects to each relay a single
-        // time and batches one kind:39000 REQ. This avoids re-requesting the same group
-        // and avoids opening one connection per (friend, group) ref.
+        // each relay once) of groups we still lack metadata for, and hand it to the repo,
+        // which connects to each relay a single time and batches one kind:39000 REQ.
+        // Depending on groupsByRelay re-runs the fetch as metadata partially arrives, so a
+        // relay that was slow or briefly unreachable on the first attempt is retried on the
+        // next state change instead of being abandoned for the session; distinctUntilChanged
+        // suppresses identical re-requests, and a group drops out once its metadata lands.
         viewModelScope.launch {
-            combine(repo.following, repo.userGroupLists, repo.joinedGroupsByRelay) { following, lists, joinedByRelay ->
+            combine(
+                repo.following,
+                repo.userGroupLists,
+                repo.joinedGroupsByRelay,
+                repo.groupsByRelay,
+            ) { following, lists, joinedByRelay, byRelay ->
                 val myGroupIds = joinedByRelay.values.flatten().toSet()
+                val haveMetadata = byRelay.values.flatten().map { it.id }.toSet()
                 val relayToGroups = HashMap<String, MutableSet<String>>()
                 // Curated (recommended) groups need metadata too; fold them into the
                 // same deduped per-relay fetch as the friends' groups.
                 (following + CURATOR_PUBKEY).forEach { friend ->
                     lists[friend].orEmpty().forEach { ref ->
-                        if (ref.relayUrl.isBlank() || ref.groupId in myGroupIds) return@forEach
-                        // Only schedule a (relay, group) pair once per session.
-                        if (requestedPreviews.add("${ref.relayUrl}|${ref.groupId}")) {
-                            relayToGroups.getOrPut(ref.relayUrl) { mutableSetOf() }.add(ref.groupId)
-                        }
+                        if (ref.relayUrl.isBlank() || ref.groupId in myGroupIds || ref.groupId in haveMetadata) return@forEach
+                        relayToGroups.getOrPut(ref.relayUrl) { mutableSetOf() }.add(ref.groupId)
                     }
                 }
-                relayToGroups
-            }.collect { relayToGroups ->
+                relayToGroups as Map<String, Set<String>>
+            }.distinctUntilChanged().collect { relayToGroups ->
                 if (relayToGroups.isNotEmpty()) repo.fetchGroupPreviews(relayToGroups)
             }
         }

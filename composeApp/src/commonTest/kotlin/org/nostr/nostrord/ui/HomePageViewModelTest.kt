@@ -259,7 +259,7 @@ class HomePageViewModelTest {
     }
 
     @Test
-    fun `discovery hides groups without kind39000 metadata`() = runTest {
+    fun `friendsGroups shows a bare-id placeholder until kind39000 arrives while recommended stays strict`() = runTest {
         val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
         val fake = FakeNostrRepository()
         fake._following.value = setOf("alice")
@@ -276,14 +276,21 @@ class HomePageViewModelTest {
                         org.nostr.nostrord.network.UserGroupRef("wss://a", "runknown"),
                     ),
             )
-        // Only "known"/"rknown" got their kind:39000; the others must not appear.
+        // Only "known"/"rknown" got their kind:39000.
         fake._groupsByRelay.value =
             mapOf("wss://a" to listOf(meta("known", "Known"), meta("rknown", "Rec Known")))
 
         val vm = HomePageViewModel(fake)
         testDispatcher.scheduler.advanceUntilIdle()
 
-        assertEquals(listOf("known"), vm.friendsGroups.value.map { it.meta.id })
+        // A friend's group with no metadata yet is still listed (bare-id placeholder,
+        // hasMetadata=false) so it shows immediately and upgrades once the relay replies.
+        assertEquals(listOf("known", "unknown"), vm.friendsGroups.value.map { it.meta.id })
+        assertEquals(
+            mapOf("known" to true, "unknown" to false),
+            vm.friendsGroups.value.associate { it.meta.id to it.hasMetadata },
+        )
+        // Recommended is a curated list, so it still requires real metadata.
         assertEquals(listOf("rknown"), vm.recommendedGroups.value.map { it.meta.id })
     }
 
