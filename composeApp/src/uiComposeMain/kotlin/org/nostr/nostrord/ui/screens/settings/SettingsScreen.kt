@@ -82,6 +82,7 @@ enum class SettingsSection(val label: String) {
     Profile("Profile"),
     BackupKeys("Backup Keys"),
     RelaysNip65("Relays (NIP-65)"),
+    DirectMessages("Direct Messages"),
     Appearance("Appearance"),
     Media("Media"),
     Notifications("Notifications"),
@@ -252,6 +253,10 @@ fun SettingsScreen(
         )
     }
 
+    val dmRelaysContent: @Composable () -> Unit = {
+        DmRelayPanelContent()
+    }
+
     val notificationsContent: @Composable () -> Unit = {
         NotificationsPanelContent()
     }
@@ -329,6 +334,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                dmRelaysContent = dmRelaysContent,
                 appearanceContent = appearanceContent,
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
@@ -345,6 +351,7 @@ fun SettingsScreen(
                 profileContent = profileContent,
                 backupContent = backupContent,
                 relaysContent = relaysContent,
+                dmRelaysContent = dmRelaysContent,
                 appearanceContent = appearanceContent,
                 mediaContent = mediaContent,
                 notificationsContent = notificationsContent,
@@ -372,6 +379,7 @@ private fun DesktopSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    dmRelaysContent: @Composable () -> Unit,
     appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
@@ -437,7 +445,7 @@ private fun DesktopSettings(
                         .padding(top = 24.dp, start = 40.dp, end = 20.dp, bottom = 80.dp),
                 ) {
                     Box(modifier = Modifier.widthIn(max = 660.dp)) {
-                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, appearanceContent, mediaContent, notificationsContent, securityContent, experimentalContent)
+                        SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent, experimentalContent)
                     }
                 }
 
@@ -463,6 +471,7 @@ private fun MobileSettings(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    dmRelaysContent: @Composable () -> Unit,
     appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
@@ -508,7 +517,7 @@ private fun MobileSettings(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 24.dp),
             ) {
-                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, appearanceContent, mediaContent, notificationsContent, securityContent, experimentalContent)
+                SettingsPanel(activeSection, profileContent, backupContent, relaysContent, dmRelaysContent, appearanceContent, mediaContent, notificationsContent, securityContent, experimentalContent)
             }
         }
     }
@@ -563,6 +572,9 @@ private fun SettingsSidebar(
     }
     SettingsNavItem("Relays (NIP-65)", activeSection == SettingsSection.RelaysNip65, compact = compact) {
         onSelectSection(SettingsSection.RelaysNip65)
+    }
+    SettingsNavItem("Direct Messages", activeSection == SettingsSection.DirectMessages, compact = compact) {
+        onSelectSection(SettingsSection.DirectMessages)
     }
     SettingsNavItem("Appearance", activeSection == SettingsSection.Appearance, compact = compact) {
         onSelectSection(SettingsSection.Appearance)
@@ -689,6 +701,7 @@ private fun SettingsPanel(
     profileContent: @Composable () -> Unit,
     backupContent: @Composable () -> Unit,
     relaysContent: @Composable () -> Unit,
+    dmRelaysContent: @Composable () -> Unit,
     appearanceContent: @Composable () -> Unit,
     mediaContent: @Composable () -> Unit,
     notificationsContent: @Composable () -> Unit,
@@ -710,6 +723,7 @@ private fun SettingsPanel(
             SettingsSection.Profile -> profileContent()
             SettingsSection.BackupKeys -> backupContent()
             SettingsSection.RelaysNip65 -> relaysContent()
+            SettingsSection.DirectMessages -> dmRelaysContent()
             SettingsSection.Appearance -> appearanceContent()
             SettingsSection.Media -> mediaContent()
             SettingsSection.Notifications -> notificationsContent()

@@ -108,6 +108,9 @@ interface NostrRepositoryApi {
     /** Total unread DMs across all conversations, for the nav badge. */
     val totalDmUnread: StateFlow<Int>
 
+    /** Our own effective NIP-17 DM relays (kind:10050, or the defaults until one is published). */
+    val myDmRelays: StateFlow<List<String>>
+
     /** Send a NIP-17 direct message to [recipientPubkey]. */
     suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit>
 

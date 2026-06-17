@@ -111,6 +111,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>> = MutableStateFlow(emptyMap())
     override val dmUnreadByPeer: StateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
     override val totalDmUnread: StateFlow<Int> = MutableStateFlow(0)
+    val myDmRelaysFlow = MutableStateFlow<List<String>>(emptyList())
+    override val myDmRelays: StateFlow<List<String>> = myDmRelaysFlow
     override val latestMessageTimestamps: StateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
     override val totalUnread: StateFlow<Int> = MutableStateFlow(0)
     override val unreadByRelay: StateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
@@ -327,7 +329,10 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun markDmRead(peerPubkey: String) {}
 
-    override suspend fun publishDmRelayList(relays: List<String>): Result<Unit> = Result.Success(Unit)
+    override suspend fun publishDmRelayList(relays: List<String>): Result<Unit> {
+        myDmRelaysFlow.value = relays
+        return Result.Success(Unit)
+    }
 
     var retrySendAction: (String) -> Unit = {}
 

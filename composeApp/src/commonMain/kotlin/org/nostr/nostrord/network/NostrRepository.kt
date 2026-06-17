@@ -964,6 +964,11 @@ class NostrRepository(
     /** Total unread DMs across all conversations, for the nav badge. */
     override val totalDmUnread: StateFlow<Int> get() = dmManager.totalUnread
 
+    // Our own effective DM relays (kind:10050, or the defaults until we publish one). Drives the
+    // Settings editor; kept in sync on inbox open, on our own kind:10050, and on publish.
+    private val _myDmRelays = MutableStateFlow<List<String>>(emptyList())
+    override val myDmRelays: StateFlow<List<String>> = _myDmRelays.asStateFlow()
+
     // Fallback DM relays for users (and us) without a published kind:10050.
     private val defaultDmRelays =
         listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://auth.nostr1.com")
@@ -1032,6 +1037,7 @@ class NostrRepository(
         dmManager.hydrate(SecureStorage.loadDmMessages(myPub), SecureStorage.loadDmLastRead(myPub))
         wireDmPersistence(myPub)
 
+        _myDmRelays.value = dmRelaysFor(myPub)
         fetchDmRelays(myPub)
         resendDmInboxReq(myPub)
         // The sync cursor is "last time we opened the inbox"; advance it now so the next start
@@ -1041,7 +1047,11 @@ class NostrRepository(
         // Make ourselves reachable: publish a kind:10050 if we don't already have one.
         scope.launch {
             delay(4_000)
-            if (dmManager.dmRelaysFor(myPub).isEmpty()) publishDmRelayList(defaultDmRelays)
+            if (dmManager.dmRelaysFor(myPub).isEmpty()) {
+                publishDmRelayList(defaultDmRelays)
+            } else {
+                _myDmRelays.value = dmRelaysFor(myPub)
+            }
         }
     }
 
@@ -1078,7 +1088,13 @@ class NostrRepository(
                 add("dm_inbox")
                 add(filter)
             }.toString()
-        dmRelaysFor(myPub).distinct().forEach { url ->
+        val urls = dmRelaysFor(myPub).distinct()
+        // Keep DM relays alive: register them with the reconnect scheduler so a dropped DM
+        // socket is revived (and re-subscribed via resubscribePoolRelay) rather than going
+        // silent until the next app start. They host no NIP-29 groups, so group-resubscribe
+        // on them is a harmless no-op.
+        connectedPoolRelays.addAll(urls)
+        urls.forEach { url ->
             val client =
                 connectionManager.getClientForRelay(url)
                     ?: connectionManager.getOrConnectRelay(url) { m, c -> enqueueToRelayPipeline(m, c) }
@@ -1115,6 +1131,7 @@ class NostrRepository(
                 )
             val signed = sessionManager.signEvent(event)
             dmManager.ingestDmRelays(signed)
+            _myDmRelays.value = clean
             val targets = (clean + outboxManager.getWriteRelays() + outboxManager.bootstrapRelays).distinct()
             publishEventToRelays(targets, signed)
             Result.Success(Unit)
@@ -1166,6 +1183,7 @@ class NostrRepository(
         dmPersistenceJobs.forEach { it.cancel() }
         dmPersistenceJobs.clear()
         dmManager.clear()
+        _myDmRelays.value = emptyList()
         dmInboxStarted = false
         dmPersistenceWired = false
     }
@@ -2958,7 +2976,10 @@ class NostrRepository(
             }
             // A user's NIP-17 DM relay list (kind:10050).
             if (kind == Nip17.KIND_DM_RELAYS) {
-                runCatching { parseSignedEventJson(event.toString()) }.getOrNull()?.let { dmManager.ingestDmRelays(it) }
+                runCatching { parseSignedEventJson(event.toString()) }.getOrNull()?.let {
+                    dmManager.ingestDmRelays(it)
+                    if (it.pubkey == sessionManager.getPublicKey()) _myDmRelays.value = dmRelaysFor(it.pubkey)
+                }
                 return
             }
         }
@@ -3400,6 +3421,9 @@ class NostrRepository(
         // Mux subs cover all kinds: 39000/39001/39002 (metadata/members/admins) +
         // chat/reactions for opened groups.
         groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+
+        // If this revived relay is one of our DM relays, re-arm the gift-wrap inbox on it.
+        if (relayUrl.normalizeRelayUrl() in _myDmRelays.value) resubscribeDmInbox()
     }
 
     /**
