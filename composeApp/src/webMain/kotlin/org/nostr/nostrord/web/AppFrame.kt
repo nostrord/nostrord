@@ -77,6 +77,7 @@ val AppFrame =
         val friendsLoading = useStateFlow(vm.friendsLoading)
         val unreadCounts = useStateFlow(vm.unreadCounts)
         val notificationUnread = useStateFlow(vm.notificationUnread)
+        val dmUnread = useStateFlow(repo.totalDmUnread)
         val accounts = useStateFlow(AppModule.accountStore.accounts)
         val activeId = useStateFlow(AppModule.accountStore.activeId)
         val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
@@ -269,11 +270,20 @@ val AppFrame =
                     }
                     div { className = ClassName("rail-spacer") }
                     div { className = ClassName("rail-divider") }
-                    button {
-                        className = ClassName(if (route is DmRoute && !notificationsOpen) "rail-btn active" else "rail-btn")
-                        title = "Direct messages"
-                        onClick = { pushRoute(DmRoute()) }
-                        icon(Ic.Mail)
+                    div {
+                        className = ClassName("rail-group")
+                        button {
+                            className = ClassName(if (route is DmRoute && !notificationsOpen) "rail-btn active" else "rail-btn")
+                            title = "Direct messages"
+                            onClick = { pushRoute(DmRoute()) }
+                            icon(Ic.Mail)
+                        }
+                        if (dmUnread > 0) {
+                            span {
+                                className = ClassName("rail-badge top")
+                                +(if (dmUnread > 99) "99+" else "$dmUnread")
+                            }
+                        }
                     }
                     div {
                         className = ClassName("rail-group")

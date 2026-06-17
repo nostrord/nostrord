@@ -124,6 +124,7 @@ fun AppFrame() {
     val groups by vm.myGroups.collectAsState()
     val unreadCounts by vm.unreadCounts.collectAsState()
     val notificationUnread by vm.notificationUnread.collectAsState()
+    val dmUnread by AppModule.nostrRepository.totalDmUnread.collectAsState()
     var showSettings by remember { mutableStateOf(false) }
     var addGroupStep by remember { mutableStateOf<AddGroupStep?>(null) }
     // Friend tapped in the home sidebar: open the quick profile modal first (no
@@ -204,10 +205,18 @@ fun AppFrame() {
                 }
             }
             HorizontalDivider(modifier = Modifier.width(32.dp), color = NostrordColors.Divider)
-            RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute && !showNotifications) {
-                route = DmRoute()
-                showNotifications = false
-                closeDrawer()
+            Box {
+                RailButton(icon = Icons.Default.Mail, label = "Direct messages", active = route is DmRoute && !showNotifications) {
+                    route = DmRoute()
+                    showNotifications = false
+                    closeDrawer()
+                }
+                if (dmUnread > 0) {
+                    RailBadge(
+                        count = dmUnread,
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    )
+                }
             }
             Box {
                 RailButton(
