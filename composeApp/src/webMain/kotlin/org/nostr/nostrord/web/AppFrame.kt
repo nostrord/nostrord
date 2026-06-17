@@ -15,6 +15,7 @@ import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.HomeRoute
 import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.navigation.NotificationsRoute
+import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
@@ -46,6 +47,7 @@ import org.nostr.nostrord.web.screens.HomePage
 import org.nostr.nostrord.web.screens.NotificationsPage
 import org.nostr.nostrord.web.screens.NotificationsSidebar
 import org.nostr.nostrord.web.screens.ProfilePage
+import org.nostr.nostrord.web.screens.RelayScreen
 import org.nostr.nostrord.web.screens.SettingsScreen
 import react.FC
 import react.Props
@@ -224,7 +226,12 @@ val AppFrame =
 
                     div {
                         className = ClassName("rail-scroll")
-                        groups.forEach { group ->
+                        // Subgroups are reached from their parent's Subgroups panel, so keep them
+                        // out of the rail when the parent is itself in the rail (avoid duplication).
+                        // A subgroup whose parent you haven't joined stays, so it isn't unreachable.
+                        val railGroupIds = groups.mapTo(HashSet()) { it.meta.id }
+                        val railGroups = groups.filter { it.meta.parent == null || it.meta.parent !in railGroupIds }
+                        railGroups.forEach { group ->
                             val name = group.meta.name ?: group.meta.id
                             div {
                                 key = group.meta.id
@@ -509,6 +516,13 @@ val AppFrame =
                         DmPage {
                             pubkey = r.pubkey
                             onOpenProfile = { pushRoute(it) }
+                        }
+                    r is RelayRoute ->
+                        RelayScreen {
+                            relayUrl = r.relayUrl
+                            onBack = { pushHome() }
+                            onOpenGroup = { g -> pushRoute(GroupRoute(g.relayUrl, g.meta.id)) }
+                            onOpenDrawer = { setDrawerOpen(true) }
                         }
                     r is GroupRoute && selectedGroup != null ->
                         // The legacy full-featured chat (messages, composer, search, member

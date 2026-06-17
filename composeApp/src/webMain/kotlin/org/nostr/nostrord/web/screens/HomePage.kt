@@ -4,6 +4,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.navigation.HomeTab
+import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.screens.home.DiscoverGroup
 import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
@@ -17,6 +18,7 @@ import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.iconInput
 import org.nostr.nostrord.web.components.tabItem
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.ChildrenBuilder
 import react.FC
 import react.Props
@@ -67,6 +69,8 @@ val HomePage =
         val friendsGroupsLoading = useStateFlow(vm.friendsGroupsLoading)
         val recommendedGroupsLoading = useStateFlow(vm.recommendedGroupsLoading)
         val relayMeta = useStateFlow(vm.relayMetadata)
+        // Group ids you're a member of, to mark the "Joined" badge on cards in mixed lists.
+        val joinedIds = useStateFlow(AppModule.nostrRepository.joinedGroupsByRelay).values.flatten().toSet()
         // Tab index derived from the router-owned tab; selecting a tab routes (mirror).
         val filter = props.tab.ordinal
         val setFilter = { index: Int -> props.onSelectTab(HomeTab.entries[index]) }
@@ -195,7 +199,7 @@ val HomePage =
                                     div {
                                         className = ClassName("card-grid")
                                         myGroups.forEach { group ->
-                                            discoverGroupCard(group, relayMeta[group.relayUrl]?.icon) {
+                                            discoverGroupCard(group, relayMeta[group.relayUrl]?.icon, group.meta.id in joinedIds) {
                                                 props.onOpenGroup(JoinedGroup(group.relayUrl, group.meta))
                                             }
                                         }
@@ -226,7 +230,7 @@ val HomePage =
                                     div {
                                         className = ClassName("card-grid")
                                         friendsGroups.forEach { fg ->
-                                            discoverGroupCard(fg, relayMeta[fg.relayUrl]?.icon) {
+                                            discoverGroupCard(fg, relayMeta[fg.relayUrl]?.icon, fg.meta.id in joinedIds) {
                                                 props.onOpenGroup(JoinedGroup(fg.relayUrl, fg.meta))
                                             }
                                         }
@@ -245,7 +249,7 @@ val HomePage =
                                 div {
                                     className = ClassName("card-grid")
                                     recommendedGroups.forEach { group ->
-                                        discoverGroupCard(group, relayMeta[group.relayUrl]?.icon) {
+                                        discoverGroupCard(group, relayMeta[group.relayUrl]?.icon, group.meta.id in joinedIds) {
                                             props.onOpenGroup(JoinedGroup(group.relayUrl, group.meta))
                                         }
                                     }
@@ -303,9 +307,10 @@ val HomePage =
  * here as overlapping avatars, falling back to members, plus the total "N people" count and
  * the restricted badge), and finally a single-line description.
  */
-private fun ChildrenBuilder.discoverGroupCard(
+internal fun ChildrenBuilder.discoverGroupCard(
     dg: DiscoverGroup,
     relayIconUrl: String?,
+    isJoined: Boolean,
     onOpen: () -> Unit,
 ) {
     val meta = dg.meta
@@ -330,8 +335,18 @@ private fun ChildrenBuilder.discoverGroupCard(
             }
             div {
                 div {
-                    className = ClassName("group-card-name")
-                    +name
+                    className = ClassName("group-card-name-row")
+                    div {
+                        className = ClassName("group-card-name")
+                        +name
+                    }
+                    if (isJoined) {
+                        span {
+                            className = ClassName("group-card-joined")
+                            icon(Ic.Check)
+                            +"Joined"
+                        }
+                    }
                 }
                 div {
                     className = ClassName("group-card-people")
@@ -387,6 +402,12 @@ private fun ChildrenBuilder.discoverGroupCard(
         if (relayHost.isNotBlank()) {
             div {
                 className = ClassName("group-card-relay")
+                title = "Open relay"
+                // Inside the card button, so stop the click from also opening the group.
+                onClick = {
+                    it.stopPropagation()
+                    pushRoute(RelayRoute(dg.relayUrl))
+                }
                 WebAvatar {
                     url = relayIconUrl
                     seed = dg.relayUrl

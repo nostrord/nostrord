@@ -30,7 +30,6 @@ import web.cssom.ClassName
 
 external interface GroupInfoModalProps : Props {
     var group: GroupMetadata
-    var isMember: Boolean
     var onLeave: () -> Unit
     var onClose: () -> Unit
 }
@@ -51,6 +50,10 @@ val GroupInfoModal =
         val level = groupLevels[group.id] ?: defaultLevel
         val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
         val memberCount = useStateFlow(AppModule.nostrRepository.groupMembers)[group.id]?.size ?: 0
+        // Leaving is about the user's own kind:10009 list, so it must be offered whenever the
+        // group is in that list (any relay), even if the relay is dead and membership/posting
+        // can't be confirmed. Gating on "can post" would hide the only exit from a broken relay.
+        val isJoined = useStateFlow(AppModule.nostrRepository.joinedGroupsByRelay).values.any { group.id in it }
         val relayUrl = useStateFlow(AppModule.nostrRepository.currentRelayUrl)
         val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
         // Mention click in the description opens that user's profile on top.
@@ -179,7 +182,7 @@ val GroupInfoModal =
                         IdentifierRow { ids = groupIds }
                     }
 
-                    if (props.isMember) {
+                    if (isJoined) {
                         div { className = ClassName("info-divider") }
                         if (confirmLeave) {
                             div {

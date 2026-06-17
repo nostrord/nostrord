@@ -2,8 +2,10 @@ package org.nostr.nostrord.web.modals
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.ui.groupIdentifiers
 import org.nostr.nostrord.utils.Result
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.AvatarKind
@@ -20,6 +22,8 @@ import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
 import react.dom.html.ReactHTML.input
+import react.dom.html.ReactHTML.option
+import react.dom.html.ReactHTML.select
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
 import react.useState
@@ -38,6 +42,7 @@ private enum class ManageTab(val label: String, val ic: Ic) {
     Members("Members", Ic.People),
     Invites("Invites", Ic.Link),
     Requests("Requests", Ic.Shield),
+    Hierarchy("Hierarchy", Ic.AccountTree),
     Danger("Danger", Ic.Warning),
 }
 
@@ -55,6 +60,14 @@ val ManageGroupModal =
                 ManageTab.entries.firstOrNull { it.name.equals(props.initialTab, ignoreCase = true) } ?: ManageTab.Info
             }
         useEscClose { props.onClose() }
+
+        // The Hierarchy tab only makes sense where the relay advertises NIP-29 subgroup support
+        // (nip29:{subgroups:true} in its NIP-11); hide it elsewhere.
+        val relayUrl = useStateFlow(AppModule.nostrRepository.currentRelayUrl)
+        val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
+        val supportsSubgroups =
+            (relayMetadata[relayUrl] ?: relayMetadata[relayUrl.normalizeRelayUrl()])?.supportsSubgroups == true
+        val visibleTabs = ManageTab.entries.filter { it != ManageTab.Hierarchy || supportsSubgroups }
 
         div {
             className = ClassName("modal-overlay")
@@ -83,7 +96,7 @@ val ManageGroupModal =
                     className = ClassName("manage-layout")
                     div {
                         className = ClassName("manage-nav")
-                        ManageTab.entries.forEach { t ->
+                        visibleTabs.forEach { t ->
                             button {
                                 key = t.name
                                 className = ClassName(if (t == tab) "manage-nav-item selected" else "manage-nav-item")
@@ -108,6 +121,7 @@ val ManageGroupModal =
                                     groupId = group.id
                                     isOpen = group.isOpen
                                 }
+                            ManageTab.Hierarchy -> ManageHierarchySection { this.group = group }
                             ManageTab.Danger ->
                                 ManageDangerSection {
                                     this.group = group
@@ -245,25 +259,41 @@ private val ManageDangerSection =
         div {
             className = ClassName("manage-danger")
             div {
-                className = ClassName("manage-danger-title")
-                +"Delete group"
-            }
-            div {
-                className = ClassName("modal-subtitle")
-                +"This permanently deletes the group from the relay. This cannot be undone."
-            }
-            if (!confirmDelete) {
-                button {
-                    className = ClassName("btn-danger")
-                    onClick = { setConfirmDelete(true) }
-                    icon(Ic.Delete)
+                className = ClassName("manage-danger-head")
+                icon(Ic.Warning)
+                span {
+                    className = ClassName("manage-danger-title")
                     +"Delete group"
                 }
-            } else {
+            }
+            div {
+                className = ClassName("manage-danger-desc")
+                +(
+                    if (confirmDelete) {
+                        "Are you sure? This permanently deletes the group from the relay and cannot be undone."
+                    } else {
+                        "This permanently deletes the group from the relay. This cannot be undone."
+                    }
+                    )
+            }
+            if (error != null) {
                 div {
-                    className = ClassName("manage-actions")
+                    className = ClassName("modal-error")
+                    +error
+                }
+            }
+            div {
+                className = ClassName("manage-danger-actions")
+                if (!confirmDelete) {
                     button {
-                        className = ClassName("btn-text")
+                        className = ClassName("btn-danger")
+                        onClick = { setConfirmDelete(true) }
+                        icon(Ic.Delete)
+                        +"Delete group"
+                    }
+                } else {
+                    button {
+                        className = ClassName("btn-secondary")
                         disabled = deleting
                         onClick = { setConfirmDelete(false) }
                         +"Cancel"
@@ -287,14 +317,9 @@ private val ManageDangerSection =
                                 }
                             }
                         }
-                        +(if (deleting) "Deleting…" else "Delete group")
+                        icon(Ic.Delete)
+                        +(if (deleting) "Deleting…" else "Confirm delete")
                     }
-                }
-            }
-            if (error != null) {
-                div {
-                    className = ClassName("modal-error")
-                    +error
                 }
             }
         }
@@ -314,6 +339,9 @@ private val ManageMembersSection =
         val userMetadata = useStateFlow(repo.userMetadata)
         val (tab, setTab) = useState { "All" }
         val (query, setQuery) = useState { "" }
+        // Pubkey of the member whose Remove is awaiting confirmation (destructive, loses access).
+        val (confirmRemove, setConfirmRemove) = useState<String?> { null }
+        val myPubkey = repo.getPublicKey()
 
         fun nameOf(pubkey: String): String {
             val meta = userMetadata[pubkey]
@@ -382,25 +410,261 @@ private val ManageMembersSection =
                             }
                         }
                     }
-                    div {
-                        className = ClassName("mod-actions")
-                        button {
-                            className = ClassName("mod-btn")
-                            onClick = {
-                                launchApp {
-                                    repo.addUser(props.groupId, pubkey, if (isAdmin) emptyList() else listOf("admin"))
+                    if (pubkey == myPubkey) {
+                        // No self-demote / self-remove: a NIP-29 relay only accepts moderation
+                        // (kind 9000/9001) from an admin, so demoting yourself is one-way; you
+                        // could not re-promote yourself and may be locked out. Use Leave group.
+                        span {
+                            className = ClassName("mod-self-tag")
+                            +"You"
+                        }
+                    } else {
+                        div {
+                            className = ClassName("mod-actions")
+                            if (confirmRemove == pubkey) {
+                                button {
+                                    className = ClassName("mod-btn danger")
+                                    onClick = {
+                                        setConfirmRemove(null)
+                                        launchApp { repo.removeUser(props.groupId, pubkey) }
+                                    }
+                                    +"Confirm"
+                                }
+                                button {
+                                    className = ClassName("mod-btn")
+                                    onClick = { setConfirmRemove(null) }
+                                    +"Cancel"
+                                }
+                            } else {
+                                button {
+                                    className = ClassName("mod-btn")
+                                    onClick = {
+                                        launchApp {
+                                            repo.addUser(props.groupId, pubkey, if (isAdmin) emptyList() else listOf("admin"))
+                                        }
+                                    }
+                                    +(if (isAdmin) "Demote" else "Promote")
+                                }
+                                button {
+                                    className = ClassName("mod-btn danger")
+                                    onClick = { setConfirmRemove(pubkey) }
+                                    +"Remove"
                                 }
                             }
-                            +(if (isAdmin) "Demote" else "Promote")
-                        }
-                        button {
-                            className = ClassName("mod-btn danger")
-                            onClick = { launchApp { repo.removeUser(props.groupId, pubkey) } }
-                            +"Remove"
                         }
                     }
                 }
             }
+        }
+    }
+
+// ---- Hierarchy ----
+
+private external interface ManageHierarchyProps : Props {
+    var group: GroupMetadata
+}
+
+/**
+ * Hierarchy tab: re-parent the group (make it a child of another group on the same relay) or
+ * promote it back to root, plus a read-only list of its declared subgroups. Parent changes go
+ * through one kind:9002 (updateGroupTopology); a parent must live on the same relay, and the
+ * candidate list excludes the group itself and its own descendants so no cycle can form.
+ */
+private val ManageHierarchySection =
+    FC<ManageHierarchyProps> { props ->
+        val group = props.group
+        val repo = AppModule.nostrRepository
+        val relayUrl = useStateFlow(repo.currentRelayUrl)
+        val groupsByRelay = useStateFlow(repo.groupsByRelay)
+        val childrenByParent = useStateFlow(repo.childrenByParent)
+        val groupAdmins = useStateFlow(repo.groupAdmins)
+        val myPubkey = repo.getPublicKey()
+        val (busy, setBusy) = useState { false }
+        val (error, setError) = useState<String?> { null }
+
+        val relayGroups = groupsByRelay[relayUrl].orEmpty()
+        val parentId = group.parent
+        val parentName =
+            parentId?.let { pid -> relayGroups.firstOrNull { it.id == pid }?.name?.takeIf { it.isNotBlank() } ?: pid }
+
+        // Transitive descendants of this group, excluded from parent candidates to prevent cycles.
+        val descendants = HashSet<String>()
+        val stack = ArrayDeque(childrenByParent[group.id].orEmpty())
+        while (stack.isNotEmpty()) {
+            val id = stack.removeLast()
+            if (descendants.add(id)) stack.addAll(childrenByParent[id].orEmpty())
+        }
+        // Only groups you administer are offered as a parent (you can't list every group on the
+        // relay), and never this group, its current parent, or any of its descendants (cycles).
+        val candidates =
+            relayGroups
+                .filter {
+                    it.id != group.id &&
+                        it.id != parentId &&
+                        it.id !in descendants &&
+                        myPubkey != null &&
+                        myPubkey in groupAdmins[it.id].orEmpty()
+                }
+                .sortedBy { (it.name ?: it.id).lowercase() }
+
+        // Re-parent through editGroup so the kind:9002 carries the group's FULL metadata + the
+        // parent op (the relay can reject a bare parent-only 9002); fall back to a topology-only
+        // event when we don't have that group's metadata cached (e.g. an id typed by hand).
+        suspend fun reparent(target: GroupMetadata?, id: String, op: GroupManager.ParentOp): Result<Unit> = if (target != null) {
+            repo.editGroup(
+                groupId = target.id,
+                name = target.name?.takeIf { it.isNotBlank() } ?: target.id,
+                about = target.about,
+                isPrivate = !target.isPublic,
+                isClosed = !target.isOpen,
+                isRestricted = target.isRestricted,
+                isHidden = target.isHidden,
+                picture = target.picture,
+                parentOp = op,
+            )
+        } else {
+            repo.updateGroupTopology(id, op)
+        }
+
+        fun applyParent(op: GroupManager.ParentOp) {
+            setBusy(true)
+            setError(null)
+            launchApp {
+                val r = reparent(group, group.id, op)
+                setBusy(false)
+                if (r is Result.Error) setError(r.error.message.ifBlank { "Failed to update hierarchy." })
+            }
+        }
+
+        fun addSubgroup(childId: String) {
+            if (childId.isBlank()) return
+            val child = relayGroups.firstOrNull { it.id == childId }
+            setBusy(true)
+            setError(null)
+            launchApp {
+                val r = reparent(child, childId, GroupManager.ParentOp.SetTo(group.id))
+                setBusy(false)
+                if (r is Result.Error) setError(r.error.message.ifBlank { "Failed to add subgroup." })
+            }
+        }
+
+        // Groups you administer that could become a subgroup here: not this group, not an
+        // existing child, and not an ancestor/descendant (cycle). Only known groups, never the
+        // relay's full list.
+        val childCandidates =
+            relayGroups
+                .filter {
+                    it.id != group.id &&
+                        it.id != parentId &&
+                        it.id != group.parent &&
+                        it.parent != group.id &&
+                        it.id !in descendants &&
+                        myPubkey != null &&
+                        myPubkey in groupAdmins[it.id].orEmpty()
+                }
+                .sortedBy { (it.name ?: it.id).lowercase() }
+
+        div {
+            className = ClassName("access-section-title")
+            +"PARENT"
+        }
+        div {
+            className = ClassName("hierarchy-current")
+            +"Current: "
+            span {
+                className = ClassName("hierarchy-current-value")
+                +(parentName ?: "Root group")
+            }
+        }
+        div {
+            className = ClassName("hierarchy-row")
+            select {
+                className = ClassName("modal-input")
+                value = ""
+                disabled = busy || candidates.isEmpty()
+                onChange = { e ->
+                    val id = e.currentTarget.value
+                    if (id.isNotBlank()) applyParent(GroupManager.ParentOp.SetTo(id))
+                }
+                option {
+                    value = ""
+                    +(if (candidates.isEmpty()) "No other groups on this relay" else "Set parent...")
+                }
+                candidates.forEach { g ->
+                    option {
+                        key = g.id
+                        value = g.id
+                        +(g.name?.takeIf { it.isNotBlank() } ?: g.id)
+                    }
+                }
+            }
+            if (parentId != null) {
+                button {
+                    className = ClassName("btn-secondary")
+                    disabled = busy
+                    onClick = { applyParent(GroupManager.ParentOp.Detach) }
+                    +"Make root"
+                }
+            }
+        }
+        if (error != null) {
+            div {
+                className = ClassName("modal-error")
+                +error
+            }
+        }
+
+        val subIds = childrenByParent[group.id].orEmpty()
+        div {
+            className = ClassName("access-section-title")
+            +"SUBGROUPS (${subIds.size})"
+        }
+        div {
+            className = ClassName("mod-list")
+            if (subIds.isEmpty()) {
+                div {
+                    className = ClassName("mod-empty")
+                    +"No subgroups."
+                }
+            }
+            subIds.forEach { sid ->
+                val sub = relayGroups.firstOrNull { it.id == sid }
+                div {
+                    key = sid
+                    className = ClassName("mod-row")
+                    span {
+                        className = ClassName("mod-name")
+                        +(sub?.name?.takeIf { it.isNotBlank() } ?: sid)
+                    }
+                }
+            }
+        }
+        div {
+            className = ClassName("hierarchy-row")
+            select {
+                className = ClassName("modal-input")
+                value = ""
+                disabled = busy || childCandidates.isEmpty()
+                onChange = { e ->
+                    val id = e.currentTarget.value
+                    if (id.isNotBlank()) addSubgroup(id)
+                }
+                option {
+                    value = ""
+                    +(if (childCandidates.isEmpty()) "No groups you admin to add" else "Add a subgroup...")
+                }
+                childCandidates.forEach { g ->
+                    option {
+                        key = g.id
+                        value = g.id
+                        +(g.name?.takeIf { it.isNotBlank() } ?: g.id)
+                    }
+                }
+            }
+        }
+        div {
+            className = ClassName("modal-subtitle")
+            +"Only groups you administer on this relay can be added as subgroups."
         }
     }
 

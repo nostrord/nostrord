@@ -4,6 +4,7 @@ import js.objects.unsafeJso
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.useStateFlow
@@ -13,9 +14,9 @@ import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.bannerGradientCss
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.modals.CreateGroupModal
-import org.nostr.nostrord.web.modals.GroupInfoModal
 import org.nostr.nostrord.web.modals.ManageGroupModal
 import org.nostr.nostrord.web.modals.MembersModal
+import org.nostr.nostrord.web.navigation.pushRoute
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -46,7 +47,6 @@ val GroupSidebar =
         val groupAdmins = useStateFlow(vm.groupAdmins)
         val relayMetadata = useStateFlow(vm.relayMetadata)
         val unreadCounts = useStateFlow(AppModule.nostrRepository.unreadCounts)
-        val (showInfo, setShowInfo) = useState { false }
         val (showMembers, setShowMembers) = useState { false }
         val (showCreateSubgroup, setShowCreateSubgroup) = useState { false }
         val (showManage, setShowManage) = useState { false }
@@ -65,15 +65,18 @@ val GroupSidebar =
             (relayMetadata[route.relayUrl] ?: relayMetadata[route.relayUrl.normalizeRelayUrl()])
                 ?.supportsSubgroups == true
         val parent = meta?.parent?.let { pid -> relayGroups.firstOrNull { it.id == pid } }
+        // Host relay shown under the group name (same reference as the discovery .group-card),
+        // so the same group on two relays is told apart.
+        val relayHost = route.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+        val relayIconUrl = (relayMetadata[route.relayUrl] ?: relayMetadata[route.relayUrl.normalizeRelayUrl()])?.icon
 
         div {
             className = ClassName("group-side")
             // Gradient identity banner (prototype GroupBanner): same hue pair as the
-            // group's conic avatar, darkened for legible white text. Clicking it opens
-            // group info (the Members row below now opens the roster / manage instead).
+            // group's conic avatar, darkened for legible white text. Only the relay line is
+            // a link (to the relay page); the banner itself is not clickable.
             div {
-                className = ClassName("group-side-banner clickable")
-                onClick = { setShowInfo(true) }
+                className = ClassName("group-side-banner")
                 style = unsafeJso { background = bannerGradientCss(route.groupId).unsafeCast<Background>() }
                 div { className = ClassName("group-side-banner-scrim") }
                 div {
@@ -85,9 +88,30 @@ val GroupSidebar =
                         kind = org.nostr.nostrord.web.components.AvatarKind.GROUP
                         cls = "group-side-banner-avatar"
                     }
-                    span {
-                        className = ClassName("group-side-banner-name")
-                        +name
+                    div {
+                        className = ClassName("group-side-banner-meta")
+                        span {
+                            className = ClassName("group-side-banner-name")
+                            +name
+                        }
+                        if (relayHost.isNotBlank()) {
+                            button {
+                                className = ClassName("group-side-banner-relay")
+                                title = "Open relay"
+                                onClick = { pushRoute(RelayRoute(route.relayUrl)) }
+                                WebAvatar {
+                                    url = relayIconUrl
+                                    seed = route.relayUrl
+                                    this.name = relayHost
+                                    kind = org.nostr.nostrord.web.components.AvatarKind.RELAY
+                                    cls = "group-side-banner-relay-icon"
+                                }
+                                span {
+                                    className = ClassName("group-side-banner-relay-host")
+                                    +relayHost
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -193,12 +217,6 @@ val GroupSidebar =
             }
         }
 
-        if (showInfo) {
-            GroupInfoModal {
-                group = meta ?: placeholderMeta(route.groupId)
-                onClose = { setShowInfo(false) }
-            }
-        }
         if (showMembers) {
             MembersModal {
                 groupId = route.groupId

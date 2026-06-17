@@ -21,6 +21,7 @@ import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.MentionableGroup
 import org.nostr.nostrord.utils.ChatSearch
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
@@ -28,6 +29,7 @@ import org.nostr.nostrord.utils.formatDateTime
 import org.nostr.nostrord.utils.formatTime
 import org.nostr.nostrord.utils.formatTimestamp
 import org.nostr.nostrord.utils.normalizeForSearch
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
@@ -251,10 +253,13 @@ private external interface ChatComposerProps : Props {
     var canPost: Boolean
     var isPending: Boolean
     var members: List<String>
-    var allGroups: List<GroupMetadata>
+    var allGroups: List<MentionableGroup>
     var userMetadata: Map<String, UserMetadata>
     var relayUrl: String
-    var relayPubkey: String?
+
+    /** Relay's NIP-11 pubkey for a given relay URL, used as the naddr author when building a
+     *  `%group` mention so the reference carries the mentioned group's own relay, not the chat's. */
+    var relayPubkeyOf: (String) -> String?
 
     /** Id of the message being replied to (null = no reply), plus the parent's display name and a
      *  content preview for the banner (native ReplyingToBar shows both). */
@@ -373,13 +378,18 @@ private val ChatComposer =
                 }
                 '%' -> {
                     val normalizedQuery = mention.query.normalizeForSearch()
-                    val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
                     allGroups.asSequence()
-                        .filter { g -> mention.query.isBlank() || (g.name ?: g.id).normalizeForSearch().contains(normalizedQuery) }
+                        .filter { mg ->
+                            mention.query.isBlank() ||
+                                (mg.meta.name ?: mg.meta.id).normalizeForSearch().contains(normalizedQuery)
+                        }
                         .take(6)
-                        .map { g ->
-                            val ref = "nostr:" + Nip19.encodeNaddr(g.id, relayUrl, 39000, props.relayPubkey)
-                            MentionMatch(g.name ?: g.id, g.picture, g.id, group = true, ref = ref, sub = relayHost)
+                        .map { mg ->
+                            // Encode the naddr with the group's OWN hosting relay (and that relay's
+                            // pubkey), not the current chat relay, so the mention navigates correctly.
+                            val gRelayHost = mg.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                            val ref = "nostr:" + Nip19.encodeNaddr(mg.meta.id, mg.relayUrl, 39000, props.relayPubkeyOf(mg.relayUrl))
+                            MentionMatch(mg.meta.name ?: mg.meta.id, mg.meta.picture, mg.meta.id, group = true, ref = ref, sub = gRelayHost)
                         }
                         .toList()
                 }
@@ -1007,7 +1017,7 @@ val ChatScreen =
         val zapsByMsg = useStateFlow(vm.zaps)
         // %group mention candidates: only joined + friends' groups (the new discovery),
         // not every group the relay served.
-        val allGroups = useStateFlow(vm.mentionableGroups).map { it.meta }
+        val allGroups = useStateFlow(vm.mentionableGroups)
         val relayMetadata = useStateFlow(vm.relayMetadata)
         val relayUrl = useStateFlow(vm.currentRelayUrl)
         val isLoadingMore = useStateFlow(vm.isLoadingMore)[group.id] ?: false
@@ -1646,30 +1656,35 @@ val ChatScreen =
                             }
                         }
                     }
-                    button {
-                        className = ClassName(if (searchActive) "chat-icon-btn active" else "chat-icon-btn")
-                        title = "Search"
-                        onClick = { if (searchActive) closeSearch() else setSearchActive(true) }
-                        icon(Ic.Search)
-                    }
-                    // Prototype header actions: Invite (share link) and Info, then Members.
-                    button {
-                        className = ClassName("chat-icon-btn")
-                        title = "Invite"
-                        onClick = { setModal("share") }
-                        icon(Ic.Link)
-                    }
-                    button {
-                        className = ClassName("chat-icon-btn")
-                        title = "Group Info"
-                        onClick = { setInfoOpen(true) }
-                        icon(Ic.Info)
-                    }
-                    button {
-                        className = ClassName(if (membersOpen) "chat-icon-btn active" else "chat-icon-btn")
-                        title = "Members"
-                        onClick = { setMembersOpen(!membersOpen) }
-                        icon(Ic.People)
+                    // A private group exposes nothing to non-members (no messages, member list or
+                    // shareable invite), so hide Search / Invite / Group Info / Members there; a
+                    // public group, or a private one you're a member of, keeps them.
+                    if (group.isPublic || canPost) {
+                        button {
+                            className = ClassName(if (searchActive) "chat-icon-btn active" else "chat-icon-btn")
+                            title = "Search"
+                            onClick = { if (searchActive) closeSearch() else setSearchActive(true) }
+                            icon(Ic.Search)
+                        }
+                        // Prototype header actions: Invite (share link) and Info, then Members.
+                        button {
+                            className = ClassName("chat-icon-btn")
+                            title = "Invite"
+                            onClick = { setModal("share") }
+                            icon(Ic.Link)
+                        }
+                        button {
+                            className = ClassName("chat-icon-btn")
+                            title = "Group Info"
+                            onClick = { setInfoOpen(true) }
+                            icon(Ic.Info)
+                        }
+                        button {
+                            className = ClassName(if (membersOpen) "chat-icon-btn active" else "chat-icon-btn")
+                            title = "Members"
+                            onClick = { setMembersOpen(!membersOpen) }
+                            icon(Ic.People)
+                        }
                     }
                     if (!canPost && !membersResolving) {
                         if (composerPending) {
@@ -2071,7 +2086,7 @@ val ChatScreen =
                     this.allGroups = allGroups
                     this.userMetadata = userMetadata
                     this.relayUrl = relayUrl
-                    this.relayPubkey = relayMetadata[relayUrl]?.pubkey
+                    this.relayPubkeyOf = { r -> relayMetadata[r]?.pubkey ?: relayMetadata[r.normalizeRelayUrl()]?.pubkey }
                     this.replyingToId = replyingToId
                     this.replyParentName =
                         replyingToId?.let { id -> messagesById[id]?.let { p -> displayName(p.pubkey, userMetadata[p.pubkey]) } }
@@ -2219,7 +2234,6 @@ val ChatScreen =
             if (infoOpen) {
                 GroupInfoModal {
                     this.group = group
-                    this.isMember = canPost
                     onLeave = {
                         setInfoOpen(false)
                         // App-lifetime scope: the leave publish must survive the
@@ -3361,9 +3375,23 @@ private fun ChildrenBuilder.renderEntities(
                 +token
             }
         } else {
+            // A mention standing alone (the whole message) keeps the rich form (group card,
+            // @name); inline with other text it becomes a compact avatar+name chip, matching
+            // the prototype.
+            val standalone = content.trim() == token
             when (val entity = Nip19.decode(token.removePrefix("nostr:"))) {
-                is Nip19.Entity.Npub -> mentionSpan(entity.pubkey, userMetadata, onUser)
-                is Nip19.Entity.Nprofile -> mentionSpan(entity.pubkey, userMetadata, onUser)
+                is Nip19.Entity.Npub ->
+                    if (standalone) {
+                        mentionSpan(entity.pubkey, userMetadata, onUser)
+                    } else {
+                        userMentionChip(entity.pubkey, userMetadata, onUser)
+                    }
+                is Nip19.Entity.Nprofile ->
+                    if (standalone) {
+                        mentionSpan(entity.pubkey, userMetadata, onUser)
+                    } else {
+                        userMentionChip(entity.pubkey, userMetadata, onUser)
+                    }
                 is Nip19.Entity.Nevent ->
                     QuotedEvent {
                         eventId = entity.eventId
@@ -3386,10 +3414,18 @@ private fun ChildrenBuilder.renderEntities(
                     }
                 is Nip19.Entity.Naddr ->
                     if (entity.kind == 39000) {
-                        GroupLinkCard {
-                            groupId = entity.identifier
-                            relayUrl = entity.relays.firstOrNull()
-                            onNavigate = onGroupRef
+                        if (standalone) {
+                            GroupLinkCard {
+                                groupId = entity.identifier
+                                relayUrl = entity.relays.firstOrNull()
+                                onNavigate = onGroupRef
+                            }
+                        } else {
+                            GroupMentionChip {
+                                groupId = entity.identifier
+                                relayUrl = entity.relays.firstOrNull()
+                                onNavigate = onGroupRef
+                            }
                         }
                     } else {
                         a {
@@ -3439,6 +3475,22 @@ private fun ChildrenBuilder.mentionSpan(pubkey: String, userMetadata: Map<String
         className = ClassName("msg-mention")
         onClick = { onUser(pubkey) }
         +"@${displayName(pubkey, userMetadata[pubkey])}"
+    }
+}
+
+/** Inline user mention chip (prototype): circular avatar + display name, tinted and tappable. */
+private fun ChildrenBuilder.userMentionChip(pubkey: String, userMetadata: Map<String, UserMetadata>, onUser: (String) -> Unit) {
+    val name = displayName(pubkey, userMetadata[pubkey])
+    span {
+        className = ClassName("msg-mention-chip")
+        onClick = { onUser(pubkey) }
+        WebAvatar {
+            url = userMetadata[pubkey]?.picture
+            seed = pubkey
+            this.name = name
+            cls = "msg-mention-chip-avatar"
+        }
+        +name
     }
 }
 
@@ -3616,6 +3668,44 @@ private val GroupLinkCard =
                         +it
                     }
                 }
+            }
+        }
+    }
+
+/**
+ * Inline group mention chip (prototype): a decoded naddr (kind 39000) shown compactly with the
+ * group's square avatar + name when resolved, or `#name` when it has no picture. Clicking opens
+ * the group. Standalone group references still render as the full GroupLinkCard.
+ */
+private val GroupMentionChip =
+    FC<GroupLinkCardProps> { props ->
+        val repo = AppModule.nostrRepository
+        val groupsByRelay = useStateFlow(repo.groupsByRelay)
+        val meta = groupsByRelay.values.flatten().firstOrNull { it.id == props.groupId }
+        val name = meta?.name?.takeIf { it.isNotBlank() } ?: props.groupId
+
+        useEffect(props.groupId, props.relayUrl, meta?.name) {
+            val relay = props.relayUrl
+            if (relay != null && meta?.name == null) {
+                launchApp { repo.fetchGroupPreview(props.groupId, relay) }
+            }
+        }
+
+        span {
+            className = ClassName("msg-mention-chip")
+            onClick = { props.onNavigate(props.groupId, props.relayUrl) }
+            val picture = meta?.picture
+            if (!picture.isNullOrBlank()) {
+                WebAvatar {
+                    url = picture
+                    seed = props.groupId
+                    this.name = name
+                    kind = AvatarKind.GROUP
+                    cls = "msg-mention-chip-avatar group"
+                }
+                +name
+            } else {
+                +"#$name"
             }
         }
     }

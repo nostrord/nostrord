@@ -1440,9 +1440,6 @@ body {
     border-bottom: 1px solid var(--color-divider);
 }
 
-.group-side-banner.clickable {
-    cursor: pointer;
-}
 
 /* Read-only member roster row (MembersModal): full-width tappable, opens the profile. */
 .member-row-btn {
@@ -1485,13 +1482,48 @@ body {
     border-radius: var(--radius-sm);
 }
 
-.group-side-banner-name {
+.group-side-banner-meta {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.group-side-banner-name {
     min-width: 0;
     overflow: hidden;
     font-size: 15px;
     font-weight: 700;
     color: #ffffff;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+}
+.group-side-banner-relay {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    padding: 2px 6px 2px 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    text-align: left;
+}
+.group-side-banner-relay:hover .group-side-banner-relay-host {
+    text-decoration: underline;
+}
+.group-side-banner-relay-icon {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+    border-radius: 3px;
+}
+.group-side-banner-relay-host {
+    overflow: hidden;
+    font-size: 11px;
+    color: rgb(255 255 255 / 0.85);
     text-overflow: ellipsis;
     white-space: nowrap;
     text-shadow: 0 1px 2px rgb(0 0 0 / 0.4);
@@ -2633,6 +2665,217 @@ body {
 }
 
 /* Responsive card grid (1 / 2 / 3 columns) */
+/* Relay page (#/r/<relay>): NIP-11 header card + the group-card grid. */
+.relay-page {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.relay-page-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 52px;
+    flex-shrink: 0;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--color-divider);
+}
+
+.relay-back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+}
+
+.relay-back:hover {
+    color: var(--color-text-primary);
+    background: var(--color-hover);
+}
+
+.relay-header-name {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.relay-info-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 20px;
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+}
+
+.relay-info-card > .btn-primary,
+.relay-info-card > .btn-secondary {
+    flex-shrink: 0;
+    align-self: flex-start;
+    white-space: nowrap;
+}
+
+.relay-info-avatar {
+    width: 56px;
+    height: 56px;
+    flex-shrink: 0;
+    border-radius: var(--radius-lg);
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.relay-info-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.relay-info-name-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.relay-info-name {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--color-text-primary);
+}
+
+.relay-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-variant);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+}
+
+.relay-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-text-muted);
+}
+
+.relay-status-dot.ok {
+    background: var(--color-success);
+}
+
+.relay-status-dot.warn {
+    background: var(--color-warning);
+}
+
+.relay-status-dot.off {
+    background: var(--color-text-muted);
+}
+
+.relay-info-url {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--color-text-muted);
+    word-break: break-all;
+}
+
+.relay-info-desc {
+    margin-top: 6px;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+}
+
+.relay-info-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+/* Capability chip (NIP-29 / Subgroups / NIP-42): green tint, matches the prototype. */
+.relay-cap {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-success);
+    background: rgba(87, 242, 135, 0.15);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+}
+
+/* "In your list" badge: neutral/muted, matches the prototype's "na sua lista". */
+.relay-list-tag {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+    background: var(--color-surface-variant);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+}
+
+.relay-meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+}
+
+@media (min-width: 720px) {
+    .relay-meta-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+.relay-meta-cell {
+    padding: 12px 14px;
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    min-width: 0;
+}
+
+.relay-meta-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.relay-meta-value {
+    margin-top: 2px;
+    font-size: 13px;
+    color: var(--color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.relay-section-title {
+    margin: 28px 0 12px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+}
+
+.relay-empty {
+    padding: 48px 0;
+    text-align: center;
+    font-size: 14px;
+    color: var(--color-text-muted);
+    border: 1px dashed var(--color-divider);
+    border-radius: var(--radius-lg);
+}
+
 .card-grid {
     display: grid;
     /* minmax(0, 1fr), not the bare 1fr (= minmax(auto, 1fr)): a card whose
@@ -2694,7 +2937,35 @@ body {
     flex-shrink: 0;
 }
 
+.group-card-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+/* "Joined" badge: green check pill marking groups you're already a member of. */
+.group-card-joined {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--color-success);
+    background: rgba(87, 242, 135, 0.15);
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+}
+
+.group-card-joined .ico {
+    width: 12px;
+    height: 12px;
+}
+
 .group-card-name {
+    flex: 1;
+    min-width: 0;
     display: -webkit-box;
     -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
@@ -2783,6 +3054,11 @@ body {
     align-items: center;
     gap: 6px;
     margin-top: 8px;
+    cursor: pointer;
+}
+.group-card-relay:hover .group-card-relay-host {
+    color: var(--color-text-secondary);
+    text-decoration: underline;
 }
 
 .group-card-relay-icon {
@@ -5241,6 +5517,9 @@ body {
 }
 .msg-video {
     display: block;
+    /* Sits inside selectable message/quote text, which otherwise bleeds the I-beam
+       text cursor onto the video frame; keep a normal pointer over the player. */
+    cursor: default;
     max-width: min(360px, 100%);
     max-height: 300px;
     /* Same reserved slot as .msg-image — preload="metadata" still has a
@@ -5444,7 +5723,7 @@ body {
     background: var(--color-surface-variant);
 }
 .quoted-event-static {
-    cursor: text;
+    cursor: default;
 }
 .quoted-event-static:hover {
     background: var(--color-input);
@@ -5492,6 +5771,10 @@ body {
     height: 16px;
 }
 .quoted-event-content {
+    /* cursor: auto (default) shows the I-beam only over actual selectable text; media
+       (image zoom-in, video default) and empty box areas keep their own cursor. Forcing
+       cursor: text here would bleed the I-beam onto the whole content box / the video wrap. */
+    cursor: auto;
     font-size: 13px;
     color: var(--color-text-content);
     white-space: pre-wrap;
@@ -5637,6 +5920,40 @@ body {
 
 .msg-mention:hover {
     text-decoration: underline;
+}
+
+/* Inline user/group mention chip (prototype): avatar + name, tinted, tappable. */
+.msg-mention-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    vertical-align: baseline;
+    padding: 0 4px;
+    border-radius: 4px;
+    font-weight: 500;
+    color: var(--color-mention);
+    background: rgba(122, 90, 248, 0.18);
+    cursor: pointer;
+}
+
+.msg-mention-chip:hover {
+    background: rgba(122, 90, 248, 0.28);
+}
+
+.msg-mention-chip-avatar {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    font-size: 8px;
+    font-weight: 700;
+}
+
+.msg-mention-chip-avatar.group {
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    font-size: 8px;
 }
 
 .msg-reply {
@@ -7755,14 +8072,49 @@ body {
     min-width: 0;
 }
 
+/* Hierarchy tab: current parent line + the set-parent / make-root row. */
+.hierarchy-current {
+    margin-bottom: 8px;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+}
+
+.hierarchy-current-value {
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.hierarchy-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hierarchy-row .modal-input {
+    flex: 1;
+}
+
 /* Danger tab: destructive delete kept apart from the edit-and-save flow. */
 .manage-danger {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     padding: 16px;
-    border: 1px solid var(--color-error);
+    border: 1px solid rgba(237, 66, 69, 0.5);
     border-radius: var(--radius-lg);
+    background: rgba(237, 66, 69, 0.06);
+}
+
+.manage-danger-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.manage-danger-head .ico {
+    width: 18px;
+    height: 18px;
+    color: var(--color-error);
 }
 
 .manage-danger-title {
@@ -7771,8 +8123,17 @@ body {
     color: var(--color-error);
 }
 
-.manage-danger > .btn-danger {
-    align-self: flex-start;
+.manage-danger-desc {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-text-secondary);
+}
+
+.manage-danger-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 8px;
 }
 
 @media (min-width: 600px) {
@@ -7912,6 +8273,14 @@ body {
     padding: 32px 0;
     text-align: center;
     font-size: 14px;
+    color: var(--color-text-muted);
+}
+
+/* "You" marker in place of moderation buttons on the current admin's own row. */
+.mod-self-tag {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--color-text-muted);
 }
 
@@ -8238,13 +8607,6 @@ body {
     background: rgba(237, 66, 69, 0.12);
 }
 
-.manage-actions {
-    margin-top: 24px;
-}
-
-.manage-actions .btn-danger {
-    width: 100%;
-}
 
 /* ---------- Skeleton loaders (shimmer) ---------- */
 .skel {
