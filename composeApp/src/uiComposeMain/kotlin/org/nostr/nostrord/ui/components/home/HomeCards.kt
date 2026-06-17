@@ -61,6 +61,12 @@ fun GroupCard(
     modifier: Modifier = Modifier,
     cta: String? = null,
     ctaPrimary: Boolean = false,
+    /**
+     * Place the CTA inline on the right of the head row (single-column list, e.g.
+     * onboarding) instead of pinned to the card bottom. Inline cards size to their
+     * content; the default (grid) stretches to equal height so chips line up.
+     */
+    ctaInline: Boolean = false,
     people: List<Friend> = emptyList(),
     peopleLoading: Boolean = false,
     isPublic: Boolean = true,
@@ -73,12 +79,12 @@ fun GroupCard(
     onClick: () -> Unit = {},
 ) {
     Surface(
-        modifier = modifier.fillMaxWidth().fillMaxHeight().clip(NostrordShapes.shapeLarge),
+        modifier = modifier.fillMaxWidth().then(if (ctaInline) Modifier else Modifier.fillMaxHeight()).clip(NostrordShapes.shapeLarge),
         shape = NostrordShapes.shapeLarge,
         color = NostrordColors.Surface,
         onClick = onClick,
     ) {
-        Column(modifier = Modifier.fillMaxHeight().padding(16.dp)) {
+        Column(modifier = Modifier.then(if (ctaInline) Modifier else Modifier.fillMaxHeight()).padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OptimizedSmallAvatar(
                     imageUrl = picture,
@@ -167,6 +173,12 @@ fun GroupCard(
                         }
                     }
                 }
+                // Inline CTA on the right of the head row (list layout), vertically
+                // centered with the avatar + name + people block, mirroring the web card.
+                if (ctaInline && cta != null) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    GroupCardCta(text = cta, primary = ctaPrimary)
+                }
             }
             // Single-line description, always shown below the head (the agreed card shape).
             Spacer(modifier = Modifier.height(12.dp))
@@ -208,23 +220,32 @@ fun GroupCard(
                     )
                 }
             }
-            if (cta != null) {
+            if (cta != null && !ctaInline) {
                 // Push the CTA to the bottom so equal-height cards line their chips up.
                 Spacer(modifier = Modifier.weight(1f).heightIn(min = 12.dp))
-                Surface(
-                    shape = NostrordShapes.shapeMedium,
-                    color = if (ctaPrimary) NostrordColors.Primary else NostrordColors.BackgroundFloating,
-                ) {
-                    Text(
-                        cta,
-                        color = if (ctaPrimary) Color.White else NostrordColors.TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
-                }
+                GroupCardCta(text = cta, primary = ctaPrimary)
             }
         }
+    }
+}
+
+/** The Join / Joined chip shared by the grid (bottom) and list (inline) card layouts. */
+@Composable
+private fun GroupCardCta(
+    text: String,
+    primary: Boolean,
+) {
+    Surface(
+        shape = NostrordShapes.shapeMedium,
+        color = if (primary) NostrordColors.Primary else NostrordColors.BackgroundFloating,
+    ) {
+        Text(
+            text,
+            color = if (primary) Color.White else NostrordColors.TextSecondary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+        )
     }
 }
 

@@ -346,6 +346,7 @@ private fun GroupsStep(
                         restricted = fg.meta.isRestricted,
                         cta = if (joined) "Joined" else "Join",
                         ctaPrimary = !joined,
+                        ctaInline = true,
                         people = fg.people,
                         peopleLoading = fg.peopleLoading,
                         isPublic = fg.meta.isPublic,
