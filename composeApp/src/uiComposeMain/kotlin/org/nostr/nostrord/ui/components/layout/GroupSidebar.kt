@@ -132,16 +132,9 @@ fun GroupSidebar(
                 }
             }
 
-            Spacer(modifier = Modifier.height(Spacing.md))
-            if (!supportsSubgroups) {
-                // No "SUBGROUPS · 0" header on relays that can't host subgroups.
-                Text(
-                    "This group doesn't support subgroups.",
-                    color = NostrordColors.TextMuted,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
-                )
-            } else {
+            // Relays that can't host subgroups show no subgroups section at all.
+            if (supportsSubgroups) {
+                Spacer(modifier = Modifier.height(Spacing.md))
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,

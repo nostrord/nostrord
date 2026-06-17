@@ -161,13 +161,8 @@ val GroupSidebar =
                     }
                 }
 
-                if (!supportsSubgroups) {
-                    // No "Subgroups · 0" header on relays that can't host subgroups.
-                    div {
-                        className = ClassName("group-side-empty")
-                        +"This group doesn't support subgroups."
-                    }
-                } else {
+                // Relays that can't host subgroups show no subgroups section at all.
+                if (supportsSubgroups) {
                     div {
                         className = ClassName("group-side-label")
                         span { +"Subgroups · ${subgroupIds.size}" }
