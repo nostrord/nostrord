@@ -16,4 +16,10 @@ expect object Nip07 {
      * signed event as a JSON string.
      */
     suspend fun signEvent(eventJson: String): String
+
+    /** Calls window.nostr.nip44.encrypt(peerPubkey, plaintext); used to seal NIP-17 DMs. */
+    suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String
+
+    /** Calls window.nostr.nip44.decrypt(peerPubkey, ciphertext); used to open NIP-17 DMs. */
+    suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String
 }

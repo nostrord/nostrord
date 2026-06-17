@@ -12,6 +12,24 @@ import kotlin.test.assertTrue
 class Nip17Test {
     private fun signer() = NostrSigner.Local(KeyPair.generate())
 
+    /** A signer that delegates signing + NIP-44 to a held key, like a remote NIP-46/NIP-07 signer. */
+    private fun remoteStyleSigner(): NostrSigner {
+        val kp = KeyPair.generate()
+        return object : NostrSigner {
+            override val pubkey = kp.publicKeyHex
+
+            override suspend fun signEvent(event: Event): Event = event.sign(kp)
+
+            override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String =
+                Nip44.encrypt(plaintext, kp.privateKeyHex, peerPubkeyHex)
+
+            override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String =
+                Nip44.decrypt(ciphertext, kp.privateKeyHex, peerPubkeyHex)
+
+            override fun dispose() {}
+        }
+    }
+
     @Test
     fun `wrap then unwrap round-trips the message`() = runTest {
         val alice = signer()
@@ -57,6 +75,20 @@ class Nip17Test {
         val bob = signer()
         val wrap = Nip17.wrap(Nip17.buildRumor(alice.pubkey, bob.pubkey, "x"), bob.pubkey, alice)
         assertTrue(wrap.createdAt <= org.nostr.nostrord.utils.epochSeconds())
+    }
+
+    @Test
+    fun `wrap then unwrap works through a remote-style signer (NIP-46 and NIP-07 delegation)`() = runTest {
+        // Mirrors how Bunker / Nip07Extension delegate: signEvent + nip44 go to a remote that holds
+        // the key; the envelope only depends on the NostrSigner interface, not on Local.
+        val alice = remoteStyleSigner()
+        val bob = remoteStyleSigner()
+        val wrap = Nip17.wrap(Nip17.buildRumor(alice.pubkey, bob.pubkey, "via bunker"), bob.pubkey, alice)
+
+        val out = Nip17.unwrap(wrap, bob)
+        assertNotNull(out)
+        assertEquals("via bunker", out.rumor.content)
+        assertEquals(alice.pubkey, out.senderPubkey)
     }
 
     @Test

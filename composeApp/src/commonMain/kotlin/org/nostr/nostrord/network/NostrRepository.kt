@@ -1003,7 +1003,7 @@ class NostrRepository(
             publishEventToRelays(dmRelaysFor(myPub), selfWrap)
             Result.Success(Unit)
         } catch (e: NostrSigner.SigningException) {
-            Result.Error(AppError.Unknown("Direct messages currently require a local key (nsec)."))
+            Result.Error(AppError.Unknown("Your signer could not encrypt this message (NIP-44). It may not support direct messages."))
         } catch (e: Throwable) {
             Result.Error(AppError.Unknown(e.message ?: "Failed to send the message"))
         }
@@ -1136,7 +1136,7 @@ class NostrRepository(
             publishEventToRelays(targets, signed)
             Result.Success(Unit)
         } catch (e: NostrSigner.SigningException) {
-            Result.Error(AppError.Unknown("Publishing DM relays requires a local key (nsec)."))
+            Result.Error(AppError.Unknown("Your signer rejected publishing the DM relay list."))
         } catch (e: Throwable) {
             Result.Error(AppError.Unknown(e.message ?: "Failed to publish DM relays"))
         }

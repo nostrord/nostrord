@@ -63,5 +63,11 @@ expect class Nip46Client(
 
     suspend fun signEvent(eventJson: String): String
 
+    /** NIP-46 nip44_encrypt RPC: encrypt [plaintext] to [peerPubkey] with the remote signer's key. */
+    suspend fun nip44Encrypt(peerPubkey: String, plaintext: String): String
+
+    /** NIP-46 nip44_decrypt RPC: decrypt [ciphertext] from [peerPubkey] with the remote signer's key. */
+    suspend fun nip44Decrypt(peerPubkey: String, ciphertext: String): String
+
     fun disconnect()
 }

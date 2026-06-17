@@ -113,6 +113,24 @@ interface NostrSigner {
             }
         }
 
+        override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String {
+            if (disposed) throw SigningException("Bunker signer has been disposed")
+            return try {
+                nip46Client.nip44Encrypt(peerPubkeyHex, plaintext)
+            } catch (e: Exception) {
+                throw SigningException("Bunker NIP-44 encryption failed: ${e.message}", e)
+            }
+        }
+
+        override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String {
+            if (disposed) throw SigningException("Bunker signer has been disposed")
+            return try {
+                nip46Client.nip44Decrypt(peerPubkeyHex, ciphertext)
+            } catch (e: Exception) {
+                throw SigningException("Bunker NIP-44 decryption failed: ${e.message}", e)
+            }
+        }
+
         override fun dispose() {
             if (disposed) return
             disposed = true
@@ -137,6 +155,24 @@ interface NostrSigner {
             if (disposed) throw SigningException("NIP-07 signer has been disposed")
             val signedJson = Nip07.signEvent(event.toJsonString())
             return parseSignedEventJson(signedJson)
+        }
+
+        override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String {
+            if (disposed) throw SigningException("NIP-07 signer has been disposed")
+            return try {
+                Nip07.nip44Encrypt(peerPubkeyHex, plaintext)
+            } catch (e: Exception) {
+                throw SigningException("NIP-07 NIP-44 encryption failed: ${e.message}", e)
+            }
+        }
+
+        override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String {
+            if (disposed) throw SigningException("NIP-07 signer has been disposed")
+            return try {
+                Nip07.nip44Decrypt(peerPubkeyHex, ciphertext)
+            } catch (e: Exception) {
+                throw SigningException("NIP-07 NIP-44 decryption failed: ${e.message}", e)
+            }
         }
 
         override fun dispose() {

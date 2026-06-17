@@ -6,4 +6,8 @@ actual object Nip07 {
     actual suspend fun getPublicKey(): String = throw UnsupportedOperationException("NIP-07 is only available in browser environments")
 
     actual suspend fun signEvent(eventJson: String): String = throw UnsupportedOperationException("NIP-07 is only available in browser environments")
+
+    actual suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String = throw UnsupportedOperationException("NIP-07 is only available in browser environments")
+
+    actual suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String = throw UnsupportedOperationException("NIP-07 is only available in browser environments")
 }
