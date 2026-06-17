@@ -66,6 +66,7 @@ fun DmSidebar(
     val dmVm = viewModel { DmViewModel(AppModule.nostrRepository) }
     val conversations by dmVm.conversations.collectAsState()
     val userMetadata by dmVm.userMetadata.collectAsState()
+    val unreadByPeer by dmVm.unreadByPeer.collectAsState()
 
     fun nameOf(pubkey: String): String {
         val meta = userMetadata[pubkey]
@@ -178,6 +179,7 @@ fun DmSidebar(
                         name = nameOf(convo.peerPubkey),
                         lastMessage = convo.lastMessage,
                         pictureUrl = userMetadata[convo.peerPubkey]?.picture,
+                        unread = unreadByPeer[convo.peerPubkey] ?: 0,
                         selected = activePubkey == convo.peerPubkey,
                         onClick = { onOpenConversation(DmRoute(convo.peerPubkey)) },
                     )
@@ -193,6 +195,7 @@ private fun ConversationRow(
     name: String,
     lastMessage: String,
     pictureUrl: String?,
+    unread: Int,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -240,6 +243,23 @@ private fun ConversationRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (unread > 0) {
+            Box(
+                modifier =
+                Modifier
+                    .clip(CircleShape)
+                    .background(NostrordColors.Primary)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    unread.toString(),
+                    color = androidx.compose.ui.graphics.Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
     }
 }

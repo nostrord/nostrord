@@ -1,5 +1,6 @@
 package org.nostr.nostrord.network.managers
 
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.nostr.nostrord.auth.NostrSigner
 import org.nostr.nostrord.nostr.Event
@@ -74,5 +75,47 @@ class DmManagerTest {
             )
         dm.ingestDmRelays(event)
         assertEquals(listOf("wss://dm.example.com", "wss://nos.lol"), dm.dmRelaysFor("ab".repeat(32)))
+    }
+
+    @Test
+    fun `incoming message is unread until marked read`() = runTest {
+        val dm = DmManager(backgroundScope)
+        val alice = signer()
+        val bob = signer()
+        val rumor = Nip17.buildRumor(alice.pubkey, bob.pubkey, "ping")
+        val wrap = Nip17.wrap(rumor, bob.pubkey, alice)
+
+        dm.ingestGiftWrap(wrap, myPubkey = bob.pubkey, signer = bob)
+        assertEquals(1, dm.unreadByPeer.first { it.containsKey(alice.pubkey) }[alice.pubkey])
+
+        dm.markRead(alice.pubkey)
+        assertTrue(dm.unreadByPeer.first { !it.containsKey(alice.pubkey) }.isEmpty())
+    }
+
+    @Test
+    fun `my own messages never count as unread`() = runTest {
+        val dm = DmManager(backgroundScope)
+        val alice = signer()
+        val bob = signer()
+        val rumor = Nip17.buildRumor(alice.pubkey, bob.pubkey, "mine")
+        val selfWrap = Nip17.wrap(rumor, alice.pubkey, alice)
+
+        dm.ingestGiftWrap(selfWrap, myPubkey = alice.pubkey, signer = alice)
+        // The conversation with bob appears, but a self-authored message is not unread.
+        val convo = dm.conversations.first { list -> list.any { it.peerPubkey == bob.pubkey } }
+        assertEquals(0, convo.first { it.peerPubkey == bob.pubkey }.unread)
+    }
+
+    @Test
+    fun `hydrate restores messages and read state so old messages are not unread`() = runTest {
+        val dm = DmManager(backgroundScope)
+        val peer = "cd".repeat(32)
+        val msg = DmMessage(id = "rumor1", peerPubkey = peer, senderPubkey = peer, content = "hi", createdAt = 10L, mine = false)
+
+        dm.hydrate(listOf(msg), mapOf(peer to 10L))
+
+        assertEquals(1, dm.messagesByPeer.value[peer]?.size)
+        val convo = dm.conversations.first { it.isNotEmpty() }
+        assertEquals(0, convo.first().unread)
     }
 }

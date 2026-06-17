@@ -38,6 +38,7 @@ val DmSidebar =
         val dmVm = useViewModel { DmViewModel(AppModule.nostrRepository) }
         val conversations = useStateFlow(dmVm.conversations)
         val userMetadata = useStateFlow(dmVm.userMetadata)
+        val unreadByPeer = useStateFlow(dmVm.unreadByPeer)
 
         fun nameOf(pubkey: String): String {
             val meta = userMetadata[pubkey]
@@ -154,6 +155,13 @@ val DmSidebar =
                                 span {
                                     className = ClassName("dm-convo-last")
                                     +c.lastMessage
+                                }
+                            }
+                            val unread = unreadByPeer[peer] ?: 0
+                            if (unread > 0) {
+                                span {
+                                    className = ClassName("dm-convo-unread")
+                                    +unread.toString()
                                 }
                             }
                         }

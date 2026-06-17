@@ -5,14 +5,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.serialization.Serializable
 import org.nostr.nostrord.auth.NostrSigner
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.Nip17
 
 /** One decrypted NIP-17 chat message, scoped to a conversation with [peerPubkey]. */
+@Serializable
 data class DmMessage(
     val id: String,
     val peerPubkey: String,
@@ -27,6 +30,7 @@ data class DmConversation(
     val peerPubkey: String,
     val lastMessage: String,
     val lastAt: Long,
+    val unread: Int = 0,
 )
 
 /**
@@ -43,17 +47,40 @@ class DmManager(
     private val _messagesByPeer = MutableStateFlow<Map<String, List<DmMessage>>>(emptyMap())
     val messagesByPeer: StateFlow<Map<String, List<DmMessage>>> = _messagesByPeer.asStateFlow()
 
+    // Read high-water per peer: createdAt of the newest message marked read. Persisted by the repo.
+    private val _lastReadByPeer = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val lastReadByPeer: StateFlow<Map<String, Long>> = _lastReadByPeer.asStateFlow()
+
     val conversations: StateFlow<List<DmConversation>> =
-        _messagesByPeer
-            .map { byPeer ->
-                byPeer.entries
-                    .mapNotNull { (peer, msgs) ->
-                        val last = msgs.maxByOrNull { it.createdAt } ?: return@mapNotNull null
-                        DmConversation(peer, last.content, last.createdAt)
-                    }
-                    .sortedByDescending { it.lastAt }
-            }
+        combine(_messagesByPeer, _lastReadByPeer) { byPeer, reads ->
+            byPeer.entries
+                .mapNotNull { (peer, msgs) ->
+                    val last = msgs.maxByOrNull { it.createdAt } ?: return@mapNotNull null
+                    val lastRead = reads[peer] ?: 0L
+                    val unread = msgs.count { !it.mine && it.createdAt > lastRead }
+                    DmConversation(peer, last.content, last.createdAt, unread)
+                }
+                .sortedByDescending { it.lastAt }
+        }
             .stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    /** Unread count per peer (incoming messages newer than the read high-water), zero entries dropped. */
+    val unreadByPeer: StateFlow<Map<String, Int>> =
+        combine(_messagesByPeer, _lastReadByPeer) { byPeer, reads ->
+            byPeer
+                .mapValues { (peer, msgs) ->
+                    val lastRead = reads[peer] ?: 0L
+                    msgs.count { !it.mine && it.createdAt > lastRead }
+                }
+                .filterValues { it > 0 }
+        }
+            .stateIn(scope, SharingStarted.Eagerly, emptyMap())
+
+    /** Total unread across all conversations, for the DM nav badge. */
+    val totalUnread: StateFlow<Int> =
+        unreadByPeer
+            .map { it.values.sum() }
+            .stateIn(scope, SharingStarted.Eagerly, 0)
 
     // Recipient/own DM relay lists from kind:10050, keyed by pubkey.
     private val _dmRelaysByPubkey = MutableStateFlow<Map<String, List<String>>>(emptyMap())
@@ -117,6 +144,27 @@ class DmManager(
         }
     }
 
+    /** Mark a conversation read up to its newest message; clears its unread count. */
+    fun markRead(peer: String) {
+        val latest = _messagesByPeer.value[peer]?.maxOfOrNull { it.createdAt } ?: return
+        _lastReadByPeer.update { it + (peer to maxOf(it[peer] ?: 0L, latest)) }
+    }
+
+    /** Restore decrypted messages + read state from disk on login (before the inbox streams). */
+    fun hydrate(messages: List<DmMessage>, lastRead: Map<String, Long>) {
+        if (messages.isNotEmpty()) {
+            messages.forEach { seenRumorIds.add(it.id) }
+            _messagesByPeer.value =
+                messages
+                    .groupBy { it.peerPubkey }
+                    .mapValues { (_, msgs) -> msgs.sortedBy { it.createdAt } }
+        }
+        if (lastRead.isNotEmpty()) _lastReadByPeer.value = lastRead
+    }
+
+    /** Flat snapshot of every decrypted message, for persistence. */
+    fun allMessages(): List<DmMessage> = _messagesByPeer.value.values.flatten()
+
     /** Parse a kind:10050 event into the DM relay list for its author. */
     fun ingestDmRelays(event: Event) {
         val relays =
@@ -134,5 +182,6 @@ class DmManager(
         seenRumorIds.clear()
         _messagesByPeer.value = emptyMap()
         _dmRelaysByPubkey.value = emptyMap()
+        _lastReadByPeer.value = emptyMap()
     }
 }

@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -115,6 +116,10 @@ fun DmPageScreen(
         val dmVm = viewModel { DmViewModel(AppModule.nostrRepository) }
         val messagesByPeer by dmVm.messagesByPeer.collectAsState()
         val messages = messagesByPeer[pubkey].orEmpty()
+        // Mark the conversation read while it is open (and as new messages stream in).
+        LaunchedEffect(pubkey, messages.size) {
+            if (messages.isNotEmpty()) dmVm.markRead(pubkey)
+        }
         var text by remember { mutableStateOf("") }
         val send = {
             if (text.isNotBlank()) {

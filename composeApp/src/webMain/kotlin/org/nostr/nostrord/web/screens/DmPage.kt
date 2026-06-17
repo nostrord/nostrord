@@ -17,6 +17,7 @@ import react.dom.html.ReactHTML.h2
 import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.dom.html.ReactHTML.textarea
+import react.useEffect
 import react.useState
 import web.cssom.ClassName
 import web.html.HTMLTextAreaElement
@@ -63,6 +64,10 @@ val DmPage =
         val metadata = useStateFlow(vm.metadata)
         val dmVm = useViewModel { DmViewModel(AppModule.nostrRepository) }
         val messages = useStateFlow(dmVm.messagesByPeer)[pubkey].orEmpty()
+        // Mark the conversation read while it is open (and as new messages stream in).
+        useEffect(pubkey, messages.size) {
+            if (messages.isNotEmpty()) dmVm.markRead(pubkey)
+        }
         val (text, setText) = useState { "" }
         val send = {
             if (text.isNotBlank()) {

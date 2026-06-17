@@ -102,8 +102,20 @@ interface NostrRepositoryApi {
     /** Decrypted DM messages keyed by peer pubkey. */
     val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>>
 
+    /** Unread DM count per peer (incoming messages newer than the read high-water). */
+    val dmUnreadByPeer: StateFlow<Map<String, Int>>
+
+    /** Total unread DMs across all conversations, for the nav badge. */
+    val totalDmUnread: StateFlow<Int>
+
     /** Send a NIP-17 direct message to [recipientPubkey]. */
     suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit>
+
+    /** Mark a DM conversation read up to its newest message (clears its unread badge). */
+    suspend fun markDmRead(peerPubkey: String)
+
+    /** Publish our NIP-17 DM relay list (kind:10050) so others know where to reach us. */
+    suspend fun publishDmRelayList(relays: List<String>): Result<Unit>
 
     /**
      * High-water mark per group: `created_at` (seconds) of the newest message

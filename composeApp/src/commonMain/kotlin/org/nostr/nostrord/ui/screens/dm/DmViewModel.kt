@@ -15,6 +15,8 @@ class DmViewModel(
 ) : ViewModel() {
     val conversations = repo.dmConversations
     val messagesByPeer = repo.dmMessagesByPeer
+    val unreadByPeer = repo.dmUnreadByPeer
+    val totalUnread = repo.totalDmUnread
     val userMetadata = repo.userMetadata
 
     fun getPublicKey(): String? = repo.getPublicKey()
@@ -23,5 +25,10 @@ class DmViewModel(
         val text = content.trim()
         if (text.isEmpty()) return
         viewModelScope.launch { repo.sendDm(recipientPubkey, text) }
+    }
+
+    /** Clear the unread badge for a conversation when it is open on screen. */
+    fun markRead(peerPubkey: String) {
+        viewModelScope.launch { repo.markDmRead(peerPubkey) }
     }
 }

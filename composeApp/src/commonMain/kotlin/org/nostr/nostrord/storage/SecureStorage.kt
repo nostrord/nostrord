@@ -727,6 +727,76 @@ internal fun SecureStorage.saveUnreadEntries(
     }
 }
 
+// ── NIP-17 direct messages ──────────────────────────────────────────────────
+// Decrypted DM rumors are cached per account so they survive restarts and we
+// never re-decrypt a gift wrap. The sync cursor is the last time we opened the
+// inbox; the next start subscribes from cursor - 2 days to cover NIP-59's
+// randomized (backdated) gift-wrap timestamps. Read high-water per peer drives
+// unread badges.
+
+private fun dmMessagesKey(pubkey: String): String = "dm_messages_${pubkeyDigest(pubkey)}"
+
+private fun dmLastReadKey(pubkey: String): String = "dm_last_read_${pubkeyDigest(pubkey)}"
+
+private fun dmSyncCursorKey(pubkey: String): String = "dm_sync_cursor_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.loadDmMessages(pubkey: String): List<org.nostr.nostrord.network.managers.DmMessage> {
+    if (pubkey.isBlank()) return emptyList()
+    val raw = getStringPref(dmMessagesKey(pubkey), "")
+    if (raw.isBlank()) return emptyList()
+    return try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+fun SecureStorage.saveDmMessages(
+    pubkey: String,
+    messages: List<org.nostr.nostrord.network.managers.DmMessage>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmMessagesKey(pubkey), Json.encodeToString(messages))
+    } catch (_: Exception) {
+    }
+}
+
+fun SecureStorage.loadDmLastRead(pubkey: String): Map<String, Long> {
+    if (pubkey.isBlank()) return emptyMap()
+    val raw = getStringPref(dmLastReadKey(pubkey), "")
+    if (raw.isBlank()) return emptyMap()
+    return try {
+        Json.decodeFromString(raw)
+    } catch (_: Exception) {
+        emptyMap()
+    }
+}
+
+fun SecureStorage.saveDmLastRead(
+    pubkey: String,
+    lastRead: Map<String, Long>,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmLastReadKey(pubkey), Json.encodeToString(lastRead))
+    } catch (_: Exception) {
+    }
+}
+
+fun SecureStorage.loadDmSyncCursor(pubkey: String): Long = if (pubkey.isBlank()) 0L else getStringPref(dmSyncCursorKey(pubkey), "0").toLongOrNull() ?: 0L
+
+fun SecureStorage.saveDmSyncCursor(
+    pubkey: String,
+    cursor: Long,
+) {
+    if (pubkey.isBlank()) return
+    try {
+        saveStringPref(dmSyncCursorKey(pubkey), cursor.toString())
+    } catch (_: Exception) {
+    }
+}
+
 // Notification history — persisted feed of cross-relay notifications shown in
 // the notification center. Scoped by pubkey so multi-account devices stay isolated.
 private fun notificationHistoryKey(pubkey: String): String = "notification_history_${pubkeyDigest(pubkey)}"

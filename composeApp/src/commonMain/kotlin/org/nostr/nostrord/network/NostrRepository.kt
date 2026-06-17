@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -54,8 +55,14 @@ import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearCurrentRelayUrlFor
 import org.nostr.nostrord.storage.getLastActiveAt
 import org.nostr.nostrord.storage.isGroupFetchLazy
+import org.nostr.nostrord.storage.loadDmLastRead
+import org.nostr.nostrord.storage.loadDmMessages
+import org.nostr.nostrord.storage.loadDmSyncCursor
 import org.nostr.nostrord.storage.loadRelayListFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
+import org.nostr.nostrord.storage.saveDmLastRead
+import org.nostr.nostrord.storage.saveDmMessages
+import org.nostr.nostrord.storage.saveDmSyncCursor
 import org.nostr.nostrord.storage.saveGroupFetchLazy
 import org.nostr.nostrord.storage.saveRelayListFor
 import org.nostr.nostrord.utils.AppError
@@ -70,6 +77,10 @@ import org.nostr.nostrord.utils.urlDecode
  * matching what the Recommended tab needs (HomePageViewModel uses the same pubkey).
  */
 private const val DISCOVERY_CURATOR_PUBKEY = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
+
+// NIP-59 backdates gift-wrap timestamps up to 2 days into the past, so the DM-inbox `since`
+// must reach back this far from the sync cursor or recent wraps would be missed on resync.
+private const val GIFT_WRAP_BACKDATE_SECONDS = 2L * 24 * 60 * 60
 
 /**
  * Repository for Nostr operations.
@@ -420,6 +431,7 @@ class NostrRepository(
             resubscribeAllGroups(client)
             pendingEventManager?.onConnectionRestored()
             reconnectDroppedNip29PoolRelays()
+            resubscribeDmInbox()
             scope.launch { refreshVisibleUserMetadata() }
         }
 
@@ -946,11 +958,24 @@ class NostrRepository(
     /** Decrypted DM messages keyed by peer pubkey. */
     override val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>> get() = dmManager.messagesByPeer
 
+    /** Unread DM count per peer (incoming messages newer than the read high-water). */
+    override val dmUnreadByPeer: StateFlow<Map<String, Int>> get() = dmManager.unreadByPeer
+
+    /** Total unread DMs across all conversations, for the nav badge. */
+    override val totalDmUnread: StateFlow<Int> get() = dmManager.totalUnread
+
     // Fallback DM relays for users (and us) without a published kind:10050.
     private val defaultDmRelays =
         listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://auth.nostr1.com")
 
     private var dmInboxStarted = false
+    private var dmPersistenceWired = false
+    private val dmPersistenceJobs = mutableListOf<kotlinx.coroutines.Job>()
+
+    /** Mark a DM conversation read up to its newest message (clears its unread badge). */
+    override suspend fun markDmRead(peerPubkey: String) {
+        dmManager.markRead(peerPubkey)
+    }
 
     private fun dmRelaysFor(pubkey: String): List<String> = dmManager.dmRelaysFor(pubkey).map { it.normalizeRelayUrl() }.ifEmpty { defaultDmRelays }
 
@@ -1001,11 +1026,51 @@ class NostrRepository(
         if (dmInboxStarted) return
         val myPub = sessionManager.getPublicKey() ?: return
         dmInboxStarted = true
+
+        // Hydrate from disk before the inbox streams so old conversations render instantly and
+        // already-seen gift wraps are never re-decrypted.
+        dmManager.hydrate(SecureStorage.loadDmMessages(myPub), SecureStorage.loadDmLastRead(myPub))
+        wireDmPersistence(myPub)
+
         fetchDmRelays(myPub)
+        resendDmInboxReq(myPub)
+        // The sync cursor is "last time we opened the inbox"; advance it now so the next start
+        // refetches only from cursor - 2 days (NIP-59 backdates gift wraps up to 2 days).
+        SecureStorage.saveDmSyncCursor(myPub, org.nostr.nostrord.utils.epochSeconds())
+
+        // Make ourselves reachable: publish a kind:10050 if we don't already have one.
+        scope.launch {
+            delay(4_000)
+            if (dmManager.dmRelaysFor(myPub).isEmpty()) publishDmRelayList(defaultDmRelays)
+        }
+    }
+
+    /** Persist decrypted messages + read state whenever they change (one collector per session). */
+    private fun wireDmPersistence(myPub: String) {
+        if (dmPersistenceWired) return
+        dmPersistenceWired = true
+        dmPersistenceJobs +=
+            scope.launch {
+                dmManager.messagesByPeer.drop(1).collect {
+                    SecureStorage.saveDmMessages(myPub, dmManager.allMessages())
+                }
+            }
+        dmPersistenceJobs +=
+            scope.launch {
+                dmManager.lastReadByPeer.drop(1).collect { reads ->
+                    SecureStorage.saveDmLastRead(myPub, reads)
+                }
+            }
+    }
+
+    /** (Re)subscribe to the kind:1059 inbox on all DM relays. Idempotent; also run on reconnect. */
+    private suspend fun resendDmInboxReq(myPub: String) {
+        val since = SecureStorage.loadDmSyncCursor(myPub)
         val filter =
             buildJsonObject {
                 putJsonArray("kinds") { add(Nip17.KIND_GIFT_WRAP) }
                 putJsonArray("#p") { add(myPub) }
+                if (since > 0L) put("since", since - GIFT_WRAP_BACKDATE_SECONDS)
             }
         val req =
             buildJsonArray {
@@ -1021,6 +1086,42 @@ class NostrRepository(
                 client?.send(req)
             } catch (_: Throwable) {
             }
+        }
+    }
+
+    /** Re-arm the DM inbox after a relay reconnect so real-time receive survives drops. */
+    private fun resubscribeDmInbox() {
+        if (!dmInboxStarted) return
+        val myPub = sessionManager.getPublicKey() ?: return
+        scope.launch { resendDmInboxReq(myPub) }
+    }
+
+    /**
+     * Publish our NIP-17 DM relay list (kind:10050) so other clients know where to send our DMs.
+     * Replaceable event with a `relay` tag per URL. Published to general relays + the DM relays.
+     */
+    override suspend fun publishDmRelayList(relays: List<String>): Result<Unit> {
+        val myPub = sessionManager.getPublicKey() ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        val clean = relays.map { it.normalizeRelayUrl() }.filter { it.isNotBlank() }.distinct()
+        if (clean.isEmpty()) return Result.Error(AppError.Unknown("No DM relays to publish"))
+        return try {
+            val event =
+                Event(
+                    pubkey = myPub,
+                    createdAt = org.nostr.nostrord.utils.epochSeconds(),
+                    kind = Nip17.KIND_DM_RELAYS,
+                    tags = clean.map { listOf("relay", it) },
+                    content = "",
+                )
+            val signed = sessionManager.signEvent(event)
+            dmManager.ingestDmRelays(signed)
+            val targets = (clean + outboxManager.getWriteRelays() + outboxManager.bootstrapRelays).distinct()
+            publishEventToRelays(targets, signed)
+            Result.Success(Unit)
+        } catch (e: NostrSigner.SigningException) {
+            Result.Error(AppError.Unknown("Publishing DM relays requires a local key (nsec)."))
+        } catch (e: Throwable) {
+            Result.Error(AppError.Unknown(e.message ?: "Failed to publish DM relays"))
         }
     }
 
@@ -1054,9 +1155,19 @@ class NostrRepository(
         contactListContent = ""
         contactListTags = emptyList()
         contactListRequested = false
+        // Cancel any in-flight debounced publish and clear the loaded flag, so the new
+        // account starts "not loaded" (UI shows its cache, not a false "follows nobody")
+        // and a pending publish never targets the wrong account.
+        pendingContactListPublish?.cancel()
+        pendingContactListPublish = null
+        hasUnpublishedContactChanges = false
+        _contactListLoaded.value = false
         _following.value = emptySet()
+        dmPersistenceJobs.forEach { it.cancel() }
+        dmPersistenceJobs.clear()
         dmManager.clear()
         dmInboxStarted = false
+        dmPersistenceWired = false
     }
 
     override fun forgetBunkerConnection() {
@@ -1158,6 +1269,12 @@ class NostrRepository(
             // while inactive arrive across every relay.
             try {
                 groupManager.refreshLiveSubscriptions()
+            } catch (_: Exception) {}
+            // Re-fetch the new account's kind:3 so [following] (and the friends list)
+            // repopulate: resetContactListState() cleared the prior account's, and a warm
+            // swap does not reconstruct the screen ViewModel that requests it on cold boot.
+            try {
+                requestContactList()
             } catch (_: Exception) {}
         }
     }
