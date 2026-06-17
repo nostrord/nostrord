@@ -293,8 +293,13 @@ fun GroupScreen(
         }
     }
 
-    // Refresh group data on join; poll while pending approval
-    LaunchedEffect(isPendingApproval, isJoined, groupId) {
+    // Switching accounts while a group is open leaves groupId unchanged, so the
+    // per-session REQ effects must also key on the active account; otherwise the new
+    // session never subscribes and the chat sits in skeletons until a reload.
+    val activeAccountId by AppModule.accountStore.activeId.collectAsState()
+
+    // Refresh group data on join / account switch; poll while pending approval
+    LaunchedEffect(isPendingApproval, isJoined, groupId, activeAccountId) {
         if (!isJoined) return@LaunchedEffect
         vm.refreshGroupData()
         if (isPendingApproval) {
@@ -392,7 +397,7 @@ fun GroupScreen(
             !isPendingApproval &&
             !isGroupRestricted
 
-    LaunchedEffect(groupId) {
+    LaunchedEffect(groupId, activeAccountId) {
         vm.requestGroupMessages(selectedChannel)
         // Entering the group persists the current time as the last read point and
         // clears the in-memory counter. Runs after `remember(groupId)` captured
