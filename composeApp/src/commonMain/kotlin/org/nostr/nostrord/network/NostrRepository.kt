@@ -1889,11 +1889,9 @@ class NostrRepository(
         return result
     }
 
-    override fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean =
-        groupManager.markOptimisticJoin(relayUrl, groupId)
+    override fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean = groupManager.markOptimisticJoin(relayUrl, groupId)
 
-    override fun revertOptimisticJoin(relayUrl: String, groupId: String) =
-        groupManager.revertOptimisticJoin(relayUrl, groupId)
+    override fun revertOptimisticJoin(relayUrl: String, groupId: String) = groupManager.revertOptimisticJoin(relayUrl, groupId)
 
     override suspend fun createGroup(
         name: String,
@@ -3067,7 +3065,18 @@ class NostrRepository(
                 if (arr.size < 2) return
                 val subId = arr[1].jsonPrimitive.content
                 val reason = if (arr.size >= 3) arr[2].jsonPrimitive.contentOrNull ?: "" else ""
-                val isRestricted = reason.contains("restricted")
+                // communities.nos.social caps subscriptions at 50 and rejects the overflow
+                // with "restricted: Subscription quota exceeded: 50/50" — a rate limit, NOT
+                // NIP-29 access control. Treating it as a private-group restriction marked the
+                // group private and PERSISTED it for 7 days, so the group rendered the "Private
+                // group" placeholder for groups the user belongs to (the relay where this bites
+                // is the one with the most joined groups, i.e. the user's busiest). Exclude
+                // quota/rate-limit reasons; that sub just needs reopening when a slot frees.
+                val isQuotaOrRateLimit = reason.contains("quota", ignoreCase = true) ||
+                    reason.contains("rate-limit", ignoreCase = true) ||
+                    reason.contains("rate limit", ignoreCase = true) ||
+                    reason.contains("too many", ignoreCase = true)
+                val isRestricted = reason.contains("restricted") && !isQuotaOrRateLimit
                 val isAuthRequired = reason.contains("auth-required")
 
                 // "restricted" on the group-list subscription: distinguish between
@@ -3611,6 +3620,11 @@ class NostrRepository(
         // auth-required. The mux only delivers live messages (since cursor),
         // so without this the chat stays empty after AUTH completes.
         for (groupId in groupIds) {
+            // AUTH just succeeded: clear any "restricted" set by a pre-AUTH CLOSED (or a
+            // persisted one from a prior session) so the chat unblocks instead of staying
+            // stuck on the "Private group" placeholder. If the relay still denies this group
+            // post-AUTH, the fresh CLOSED re-marks it.
+            groupManager.clearGroupRestricted(groupId)
             groupManager.requestGroupMessages(groupId)
         }
     }

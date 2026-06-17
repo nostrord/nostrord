@@ -434,6 +434,15 @@ class ConnectionManager(
         onMessage: (String, NostrGroupClient) -> Unit,
     ): Boolean {
         val normalizedNewUrl = newRelayUrl.normalizeRelayUrl()
+        // Already primary on this relay: keep the existing socket. Falling through would
+        // null primaryClient and connectPrimary a second one (the same-URL branch below
+        // skips moving it to the pool, so it gets orphaned), which on a deep link to a
+        // group whose relay initialize() already connected shows as OPEN/CLOSE/OPEN churn
+        // and, on a private relay, throws away the AUTH'd socket. Just refresh the handler.
+        if (_currentRelayUrl.value == normalizedNewUrl && primaryClient != null) {
+            currentMessageHandler = onMessage
+            return primaryClient?.isConnected() == true
+        }
         // Move the current primary into the pool instead of disconnecting it.
         val oldPrimary = primaryClient
         val oldUrl = _currentRelayUrl.value
@@ -454,8 +463,14 @@ class ConnectionManager(
             }
         }
 
-        // If the new relay is already in the pool, promote it to primary.
-        val existingPoolClient = poolMutex.withLock { relayPool.remove(normalizedNewUrl) }
+        // If the new relay is already in the pool, promote it to primary. Also capture an
+        // in-flight pool connect (the singleflight deferred in pendingConnects): without
+        // this, switchRelay misses a connection that is mid-handshake and connectPrimary
+        // opens a SECOND socket to the same relay. On a private relay that splits the NIP-42
+        // handshake across two sockets (challenge on one, reads on the other), so the group
+        // never authenticates. Observed as OPEN/CLOSE/OPEN churn on cold-start deep links.
+        val (existingPoolClient, pendingConnect) =
+            poolMutex.withLock { relayPool.remove(normalizedNewUrl) to pendingConnects[normalizedNewUrl] }
 
         // Clear the primary slot (without disconnecting the old client).
         primaryClient = null
@@ -468,10 +483,15 @@ class ConnectionManager(
             SecureStorage.saveCurrentRelayUrlFor(pubkey, normalizedNewUrl)
         }
 
-        if (existingPoolClient != null) {
+        // Reclaim the in-flight connect's client once it lands (its leader parks it in
+        // relayPool on success), so the live socket becomes primary instead of a duplicate.
+        val promoted = existingPoolClient
+            ?: pendingConnect?.await()?.also { poolMutex.withLock { relayPool.remove(normalizedNewUrl) } }
+
+        if (promoted != null) {
             // Re-use the already-connected pool client as the new primary.
-            primaryClient = existingPoolClient
-            existingPoolClient.onConnectionLost = {
+            primaryClient = promoted
+            promoted.onConnectionLost = {
                 scope.launch { handleConnectionLost() }
             }
             currentMessageHandler = onMessage
