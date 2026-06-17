@@ -306,6 +306,10 @@ internal fun ChildrenBuilder.discoverGroupCard(
     dg: DiscoverGroup,
     relayIconUrl: String?,
     isJoined: Boolean,
+    enableRelayLink: Boolean = true,
+    showJoinCta: Boolean = false,
+    interactive: Boolean = true,
+    showRelay: Boolean = true,
     onOpen: () -> Unit,
 ) {
     val meta = dg.meta
@@ -317,8 +321,10 @@ internal fun ChildrenBuilder.discoverGroupCard(
     val peopleLoading = dg.peopleLoading
     button {
         key = meta.id
-        className = ClassName("group-card")
-        onClick = { onOpen() }
+        // Non-interactive in onboarding: the card itself does nothing (no pointer); only
+        // the Join button acts, so the user can join several groups without leaving.
+        className = ClassName(if (interactive) "group-card" else "group-card static")
+        if (interactive) onClick = { onOpen() }
         div {
             className = ClassName("group-card-head")
             WebAvatar {
@@ -335,7 +341,9 @@ internal fun ChildrenBuilder.discoverGroupCard(
                         className = ClassName("group-card-name")
                         +name
                     }
-                    if (isJoined) {
+                    // The onboarding card carries its own trailing Join/Joined action
+                    // (below); only the plain Home card shows the inline "Joined" badge.
+                    if (isJoined && !showJoinCta) {
                         span {
                             className = ClassName("group-card-joined")
                             icon(Ic.Check)
@@ -387,21 +395,49 @@ internal fun ChildrenBuilder.discoverGroupCard(
                     }
                 }
             }
+            // Trailing Join / Joined action, right-aligned (onboarding only). The state
+            // shows inside the same button (like the follow toggle); joining marks the
+            // card "Joined" in place rather than removing it.
+            if (showJoinCta) {
+                div {
+                    className = ClassName("group-card-action")
+                    button {
+                        className = ClassName("group-card-join " + if (isJoined) "btn-secondary joined" else "btn-primary")
+                        if (!isJoined) {
+                            onClick = {
+                                it.stopPropagation()
+                                onOpen()
+                            }
+                        }
+                        if (isJoined) {
+                            icon(Ic.Check)
+                            +"Joined"
+                        } else {
+                            icon(Ic.Add)
+                            +"Join"
+                        }
+                    }
+                }
+            }
         }
         p {
             className = ClassName("group-card-desc")
             +(meta.about.orEmpty().ifBlank { "No description" })
         }
         // Host relay on its own muted line (icon + short hostname), so the same group on
-        // two relays is told apart.
-        if (relayHost.isNotBlank()) {
+        // two relays is told apart. Hidden in onboarding (no relay context there yet).
+        if (relayHost.isNotBlank() && showRelay) {
             div {
                 className = ClassName("group-card-relay")
-                title = "Open relay"
-                // Inside the card button, so stop the click from also opening the group.
-                onClick = {
-                    it.stopPropagation()
-                    pushRoute(RelayRoute(dg.relayUrl))
+                // The relay link is inert where there is no relay route to open (onboarding):
+                // [enableRelayLink] = false leaves the row as a plain label.
+                if (enableRelayLink) {
+                    title = "Open relay"
+                    // Inside the card button, so stop the click from also opening the group.
+                    onClick = {
+                        it.stopPropagation()
+                        pushRoute(RelayRoute(dg.relayUrl))
+                    }
                 }
                 WebAvatar {
                     url = relayIconUrl
@@ -428,7 +464,7 @@ private fun personName(friend: Friend): String = friend.metadata?.displayName?.t
 private const val SKELETON_CARD_COUNT = 6
 
 /** A grid of shimmer cards shown while a discovery tab is still loading. */
-private fun ChildrenBuilder.skeletonGrid() {
+internal fun ChildrenBuilder.skeletonGrid() {
     div {
         className = ClassName("card-grid")
         repeat(SKELETON_CARD_COUNT) { groupCardSkeleton() }
@@ -436,7 +472,7 @@ private fun ChildrenBuilder.skeletonGrid() {
 }
 
 /** Shimmer placeholder shaped like a .group-card. */
-private fun ChildrenBuilder.groupCardSkeleton() {
+internal fun ChildrenBuilder.groupCardSkeleton() {
     div {
         className = ClassName("group-card skel-card")
         div {

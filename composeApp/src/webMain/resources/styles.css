@@ -3141,6 +3141,47 @@ body {
     height: 12px;
 }
 
+/* Trailing Join / Joined action on an onboarding discovery card, pushed to the right. */
+.group-card-action {
+    margin-left: auto;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+/* Compact "Join" action ( + Join ), mirroring the follow button. */
+.group-card-join {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    padding: 5px 14px 5px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: var(--radius-full);
+}
+
+.group-card-join .ico {
+    width: 14px;
+    height: 14px;
+}
+
+/* Joined state shown inside the same button (mirrors the follow toggle's "Following"). */
+.group-card-join.joined {
+    color: var(--color-success);
+    cursor: default;
+}
+
+/* Onboarding discovery cards are not clickable themselves (only the Join button is). */
+.group-card.static,
+.group-card.static .group-card-relay {
+    cursor: default;
+}
+
+/* Discovery list sits above the join-by-link card; keep them apart. */
+.onb-groups {
+    margin-bottom: 16px;
+}
+
 .group-card-name {
     flex: 1;
     min-width: 0;

@@ -130,12 +130,18 @@ fun App() {
                     // home.
                     val needsOnboarding by vm.needsOnboarding.collectAsState()
                     val onboardingSkipped by vm.onboardingSkipped.collectAsState()
+                    // Keeps the wizard up after a group join so several can be joined.
+                    val stayInOnboarding by vm.stayInOnboarding.collectAsState()
                     val content: @Composable (Modifier) -> Unit =
-                        if (needsOnboarding && !onboardingSkipped) {
+                        if ((needsOnboarding || stayInOnboarding) && !onboardingSkipped) {
                             { m ->
                                 OnboardingFlowScreen(
                                     onSkip = vm::skipOnboarding,
                                     onJoin = vm::joinGroupFromInput,
+                                    onJoinGroup = { relayUrl, groupId ->
+                                        vm.keepOnboarding()
+                                        vm.joinGroupFromInput("$relayUrl'$groupId") {}
+                                    },
                                     modifier = m,
                                 )
                             }

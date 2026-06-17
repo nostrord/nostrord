@@ -20,9 +20,9 @@ data class OnboardingFollowSuggestion(
 
 val onboardingFollowSuggestions =
     listOf(
-        OnboardingFollowSuggestion("verbiricha", "npub107jk7htfv243u0x5ynn43scq9wrxtaasmrwwa8lfu2ydwag6cx2quqncxg", "chachi dev: nostrord, nip-29, blossom, noStrudel"),
-        OnboardingFollowSuggestion("Anjhc", "npub1f27g79lrpey73wtqa2pprn7vv3yveyytws08lxqe7pn0yuj8ppyqyk9swu", "app creator: nostrord, chachi, ecash, rootstock"),
         OnboardingFollowSuggestion("fiatjaf", "npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6", "Nostr creator: nip-29, chachi, ecash, jumble"),
+        OnboardingFollowSuggestion("Anjhc", "npub1f27g79lrpey73wtqa2pprn7vv3yveyytws08lxqe7pn0yuj8ppyqyk9swu", "app creator: nostrord, chachi, ecash, rootstock"),
+        OnboardingFollowSuggestion("verbiricha", "npub107jk7htfv243u0x5ynn43scq9wrxtaasmrwwa8lfu2ydwag6cx2quqncxg", "chachi dev: nostrord, nip-29, blossom, noStrudel"),
         OnboardingFollowSuggestion("PABLOF7z", "npub1l2vyh47mk2p0qlsku7hg0vn29faehy9hy34ygaclpn66ukqp3afqutajft", "NDK: chachi, nip-29, highlighter"),
         OnboardingFollowSuggestion("hzrd149", "npub1ye5ptcxfyyxl5vjvdjar2ua3f0hynkjzpx552mu5snj3qmx5pzjscpknpr", "blossom and noStrudel: nostrord, chachi"),
         OnboardingFollowSuggestion("Sebastix", "npub1qe3e5wrvnsgpggtkytxteaqfprz0rgxr8c3l34kk3a9t7e2l3acslezefe", "active dev: inner.sebastix, nostrord, chachi"),

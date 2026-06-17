@@ -1,9 +1,12 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.screens.home.DiscoverGroup
+import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowSuggestions
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.FollowAllButton
 import org.nostr.nostrord.web.components.FollowSuggestionCard
 import org.nostr.nostrord.web.components.Ic
@@ -35,6 +38,9 @@ external interface OnboardingFlowProps : Props {
 
     /** Join by invite/naddr/address; success flips the kind:10009 gate to Home upstream. */
     var onJoin: (String, (Result<Unit>) -> Unit) -> Unit
+
+    /** Join a discovered group (relayUrl, groupId) while staying in the wizard. */
+    var onJoinGroup: (String, String) -> Unit
 }
 
 /**
@@ -50,16 +56,18 @@ val OnboardingFlow =
         val (joining, setJoining) = useState { false }
         val (error, setError) = useState<String?> { null }
 
-        fun join() {
-            if (joinInput.isBlank() || joining) return
+        fun joinRef(ref: String) {
+            if (ref.isBlank() || joining) return
             setJoining(true)
             setError(null)
-            props.onJoin(joinInput.trim()) { result ->
+            props.onJoin(ref) { result ->
                 setJoining(false)
                 // Success flips the onboarding gate upstream and lands on Home.
                 setError(result.exceptionOrNull()?.message)
             }
         }
+
+        fun join() = joinRef(joinInput.trim())
 
         div {
             className = ClassName("onb-page")
@@ -82,7 +90,16 @@ val OnboardingFlow =
                 when (step) {
                     0 -> welcomeStep()
                     1 -> WhoToFollowStep {}
-                    else -> groupsStep(joinInput, joining, error, { setJoinInput(it) }, { setError(it) }, ::join)
+                    else ->
+                        GroupsStep {
+                            this.joinInput = joinInput
+                            this.joining = joining
+                            this.error = error
+                            onJoinInputChange = { setJoinInput(it) }
+                            onErrorChange = { setError(it) }
+                            join = ::join
+                            onJoinGroup = props.onJoinGroup
+                        }
                 }
             }
 
@@ -205,57 +222,116 @@ private val WhoToFollowStep =
         }
     }
 
-private fun ChildrenBuilder.groupsStep(
-    joinInput: String,
-    joining: Boolean,
-    error: String?,
-    setJoinInput: (String) -> Unit,
-    setError: (String?) -> Unit,
-    join: () -> Unit,
-) {
-    h2 {
-        className = ClassName("onb-section-title")
-        +"Find your group"
-    }
-    p {
-        className = ClassName("onb-section-sub")
-        +"Join with an invite link, a naddr address, or a group ID. You can leave at any time."
-    }
-    div {
-        className = ClassName("join-card")
-        div {
-            className = ClassName("join-card-title")
-            icon(Ic.Link)
-            +"Join by link, naddr or group ID"
-        }
-        formError(error)
-        div {
-            className = ClassName("join-row")
-            iconInput(
-                ic = Ic.Link,
-                type = InputType.text,
-                placeholder = "naddr1... or wss://relay'groupId",
-                value = joinInput,
-                onChange = {
-                    setJoinInput(it)
-                    setError(null)
-                },
-                onEnter = { join() },
-            )
-            button {
-                className = ClassName("btn-secondary btn-lg")
-                disabled = joinInput.isBlank() || joining
-                onClick = { join() }
-                if (joining) {
-                    span { className = ClassName("btn-spinner") }
-                }
-                +(if (joining) "Joining…" else "Join")
+external interface GroupsStepProps : Props {
+    var joinInput: String
+    var joining: Boolean
+    var error: String?
+    var onJoinInputChange: (String) -> Unit
+    var onErrorChange: (String?) -> Unit
+    var join: () -> Unit
+
+    /** Join a discovered group directly (relayUrl, groupId). */
+    var onJoinGroup: (String, String) -> Unit
+}
+
+private val GroupsStep =
+    FC<GroupsStepProps> { props ->
+        // Reuse the Home discovery: groups the people you follow are in, via their
+        // kind:10009 lists and member lists. The relay link is disabled here since the
+        // onboarding has no relay route to open yet.
+        val vm = useViewModel { HomePageViewModel(AppModule.nostrRepository) }
+        val friendsGroups = useStateFlow(vm.friendsGroups)
+        val friendsGroupsLoading = useStateFlow(vm.friendsGroupsLoading)
+        val relayMeta = useStateFlow(vm.relayMetadata)
+        val joinedIds = useStateFlow(AppModule.nostrRepository.joinedGroupsByRelay).values.flatten().toSet()
+
+        useEffect(Unit) { vm.loadFriendsGroups() }
+
+        // Accumulate discovered public groups so a joined one stays on the list (marked
+        // "Joined") instead of vanishing: joining removes it from [friendsGroups] (which
+        // only lists groups you are NOT in), so we keep a sticky union here.
+        val (discovered, setDiscovered) = useState<List<DiscoverGroup>> { emptyList() }
+        useEffect(friendsGroups) {
+            setDiscovered { prev ->
+                // Key by group id (stable identity, as the Home list does): the same group
+                // can re-arrive with a different relayUrl representation, which would
+                // otherwise split into two cards.
+                val byKey = LinkedHashMap<String, DiscoverGroup>()
+                prev.forEach { byKey[it.meta.id] = it }
+                friendsGroups.filter { it.meta.isPublic }.forEach { byKey[it.meta.id] = it }
+                byKey.values.toList()
             }
         }
-        formHint("Accepts an invite link, a NIP-19 naddr address, or relay'groupId.")
+
+        h2 {
+            className = ClassName("onb-section-title")
+            +"Find your group"
+        }
+        p {
+            className = ClassName("onb-section-sub")
+            +"Public groups the people you follow are in. Join the ones you like, or paste an invite below."
+        }
+
+        when {
+            discovered.isEmpty() && friendsGroupsLoading ->
+                div {
+                    className = ClassName("onb-pack-list onb-groups")
+                    repeat(3) { groupCardSkeleton() }
+                }
+            discovered.isNotEmpty() ->
+                div {
+                    className = ClassName("onb-pack-list onb-groups")
+                    discovered.forEach { fg ->
+                        discoverGroupCard(
+                            fg,
+                            relayMeta[fg.relayUrl]?.icon,
+                            fg.meta.id in joinedIds,
+                            enableRelayLink = false,
+                            showJoinCta = true,
+                            interactive = false,
+                            showRelay = false,
+                        ) {
+                            props.onJoinGroup(fg.relayUrl, fg.meta.id)
+                        }
+                    }
+                }
+        }
+
+        div {
+            className = ClassName("join-card")
+            div {
+                className = ClassName("join-card-title")
+                icon(Ic.Link)
+                +"Join by link, naddr or group ID"
+            }
+            formError(props.error)
+            div {
+                className = ClassName("join-row")
+                iconInput(
+                    ic = Ic.Link,
+                    type = InputType.text,
+                    placeholder = "naddr1... or wss://relay'groupId",
+                    value = props.joinInput,
+                    onChange = {
+                        props.onJoinInputChange(it)
+                        props.onErrorChange(null)
+                    },
+                    onEnter = { props.join() },
+                )
+                button {
+                    className = ClassName("btn-secondary btn-lg")
+                    disabled = props.joinInput.isBlank() || props.joining
+                    onClick = { props.join() }
+                    if (props.joining) {
+                        span { className = ClassName("btn-spinner") }
+                    }
+                    +(if (props.joining) "Joining…" else "Join")
+                }
+            }
+            formHint("Accepts an invite link, a NIP-19 naddr address, or relay'groupId.")
+        }
+        p {
+            className = ClassName("onb-skip-note")
+            +"No invite yet? Skip for now and create your own group from Home."
+        }
     }
-    p {
-        className = ClassName("onb-skip-note")
-        +"No invite yet? Skip for now and create your own group from Home."
-    }
-}

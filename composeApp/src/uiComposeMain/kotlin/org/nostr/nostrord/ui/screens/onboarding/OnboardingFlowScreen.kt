@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
@@ -50,11 +52,15 @@ import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.forms.AppTextField
 import org.nostr.nostrord.ui.components.forms.FormError
 import org.nostr.nostrord.ui.components.forms.FormHint
+import org.nostr.nostrord.ui.components.home.GroupCard
+import org.nostr.nostrord.ui.components.home.GroupCardSkeleton
 import org.nostr.nostrord.ui.components.onboarding.FollowAllButton
 import org.nostr.nostrord.ui.components.onboarding.FollowSuggestionRow
 import org.nostr.nostrord.ui.components.onboarding.HintRow
 import org.nostr.nostrord.ui.components.onboarding.StepLabel
 import org.nostr.nostrord.ui.components.onboarding.StepProgress
+import org.nostr.nostrord.ui.screens.home.DiscoverGroup
+import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 
@@ -72,6 +78,7 @@ private val CONTENT_MAX_WIDTH = 672.dp
 fun OnboardingFlowScreen(
     onSkip: () -> Unit,
     onJoin: (String, (Result<Unit>) -> Unit) -> Unit,
+    onJoinGroup: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     var step by remember { mutableStateOf(0) }
@@ -118,7 +125,7 @@ fun OnboardingFlowScreen(
             when (step) {
                 0 -> WelcomeStep()
                 1 -> WhoToFollowStep()
-                else -> GroupsStep(onJoin)
+                else -> GroupsStep(onJoin, onJoinGroup)
             }
         }
 
@@ -260,21 +267,49 @@ private fun WhoToFollowStep() {
 }
 
 @Composable
-private fun GroupsStep(onJoin: (String, (Result<Unit>) -> Unit) -> Unit) {
+private fun GroupsStep(
+    onJoin: (String, (Result<Unit>) -> Unit) -> Unit,
+    onJoinGroup: (String, String) -> Unit,
+) {
+    // Reuse the Home discovery: groups the people you follow are in, via their kind:10009
+    // lists and member lists. The relay link is disabled here (no relay route in onboarding).
+    val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
+    val friendsGroups by vm.friendsGroups.collectAsState()
+    val friendsGroupsLoading by vm.friendsGroupsLoading.collectAsState()
+    val joinedByRelay by AppModule.nostrRepository.joinedGroupsByRelay.collectAsState()
+    val joinedGroupIds = joinedByRelay.values.flatten().toSet()
+
+    // Accumulate discovered public groups so a joined one stays on the list (marked
+    // "Joined") instead of vanishing: joining removes it from [friendsGroups] (which only
+    // lists groups you are NOT in), so keep a sticky union that we only add to / update.
+    val shown = remember { mutableStateListOf<DiscoverGroup>() }
+    LaunchedEffect(friendsGroups) {
+        friendsGroups.filter { it.meta.isPublic }.forEach { fg ->
+            // Match by group id (stable identity): the same group can re-arrive with a
+            // different relayUrl representation, which would otherwise add a duplicate card.
+            val idx = shown.indexOfFirst { it.meta.id == fg.meta.id }
+            if (idx >= 0) shown[idx] = fg else shown.add(fg)
+        }
+    }
+
     var input by remember { mutableStateOf("") }
     var isJoining by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    fun join() {
-        if (input.isBlank() || isJoining) return
+    fun joinRef(ref: String) {
+        if (ref.isBlank() || isJoining) return
         isJoining = true
         errorMessage = null
-        onJoin(input.trim()) { result ->
+        onJoin(ref) { result ->
             isJoining = false
             // Success flips the onboarding gate upstream and lands on Home.
             errorMessage = result.exceptionOrNull()?.message
         }
     }
+
+    fun join() = joinRef(input.trim())
+
+    LaunchedEffect(Unit) { vm.loadFriendsGroups() }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -285,11 +320,48 @@ private fun GroupsStep(onJoin: (String, (Result<Unit>) -> Unit) -> Unit) {
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            "Join with an invite link, a naddr address, or a group ID. You can leave at any time.",
+            "Public groups the people you follow are in. Tap one to join, or paste an invite below.",
             color = NostrordColors.TextSecondary,
             fontSize = 15.sp,
         )
         Spacer(modifier = Modifier.height(20.dp))
+
+        // One public group per line; relay row hidden in onboarding. Joining marks the
+        // card "Joined" in place rather than removing it (see [shown] accumulation above).
+        if (shown.isEmpty() && friendsGroupsLoading) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(3) { GroupCardSkeleton() }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        } else if (shown.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                shown.forEach { fg ->
+                    val joined = fg.meta.id in joinedGroupIds
+                    GroupCard(
+                        name = fg.meta.name ?: fg.meta.id,
+                        description = fg.meta.about,
+                        picture = fg.meta.picture,
+                        groupId = fg.meta.id,
+                        memberCount = fg.memberCount,
+                        restricted = fg.meta.isRestricted,
+                        cta = if (joined) "Joined" else "Join",
+                        ctaPrimary = !joined,
+                        people = fg.people,
+                        peopleLoading = fg.peopleLoading,
+                        isPublic = fg.meta.isPublic,
+                        isOpen = fg.meta.isOpen,
+                        hasMetadata = fg.hasMetadata,
+                        relayUrl = "",
+                        isJoined = joined,
+                        onRelayClick = null,
+                        // Fire-and-forget like the follow buttons: the join outlives this
+                        // screen, keeps the wizard up, and the card flips to "Joined".
+                        onClick = { if (!joined) onJoinGroup(fg.relayUrl, fg.meta.id) },
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // Join-by-link card (prototype's bottom card on the Groups step)
         Column(

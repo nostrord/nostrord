@@ -102,7 +102,10 @@ val WebApp =
         // while the prototype's Home page is ported).
         val needsOnboarding = useStateFlow(vm.needsOnboarding)
         val onboardingSkipped = useStateFlow(vm.onboardingSkipped)
-        val showingOnboarding = loggedIn && needsOnboarding && !onboardingSkipped
+        // [stayInOnboarding] keeps the wizard up after a group join (which flips
+        // needsOnboarding) so the user can join several before leaving via Skip/Done.
+        val stayInOnboarding = useStateFlow(vm.stayInOnboarding)
+        val showingOnboarding = loggedIn && (needsOnboarding || stayInOnboarding) && !onboardingSkipped
 
         // Hash-route mirror: #/login, #/onboarding, Home at the root. A page hash
         // (#/g/…, #/u/…) is AppFrame's territory: entering logged-in with one (deep
@@ -138,6 +141,11 @@ val WebApp =
                     OnboardingFlow {
                         onSkip = { vm.skipOnboarding() }
                         onJoin = { input, onResult -> vm.joinGroupFromInput(input, onResult) }
+                        // Discovered-group join: keep the wizard up so several can be joined.
+                        onJoinGroup = { relayUrl, groupId ->
+                            vm.keepOnboarding()
+                            vm.joinGroupFromInput("$relayUrl'$groupId") {}
+                        }
                     }
                 } else {
                     AppFrame()

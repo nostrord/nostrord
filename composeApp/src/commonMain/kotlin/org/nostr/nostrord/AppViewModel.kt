@@ -38,7 +38,19 @@ class AppViewModel(
     private val _onboardingSkipped = MutableStateFlow(false)
     val onboardingSkipped: StateFlow<Boolean> = _onboardingSkipped.asStateFlow()
 
+    // Latch that keeps the wizard up after the user joins a group from its "Find your
+    // group" step: joining flips [needsOnboarding] false, which would otherwise yank
+    // them straight to Home and prevent joining several. Set only on an explicit join
+    // (never on a cold-load blip), and cleared when they leave via [skipOnboarding].
+    private val _stayInOnboarding = MutableStateFlow(false)
+    val stayInOnboarding: StateFlow<Boolean> = _stayInOnboarding.asStateFlow()
+
+    fun keepOnboarding() {
+        _stayInOnboarding.value = true
+    }
+
     fun skipOnboarding() {
+        _stayInOnboarding.value = false
         _onboardingSkipped.value = true
     }
 
