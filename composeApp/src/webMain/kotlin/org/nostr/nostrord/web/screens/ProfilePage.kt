@@ -21,6 +21,7 @@ import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.WebZapController
 import org.nostr.nostrord.web.components.aboutMentionPubkeys
 import org.nostr.nostrord.web.components.followToggleButton
+import org.nostr.nostrord.web.components.groupTypeBadges
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.renderAboutText
 import org.nostr.nostrord.web.navigation.pushRoute
@@ -218,45 +219,66 @@ val ProfilePage =
                                 }
                                 span {
                                     className = ClassName("profile-group-meta")
+                                    // Top line: name + the admin chip (the viewer's role)
+                                    // hug the left as a unit; the group's access tags are
+                                    // pushed to the right edge.
                                     span {
-                                        className = ClassName("profile-group-name")
-                                        +groupName
-                                    }
-                                    if (group.memberCount > 0) {
+                                        className = ClassName("profile-group-head")
                                         span {
-                                            className = ClassName("profile-group-members")
-                                            +"${group.memberCount} members"
+                                            className = ClassName("profile-group-name")
+                                            +groupName
                                         }
-                                    }
-                                    // Host relay (icon + short host), tappable to open the relay
-                                    // page; same reference shown on the discovery cards.
-                                    val relayHost = group.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
-                                    if (relayHost.isNotBlank()) {
-                                        span {
-                                            className = ClassName("profile-group-relay")
-                                            onClick = {
-                                                it.stopPropagation()
-                                                pushRoute(RelayRoute(group.relayUrl))
-                                            }
-                                            WebAvatar {
-                                                url = relayMetadata[group.relayUrl]?.icon
-                                                    ?: relayMetadata[group.relayUrl.normalizeRelayUrl()]?.icon
-                                                seed = group.relayUrl
-                                                this.name = relayHost
-                                                kind = org.nostr.nostrord.web.components.AvatarKind.RELAY
-                                                cls = "profile-group-relay-icon"
-                                            }
+                                        if (group.isAdmin) {
                                             span {
-                                                className = ClassName("profile-group-relay-host")
-                                                +relayHost
+                                                className = ClassName("admin-chip")
+                                                +"admin"
                                             }
                                         }
+                                        span {
+                                            className = ClassName("profile-group-tags")
+                                            groupTypeBadges(group.meta)
+                                        }
                                     }
-                                }
-                                if (group.isAdmin) {
-                                    span {
-                                        className = ClassName("admin-chip")
-                                        +"admin"
+                                    // Sub line: member count and the host relay on one muted
+                                    // row, separated by a dot. Relay is tappable to its page.
+                                    val relayHost = group.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                                    if (group.memberCount > 0 || relayHost.isNotBlank()) {
+                                        span {
+                                            className = ClassName("profile-group-sub")
+                                            if (group.memberCount > 0) {
+                                                span {
+                                                    className = ClassName("profile-group-members")
+                                                    +"${group.memberCount} members"
+                                                }
+                                            }
+                                            if (group.memberCount > 0 && relayHost.isNotBlank()) {
+                                                span {
+                                                    className = ClassName("profile-group-dot")
+                                                    +"·"
+                                                }
+                                            }
+                                            if (relayHost.isNotBlank()) {
+                                                span {
+                                                    className = ClassName("profile-group-relay")
+                                                    onClick = {
+                                                        it.stopPropagation()
+                                                        pushRoute(RelayRoute(group.relayUrl))
+                                                    }
+                                                    WebAvatar {
+                                                        url = relayMetadata[group.relayUrl]?.icon
+                                                            ?: relayMetadata[group.relayUrl.normalizeRelayUrl()]?.icon
+                                                        seed = group.relayUrl
+                                                        this.name = relayHost
+                                                        kind = org.nostr.nostrord.web.components.AvatarKind.RELAY
+                                                        cls = "profile-group-relay-icon"
+                                                    }
+                                                    span {
+                                                        className = ClassName("profile-group-relay-host")
+                                                        +relayHost
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

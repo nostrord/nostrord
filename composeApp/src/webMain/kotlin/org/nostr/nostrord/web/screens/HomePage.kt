@@ -1,7 +1,6 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
-import org.nostr.nostrord.network.GroupMetadata
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.navigation.RelayRoute
@@ -18,6 +17,7 @@ import org.nostr.nostrord.web.components.FollowAllButton
 import org.nostr.nostrord.web.components.FollowSuggestionCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
+import org.nostr.nostrord.web.components.groupTypeBadges
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.tabItem
@@ -376,7 +376,7 @@ internal fun ChildrenBuilder.discoverGroupCard(
                                     div { className = ClassName("discover-avatar skel") }
                                 }
                             }
-                        showTags -> groupTagBadges(meta)
+                        showTags -> groupTypeBadges(meta)
                     }
                     when {
                         !showTags && count > 0 ->
@@ -485,22 +485,6 @@ internal fun ChildrenBuilder.groupCardSkeleton() {
             }
         }
         div { className = ClassName("skel skel-line skel-card-desc") }
-    }
-}
-
-/**
- * Access-tag pills (NIP-29 kind:39000 tags) shown on a card when it has no people
- * to preview. Same tones as the group info modal: Public green / Private yellow,
- * Open purple / Closed orange.
- */
-private fun ChildrenBuilder.groupTagBadges(meta: GroupMetadata) {
-    span {
-        className = ClassName(if (meta.isPublic) "info-badge success" else "info-badge warning")
-        +(if (meta.isPublic) "Public" else "Private")
-    }
-    span {
-        className = ClassName(if (meta.isOpen) "info-badge primary" else "info-badge orange")
-        +(if (meta.isOpen) "Open" else "Closed")
     }
 }
 

@@ -49,6 +49,7 @@ import coil3.compose.AsyncImage
 import org.nostr.nostrord.auth.ActiveAccountManager
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip57
+import org.nostr.nostrord.ui.components.GroupTypeBadges
 import org.nostr.nostrord.ui.components.IdentifierField
 import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
@@ -318,7 +319,7 @@ private fun ProfileGroupRow(
         onClick = onClick,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            modifier = Modifier.fillMaxWidth().padding(Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
@@ -326,35 +327,51 @@ private fun ProfileGroupRow(
                 imageUrl = group.meta.picture,
                 identifier = group.meta.id,
                 displayName = group.meta.name ?: group.meta.id,
-                size = 36.dp,
+                size = 44.dp,
                 shape = NostrordShapes.shapeMedium,
                 isGroup = true,
             )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    group.meta.name ?: group.meta.id,
-                    color = NostrordColors.TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                // Top line: name + the admin chip (the viewer's role) hug the left as a
+                // unit; the group's access tags are pushed to the right edge.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            group.meta.name ?: group.meta.id,
+                            modifier = Modifier.weight(1f, fill = false),
+                            color = NostrordColors.TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (group.isAdmin) {
+                            Spacer(modifier = Modifier.width(Spacing.sm))
+                            Surface(shape = NostrordShapes.shapeSmall, color = NostrordColors.Primary.copy(alpha = 0.2f)) {
+                                Text(
+                                    "admin",
+                                    color = NostrordColors.Primary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(Spacing.sm))
+                    GroupTypeBadges(isPublic = group.meta.isPublic, isOpen = group.meta.isOpen)
+                }
                 if (group.memberCount > 0) {
                     Text(
                         "${group.memberCount} members",
                         color = NostrordColors.TextMuted,
                         fontSize = 12.sp,
-                    )
-                }
-            }
-            if (group.isAdmin) {
-                Surface(shape = NostrordShapes.shapeSmall, color = NostrordColors.Primary.copy(alpha = 0.2f)) {
-                    Text(
-                        "admin",
-                        color = NostrordColors.Primary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                     )
                 }
             }

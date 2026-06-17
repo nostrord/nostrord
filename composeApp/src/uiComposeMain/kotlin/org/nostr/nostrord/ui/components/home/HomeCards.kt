@@ -35,6 +35,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.nostr.nostrord.nostr.Nip19
+import org.nostr.nostrord.ui.components.GroupTypeBadges
+import org.nostr.nostrord.ui.components.TagBadge
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.loading.shimmerEffect
 import org.nostr.nostrord.ui.screens.home.Friend
@@ -138,15 +140,7 @@ fun GroupCard(
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
                                 showTags -> {
-                                    TagBadge(
-                                        text = if (isPublic) "Public" else "Private",
-                                        color = if (isPublic) NostrordColors.Success else NostrordColors.Warning,
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    TagBadge(
-                                        text = if (isOpen) "Open" else "Closed",
-                                        color = if (isOpen) NostrordColors.Primary else NostrordColors.WarningOrange,
-                                    )
+                                    GroupTypeBadges(isPublic = isPublic, isOpen = isOpen)
                                     if (peopleCount > 0 || restricted) Spacer(modifier = Modifier.width(6.dp))
                                 }
                             }
@@ -231,26 +225,6 @@ fun GroupCard(
                 }
             }
         }
-    }
-}
-
-/** Access-tag pill (Public/Private, Open/Closed) shown when a card has no people. */
-@Composable
-private fun TagBadge(
-    text: String,
-    color: Color,
-) {
-    Surface(
-        shape = NostrordShapes.shapeSmall,
-        color = color.copy(alpha = 0.15f),
-    ) {
-        Text(
-            text,
-            color = color,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-        )
     }
 }
 

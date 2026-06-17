@@ -1903,20 +1903,22 @@ body {
     gap: var(--space-md);
     width: 100%;
     margin-bottom: var(--space-xs);
-    padding: var(--space-sm) var(--space-md);
+    padding: var(--space-md);
     background: var(--color-surface);
-    border: 0;
-    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
     cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 .profile-group-row:hover {
     background: var(--color-hover);
+    border-color: var(--color-divider);
 }
 
 .profile-group-avatar {
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     flex-shrink: 0;
     border-radius: var(--radius-md);
 }
@@ -1926,27 +1928,61 @@ body {
     flex-direction: column;
     flex: 1;
     min-width: 0;
+    gap: 5px;
     text-align: left;
 }
 
+/* Top line: name takes the slack and truncates; tags + admin pin right. */
+.profile-group-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
 .profile-group-name {
+    min-width: 0;
     overflow: hidden;
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 600;
     color: var(--color-text-primary);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+/* Pushed to the right edge so the name + admin role stay grouped on the left. */
+.profile-group-tags {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    padding-left: var(--space-sm);
+}
+
+/* Sub line: member count and host relay on one muted row, dot-separated. */
+.profile-group-sub {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
 .profile-group-members {
+    flex-shrink: 0;
     font-size: 12px;
     color: var(--color-text-muted);
 }
+
+.profile-group-dot {
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+}
+
 .profile-group-relay {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    margin-top: 3px;
+    min-width: 0;
     cursor: pointer;
 }
 .profile-group-relay-icon {
