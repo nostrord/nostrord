@@ -155,10 +155,6 @@ val SettingsScreen =
                         className = ClassName("settings-close-x")
                         icon(Ic.Close)
                     }
-                    span {
-                        className = ClassName("settings-close-esc")
-                        +"ESC"
-                    }
                 }
             }
 

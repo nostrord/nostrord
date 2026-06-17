@@ -6792,12 +6792,6 @@ body {
     font-size: 14px;
 }
 
-.settings-close-esc {
-    font-size: 9px;
-    font-weight: 700;
-    color: var(--color-text-muted);
-}
-
 .settings-card {
     background: var(--color-surface);
     border-radius: 8px;
