@@ -14,6 +14,7 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.notifications.NotificationEntry
 import org.nostr.nostrord.notifications.NotificationType
+import org.nostr.nostrord.storage.SecureStorage
 
 /** Notifications type filter (prototype tabs). Reactions have no tab; they show under [ALL]. */
 enum class NotifFilter { ALL, MENTIONS, REPLIES, MESSAGES }
@@ -56,7 +57,7 @@ class NotificationsViewModel(
     private val _typeFilter = MutableStateFlow(NotifFilter.ALL)
     val typeFilter: StateFlow<NotifFilter> = _typeFilter.asStateFlow()
 
-    private val _unreadOnly = MutableStateFlow(false)
+    private val _unreadOnly = MutableStateFlow(SecureStorage.getBooleanPref(KEY_UNREAD_ONLY, default = false))
     val unreadOnly: StateFlow<Boolean> = _unreadOnly.asStateFlow()
 
     private val _groupFilter = MutableStateFlow<String?>(null)
@@ -68,6 +69,7 @@ class NotificationsViewModel(
 
     fun setUnreadOnly(value: Boolean) {
         _unreadOnly.value = value
+        SecureStorage.saveBooleanPref(KEY_UNREAD_ONLY, value)
     }
 
     fun setGroupFilter(groupId: String?) {
@@ -147,5 +149,9 @@ class NotificationsViewModel(
     fun requestUserMetadata(pubkeys: Set<String>) {
         if (pubkeys.isEmpty()) return
         viewModelScope.launch { repo.requestUserMetadata(pubkeys) }
+    }
+
+    private companion object {
+        const val KEY_UNREAD_ONLY = "notifications_unread_only"
     }
 }
