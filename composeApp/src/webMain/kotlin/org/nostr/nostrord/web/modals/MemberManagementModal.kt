@@ -6,12 +6,12 @@ import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
-import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
@@ -83,12 +83,12 @@ val MemberManagementModal =
                     }
                 }
 
-                input {
-                    className = ClassName("modal-input")
-                    placeholder = "Search members..."
-                    value = query
-                    onChange = { event -> setQuery(event.currentTarget.value) }
-                }
+                searchInput(
+                    placeholder = "Search members...",
+                    value = query,
+                    onChange = { setQuery(it) },
+                    compact = true,
+                )
 
                 div {
                     className = ClassName("mod-tabs")

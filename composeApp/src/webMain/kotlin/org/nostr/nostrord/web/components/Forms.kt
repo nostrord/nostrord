@@ -112,3 +112,48 @@ fun ChildrenBuilder.iconInput(
         trailing?.invoke(this)
     }
 }
+
+/**
+ * Standard search box reused everywhere (OOCSS): the shared `.input-group` object with a leading
+ * magnifier and a trailing clear (X) that shows once there's text. [compact] switches to the
+ * smaller `.input-group sm` size for dense lists (member rosters, pickers). Escape clears.
+ */
+fun ChildrenBuilder.searchInput(
+    placeholder: String,
+    value: String,
+    onChange: (String) -> Unit,
+    compact: Boolean = false,
+    autoFocus: Boolean = false,
+    onEnter: () -> Unit = {},
+) {
+    div {
+        className = ClassName(if (compact) "input-group sm" else "input-group")
+        span {
+            className = ClassName("input-icon")
+            icon(Ic.Search)
+        }
+        input {
+            className = ClassName("input")
+            this.placeholder = placeholder
+            this.value = value
+            this.autoFocus = autoFocus
+            this.onChange = { event -> onChange(event.currentTarget.value) }
+            onKeyDown = { event ->
+                when (event.key) {
+                    "Enter" -> onEnter()
+                    "Escape" -> {
+                        onChange("")
+                        event.currentTarget.blur()
+                    }
+                }
+            }
+        }
+        if (value.isNotEmpty()) {
+            button {
+                className = ClassName("input-clear")
+                onClick = { onChange("") }
+                icon(Ic.Close)
+            }
+        }
+    }
+}

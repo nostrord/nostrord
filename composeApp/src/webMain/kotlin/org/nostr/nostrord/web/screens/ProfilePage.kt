@@ -7,9 +7,11 @@ import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.isValidNip05
 import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.GroupRoute
+import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
 import org.nostr.nostrord.ui.theme.AvatarGradients
+import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
@@ -55,6 +57,7 @@ val ProfilePage =
         val isFollowing = useStateFlow(vm.isFollowing)
         val isFollowBusy = useStateFlow(vm.isFollowBusy)
         val allMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
+        val relayMetadata = useStateFlow(AppModule.nostrRepository.relayMetadata)
         // Resolve @names for any npub/nprofile mentioned in the bio so mentions
         // render as display names, not raw npubs.
         useEffect(metadata?.about) {
@@ -223,6 +226,30 @@ val ProfilePage =
                                         span {
                                             className = ClassName("profile-group-members")
                                             +"${group.memberCount} members"
+                                        }
+                                    }
+                                    // Host relay (icon + short host), tappable to open the relay
+                                    // page; same reference shown on the discovery cards.
+                                    val relayHost = group.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                                    if (relayHost.isNotBlank()) {
+                                        span {
+                                            className = ClassName("profile-group-relay")
+                                            onClick = {
+                                                it.stopPropagation()
+                                                pushRoute(RelayRoute(group.relayUrl))
+                                            }
+                                            WebAvatar {
+                                                url = relayMetadata[group.relayUrl]?.icon
+                                                    ?: relayMetadata[group.relayUrl.normalizeRelayUrl()]?.icon
+                                                seed = group.relayUrl
+                                                this.name = relayHost
+                                                kind = org.nostr.nostrord.web.components.AvatarKind.RELAY
+                                                cls = "profile-group-relay-icon"
+                                            }
+                                            span {
+                                                className = ClassName("profile-group-relay-host")
+                                                +relayHost
+                                            }
                                         }
                                     }
                                 }

@@ -5,17 +5,14 @@ import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.searchInput
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
 import react.dom.html.ReactHTML.div
-import react.dom.html.ReactHTML.input
 import react.dom.html.ReactHTML.span
 import react.useState
 import web.cssom.ClassName
-import web.html.HTMLInputElement
-import web.html.InputType
-import web.html.text
 
 external interface DmSidebarProps : Props {
     var activePubkey: String?
@@ -57,13 +54,12 @@ val DmSidebar =
             if (searchOpen) {
                 div {
                     className = ClassName("dm-search")
-                    input {
-                        type = InputType.text
-                        autoFocus = true
-                        value = query
-                        placeholder = "Search by name, nip-05, npub or hex"
-                        onChange = { setQuery((it.target as HTMLInputElement).value) }
-                    }
+                    searchInput(
+                        placeholder = "Search by name, nip-05, npub or hex",
+                        value = query,
+                        onChange = { setQuery(it) },
+                        autoFocus = true,
+                    )
                     button {
                         className = ClassName("icon-btn")
                         title = "Close"

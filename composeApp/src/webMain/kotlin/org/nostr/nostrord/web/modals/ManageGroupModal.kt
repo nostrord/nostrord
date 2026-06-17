@@ -15,6 +15,7 @@ import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.navigation.pushHome
 import react.FC
@@ -361,12 +362,12 @@ private val ManageMembersSection =
                 }
                 .filter { query.isBlank() || nameOf(it).contains(query, ignoreCase = true) }
 
-        input {
-            className = ClassName("modal-input")
-            placeholder = "Search members..."
-            value = query
-            onChange = { e -> setQuery(e.currentTarget.value) }
-        }
+        searchInput(
+            placeholder = "Search members...",
+            value = query,
+            onChange = { setQuery(it) },
+            compact = true,
+        )
         div {
             className = ClassName("mod-tabs")
             listOf("All", "Admins", "Members").forEach { label ->
@@ -754,6 +755,13 @@ private external interface ManageRequestsProps : Props {
 
 private val ManageRequestsSection =
     FC<ManageRequestsProps> { props ->
+        // Hooks must run unconditionally and in a stable order, so they precede the
+        // open-group early return (React errors with "rendered more hooks" otherwise).
+        val repo = AppModule.nostrRepository
+        val msgs = useStateFlow(repo.messages)[props.groupId].orEmpty()
+        val members = useStateFlow(repo.groupMembers)[props.groupId].orEmpty().toSet()
+        val userMetadata = useStateFlow(repo.userMetadata)
+
         if (props.isOpen) {
             div {
                 className = ClassName("mod-empty")
@@ -761,10 +769,6 @@ private val ManageRequestsSection =
             }
             return@FC
         }
-        val repo = AppModule.nostrRepository
-        val msgs = useStateFlow(repo.messages)[props.groupId].orEmpty()
-        val members = useStateFlow(repo.groupMembers)[props.groupId].orEmpty().toSet()
-        val userMetadata = useStateFlow(repo.userMetadata)
 
         val lastLeave =
             msgs.filter { it.kind == 9022 }

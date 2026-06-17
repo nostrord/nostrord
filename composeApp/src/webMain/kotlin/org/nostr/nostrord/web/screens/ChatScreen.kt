@@ -48,6 +48,7 @@ import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.messageSkeleton
+import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.uploadBlob
 import org.nostr.nostrord.web.components.useEscClose
 import org.nostr.nostrord.web.components.zapBadge
@@ -2145,26 +2146,12 @@ val ChatScreen =
                 }
                 div {
                     className = ClassName("member-search")
-                    icon(Ic.Search, "member-search-icon")
-                    input {
-                        className = ClassName("member-search-input")
-                        placeholder = "Search members"
-                        value = memberQuery
-                        onChange = { event -> setMemberQuery(event.currentTarget.value) }
-                        onKeyDown = { event ->
-                            if (event.key == "Escape") {
-                                setMemberQuery("")
-                                event.currentTarget.blur()
-                            }
-                        }
-                    }
-                    if (memberQuery.isNotEmpty()) {
-                        button {
-                            className = ClassName("search-clear-btn member-search-clear")
-                            onClick = { setMemberQuery("") }
-                            icon(Ic.Close)
-                        }
-                    }
+                    searchInput(
+                        placeholder = "Search members",
+                        value = memberQuery,
+                        onChange = { setMemberQuery(it) },
+                        compact = true,
+                    )
                 }
                 div {
                     className = ClassName("member-scroll")

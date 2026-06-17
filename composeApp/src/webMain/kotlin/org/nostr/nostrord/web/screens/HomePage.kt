@@ -16,7 +16,7 @@ import org.nostr.nostrord.web.components.AvatarKind
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
-import org.nostr.nostrord.web.components.iconInput
+import org.nostr.nostrord.web.components.searchInput
 import org.nostr.nostrord.web.components.tabItem
 import org.nostr.nostrord.web.navigation.pushRoute
 import react.ChildrenBuilder
@@ -30,8 +30,6 @@ import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
 import react.useEffect
 import web.cssom.ClassName
-import web.html.InputType
-import web.html.text
 
 private val FILTERS = listOf("My groups", "From friends", "Recommended", "People")
 
@@ -158,13 +156,10 @@ val HomePage =
                         }
                         div {
                             className = ClassName("home-search")
-                            iconInput(
-                                ic = Ic.Search,
-                                type = InputType.text,
+                            searchInput(
                                 placeholder = if (filter == 3) "Filter follow packs" else "Filter groups",
                                 value = query,
                                 onChange = { vm.setQuery(it) },
-                                onEscape = { vm.setQuery("") },
                             )
                         }
                     }
