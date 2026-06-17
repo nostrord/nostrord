@@ -40,6 +40,7 @@ import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Manages group operations: join, leave, messages, and group metadata.
@@ -1244,19 +1245,26 @@ class GroupManager(
                 add(signedMeta.toJsonObject())
             }.toString()
             val eventId = signedMeta.id
-                ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
+                ?: return Result.Error(AppError.Group.EditFailed(groupId, Exception("Event ID not generated")))
 
             when (val result = currentClient.sendAndAwaitOk(eventJson, eventId)) {
-                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Success -> {
+                    // Pull the just-edited kind:39000 so name/picture/parent/children land locally
+                    // immediately (groupsByRelay + childrenByParent), instead of waiting for a
+                    // refresh that no longer happens now that we only fetch known groups.
+                    currentClient.requestGroupMetadata(groupId)
+                    refreshMuxSubscriptionsForRelay(groupRelayUrl)
+                    Result.Success(Unit)
+                }
                 is org.nostr.nostrord.network.PublishResult.Rejected ->
-                    Result.Error(AppError.Group.CreateFailed(Exception(result.reason)))
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception(result.reason)))
                 is org.nostr.nostrord.network.PublishResult.Timeout ->
-                    Result.Error(AppError.Group.CreateFailed(Exception("Relay did not respond in time")))
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception("Relay did not respond in time")))
                 is org.nostr.nostrord.network.PublishResult.Error ->
-                    Result.Error(AppError.Group.CreateFailed(result.exception))
+                    Result.Error(AppError.Group.EditFailed(groupId, result.exception))
             }
         } catch (e: Throwable) {
-            Result.Error(AppError.Group.CreateFailed(e))
+            Result.Error(AppError.Group.EditFailed(groupId, e))
         }
     }
 
@@ -1305,18 +1313,26 @@ class GroupManager(
                 add(signed.toJsonObject())
             }.toString()
             val eventId = signed.id
-                ?: return Result.Error(AppError.Group.CreateFailed(Exception("Event ID not generated")))
+                ?: return Result.Error(AppError.Group.EditFailed(groupId, Exception("Event ID not generated")))
             when (val res = currentClient.sendAndAwaitOk(eventJson, eventId)) {
-                is org.nostr.nostrord.network.PublishResult.Success -> Result.Success(Unit)
+                is org.nostr.nostrord.network.PublishResult.Success -> {
+                    // Pull the just-updated kind:39000 so its new `parent` tag lands locally
+                    // (childrenByParent + groupsByRelay) right away — otherwise the subgroup
+                    // shows up parent-less (in the rail, missing from Subgroups) until a later
+                    // refresh, which no longer happens now that we only fetch known groups.
+                    currentClient.requestGroupMetadata(groupId)
+                    refreshMuxSubscriptionsForRelay(groupRelayUrl)
+                    Result.Success(Unit)
+                }
                 is org.nostr.nostrord.network.PublishResult.Rejected ->
-                    Result.Error(AppError.Group.CreateFailed(Exception(res.reason)))
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception(res.reason)))
                 is org.nostr.nostrord.network.PublishResult.Timeout ->
-                    Result.Error(AppError.Group.CreateFailed(Exception("Relay did not respond in time")))
+                    Result.Error(AppError.Group.EditFailed(groupId, Exception("Relay did not respond in time")))
                 is org.nostr.nostrord.network.PublishResult.Error ->
-                    Result.Error(AppError.Group.CreateFailed(res.exception))
+                    Result.Error(AppError.Group.EditFailed(groupId, res.exception))
             }
         } catch (e: Throwable) {
-            Result.Error(AppError.Group.CreateFailed(e))
+            Result.Error(AppError.Group.EditFailed(groupId, e))
         }
     }
 
@@ -1822,27 +1838,35 @@ class GroupManager(
         publishJoinedGroups: suspend () -> Unit,
     ): Result<Unit> {
         val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
-        val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
-            ?: connectionManager.getPrimaryClient()
-            ?: return Result.Error(AppError.Network.Disconnected(groupRelayUrl))
 
         return try {
-            val event = Event(
-                pubkey = pubKey,
-                createdAt = epochMillis() / 1000,
-                kind = 9022,
-                tags = listOf(listOf("h", groupId)),
-                content = reason.orEmpty(),
-            )
-
-            val signedEvent = signEvent(event)
-
-            val message = buildJsonArray {
-                add("EVENT")
-                add(signedEvent.toJsonObject())
-            }.toString()
-
-            currentClient.send(message)
+            // Best-effort 9022 to the group relay. A dead or unreachable relay must NOT
+            // block removal from the user's own kind:10009 list, so a missing client or a
+            // failed send is swallowed and we still clean the list below. The kind:10009
+            // republish goes to the outbox relays, which are independent of this relay.
+            val currentClient = connectionManager.getClientForRelay(groupRelayUrl)
+                ?: connectionManager.getPrimaryClient()
+            if (currentClient != null) {
+                try {
+                    val event = Event(
+                        pubkey = pubKey,
+                        createdAt = epochMillis() / 1000,
+                        kind = 9022,
+                        tags = listOf(listOf("h", groupId)),
+                        content = reason.orEmpty(),
+                    )
+                    val signedEvent = signEvent(event)
+                    val message = buildJsonArray {
+                        add("EVENT")
+                        add(signedEvent.toJsonObject())
+                    }.toString()
+                    currentClient.send(message)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    // Relay send/sign failed; the kind:10009 cleanup below still applies.
+                }
+            }
 
             val relayGroups = _joinedGroupsByRelay.value[groupRelayUrl] ?: emptySet()
             val updatedAfterLeave = relayGroups - groupId
@@ -1880,6 +1904,8 @@ class GroupManager(
             refreshMuxSubscriptionsForRelay(groupRelayUrl)
 
             Result.Success(Unit)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
             Result.Error(AppError.Group.LeaveFailed(groupId, e))
         }

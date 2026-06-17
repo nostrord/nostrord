@@ -123,6 +123,11 @@ sealed class AppError(
         data class CreateFailed(
             override val cause: Throwable? = null,
         ) : Group("Failed to create group", cause)
+
+        data class EditFailed(
+            val groupId: String,
+            override val cause: Throwable? = null,
+        ) : Group("Failed to update group" + (cause?.message?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""), cause)
     }
 
     /** Generic/unknown errors */

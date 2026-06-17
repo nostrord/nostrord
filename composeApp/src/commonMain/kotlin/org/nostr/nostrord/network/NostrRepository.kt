@@ -57,6 +57,13 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.urlDecode
 
 /**
+ * Curator whose public kind:10009 seeds the Recommended discovery tab. Mirrored here so the
+ * group-list fetch can include the curator's groups in its targeted (known-only) #d request,
+ * matching what the Recommended tab needs (HomePageViewModel uses the same pubkey).
+ */
+private const val DISCOVERY_CURATOR_PUBKEY = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
+
+/**
  * Repository for Nostr operations.
  * Coordinates between specialized managers for different concerns.
  *
@@ -402,6 +409,23 @@ class NostrRepository(
                     if (relay.isNotBlank()) {
                         groupManager.markRelayLoaded(relay)
                     }
+                }
+            }
+        }
+
+        // The set of groups we KNOW on the primary relay grows over time: friends'/curator
+        // kind:10009 lists arrive after connect, and joining/creating a group (incl. a subgroup)
+        // adds to joinedGroupsByRelay. When it grows, send a fresh targeted #d fetch so those
+        // groups' metadata loads (name/picture/parent) — we never pull the full directory.
+        scope.launch {
+            combine(_following, _userGroupLists, groupManager.joinedGroupsByRelay) { _, _, _ -> Unit }.collect {
+                val relay = connectionManager.currentRelayUrl.value
+                if (relay.isBlank()) return@collect
+                val client = connectionManager.getPrimaryClient() ?: return@collect
+                val ids = knownGroupIdsForRelay(relay).toSet()
+                if (ids.isNotEmpty() && ids != sentKnownGroupFetch[relay.normalizeRelayUrl()]) {
+                    groupManager.markRelayLoading(relay)
+                    sendKnownGroupsFetch(client, relay)
                 }
             }
         }
@@ -1149,44 +1173,52 @@ class NostrRepository(
     }
 
     /**
-     * Send the appropriate group-list REQ depending on the relay's fetch mode and whether
-     * the "OTHER GROUPS" section is currently expanded.
-     *
-     * Decision table:
-     * - EAGER mode → always full fetch (mark pending, send requestGroups())
-     * - LAZY mode + OTHER GROUPS open → full fetch (mark pending, send requestGroups())
-     * - LAZY mode + OTHER GROUPS closed + joined IDs present → partial fetch (joined only)
-     * - LAZY mode + OTHER GROUPS closed + no joined IDs → full fetch (relay would be silent)
+     * Group ids we know on [relayUrl] WITHOUT listing the relay's full directory: our own joined
+     * groups plus the groups in the kind:10009 lists of people we follow (and the discovery
+     * curator). Restricted groups are excluded — the relay CLOSEs the whole batch if any single
+     * id is denied.
+     */
+    private fun knownGroupIdsForRelay(relayUrl: String): List<String> {
+        val normalized = relayUrl.normalizeRelayUrl()
+        val restricted = groupManager.restrictedGroups.value.keys
+        val ids = LinkedHashSet<String>()
+        groupManager.joinedGroupsByRelay.value[normalized].orEmpty().forEach { ids.add(it) }
+        val lists = _userGroupLists.value
+        (_following.value + DISCOVERY_CURATOR_PUBKEY).forEach { pk ->
+            lists[pk].orEmpty().forEach { ref ->
+                if (ref.relayUrl.normalizeRelayUrl() == normalized) ids.add(ref.groupId)
+            }
+        }
+        return ids.filter { it !in restricted }
+    }
+
+    // Group ids already requested (targeted #d) per normalized relay this session, so the
+    // friends/curator re-fetch only fires when the known set actually grows.
+    private val sentKnownGroupFetch = mutableMapOf<String, Set<String>>()
+
+    /**
+     * Fetch kind:39000 for ONLY the groups we know on [relayUrl] (see [knownGroupIdsForRelay]),
+     * via a targeted #d REQ — the relay's full group directory is never downloaded. When nothing
+     * is known yet, marks the relay loaded and wires the mux directly (no EOSE would arrive).
+     */
+    private suspend fun sendKnownGroupsFetch(client: NostrGroupClient, relayUrl: String) {
+        groupManager.cancelPendingFullFetch(relayUrl)
+        val ids = knownGroupIdsForRelay(relayUrl)
+        if (ids.isEmpty()) {
+            groupManager.markRelayLoaded(relayUrl)
+            groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+            return
+        }
+        sentKnownGroupFetch[relayUrl.normalizeRelayUrl()] = ids.toSet()
+        client.requestGroupsForIds(ids)
+    }
+
+    /**
+     * Send the group-list REQ for a relay. Always targeted to the groups we know (joined +
+     * friends' / curator lists); we deliberately never pull the relay's full group directory.
      */
     private suspend fun requestGroupsForRelay(client: NostrGroupClient, relayUrl: String) {
-        if (SecureStorage.isGroupFetchLazy(relayUrl)) {
-            val otherGroupsOpen = SecureStorage.getBooleanPref(
-                "sidebar_other_expanded_$relayUrl",
-                default = true,
-            )
-            if (!otherGroupsOpen) {
-                // OTHER GROUPS is closed — only fetch joined group metadata.
-                // Exclude groups already known to be restricted (the relay would
-                // CLOSE the entire batch if any single ID is denied).
-                val restricted = groupManager.restrictedGroups.value.keys
-                val joinedIds = groupManager.joinedGroupsByRelay.value[relayUrl.normalizeRelayUrl()]
-                    .orEmpty()
-                    .filter { it !in restricted }
-                    .toList()
-                if (joinedIds.isNotEmpty()) {
-                    // Ensure any stale pending-full-fetch marker is cleared so EOSE for this
-                    // partial REQ doesn't incorrectly mark the relay as having a full list.
-                    groupManager.cancelPendingFullFetch(relayUrl)
-                    client.requestGroupsForIds(joinedIds)
-                    return
-                }
-                // No (non-restricted) joined groups — fall through to full fetch so OTHER GROUPS populates
-            }
-            // OTHER GROUPS is open (or no joined groups) — full fetch
-        }
-        // EAGER mode or LAZY with OTHER GROUPS open: full unfiltered fetch
-        groupManager.markPendingFullFetch(relayUrl)
-        client.requestGroups()
+        sendKnownGroupsFetch(client, relayUrl)
     }
 
     private suspend fun connect(relayUrl: String) {
@@ -1230,9 +1262,8 @@ class NostrRepository(
                     // a stale persisted timestamp (or a previous session's full fetch) would
                     // otherwise satisfy that guard while the cache holds only joined groups,
                     // leaving OTHER GROUPS empty until a manual fetch.
-                    groupManager.markPendingFullFetch(relayUrl)
                     groupManager.markRelayLoading(relayUrl)
-                    client.requestGroups()
+                    sendKnownGroupsFetch(client, relayUrl)
                 } else {
                     // Cache hit — no EOSE will arrive, so clear the early loading mark.
                     groupManager.markRelayLoaded(relayUrl)
@@ -1373,9 +1404,8 @@ class NostrRepository(
                 // equivalent branch in connect(). We check the in-memory session
                 // set rather than hasFullGroupListBeenFetched so a stale persisted
                 // timestamp can't suppress the auto-fetch on switching to a relay.
-                groupManager.markPendingFullFetch(newRelayUrl)
                 groupManager.markRelayLoading(newRelayUrl)
-                client.requestGroups()
+                sendKnownGroupsFetch(client, newRelayUrl)
             } else {
                 // Cache was restored — no EOSE will arrive, so unmark loading now.
                 groupManager.markRelayLoaded(newRelayUrl)
@@ -1499,9 +1529,8 @@ class NostrRepository(
             return
         }
 
-        groupManager.markPendingFullFetch(relayUrl)
         groupManager.markRelayLoading(relayUrl)
-        client!!.requestGroups()
+        sendKnownGroupsFetch(client!!, relayUrl)
     }
 
     /**
@@ -1519,9 +1548,8 @@ class NostrRepository(
         if (groupManager.hasPendingFullFetch(relayUrl)) return
         if (!client.isConnected()) return
         if (client.getRelayUrl().normalizeRelayUrl() != normalized) return
-        groupManager.markPendingFullFetch(relayUrl)
         groupManager.markRelayLoading(relayUrl)
-        client.requestGroups()
+        sendKnownGroupsFetch(client, relayUrl)
     }
 
     override suspend fun addRelay(url: String) {

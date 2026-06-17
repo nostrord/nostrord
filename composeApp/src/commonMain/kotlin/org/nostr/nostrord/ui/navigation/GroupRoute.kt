@@ -31,6 +31,15 @@ data class GroupRoute(
 ) : HashRoute
 
 /**
+ * Route for a relay page (#/r/<relay>): the relay's NIP-11 header plus the groups on it
+ * that you or people you follow are in. [relayUrl] is the full ws(s):// URL; the hash
+ * carries it scheme-stripped as a single segment, same encoding as [GroupRoute].
+ */
+data class RelayRoute(
+    val relayUrl: String,
+) : HashRoute
+
+/**
  * Route for a user profile page: #/u/<npub>. [pubkey] is hex internally; the hash
  * carries the npub (shareable, nostr-native) but hex is accepted on parse too.
  */
@@ -74,6 +83,7 @@ enum class HomeTab { Groups, Friends, Recommended, People }
 data class HomeRoute(val tab: HomeTab) : HashRoute
 
 private const val GROUP_HASH_PREFIX = "#/g/"
+private const val RELAY_HASH_PREFIX = "#/r/"
 private const val USER_HASH_PREFIX = "#/u/"
 private const val DM_HASH_PREFIX = "#/dm"
 private const val NOTIFICATIONS_HASH = "#/notifications"
@@ -85,6 +95,7 @@ private const val HEX = "0123456789ABCDEF"
 
 fun HashRoute.toHash(): String = when (this) {
     is GroupRoute -> toHash()
+    is RelayRoute -> toHash()
     is UserRoute -> toHash()
     is DmRoute -> toHash()
     is NotificationsRoute -> NOTIFICATIONS_HASH
@@ -97,7 +108,17 @@ fun HashRoute.toHash(): String = when (this) {
     }
 }
 
-fun parseHashRoute(hash: String): HashRoute? = parseGroupHash(hash) ?: parseUserHash(hash) ?: parseDmHash(hash) ?: parseNotificationsHash(hash) ?: parseSettingsHash(hash) ?: parseHomeTabHash(hash)
+fun parseHashRoute(hash: String): HashRoute? = parseGroupHash(hash) ?: parseRelayHash(hash) ?: parseUserHash(hash) ?: parseDmHash(hash) ?: parseNotificationsHash(hash) ?: parseSettingsHash(hash) ?: parseHomeTabHash(hash)
+
+fun RelayRoute.toHash(): String = "$RELAY_HASH_PREFIX${encodeSegment(relayUrl.removePrefix("wss://").removePrefix("ws://"))}"
+
+/** Parses a `#/r/<relay>` hash; null for any other hash. */
+fun parseRelayHash(hash: String): RelayRoute? {
+    if (!hash.startsWith(RELAY_HASH_PREFIX)) return null
+    val seg = hash.removePrefix(RELAY_HASH_PREFIX).substringBefore('?')
+    if (seg.isEmpty() || seg.contains('/')) return null
+    return RelayRoute(decodeSegment(seg).toRelayUrl())
+}
 
 /** Parses the discovery-tab hashes (#/friends, #/recommended, #/people); null otherwise. */
 fun parseHomeTabHash(hash: String): HomeRoute? = when (hash.substringBefore('?')) {
