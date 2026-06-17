@@ -20,7 +20,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlinx.serialization.builtins.ListSerializer
@@ -131,6 +133,15 @@ class NostrRepository(
      * connect() already sent one within the last 10 seconds.
      */
     private val lastRequestGroupsAt = mutableMapOf<String, Long>()
+
+    // Caps how many NIP-17 DM decryptions hit the signer at once. A cold load streams
+    // every unread kind:1059 (dozens, sometimes 80+), and with a remote signer (NIP-46
+    // bunker) each decrypt is a serialized round-trip. Launching them all flooded the
+    // signer queue so the group relays' NIP-42 AUTH signs were starved — the relay then
+    // closed the unauthenticated socket and private groups never loaded (the more DMs,
+    // the worse; absent on main, which has no NIP-17). Bounding the burst leaves the
+    // signer free to answer AUTH promptly while DMs decrypt steadily in the background.
+    private val dmDecryptSemaphore = Semaphore(3)
 
     /**
      * Relays for which a post-AUTH group-list fetch has already been issued this
@@ -2975,7 +2986,7 @@ class NostrRepository(
                 val giftWrap = runCatching { parseSignedEventJson(event.toString()) }.getOrNull() ?: return
                 val myPub = sessionManager.getPublicKey() ?: return
                 val signer = ActiveAccountManager.session.value?.signer ?: return
-                scope.launch { dmManager.ingestGiftWrap(giftWrap, myPub, signer) }
+                scope.launch { dmDecryptSemaphore.withPermit { dmManager.ingestGiftWrap(giftWrap, myPub, signer) } }
                 return
             }
             // A user's NIP-17 DM relay list (kind:10050).
