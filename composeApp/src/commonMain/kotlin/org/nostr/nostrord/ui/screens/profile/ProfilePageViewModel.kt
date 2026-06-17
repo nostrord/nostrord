@@ -26,9 +26,9 @@ data class ProfileGroup(
 /**
  * Screen logic for the new-design user profile page (prototype Profile, /u/:pubkey),
  * shared by the Compose and React UIs: the user's kind:0 metadata (fetched on open),
- * npub, and the joined groups where they appear. "Groups in common" is limited to
- * groups whose member list was already fetched; an empty list means none known, not
- * proven absence.
+ * npub, and the groups where they appear. Group membership is limited to groups whose
+ * member list (kind:39002) was already fetched plus the user's own public kind:10009;
+ * an empty list means none known, not proven absence (NIP-29 offers no reverse lookup).
  */
 class ProfilePageViewModel(
     private val repo: NostrRepositoryApi,
@@ -45,30 +45,24 @@ class ProfilePageViewModel(
 
     val groupsWithUser: StateFlow<List<ProfileGroup>> =
         combine(
-            repo.joinedGroupsByRelay,
             repo.groupsByRelay,
             repo.groupMembers,
             repo.groupAdmins,
-        ) { joined, byRelay, members, admins ->
-            joined
-                .flatMap { (relay, ids) ->
-                    val metas = byRelay[relay].orEmpty().associateBy { it.id }
-                    ids
-                        .filter { id -> pubkey in members[id].orEmpty() || pubkey in admins[id].orEmpty() }
-                        .map { id ->
+        ) { byRelay, members, admins ->
+            // Scan every group we already know (not only the ones the active account
+            // joined): NIP-29 has no "groups for pubkey" query, so a user who never
+            // published a kind:10009 is only discoverable through the member lists
+            // (kind:39002) we have already fetched, e.g. a group browsed but not joined.
+            byRelay
+                .flatMap { (relay, metas) ->
+                    metas
+                        .filter { meta -> pubkey in members[meta.id].orEmpty() || pubkey in admins[meta.id].orEmpty() }
+                        .map { meta ->
                             ProfileGroup(
                                 relayUrl = relay,
-                                meta =
-                                metas[id] ?: GroupMetadata(
-                                    id = id,
-                                    name = null,
-                                    about = null,
-                                    picture = null,
-                                    isPublic = true,
-                                    isOpen = true,
-                                ),
-                                isAdmin = pubkey in admins[id].orEmpty(),
-                                memberCount = members[id].orEmpty().size,
+                                meta = meta,
+                                isAdmin = pubkey in admins[meta.id].orEmpty(),
+                                memberCount = members[meta.id].orEmpty().size,
                             )
                         }
                 }.distinctBy { it.meta.id }

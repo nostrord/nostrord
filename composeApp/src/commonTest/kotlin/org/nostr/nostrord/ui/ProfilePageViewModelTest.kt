@@ -59,6 +59,21 @@ class ProfilePageViewModelTest {
     }
 
     @Test
+    fun `groupsWithUser includes known groups the active account has not joined`() = runTest {
+        val fake = FakeNostrRepository()
+        // The group is known (e.g. browsed but not joined) and the profiled user appears
+        // in its member list, yet published no kind:10009. It must still show.
+        fake._groupsByRelay.value = mapOf("wss://a" to listOf(meta("keychat", "Keychat")))
+        fake._groupMembers.value = mapOf("keychat" to listOf("pk1"))
+
+        val vm = ProfilePageViewModel(fake, "pk1")
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf("keychat"), vm.groupsWithUser.value.map { it.meta.id })
+        assertEquals(listOf("keychat"), vm.userGroups.value.map { it.meta.id })
+    }
+
+    @Test
     fun `toggleFollow follows then unfollows the user`() = runTest {
         val fake = FakeNostrRepository()
         fake.fakePublicKey = "me"
