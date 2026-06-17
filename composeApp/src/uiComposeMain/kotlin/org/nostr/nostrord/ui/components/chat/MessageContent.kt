@@ -618,6 +618,9 @@ private fun InlineContentWithEmojis(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                         linkInteractionListener = { onMentionClick(pubkey) },
@@ -635,6 +638,9 @@ private fun InlineContentWithEmojis(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                     ),
@@ -801,6 +807,9 @@ private fun InlineContentTextOnly(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                         linkInteractionListener = { onMentionClick(pubkey) },
@@ -818,6 +827,9 @@ private fun InlineContentTextOnly(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                     ),
@@ -2227,6 +2239,9 @@ private fun QuotedInlineContentGroup(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                         linkInteractionListener = { onMentionClick(mentionPubkey) },
@@ -2244,6 +2259,9 @@ private fun QuotedInlineContentGroup(
                                             SpanStyle(
                                                 color = NostrordColors.MentionText,
                                                 fontWeight = FontWeight.Medium,
+                                                // Tinted pill behind the @name approximates the web mention chip.
+                                                // (No inline avatar: InlineTextContent images crash on Skiko.)
+                                                background = NostrordColors.MentionText.copy(alpha = 0.15f),
                                             ),
                                         ),
                                     ),

@@ -88,6 +88,7 @@ import org.nostr.nostrord.ui.navigation.HomeRoute
 import org.nostr.nostrord.ui.navigation.HomeTab
 import org.nostr.nostrord.ui.navigation.LocalFrameNavigator
 import org.nostr.nostrord.ui.navigation.NotificationsRoute
+import org.nostr.nostrord.ui.navigation.RelayRoute
 import org.nostr.nostrord.ui.navigation.SettingsRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.dm.DmPageScreen
@@ -103,6 +104,7 @@ import org.nostr.nostrord.ui.screens.notifications.NotificationsPage
 import org.nostr.nostrord.ui.screens.notifications.NotificationsSidebar
 import org.nostr.nostrord.ui.screens.notifications.NotificationsViewModel
 import org.nostr.nostrord.ui.screens.profile.ProfilePageScreen
+import org.nostr.nostrord.ui.screens.relay.RelayPageScreen
 import org.nostr.nostrord.ui.screens.settings.SettingsScreen
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
@@ -441,6 +443,7 @@ private fun FrameContent(
                     tab = (route as? HomeRoute)?.tab ?: HomeTab.Groups,
                     onSelectTab = onSelectHomeTab,
                     onOpenGroup = { onNavigate(GroupRoute(it.relayUrl, it.meta.id)) },
+                    onOpenRelay = { onNavigate(RelayRoute(it)) },
                     onCreateGroup = onCreateGroup,
                     onJoinGroup = onJoinGroup,
                     onOpenDms = { onNavigate(DmRoute()) },
@@ -460,6 +463,12 @@ private fun FrameContent(
             // NotificationsRoute / SettingsRoute.
             is NotificationsRoute -> {}
             is SettingsRoute -> {}
+            is RelayRoute ->
+                RelayPageScreen(
+                    relayUrl = route.relayUrl,
+                    onBack = onCloseGroup,
+                    onOpenGroup = { relay, gid -> onNavigate(GroupRoute(relay, gid)) },
+                )
             is GroupRoute -> {
                 val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
                 val name = groupsByRelay[route.relayUrl]?.firstOrNull { it.id == route.groupId }?.name

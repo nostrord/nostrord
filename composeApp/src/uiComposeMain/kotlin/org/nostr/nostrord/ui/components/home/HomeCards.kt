@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.components.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,6 +66,8 @@ fun GroupCard(
     hasMetadata: Boolean = false,
     relayUrl: String = "",
     relayIconUrl: String? = null,
+    isJoined: Boolean = false,
+    onRelayClick: (() -> Unit)? = null,
     onClick: () -> Unit = {},
 ) {
     Surface(
@@ -85,14 +88,23 @@ fun GroupCard(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        name,
-                        color = NostrordColors.TextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    // Name + a "Joined" badge when you're a member (useful in the mixed
+                    // From friends / Recommended lists; mirrors the web group-card).
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            name,
+                            color = NostrordColors.TextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (isJoined) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            TagBadge(text = "Joined", color = NostrordColors.Success)
+                        }
+                    }
                     // People row directly under the name: overlapping friend/member
                     // avatars (when known) and the total "N people" count, with the
                     // restricted badge riding along.
@@ -177,7 +189,20 @@ fun GroupCard(
             if (relayUrl.isNotBlank()) {
                 val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    // Tappable opens the relay page; the inner click is consumed so it doesn't
+                    // also trigger the card's onClick (open group).
+                    modifier =
+                    if (onRelayClick != null) {
+                        Modifier
+                            .clip(NostrordShapes.shapeSmall)
+                            .clickable { onRelayClick() }
+                            .padding(vertical = 2.dp)
+                    } else {
+                        Modifier
+                    },
+                ) {
                     RelayHeaderIcon(relayUrl = relayUrl, iconUrl = relayIconUrl, label = relayHost, size = 16.dp)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(

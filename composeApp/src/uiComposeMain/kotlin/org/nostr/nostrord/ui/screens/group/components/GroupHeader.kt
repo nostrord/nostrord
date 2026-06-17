@@ -174,6 +174,10 @@ fun GroupHeader(
             // Header actions in prototype order: Search, Invite, Info, Members.
             // Square 30dp buttons with a 4dp gap, matching the web .chat-icon-btn row.
             var showShareModal by remember { mutableStateOf(false) }
+            // A private group exposes nothing to non-members (no messages, member list or
+            // shareable invite), so hide Search / Invite / Info there; a public group, or a
+            // private one you've joined, keeps them. (mirrors the web chat header)
+            val showGroupActions = groupMetadata?.isPublic != false || isJoined
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -211,49 +215,51 @@ fun GroupHeader(
                     }
                 }
 
-                IconButton(
-                    onClick = onSearchClick,
-                    modifier = Modifier.size(30.dp),
-                    // Active fill via the container so it matches the hover state-layer circle.
-                    colors =
-                    if (searchActive) {
-                        IconButtonDefaults.iconButtonColors(containerColor = NostrordColors.SurfaceVariant)
-                    } else {
-                        IconButtonDefaults.iconButtonColors()
-                    },
-                ) {
-                    Icon(
-                        Icons.Default.Search,
-                        contentDescription = "Search messages",
-                        tint = if (searchActive) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-
-                if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                if (showGroupActions) {
                     IconButton(
-                        onClick = { showShareModal = true },
+                        onClick = onSearchClick,
+                        modifier = Modifier.size(30.dp),
+                        // Active fill via the container so it matches the hover state-layer circle.
+                        colors =
+                        if (searchActive) {
+                            IconButtonDefaults.iconButtonColors(containerColor = NostrordColors.SurfaceVariant)
+                        } else {
+                            IconButtonDefaults.iconButtonColors()
+                        },
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = "Search messages",
+                            tint = if (searchActive) NostrordColors.TextPrimary else NostrordColors.TextSecondary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+
+                    if (relayUrl.isNotBlank() && groupId.isNotBlank()) {
+                        IconButton(
+                            onClick = { showShareModal = true },
+                            modifier = Modifier.size(30.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Link,
+                                contentDescription = "Invite",
+                                tint = NostrordColors.TextSecondary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onTitleClick,
                         modifier = Modifier.size(30.dp),
                     ) {
                         Icon(
-                            Icons.Default.Link,
-                            contentDescription = "Invite",
+                            Icons.Outlined.Info,
+                            contentDescription = "Group info",
                             tint = NostrordColors.TextSecondary,
                             modifier = Modifier.size(18.dp),
                         )
                     }
-                }
-
-                IconButton(
-                    onClick = onTitleClick,
-                    modifier = Modifier.size(30.dp),
-                ) {
-                    Icon(
-                        Icons.Outlined.Info,
-                        contentDescription = "Group info",
-                        tint = NostrordColors.TextSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
                 }
 
                 if (trailingIcon != null) {

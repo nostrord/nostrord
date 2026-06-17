@@ -7,6 +7,8 @@ import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -22,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -35,6 +38,9 @@ import org.nostr.nostrord.ui.components.ModalTitleBar
 import org.nostr.nostrord.ui.components.RadioCircle
 import org.nostr.nostrord.ui.components.RichAboutText
 import org.nostr.nostrord.ui.groupIdentifiers
+import org.nostr.nostrord.ui.navigation.LocalFrameNavigator
+import org.nostr.nostrord.ui.navigation.RelayRoute
+import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.AvatarGradients
 import org.nostr.nostrord.ui.theme.Hsl
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -231,6 +237,43 @@ fun GroupInfoModal(
                         val relayMetadata by AppModule.nostrRepository.relayMetadata.collectAsState()
                         val relayPubkey = relayMetadata[relayUrl]?.pubkey ?: relayMetadata[relayUrl.trimEnd('/')]?.pubkey
                         val groupIds = remember(relayUrl, groupId, relayPubkey) { groupIdentifiers(relayUrl, groupId, relayPubkey) }
+
+                        // Relay this group lives on: tappable to open the relay page (parity with
+                        // the web group banner's relay link).
+                        if (relayUrl.isNotBlank()) {
+                            val navigate = LocalFrameNavigator.current
+                            val relayHost = relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+                            SectionHead("RELAY")
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable(enabled = navigate != null) {
+                                        navigate?.invoke(RelayRoute(relayUrl))
+                                        onDismiss()
+                                    }
+                                    .padding(vertical = Spacing.xs),
+                            ) {
+                                RelayHeaderIcon(
+                                    relayUrl = relayUrl,
+                                    iconUrl = relayMetadata[relayUrl]?.icon,
+                                    label = relayHost,
+                                    size = 20.dp,
+                                )
+                                Spacer(modifier = Modifier.width(Spacing.sm))
+                                Text(
+                                    relayHost,
+                                    color = NostrordColors.TextSecondary,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(Spacing.md))
+                        }
+
                         if (groupIds.isNotEmpty()) {
                             SectionHead("GROUP ADDRESS")
                             IdentifierRow(ids = groupIds)
