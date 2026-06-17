@@ -312,6 +312,16 @@ interface NostrRepositoryApi {
         inviteCode: String? = null,
     ): Result<Unit>
 
+    /**
+     * Optimistically flip [groupId] on [relayUrl] to joined in memory so the UI reacts
+     * immediately (mirrors the follow button); [joinGroup] then confirms and persists it.
+     * Returns false when it was already joined, so the caller skips [revertOptimisticJoin].
+     */
+    fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean
+
+    /** Undo a [markOptimisticJoin] when the join ultimately fails. */
+    fun revertOptimisticJoin(relayUrl: String, groupId: String)
+
     suspend fun leaveGroup(
         groupId: String,
         reason: String? = null,

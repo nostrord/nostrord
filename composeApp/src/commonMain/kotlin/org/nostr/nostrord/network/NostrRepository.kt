@@ -1889,6 +1889,12 @@ class NostrRepository(
         return result
     }
 
+    override fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean =
+        groupManager.markOptimisticJoin(relayUrl, groupId)
+
+    override fun revertOptimisticJoin(relayUrl: String, groupId: String) =
+        groupManager.revertOptimisticJoin(relayUrl, groupId)
+
     override suspend fun createGroup(
         name: String,
         about: String?,

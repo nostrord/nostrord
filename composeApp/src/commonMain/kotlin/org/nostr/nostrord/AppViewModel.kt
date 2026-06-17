@@ -68,15 +68,22 @@ class AppViewModel(
             onResult(Result.failure(IllegalArgumentException("Invalid invite link, naddr or group address")))
             return
         }
+        // Optimistic, like the follow button: flip the group to joined right away so the
+        // card reads "Joined" without waiting on the relay switch + signer + send. The
+        // confirmed join persists it; a failure rolls the optimistic flip back.
+        val optimistic = repo.markOptimisticJoin(target.relayUrl, target.groupId)
         viewModelScope.launch {
             try {
                 if (repo.currentRelayUrl.value != target.relayUrl) {
                     repo.switchRelay(target.relayUrl)
                 }
-                onResult(repo.joinGroup(target.groupId, target.inviteCode).toKotlinResult())
+                val result = repo.joinGroup(target.groupId, target.inviteCode).toKotlinResult()
+                if (result.isFailure && optimistic) repo.revertOptimisticJoin(target.relayUrl, target.groupId)
+                onResult(result)
             } catch (c: CancellationException) {
                 throw c
             } catch (e: Exception) {
+                if (optimistic) repo.revertOptimisticJoin(target.relayUrl, target.groupId)
                 onResult(Result.failure(e))
             }
         }

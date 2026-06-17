@@ -242,6 +242,20 @@ class FakeNostrRepository : NostrRepositoryApi {
         inviteCode: String?,
     ): Result<Unit> = Result.Success(Unit)
 
+    override fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean {
+        if (groupId in (_joinedGroupsByRelay.value[relayUrl] ?: emptySet())) return false
+        _joinedGroupsByRelay.update { current ->
+            current + (relayUrl to ((current[relayUrl] ?: emptySet()) + groupId))
+        }
+        return true
+    }
+
+    override fun revertOptimisticJoin(relayUrl: String, groupId: String) {
+        _joinedGroupsByRelay.update { current ->
+            current + (relayUrl to ((current[relayUrl] ?: emptySet()) - groupId))
+        }
+    }
+
     override suspend fun leaveGroup(
         groupId: String,
         reason: String?,

@@ -1036,6 +1036,31 @@ class GroupManager(
     }
 
     /**
+     * Flip [groupId] to joined on [relayUrl] in memory immediately so the UI reacts
+     * without waiting on a relay switch + signer + send (mirrors the optimistic follow
+     * button). The real [joinGroup] confirms and persists it; [revertOptimisticJoin]
+     * rolls it back on failure. Returns false when it was already joined, so the caller
+     * knows not to revert a pre-existing membership. Memory-only: persistence stays with
+     * the confirmed join so a failed attempt never lands in SecureStorage.
+     */
+    fun markOptimisticJoin(relayUrl: String, groupId: String): Boolean {
+        val key = relayUrl.normalizeRelayUrl()
+        if (groupId in (_joinedGroupsByRelay.value[key] ?: emptySet())) return false
+        _joinedGroupsByRelay.update { current ->
+            current + (key to ((current[key] ?: emptySet()) + groupId))
+        }
+        return true
+    }
+
+    /** Undo a [markOptimisticJoin] when the join ultimately fails. */
+    fun revertOptimisticJoin(relayUrl: String, groupId: String) {
+        val key = relayUrl.normalizeRelayUrl()
+        _joinedGroupsByRelay.update { current ->
+            current + (key to ((current[key] ?: emptySet()) - groupId))
+        }
+    }
+
+    /**
      * Append the NIP-29 access flags to a kind:9002 tag list. Flags are presence-only:
      * each is added only when on; absence is the permissive default (public / open /
      * anyone-writes / discoverable). There are no public / open / un-restricted tags, so a
