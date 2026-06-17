@@ -9,6 +9,7 @@ import kotlinx.serialization.json.long
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.KeyPair
 import org.nostr.nostrord.nostr.Nip07
+import org.nostr.nostrord.nostr.Nip44
 import org.nostr.nostrord.nostr.Nip46Client
 import kotlin.concurrent.Volatile
 
@@ -33,6 +34,17 @@ interface NostrSigner {
      * or if the signer was already disposed.
      */
     suspend fun signEvent(event: Event): Event
+
+    /**
+     * NIP-44 encrypt [plaintext] for [peerPubkeyHex] using this account's identity key — used to
+     * seal NIP-17 direct messages. Default: unsupported; [Local] implements it locally, and remote
+     * signers (bunker / NIP-07) will delegate later. Throws [SigningException] when unsupported or
+     * disposed. The private key never leaves the signer.
+     */
+    suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String = throw SigningException("This signer does not support NIP-44 encryption")
+
+    /** NIP-44 decrypt [ciphertext] from [peerPubkeyHex] with this account's identity key. */
+    suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String = throw SigningException("This signer does not support NIP-44 decryption")
 
     /**
      * Release all key material from memory. Called when the owning
@@ -61,6 +73,16 @@ interface NostrSigner {
                 _keyPair
                     ?: throw SigningException("Local signer has been disposed")
             return event.sign(kp)
+        }
+
+        override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String {
+            val kp = _keyPair ?: throw SigningException("Local signer has been disposed")
+            return Nip44.encrypt(plaintext, kp.privateKeyHex, peerPubkeyHex)
+        }
+
+        override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String {
+            val kp = _keyPair ?: throw SigningException("Local signer has been disposed")
+            return Nip44.decrypt(ciphertext, kp.privateKeyHex, peerPubkeyHex)
         }
 
         override fun dispose() {

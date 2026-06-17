@@ -27,9 +27,15 @@ import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.auth.Account
+import org.nostr.nostrord.auth.ActiveAccountManager
+import org.nostr.nostrord.auth.NostrSigner
+import org.nostr.nostrord.auth.parseSignedEventJson
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.managers.ConnectionManager
 import org.nostr.nostrord.network.managers.ConnectionStats
+import org.nostr.nostrord.network.managers.DmConversation
+import org.nostr.nostrord.network.managers.DmManager
+import org.nostr.nostrord.network.managers.DmMessage
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.LiveCursorStore
 import org.nostr.nostrord.network.managers.MetadataManager
@@ -40,7 +46,9 @@ import org.nostr.nostrord.network.managers.SessionManager
 import org.nostr.nostrord.network.managers.UnreadManager
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
+import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.nostr.Nip11RelayInfo
+import org.nostr.nostrord.nostr.Nip17
 import org.nostr.nostrord.startup.StartupResolver
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.clearCurrentRelayUrlFor
@@ -427,6 +435,14 @@ class NostrRepository(
                     groupManager.markRelayLoading(relay)
                     sendKnownGroupsFetch(client, relay)
                 }
+            }
+        }
+
+        // Open the NIP-17 DM inbox once we're logged in (cold-boot restore or a fresh login).
+        // startDmInbox() dedups; resetContactListState re-arms it on account switch.
+        scope.launch {
+            sessionManager.isLoggedIn.collect { loggedIn ->
+                if (loggedIn) startDmInbox()
             }
         }
 
@@ -902,6 +918,118 @@ class NostrRepository(
         sessionManager.logout()
     }
 
+    // ===== Direct messages (NIP-17 over NIP-59 gift wraps) =====
+
+    private val dmManager = DmManager(scope)
+
+    /** Conversations (most-recent first), derived from decrypted NIP-17 messages. */
+    val dmConversations: StateFlow<List<DmConversation>> get() = dmManager.conversations
+
+    /** Decrypted DM messages keyed by peer pubkey. */
+    val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>> get() = dmManager.messagesByPeer
+
+    // Fallback DM relays for users (and us) without a published kind:10050.
+    private val defaultDmRelays =
+        listOf("wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net", "wss://auth.nostr1.com")
+
+    private var dmInboxStarted = false
+
+    private fun dmRelaysFor(pubkey: String): List<String> = dmManager.dmRelaysFor(pubkey).map { it.normalizeRelayUrl() }.ifEmpty { defaultDmRelays }
+
+    /**
+     * Send a NIP-17 direct message: build the rumor, seal + gift-wrap it for the recipient and a
+     * self-copy for us, and publish each to its side's DM relays. Requires a local key for now
+     * (bunker / NIP-07 NIP-44 delegation lands in a later phase).
+     */
+    suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit> {
+        val signer =
+            ActiveAccountManager.session.value?.signer
+                ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        val myPub = sessionManager.getPublicKey() ?: return Result.Error(AppError.Auth.NotAuthenticated)
+        return try {
+            val rumor = Nip17.buildRumor(myPub, recipientPubkey, content)
+            val recipientWrap = Nip17.wrap(rumor, recipientPubkey, signer)
+            val selfWrap = Nip17.wrap(rumor, myPub, signer)
+            dmManager.addOptimistic(rumor, recipientPubkey, myPub)
+            publishEventToRelays(dmRelaysFor(recipientPubkey), recipientWrap)
+            publishEventToRelays(dmRelaysFor(myPub), selfWrap)
+            Result.Success(Unit)
+        } catch (e: NostrSigner.SigningException) {
+            Result.Error(AppError.Unknown("Direct messages currently require a local key (nsec)."))
+        } catch (e: Throwable) {
+            Result.Error(AppError.Unknown(e.message ?: "Failed to send the message"))
+        }
+    }
+
+    private suspend fun publishEventToRelays(relays: List<String>, event: Event) {
+        val json =
+            buildJsonArray {
+                add("EVENT")
+                add(event.toJsonObject())
+            }.toString()
+        relays.distinct().forEach { url ->
+            val client =
+                connectionManager.getClientForRelay(url)
+                    ?: connectionManager.getOrConnectRelay(url) { m, c -> enqueueToRelayPipeline(m, c) }
+            try {
+                client?.send(json)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /** Connect to our DM relays and subscribe to the kind:1059 inbox so DMs arrive in real time. */
+    suspend fun startDmInbox() {
+        if (dmInboxStarted) return
+        val myPub = sessionManager.getPublicKey() ?: return
+        dmInboxStarted = true
+        fetchDmRelays(myPub)
+        val filter =
+            buildJsonObject {
+                putJsonArray("kinds") { add(Nip17.KIND_GIFT_WRAP) }
+                putJsonArray("#p") { add(myPub) }
+            }
+        val req =
+            buildJsonArray {
+                add("REQ")
+                add("dm_inbox")
+                add(filter)
+            }.toString()
+        dmRelaysFor(myPub).distinct().forEach { url ->
+            val client =
+                connectionManager.getClientForRelay(url)
+                    ?: connectionManager.getOrConnectRelay(url) { m, c -> enqueueToRelayPipeline(m, c) }
+            try {
+                client?.send(req)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    /** One-shot fetch of [pubkey]'s kind:10050 DM relay list from the default relays. */
+    private suspend fun fetchDmRelays(pubkey: String) {
+        val filter =
+            buildJsonObject {
+                putJsonArray("kinds") { add(Nip17.KIND_DM_RELAYS) }
+                putJsonArray("authors") { add(pubkey) }
+            }
+        val req =
+            buildJsonArray {
+                add("REQ")
+                add("dmrelays_${pubkey.take(8)}")
+                add(filter)
+            }.toString()
+        defaultDmRelays.forEach { url ->
+            val client =
+                connectionManager.getClientForRelay(url)
+                    ?: connectionManager.getOrConnectRelay(url) { m, c -> enqueueToRelayPipeline(m, c) }
+            try {
+                client?.send(req)
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     /** Drops the previous account's kind:3 state so [following] never leaks across accounts. */
     private fun resetContactListState() {
         contactListCreatedAt = 0L
@@ -909,6 +1037,8 @@ class NostrRepository(
         contactListTags = emptyList()
         contactListRequested = false
         _following.value = emptySet()
+        dmManager.clear()
+        dmInboxStarted = false
     }
 
     override fun forgetBunkerConnection() {
@@ -2647,6 +2777,19 @@ class NostrRepository(
             }
             if (kind == 3) {
                 handleKind3Event(event)
+                return
+            }
+            // NIP-17 DM gift wrap addressed to us: decrypt with the active signer.
+            if (kind == Nip17.KIND_GIFT_WRAP) {
+                val giftWrap = runCatching { parseSignedEventJson(event.toString()) }.getOrNull() ?: return
+                val myPub = sessionManager.getPublicKey() ?: return
+                val signer = ActiveAccountManager.session.value?.signer ?: return
+                scope.launch { dmManager.ingestGiftWrap(giftWrap, myPub, signer) }
+                return
+            }
+            // A user's NIP-17 DM relay list (kind:10050).
+            if (kind == Nip17.KIND_DM_RELAYS) {
+                runCatching { parseSignedEventJson(event.toString()) }.getOrNull()?.let { dmManager.ingestDmRelays(it) }
                 return
             }
         }
