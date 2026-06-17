@@ -69,11 +69,9 @@ actual object Nip07 {
         )
     }
 
-    actual suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String =
-        nip44Call({ jsNip44EncryptPromise(peerPubkeyHex, plaintext) })
+    actual suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String = nip44Call({ jsNip44EncryptPromise(peerPubkeyHex, plaintext) })
 
-    actual suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String =
-        nip44Call({ jsNip44DecryptPromise(peerPubkeyHex, ciphertext) })
+    actual suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String = nip44Call({ jsNip44DecryptPromise(peerPubkeyHex, ciphertext) })
 
     private suspend fun nip44Call(start: () -> dynamic): String = suspendCoroutine { cont ->
         val available = js("typeof window !== 'undefined' && window.nostr && window.nostr.nip44").unsafeCast<Boolean>()

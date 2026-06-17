@@ -20,11 +20,9 @@ class Nip17Test {
 
             override suspend fun signEvent(event: Event): Event = event.sign(kp)
 
-            override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String =
-                Nip44.encrypt(plaintext, kp.privateKeyHex, peerPubkeyHex)
+            override suspend fun nip44Encrypt(peerPubkeyHex: String, plaintext: String): String = Nip44.encrypt(plaintext, kp.privateKeyHex, peerPubkeyHex)
 
-            override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String =
-                Nip44.decrypt(ciphertext, kp.privateKeyHex, peerPubkeyHex)
+            override suspend fun nip44Decrypt(peerPubkeyHex: String, ciphertext: String): String = Nip44.decrypt(ciphertext, kp.privateKeyHex, peerPubkeyHex)
 
             override fun dispose() {}
         }

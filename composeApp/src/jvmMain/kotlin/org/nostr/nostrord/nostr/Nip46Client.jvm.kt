@@ -267,11 +267,9 @@ actual class Nip46Client actual constructor(
         return sendRequest(requestId, "sign_event", listOf(eventJson))
     }
 
-    actual suspend fun nip44Encrypt(peerPubkey: String, plaintext: String): String =
-        sendRequest(generateRequestId(), "nip44_encrypt", listOf(peerPubkey, plaintext))
+    actual suspend fun nip44Encrypt(peerPubkey: String, plaintext: String): String = sendRequest(generateRequestId(), "nip44_encrypt", listOf(peerPubkey, plaintext))
 
-    actual suspend fun nip44Decrypt(peerPubkey: String, ciphertext: String): String =
-        sendRequest(generateRequestId(), "nip44_decrypt", listOf(peerPubkey, ciphertext))
+    actual suspend fun nip44Decrypt(peerPubkey: String, ciphertext: String): String = sendRequest(generateRequestId(), "nip44_decrypt", listOf(peerPubkey, ciphertext))
 
     private suspend fun sendRequest(
         requestId: String,
