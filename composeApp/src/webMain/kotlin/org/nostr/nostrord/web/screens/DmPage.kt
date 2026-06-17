@@ -2,6 +2,7 @@ package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.navigation.UserRoute
+import org.nostr.nostrord.ui.screens.dm.DmViewModel
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
@@ -60,7 +61,15 @@ val DmPage =
 
         val vm = useViewModel("dm-$pubkey") { ProfilePageViewModel(AppModule.nostrRepository, pubkey) }
         val metadata = useStateFlow(vm.metadata)
+        val dmVm = useViewModel { DmViewModel(AppModule.nostrRepository) }
+        val messages = useStateFlow(dmVm.messagesByPeer)[pubkey].orEmpty()
         val (text, setText) = useState { "" }
+        val send = {
+            if (text.isNotBlank()) {
+                dmVm.send(pubkey, text)
+                setText("")
+            }
+        }
         val name =
             metadata?.displayName?.takeIf { it.isNotBlank() }
                 ?: metadata?.name?.takeIf { it.isNotBlank() }
@@ -109,6 +118,16 @@ val DmPage =
                         +"Beginning of your direct conversation with $name. Direct messages are encrypted (NIP-17)."
                     }
                 }
+                messages.forEach { m ->
+                    div {
+                        key = m.id
+                        className = ClassName(if (m.mine) "dm-msg mine" else "dm-msg")
+                        div {
+                            className = ClassName("dm-bubble")
+                            +m.content
+                        }
+                    }
+                }
             }
 
             div {
@@ -126,6 +145,12 @@ val DmPage =
                         value = text
                         placeholder = "Message $name"
                         onChange = { setText((it.target as HTMLTextAreaElement).value) }
+                        onKeyDown = { e ->
+                            if (e.key == "Enter" && !e.shiftKey) {
+                                e.preventDefault()
+                                send()
+                            }
+                        }
                     }
                     button {
                         className = ClassName("dm-composer-btn")
@@ -135,9 +160,9 @@ val DmPage =
                     }
                     button {
                         className = ClassName("dm-composer-btn send")
-                        // Sending arrives with the NIP-17 DM backend.
-                        title = "Direct messages are coming soon"
-                        disabled = true
+                        title = "Send"
+                        disabled = text.isBlank()
+                        onClick = { send() }
                         icon(Ic.Send)
                     }
                 }

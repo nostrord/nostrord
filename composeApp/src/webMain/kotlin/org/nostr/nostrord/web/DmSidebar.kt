@@ -1,7 +1,11 @@
 package org.nostr.nostrord.web
 
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.navigation.DmRoute
+import org.nostr.nostrord.ui.screens.dm.DmViewModel
+import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
@@ -31,6 +35,16 @@ val DmSidebar =
         val (searchOpen, setSearchOpen) = useState { false }
         val (query, setQuery) = useState { "" }
         val parsed = Nip19.parsePubkeyInput(query) as? Nip19.PubkeyParse.Ok
+        val dmVm = useViewModel { DmViewModel(AppModule.nostrRepository) }
+        val conversations = useStateFlow(dmVm.conversations)
+        val userMetadata = useStateFlow(dmVm.userMetadata)
+
+        fun nameOf(pubkey: String): String {
+            val meta = userMetadata[pubkey]
+            return meta?.displayName?.takeIf { it.isNotBlank() }
+                ?: meta?.name?.takeIf { it.isNotBlank() }
+                ?: (runCatching { Nip19.encodeNpub(pubkey) }.getOrDefault(pubkey).take(12) + "…")
+        }
 
         div {
             className = ClassName("dm-side-header")
@@ -98,22 +112,52 @@ val DmSidebar =
                     button {
                         className = ClassName(if (tab == index) "dm-tab selected" else "dm-tab")
                         onClick = { setTab(index) }
-                        +"$label (0)"
+                        +label
                     }
                 }
             }
 
-            // Conversation list arrives with the DM backend (NIP-17).
-            div {
-                className = ClassName("dm-empty")
+            if (conversations.isEmpty()) {
                 div {
-                    className = ClassName("dm-empty-text")
-                    +"No conversations yet"
+                    className = ClassName("dm-empty")
+                    div {
+                        className = ClassName("dm-empty-text")
+                        +"No conversations yet"
+                    }
+                    button {
+                        className = ClassName("dm-empty-cta")
+                        onClick = { setSearchOpen(true) }
+                        +"Start a conversation"
+                    }
                 }
-                button {
-                    className = ClassName("dm-empty-cta")
-                    onClick = { setSearchOpen(true) }
-                    +"Start a conversation"
+            } else {
+                div {
+                    className = ClassName("dm-convo-list")
+                    conversations.forEach { c ->
+                        val peer = c.peerPubkey
+                        button {
+                            key = peer
+                            className = ClassName(if (props.activePubkey == peer) "dm-convo-row selected" else "dm-convo-row")
+                            onClick = { props.onOpenConversation(DmRoute(peer)) }
+                            WebAvatar {
+                                url = userMetadata[peer]?.picture
+                                seed = peer
+                                name = nameOf(peer)
+                                cls = "dm-convo-avatar"
+                            }
+                            span {
+                                className = ClassName("dm-convo-meta")
+                                span {
+                                    className = ClassName("dm-convo-name")
+                                    +nameOf(peer)
+                                }
+                                span {
+                                    className = ClassName("dm-convo-last")
+                                    +c.lastMessage
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

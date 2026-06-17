@@ -4,6 +4,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.DmConversation
+import org.nostr.nostrord.network.managers.DmMessage
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
@@ -92,6 +94,16 @@ interface NostrRepositoryApi {
     val userMetadata: StateFlow<Map<String, UserMetadata>>
     val cachedEvents: StateFlow<Map<String, CachedEvent>>
     val unreadCounts: StateFlow<Map<String, Int>>
+
+    // --- Direct messages (NIP-17) ---
+    /** Conversations (most-recent first), derived from decrypted NIP-17 messages. */
+    val dmConversations: StateFlow<List<DmConversation>>
+
+    /** Decrypted DM messages keyed by peer pubkey. */
+    val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>>
+
+    /** Send a NIP-17 direct message to [recipientPubkey]. */
+    suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit>
 
     /**
      * High-water mark per group: `created_at` (seconds) of the newest message

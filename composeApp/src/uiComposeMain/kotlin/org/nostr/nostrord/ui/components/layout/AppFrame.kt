@@ -256,10 +256,13 @@ fun AppFrame() {
                 }
             } else if (route is DmRoute) {
                 Box(modifier = Modifier.weight(1f)) {
-                    DmSidebar(onOpenConversation = {
-                        route = it
-                        closeDrawer()
-                    })
+                    DmSidebar(
+                        onOpenConversation = {
+                            route = it
+                            closeDrawer()
+                        },
+                        activePubkey = (route as DmRoute).pubkey,
+                    )
                 }
             } else {
                 Row(

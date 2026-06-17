@@ -2104,6 +2104,39 @@ body {
     white-space: nowrap;
 }
 
+.dm-convo-list {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.dm-convo-row.selected {
+    background: var(--color-hover);
+}
+
+/* Stack name over last-message preview when the row carries a conversation. */
+.dm-convo-meta {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.dm-convo-meta .dm-convo-name {
+    width: 100%;
+}
+
+.dm-convo-last {
+    width: 100%;
+    overflow: hidden;
+    font-size: 12px;
+    color: var(--color-text-muted);
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .dm-tabs {
     display: flex;
     margin-top: var(--space-sm);
@@ -2237,6 +2270,33 @@ body {
     min-height: 0;
     overflow-y: auto;
     padding: var(--space-lg);
+}
+
+/* NIP-17 message bubbles: incoming on the left, own messages on the right (brand). */
+.dm-msg {
+    display: flex;
+    margin-top: 8px;
+}
+
+.dm-msg.mine {
+    justify-content: flex-end;
+}
+
+.dm-bubble {
+    max-width: 75%;
+    padding: 8px 12px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--color-text-primary);
+    background: var(--color-surface-variant);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.dm-msg.mine .dm-bubble {
+    color: #ffffff;
+    background: var(--color-primary);
 }
 
 .dm-intro {

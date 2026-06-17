@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.update
 import org.nostr.nostrord.auth.Account
 import org.nostr.nostrord.network.RoleDefinition
 import org.nostr.nostrord.network.managers.ConnectionManager
+import org.nostr.nostrord.network.managers.DmConversation
+import org.nostr.nostrord.network.managers.DmMessage
 import org.nostr.nostrord.network.managers.GroupManager
 import org.nostr.nostrord.network.managers.ZapManager
 import org.nostr.nostrord.network.outbox.Nip65Relay
@@ -105,6 +107,8 @@ class FakeNostrRepository : NostrRepositoryApi {
     override val userMetadata: StateFlow<Map<String, UserMetadata>> = _userMetadata
     override val cachedEvents: StateFlow<Map<String, CachedEvent>> = _cachedEvents
     override val unreadCounts: StateFlow<Map<String, Int>> = _unreadCounts
+    override val dmConversations: StateFlow<List<DmConversation>> = MutableStateFlow(emptyList())
+    override val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>> = MutableStateFlow(emptyMap())
     override val latestMessageTimestamps: StateFlow<Map<String, Long>> = MutableStateFlow(emptyMap())
     override val totalUnread: StateFlow<Int> = MutableStateFlow(0)
     override val unreadByRelay: StateFlow<Map<String, Int>> = MutableStateFlow(emptyMap())
@@ -314,6 +318,10 @@ class FakeNostrRepository : NostrRepositoryApi {
         replyToMessageId: String?,
         extraTags: List<List<String>>,
     ): Result<Unit> = sendMessageAction(groupId, content, channel, mentions, replyToMessageId)
+
+    var sendDmAction: (String, String) -> Result<Unit> = { _, _ -> Result.Success(Unit) }
+
+    override suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit> = sendDmAction(recipientPubkey, content)
 
     var retrySendAction: (String) -> Unit = {}
 

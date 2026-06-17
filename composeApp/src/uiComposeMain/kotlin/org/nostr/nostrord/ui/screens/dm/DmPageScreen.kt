@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,7 +112,16 @@ fun DmPageScreen(
 
         val vm = viewModel(key = "dm-$pubkey") { ProfilePageViewModel(AppModule.nostrRepository, pubkey) }
         val metadata by vm.metadata.collectAsState()
+        val dmVm = viewModel { DmViewModel(AppModule.nostrRepository) }
+        val messagesByPeer by dmVm.messagesByPeer.collectAsState()
+        val messages = messagesByPeer[pubkey].orEmpty()
         var text by remember { mutableStateOf("") }
+        val send = {
+            if (text.isNotBlank()) {
+                dmVm.send(pubkey, text)
+                text = ""
+            }
+        }
         val name =
             metadata?.displayName?.takeIf { it.isNotBlank() }
                 ?: metadata?.name?.takeIf { it.isNotBlank() }
@@ -184,6 +194,25 @@ fun DmPageScreen(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.widthIn(max = 320.dp),
             )
+            messages.forEach { m ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
+                    horizontalArrangement = if (m.mine) Arrangement.End else Arrangement.Start,
+                ) {
+                    Surface(
+                        shape = NostrordShapes.shapeMedium,
+                        color = if (m.mine) NostrordColors.Primary else NostrordColors.BackgroundFloating,
+                        modifier = Modifier.widthIn(max = 320.dp),
+                    ) {
+                        Text(
+                            m.content,
+                            color = if (m.mine) Color.White else NostrordColors.TextPrimary,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                        )
+                    }
+                }
+            }
         }
 
         Row(
@@ -213,12 +242,11 @@ fun DmPageScreen(
                     modifier = Modifier.size(20.dp),
                 )
             }
-            // Sending arrives with the NIP-17 DM backend.
-            IconButton(onClick = {}, enabled = false) {
+            IconButton(onClick = send, enabled = text.isNotBlank()) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Direct messages are coming soon",
-                    tint = NostrordColors.TextMuted,
+                    contentDescription = "Send",
+                    tint = if (text.isNotBlank()) NostrordColors.Primary else NostrordColors.TextMuted,
                     modifier = Modifier.size(20.dp),
                 )
             }

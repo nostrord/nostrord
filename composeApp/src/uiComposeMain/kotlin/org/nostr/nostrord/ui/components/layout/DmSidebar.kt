@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,10 +37,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
 import org.nostr.nostrord.ui.components.forms.AppTextField
 import org.nostr.nostrord.ui.navigation.DmRoute
+import org.nostr.nostrord.ui.screens.dm.DmViewModel
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 import org.nostr.nostrord.ui.theme.Spacing
@@ -51,11 +55,24 @@ import org.nostr.nostrord.ui.theme.Spacing
  * conversation. Mirrors the web web/DmSidebar.
  */
 @Composable
-fun DmSidebar(onOpenConversation: (DmRoute) -> Unit) {
+fun DmSidebar(
+    onOpenConversation: (DmRoute) -> Unit,
+    activePubkey: String? = null,
+) {
     var tab by remember { mutableStateOf(0) }
     var searchOpen by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     val parsed = Nip19.parsePubkeyInput(query) as? Nip19.PubkeyParse.Ok
+    val dmVm = viewModel { DmViewModel(AppModule.nostrRepository) }
+    val conversations by dmVm.conversations.collectAsState()
+    val userMetadata by dmVm.userMetadata.collectAsState()
+
+    fun nameOf(pubkey: String): String {
+        val meta = userMetadata[pubkey]
+        return meta?.displayName?.takeIf { it.isNotBlank() }
+            ?: meta?.name?.takeIf { it.isNotBlank() }
+            ?: (runCatching { Nip19.encodeNpub(pubkey) }.getOrDefault(pubkey).take(12) + "…")
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -117,7 +134,7 @@ fun DmSidebar(onOpenConversation: (DmRoute) -> Unit) {
                 listOf("Follows", "Others").forEachIndexed { index, label ->
                     val selected = tab == index
                     Text(
-                        "$label (0)",
+                        label,
                         color = if (selected) NostrordColors.Success else NostrordColors.TextMuted,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -131,29 +148,98 @@ fun DmSidebar(onOpenConversation: (DmRoute) -> Unit) {
             }
             HorizontalDivider(color = NostrordColors.Divider)
 
-            // Conversation list arrives with the DM backend (NIP-17).
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "No conversations yet",
-                    color = NostrordColors.TextMuted,
-                    fontSize = 13.sp,
-                )
-                Spacer(modifier = Modifier.height(Spacing.xs))
-                Text(
-                    "Start a conversation",
-                    color = NostrordColors.Success,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier =
-                    Modifier
-                        .clip(NostrordShapes.shapeSmall)
-                        .clickable { searchOpen = true }
-                        .padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
-                )
+            if (conversations.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        "No conversations yet",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 13.sp,
+                    )
+                    Spacer(modifier = Modifier.height(Spacing.xs))
+                    Text(
+                        "Start a conversation",
+                        color = NostrordColors.Success,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier =
+                        Modifier
+                            .clip(NostrordShapes.shapeSmall)
+                            .clickable { searchOpen = true }
+                            .padding(horizontal = Spacing.xs, vertical = Spacing.xxs),
+                    )
+                }
+            } else {
+                conversations.forEach { convo ->
+                    ConversationRow(
+                        pubkeyHex = convo.peerPubkey,
+                        name = nameOf(convo.peerPubkey),
+                        lastMessage = convo.lastMessage,
+                        pictureUrl = userMetadata[convo.peerPubkey]?.picture,
+                        selected = activePubkey == convo.peerPubkey,
+                        onClick = { onOpenConversation(DmRoute(convo.peerPubkey)) },
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun ConversationRow(
+    pubkeyHex: String,
+    name: String,
+    lastMessage: String,
+    pictureUrl: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val background =
+        when {
+            selected -> NostrordColors.HoverBackground
+            isHovered -> NostrordColors.HoverBackground
+            else -> androidx.compose.ui.graphics.Color.Transparent
+        }
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.sm)
+            .clip(NostrordShapes.shapeMedium)
+            .background(background)
+            .hoverable(interactionSource)
+            .clickable(onClick = onClick)
+            .padding(horizontal = Spacing.sm, vertical = Spacing.xs + Spacing.xxs),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        OptimizedSmallAvatar(
+            imageUrl = pictureUrl,
+            identifier = pubkeyHex,
+            displayName = name,
+            size = 28.dp,
+            shape = CircleShape,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                name,
+                color = NostrordColors.TextSecondary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                lastMessage,
+                color = NostrordColors.TextMuted,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

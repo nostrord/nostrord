@@ -923,10 +923,10 @@ class NostrRepository(
     private val dmManager = DmManager(scope)
 
     /** Conversations (most-recent first), derived from decrypted NIP-17 messages. */
-    val dmConversations: StateFlow<List<DmConversation>> get() = dmManager.conversations
+    override val dmConversations: StateFlow<List<DmConversation>> get() = dmManager.conversations
 
     /** Decrypted DM messages keyed by peer pubkey. */
-    val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>> get() = dmManager.messagesByPeer
+    override val dmMessagesByPeer: StateFlow<Map<String, List<DmMessage>>> get() = dmManager.messagesByPeer
 
     // Fallback DM relays for users (and us) without a published kind:10050.
     private val defaultDmRelays =
@@ -941,7 +941,7 @@ class NostrRepository(
      * self-copy for us, and publish each to its side's DM relays. Requires a local key for now
      * (bunker / NIP-07 NIP-44 delegation lands in a later phase).
      */
-    suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit> {
+    override suspend fun sendDm(recipientPubkey: String, content: String): Result<Unit> {
         val signer =
             ActiveAccountManager.session.value?.signer
                 ?: return Result.Error(AppError.Auth.NotAuthenticated)
