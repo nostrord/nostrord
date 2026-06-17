@@ -1205,6 +1205,67 @@ body {
     gap: 8px;
 }
 
+/* "People to follow" row (onboarding step + Home People filter): avatar, name, note, toggle. */
+.follow-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-lg);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.follow-card:hover {
+    background: var(--color-hover);
+    border-color: var(--color-text-muted);
+}
+
+.follow-card-avatar {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+}
+
+.follow-card-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.follow-card-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-text-primary);
+}
+
+.follow-card-note {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--color-text-secondary);
+}
+
+/* The follow toggle sizes to its label here (the shared .profile-btn flex:1 would
+   otherwise stretch it to fill the row). */
+.follow-card .follow-toggle {
+    flex: 0 0 auto;
+}
+
+/* Row above a follow-suggestion list holding the "Follow all" action. */
+.follow-list-head {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+}
+
+.follow-all-btn {
+    flex-shrink: 0;
+}
+
 .onb-section-title {
     margin: 0;
     font-size: 24px;

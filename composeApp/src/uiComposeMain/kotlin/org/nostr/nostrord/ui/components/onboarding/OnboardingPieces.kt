@@ -25,6 +25,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.components.avatars.ProfileAvatar
+import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
+import org.nostr.nostrord.ui.components.buttons.FollowButton
+import org.nostr.nostrord.ui.screens.onboarding.OnboardingFollowSuggestion
 import org.nostr.nostrord.ui.theme.NostrordColors
 import org.nostr.nostrord.ui.theme.NostrordShapes
 
@@ -76,18 +82,16 @@ fun StepLabel(
 }
 
 /**
- * Follow-pack card (prototype "Quem seguir"): emoji tile, name, description and a
- * people count, with the trailing "View people" chip. Layout-only: [onClick] is a
- * no-op until the real follow-pack flow lands.
+ * A single "person to follow" row for the onboarding's "Who to follow" step and the
+ * Home "People" filter: avatar, name, a short note, and a Follow / Following toggle.
+ * Manages its own publish-in-flight state; wired to the real NIP-02 follow actions.
  */
 @Composable
-fun PackCard(
-    emoji: String,
-    name: String,
-    description: String,
-    people: Int,
+fun FollowSuggestionRow(
+    person: OnboardingFollowSuggestion,
+    pictureUrl: String?,
+    isFollowing: Boolean,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit = {},
 ) {
     Surface(
         modifier =
@@ -97,58 +101,74 @@ fun PackCard(
         shape = NostrordShapes.shapeLarge,
         color = NostrordColors.Surface,
         border = BorderStroke(1.dp, NostrordColors.Divider),
-        onClick = onClick,
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier =
-                Modifier
-                    .size(48.dp)
-                    .clip(NostrordShapes.shapeXLarge)
-                    .background(NostrordColors.BackgroundFloating),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(emoji, fontSize = 24.sp)
-            }
+            ProfileAvatar(
+                imageUrl = pictureUrl,
+                displayName = person.name,
+                pubkey = person.pubkey,
+                size = 44.dp,
+            )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    name,
+                    person.name,
                     color = NostrordColors.TextPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    description,
+                    person.note,
                     color = NostrordColors.TextSecondary,
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(
-                    "$people people",
-                    color = NostrordColors.TextMuted,
-                    fontSize = 12.sp,
-                )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            Surface(
-                shape = NostrordShapes.shapeMedium,
-                color = NostrordColors.InputBackground,
-            ) {
-                Text(
-                    "View people ›",
-                    color = NostrordColors.TextSecondary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                )
-            }
+            // Fire-and-forget on the app scope so the publish survives leaving this screen;
+            // the repository flips `following` optimistically, so the button updates at once.
+            FollowButton(
+                isFollowing = isFollowing,
+                isBusy = false,
+                onToggle = {
+                    if (person.pubkey.isBlank()) return@FollowButton
+                    AppModule.launchApp {
+                        val repo = AppModule.nostrRepository
+                        if (isFollowing) repo.unfollowUser(person.pubkey) else repo.followUser(person.pubkey)
+                    }
+                },
+            )
         }
     }
+}
+
+/**
+ * "Follow all" action above a [FollowSuggestionRow] list. Publishes a single kind:3
+ * with every not-yet-followed pubkey; reads as "Following all" once they all are.
+ */
+@Composable
+fun FollowAllButton(
+    people: List<OnboardingFollowSuggestion>,
+    following: Set<String>,
+    modifier: Modifier = Modifier,
+) {
+    val pending = people.map { it.pubkey }.filter { it.isNotBlank() && it !in following }
+    AppButton(
+        text = if (pending.isEmpty()) "Following all" else "Follow all",
+        onClick = {
+            val batch = pending.toSet()
+            // App scope + optimistic flip: button reads "Following all" instantly and the
+            // single kind:3 publishes in the background, surviving a quick navigation away.
+            AppModule.launchApp { AppModule.nostrRepository.followUsers(batch) }
+        },
+        enabled = pending.isNotEmpty(),
+        variant = AppButtonVariant.Secondary,
+        modifier = modifier,
+    )
 }
 
 /** Icon + title + description row on a surface card (prototype's welcome hints). */

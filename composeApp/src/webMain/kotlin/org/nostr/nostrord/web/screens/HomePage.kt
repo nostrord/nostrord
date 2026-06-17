@@ -9,10 +9,13 @@ import org.nostr.nostrord.ui.screens.home.DiscoverGroup
 import org.nostr.nostrord.ui.screens.home.Friend
 import org.nostr.nostrord.ui.screens.home.HomePageViewModel
 import org.nostr.nostrord.ui.screens.home.JoinedGroup
-import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
+import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowSuggestions
+import org.nostr.nostrord.web.bridge.launchApp
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.AvatarKind
+import org.nostr.nostrord.web.components.FollowAllButton
+import org.nostr.nostrord.web.components.FollowSuggestionCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.icon
@@ -52,8 +55,8 @@ external interface HomePageProps : Props {
  * New-design Home (prototype Home): header bar, title + join/create actions, search +
  * filter pills, and the per-filter content. "My groups" shows the real joined groups
  * (kind:10009) via the shared HomePageViewModel; friends / communities are
- * layout-only empty states and People reuses the dummy follow packs until the follow
- * logic lands.
+ * layout-only empty states and People reuses the curated follow suggestions until the
+ * follow logic lands.
  */
 val HomePage =
     FC<HomePageProps> { props ->
@@ -69,6 +72,9 @@ val HomePage =
         val relayMeta = useStateFlow(vm.relayMetadata)
         // Group ids you're a member of, to mark the "Joined" badge on cards in mixed lists.
         val joinedIds = useStateFlow(AppModule.nostrRepository.joinedGroupsByRelay).values.flatten().toSet()
+        // Follow state + actor metadata for the "People" filter's follow suggestions.
+        val following = useStateFlow(AppModule.nostrRepository.following)
+        val actorMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
         // Tab index derived from the router-owned tab; selecting a tab routes (mirror).
         val filter = props.tab.ordinal
         val setFilter = { index: Int -> props.onSelectTab(HomeTab.entries[index]) }
@@ -77,6 +83,10 @@ val HomePage =
         useEffect(filter) {
             if (filter == 1) vm.loadFriendsGroups()
             if (filter == 2) vm.loadRecommended()
+            if (filter == 3) {
+                val pubkeys = onboardingFollowSuggestions.map { it.pubkey }.filter { it.isNotBlank() }.toSet()
+                if (pubkeys.isNotEmpty()) launchApp { AppModule.nostrRepository.requestUserMetadata(pubkeys) }
+            }
         }
 
         div {
@@ -157,7 +167,7 @@ val HomePage =
                         div {
                             className = ClassName("home-search")
                             searchInput(
-                                placeholder = if (filter == 3) "Filter follow packs" else "Filter groups",
+                                placeholder = if (filter == 3) "Filter people" else "Filter groups",
                                 value = query,
                                 onChange = { vm.setQuery(it) },
                             )
@@ -253,40 +263,30 @@ val HomePage =
                         else ->
                             div {
                                 className = ClassName("onb-pack-list")
-                                // Layout-only: dummy packs shared with the onboarding step,
-                                // filtered by the "Filter follow packs" box.
+                                // Curated people shared with the onboarding step, filtered
+                                // by the search box; Follow / Following wired to NIP-02.
                                 val needle = query.trim().lowercase()
-                                onboardingFollowPacks.filter {
-                                    needle.isEmpty() ||
-                                        it.name.lowercase().contains(needle) ||
-                                        it.description.lowercase().contains(needle)
-                                }.forEach { pack ->
-                                    button {
-                                        key = pack.name
-                                        className = ClassName("pack-card")
-                                        span {
-                                            className = ClassName("pack-card-emoji")
-                                            +pack.emoji
+                                val people =
+                                    onboardingFollowSuggestions.filter {
+                                        needle.isEmpty() ||
+                                            it.name.lowercase().contains(needle) ||
+                                            it.note.lowercase().contains(needle)
+                                    }
+                                if (needle.isEmpty()) {
+                                    div {
+                                        className = ClassName("follow-list-head")
+                                        FollowAllButton {
+                                            this.people = onboardingFollowSuggestions
+                                            this.following = following
                                         }
-                                        div {
-                                            className = ClassName("pack-card-body")
-                                            div {
-                                                className = ClassName("pack-card-name")
-                                                +pack.name
-                                            }
-                                            div {
-                                                className = ClassName("pack-card-desc")
-                                                +pack.description
-                                            }
-                                            div {
-                                                className = ClassName("pack-card-count")
-                                                +"${pack.people} people"
-                                            }
-                                        }
-                                        span {
-                                            className = ClassName("pack-card-chip")
-                                            +"View people ›"
-                                        }
+                                    }
+                                }
+                                people.forEach { person ->
+                                    FollowSuggestionCard {
+                                        key = person.npub
+                                        this.person = person
+                                        pictureUrl = actorMeta[person.pubkey]?.picture
+                                        isFollowing = person.pubkey in following
                                     }
                                 }
                             }

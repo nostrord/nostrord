@@ -356,6 +356,9 @@ class FakeNostrRepository : NostrRepositoryApi {
     val _following = MutableStateFlow<Set<String>>(emptySet())
     override val following: StateFlow<Set<String>> = _following
 
+    val _contactListLoaded = MutableStateFlow(true)
+    override val contactListLoaded: StateFlow<Boolean> = _contactListLoaded
+
     override suspend fun requestContactList() {}
 
     override suspend fun followUser(pubkey: String): Result<Unit> {
@@ -365,6 +368,11 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override suspend fun unfollowUser(pubkey: String): Result<Unit> {
         _following.value = _following.value - pubkey
+        return Result.Success(Unit)
+    }
+
+    override suspend fun followUsers(pubkeys: Set<String>): Result<Unit> {
+        _following.value = _following.value + pubkeys.filter { it.isNotBlank() }
         return Result.Success(Unit)
     }
 

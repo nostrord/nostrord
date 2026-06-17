@@ -1,6 +1,11 @@
 package org.nostr.nostrord.web.screens
 
-import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
+import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowSuggestions
+import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.bridge.useStateFlow
+import org.nostr.nostrord.web.components.FollowAllButton
+import org.nostr.nostrord.web.components.FollowSuggestionCard
 import org.nostr.nostrord.web.components.Ic
 import org.nostr.nostrord.web.components.formError
 import org.nostr.nostrord.web.components.formHint
@@ -16,6 +21,7 @@ import react.dom.html.ReactHTML.h2
 import react.dom.html.ReactHTML.img
 import react.dom.html.ReactHTML.p
 import react.dom.html.ReactHTML.span
+import react.useEffect
 import react.useState
 import web.cssom.ClassName
 import web.html.InputType
@@ -75,7 +81,7 @@ val OnboardingFlow =
                 className = ClassName("onb-body")
                 when (step) {
                     0 -> welcomeStep()
-                    1 -> whoToFollowStep()
+                    1 -> WhoToFollowStep {}
                     else -> groupsStep(joinInput, joining, error, { setJoinInput(it) }, { setError(it) }, ::join)
                 }
             }
@@ -153,53 +159,51 @@ private fun ChildrenBuilder.hintRow(
     }
 }
 
-private fun ChildrenBuilder.whoToFollowStep() {
-    h2 {
-        className = ClassName("onb-section-title")
-        +"Who to follow"
-    }
-    p {
-        className = ClassName("onb-section-sub")
-        +"Open a pack and pick people to follow: that's what unlocks group discovery."
-    }
-    div {
-        className = ClassName("onb-pack-list")
-        // Layout-only: dummy packs, no avatar fetching or follow actions yet.
-        onboardingFollowPacks.forEach { pack ->
-            button {
-                key = pack.name
-                className = ClassName("pack-card")
-                span {
-                    className = ClassName("pack-card-emoji")
-                    +pack.emoji
-                }
-                div {
-                    className = ClassName("pack-card-body")
-                    div {
-                        className = ClassName("pack-card-name")
-                        +pack.name
-                    }
-                    div {
-                        className = ClassName("pack-card-desc")
-                        +pack.description
-                    }
-                    div {
-                        className = ClassName("pack-card-count")
-                        +"${pack.people} people"
-                    }
-                }
-                span {
-                    className = ClassName("pack-card-chip")
-                    +"View people ›"
+private val WhoToFollowStep =
+    FC<Props> {
+        val repo = AppModule.nostrRepository
+        val following = useStateFlow(repo.following)
+        val metadata = useStateFlow(repo.userMetadata)
+
+        useEffect(Unit) {
+            // Pull the existing kind:3 so already-followed people show as "Following", and so
+            // the first follow tap skips the contact-list publish's initial fetch wait.
+            launchApp { repo.requestContactList() }
+            val pubkeys = onboardingFollowSuggestions.map { it.pubkey }.filter { it.isNotBlank() }.toSet()
+            if (pubkeys.isNotEmpty()) launchApp { repo.requestUserMetadata(pubkeys) }
+        }
+
+        h2 {
+            className = ClassName("onb-section-title")
+            +"Who to follow"
+        }
+        p {
+            className = ClassName("onb-section-sub")
+            +"Pick a few people to follow: that's what unlocks group discovery."
+        }
+        div {
+            className = ClassName("follow-list-head")
+            FollowAllButton {
+                people = onboardingFollowSuggestions
+                this.following = following
+            }
+        }
+        div {
+            className = ClassName("onb-pack-list")
+            onboardingFollowSuggestions.forEach { person ->
+                FollowSuggestionCard {
+                    key = person.npub
+                    this.person = person
+                    pictureUrl = metadata[person.pubkey]?.picture
+                    isFollowing = person.pubkey in following
                 }
             }
         }
+        p {
+            className = ClassName("onb-skip-note")
+            +"Follow at least one person to see group suggestions in the next step."
+        }
     }
-    p {
-        className = ClassName("onb-skip-note")
-        +"Follow at least one person to see group suggestions in the next step."
-    }
-}
 
 private fun ChildrenBuilder.groupsStep(
     joinInput: String,

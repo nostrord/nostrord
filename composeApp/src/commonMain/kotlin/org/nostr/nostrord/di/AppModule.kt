@@ -2,6 +2,7 @@ package org.nostr.nostrord.di
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -52,6 +53,14 @@ import org.nostr.nostrord.utils.epochSeconds
 object AppModule {
     // Coroutine scope for the entire app
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * App-lifetime scope for fire-and-forget suspend actions triggered from the UI
+     * (follow, send, ...). They must outlive the Composable/screen that triggered them,
+     * so navigating away quickly never cancels (and loses) the work. Native counterpart
+     * of the web bridge's `launchApp`.
+     */
+    fun launchApp(block: suspend CoroutineScope.() -> Unit): Job = appScope.launch(block = block)
 
     // Global event deduplicator — single instance shared across all managers.
     // Runs TTL eviction once per hour so long sessions don't accumulate stale entries.

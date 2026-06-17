@@ -63,9 +63,10 @@ import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.home.EmptyStateCard
 import org.nostr.nostrord.ui.components.home.GroupCard
 import org.nostr.nostrord.ui.components.home.GroupCardSkeleton
-import org.nostr.nostrord.ui.components.onboarding.PackCard
+import org.nostr.nostrord.ui.components.onboarding.FollowAllButton
+import org.nostr.nostrord.ui.components.onboarding.FollowSuggestionRow
 import org.nostr.nostrord.ui.navigation.HomeTab
-import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowPacks
+import org.nostr.nostrord.ui.screens.onboarding.onboardingFollowSuggestions
 import org.nostr.nostrord.ui.theme.NostrordColors
 
 private val FILTERS = listOf("My groups", "From friends", "Recommended", "People")
@@ -82,7 +83,7 @@ private val FILTER_ICONS = listOf(
  * New-design Home (prototype Home): header bar, title + join/create actions, search +
  * filter pills, and the per-filter content. "My groups" shows the real joined groups
  * (kind:10009); friends / communities are layout-only empty states and People reuses
- * the dummy follow packs until the follow logic lands.
+ * the curated follow suggestions until the follow logic lands.
  */
 /** How many group-card skeletons to show while a discovery tab is still loading. */
 private const val SKELETON_CARD_COUNT = 6
@@ -240,7 +241,7 @@ fun HomePageScreen(
                     HomeFilterField(
                         value = query,
                         onValueChange = { vm.setQuery(it) },
-                        placeholder = if (filter == 3) "Filter follow packs" else "Filter groups",
+                        placeholder = if (filter == 3) "Filter people" else "Filter groups",
                         onEscape = { vm.setQuery("") },
                     )
 
@@ -385,26 +386,39 @@ fun HomePageScreen(
                                     }
                                 }
                             }
-                        else ->
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                // Layout-only: dummy packs shared with the onboarding step,
-                                // filtered by the "Filter follow packs" box.
-                                val needle = query.trim().lowercase()
-                                onboardingFollowPacks
-                                    .filter {
-                                        needle.isEmpty() ||
-                                            it.name.lowercase().contains(needle) ||
-                                            it.description.lowercase().contains(needle)
-                                    }
-                                    .forEach { pack ->
-                                        PackCard(
-                                            emoji = pack.emoji,
-                                            name = pack.name,
-                                            description = pack.description,
-                                            people = pack.people,
-                                        )
-                                    }
+                        else -> {
+                            // Curated people shared with the onboarding step, filtered by the
+                            // search box; Follow / Following wired to NIP-02.
+                            val following by AppModule.nostrRepository.following.collectAsState()
+                            val actorMeta by AppModule.nostrRepository.userMetadata.collectAsState()
+                            LaunchedEffect(Unit) {
+                                val pubkeys = onboardingFollowSuggestions.map { it.pubkey }.filter { it.isNotBlank() }.toSet()
+                                if (pubkeys.isNotEmpty()) AppModule.nostrRepository.requestUserMetadata(pubkeys)
                             }
+                            val needle = query.trim().lowercase()
+                            val people =
+                                onboardingFollowSuggestions.filter {
+                                    needle.isEmpty() ||
+                                        it.name.lowercase().contains(needle) ||
+                                        it.note.lowercase().contains(needle)
+                                }
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (needle.isEmpty()) {
+                                    FollowAllButton(
+                                        people = onboardingFollowSuggestions,
+                                        following = following,
+                                        modifier = Modifier.align(Alignment.End),
+                                    )
+                                }
+                                people.forEach { person ->
+                                    FollowSuggestionRow(
+                                        person = person,
+                                        pictureUrl = actorMeta[person.pubkey]?.picture,
+                                        isFollowing = person.pubkey in following,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

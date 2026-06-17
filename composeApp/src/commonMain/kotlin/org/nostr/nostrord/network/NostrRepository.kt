@@ -352,11 +352,24 @@ class NostrRepository(
     // petnames, or the (legacy) relay-JSON content.
     private val _following = MutableStateFlow<Set<String>>(emptySet())
     override val following: StateFlow<Set<String>> = _following.asStateFlow()
+
+    // True once the active account's kind:3 has actually loaded (arrived from a relay,
+    // been published by us, or the fetch resolved as "no list"). Lets the UI tell
+    // "still loading" apart from "follows nobody", so an empty [following] after the
+    // user unfollows everyone is shown as empty instead of falling back to a stale cache.
+    private val _contactListLoaded = MutableStateFlow(false)
+    override val contactListLoaded: StateFlow<Boolean> = _contactListLoaded.asStateFlow()
     private var contactListCreatedAt = 0L
     private var contactListContent = ""
     private var contactListTags: List<List<String>> = emptyList()
     private var contactListRequested = false
     private val contactListMutex = Mutex()
+
+    // Debounced kind:3 publisher. [following] holds the user's desired set (flipped
+    // optimistically on each tap); rapid taps coalesce into a single publish.
+    private var pendingContactListPublish: Job? = null
+    private var hasUnpublishedContactChanges = false
+    private val contactListPublishDebounceMs = 700L
 
     private fun followsFrom(tags: List<List<String>>): Set<String> = tags
         .filter { it.firstOrNull() == "p" }
@@ -379,7 +392,12 @@ class NostrRepository(
         contactListContent = event["content"]?.jsonPrimitive?.contentOrNull ?: ""
         contactListTags = tags
         contactListRequested = true
-        _following.value = followsFrom(tags)
+        _contactListLoaded.value = true
+        // Keep the optimistic [following] when there are local taps not yet published,
+        // so a relay echo arriving mid-follow doesn't clobber a just-tapped follow.
+        if (!hasUnpublishedContactChanges) {
+            _following.value = followsFrom(tags)
+        }
     }
 
     override fun forceInitialized() {
@@ -2231,7 +2249,17 @@ class NostrRepository(
     // before either latches it (the guard is set only after the suspending relay
     // send), doubling the kind:3 REQ to every relay.
     override suspend fun requestContactList() {
-        contactListMutex.withLock { requestContactListLocked() }
+        val sentOrCached = contactListMutex.withLock {
+            requestContactListLocked()
+            contactListRequested
+        }
+        // Only declare the list "loaded" once a REQ actually went out (or we already
+        // had it): offline, leave it unloaded so the UI keeps showing the cache rather
+        // than a false "follows nobody". Mark loaded after the fetch resolves, even
+        // when it comes back empty.
+        if (!sentOrCached) return
+        withTimeoutOrNull(4_000L) { following.first { contactListCreatedAt > 0L } }
+        _contactListLoaded.value = true
     }
 
     /** Body of [requestContactList]; caller must hold [contactListMutex]. */
@@ -2264,28 +2292,56 @@ class NostrRepository(
         if (sent > 0) contactListRequested = true
     }
 
-    override suspend fun followUser(pubkey: String): Result<Unit> = updateContactList { tags ->
-        if (tags.any { it.firstOrNull() == "p" && it.getOrNull(1) == pubkey }) {
-            tags
-        } else {
-            tags + listOf(listOf("p", pubkey))
-        }
+    override suspend fun followUser(pubkey: String): Result<Unit> {
+        if (pubkey.isNotBlank()) applyFollowingChange { it + pubkey }
+        return Result.Success(Unit)
     }
 
-    override suspend fun unfollowUser(pubkey: String): Result<Unit> = updateContactList { tags ->
-        tags.filterNot { it.firstOrNull() == "p" && it.getOrNull(1) == pubkey }
+    override suspend fun unfollowUser(pubkey: String): Result<Unit> {
+        applyFollowingChange { it - pubkey }
+        return Result.Success(Unit)
+    }
+
+    override suspend fun followUsers(pubkeys: Set<String>): Result<Unit> {
+        val clean = pubkeys.filter { it.isNotBlank() }.toSet()
+        if (clean.isNotEmpty()) applyFollowingChange { it + clean }
+        return Result.Success(Unit)
     }
 
     /**
-     * Builds, signs and publishes a fresh kind:3 from [transform] applied to the
-     * latest known tags. Serialized by [contactListMutex] so concurrent follow taps
-     * don't race two events with the same base. On the first call we best-effort
-     * fetch the existing list first, so we don't replace a list built on another
-     * client with a single-entry one.
+     * Flips [following] to the new desired set immediately (no relay round-trip, so
+     * rapid sequential follow taps never block on each other) and schedules a single
+     * debounced kind:3 publish. [following] is the source of truth for the user's
+     * intent; the publish rebuilds the list from it.
      */
-    private suspend fun updateContactList(
-        transform: (List<List<String>>) -> List<List<String>>,
-    ): Result<Unit> {
+    private fun applyFollowingChange(transform: (Set<String>) -> Set<String>) {
+        _following.value = transform(_following.value)
+        hasUnpublishedContactChanges = true
+        schedulePublishContactList()
+    }
+
+    /**
+     * Coalesces rapid follow/unfollow taps into one publish: each tap cancels the
+     * previous pending job and restarts the debounce, so N taps in a row produce a
+     * single kind:3 instead of N racing events. Runs on the app scope so it outlives
+     * the screen that triggered it (navigating away never loses a follow).
+     */
+    private fun schedulePublishContactList() {
+        pendingContactListPublish?.cancel()
+        pendingContactListPublish =
+            scope.launch {
+                delay(contactListPublishDebounceMs)
+                publishContactList()
+            }
+    }
+
+    /**
+     * Builds, signs and publishes a fresh kind:3 from the current [following] set,
+     * preserving non-"p" tags (relay hints, petnames) and content from the last known
+     * list. Serialized by [contactListMutex]. On the first run it best-effort fetches
+     * the existing list so we don't replace a list built on another client.
+     */
+    private suspend fun publishContactList(): Result<Unit> {
         val pubKey = sessionManager.getPublicKey()
             ?: return Result.Error(AppError.Auth.NotAuthenticated)
         return contactListMutex.withLock {
@@ -2296,12 +2352,9 @@ class NostrRepository(
                 withTimeoutOrNull(3_000L) { following.first { contactListCreatedAt > 0L } }
             }
 
-            val newTags = transform(contactListTags)
-            // Optimistic update: flip [following] immediately so the UI reacts the
-            // instant the user taps, then revert in `finally` if the publish failed.
-            val previousFollowing = _following.value
-            _following.value = followsFrom(newTags)
-            var committed = false
+            // Rebuild "p" tags from the desired set; keep any other tags + content.
+            val newTags = contactListTags.filterNot { it.firstOrNull() == "p" } +
+                _following.value.map { listOf("p", it) }
             try {
                 val event = org.nostr.nostrord.nostr.Event(
                     pubkey = pubKey,
@@ -2343,13 +2396,12 @@ class NostrRepository(
                 contactListContent = signedEvent.content
                 contactListTags = newTags
                 contactListRequested = true
-                committed = true
+                _contactListLoaded.value = true
+                // The desired set is now on the relays; later relay echoes may adopt freely.
+                hasUnpublishedContactChanges = false
                 Result.Success(Unit)
             } catch (e: Exception) {
                 Result.Error(AppError.Unknown(e.message ?: "Failed to update contact list", e))
-            } finally {
-                // Any non-success path (early return, throw) reverts the optimistic flip.
-                if (!committed) _following.value = previousFollowing
             }
         }
     }

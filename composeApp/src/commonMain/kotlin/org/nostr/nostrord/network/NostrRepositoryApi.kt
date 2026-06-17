@@ -142,6 +142,14 @@ interface NostrRepositoryApi {
      */
     val following: StateFlow<Set<String>>
 
+    /**
+     * True once the kind:3 contact list has actually loaded (arrived from a relay,
+     * was published by us, or the fetch resolved as "no list"). Lets the UI tell
+     * "still loading" apart from "follows nobody" so an empty [following] is not
+     * mistaken for a not-yet-loaded one.
+     */
+    val contactListLoaded: StateFlow<Boolean>
+
     // --- Initialization ---
     fun forceInitialized()
 
@@ -510,6 +518,12 @@ interface NostrRepositoryApi {
 
     /** Remove [pubkey] from the active account's kind:3 contact list and publish it. */
     suspend fun unfollowUser(pubkey: String): Result<Unit>
+
+    /**
+     * Add every pubkey in [pubkeys] not already followed to the active account's kind:3
+     * contact list and publish it once (a single event, not one per pubkey).
+     */
+    suspend fun followUsers(pubkeys: Set<String>): Result<Unit>
 
     suspend fun updateProfileMetadata(
         displayName: String? = null,

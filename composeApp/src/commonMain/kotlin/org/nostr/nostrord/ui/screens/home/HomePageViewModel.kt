@@ -241,13 +241,17 @@ class HomePageViewModel(
      * to the cached list while kind:3 is still loading so the sidebar isn't empty.
      */
     val friends: StateFlow<List<Friend>> =
-        combine(repo.following, repo.userMetadata) { following, meta ->
-            if (following.isEmpty()) {
-                // kind:3 not loaded yet (or genuinely empty): show the cache meanwhile.
-                sortFriends(cachedFriends)
-            } else {
-                val cacheByPk = cachedFriends.associateBy { it.pubkey }
-                sortFriends(following.map { pk -> Friend(pk, meta[pk] ?: cacheByPk[pk]?.metadata) })
+        combine(repo.following, repo.userMetadata, repo.contactListLoaded) { following, meta, loaded ->
+            when {
+                following.isNotEmpty() -> {
+                    val cacheByPk = cachedFriends.associateBy { it.pubkey }
+                    sortFriends(following.map { pk -> Friend(pk, meta[pk] ?: cacheByPk[pk]?.metadata) })
+                }
+                // kind:3 still loading: show the cache meanwhile so the sidebar isn't empty.
+                !loaded -> sortFriends(cachedFriends)
+                // Loaded and genuinely follows nobody (e.g. just unfollowed everyone):
+                // show empty, never the now-stale cache.
+                else -> emptyList()
             }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, sortFriends(cachedFriends))
 
@@ -521,13 +525,14 @@ class HomePageViewModel(
         // instantly (their avatars/names come from the global metadata store). Only once
         // kind:3 has loaded, so we don't overwrite the cache with the empty pre-load state.
         viewModelScope.launch {
-            // repo.following is a StateFlow, so collect already only fires on actual changes.
-            repo.following.collect { following ->
-                val pk = repo.getPublicKey() ?: return@collect
-                if (following.isNotEmpty()) {
-                    SecureStorage.saveFollowingCacheFor(pk, following.toList())
+            // Persist only once kind:3 has loaded, so the empty pre-load state doesn't wipe
+            // the cache; when loaded, mirror [following] exactly, clearing it if you now
+            // follow nobody (otherwise the stale cache would reappear next launch).
+            combine(repo.following, repo.contactListLoaded) { following, loaded -> following to loaded }
+                .collect { (following, loaded) ->
+                    val pk = repo.getPublicKey() ?: return@collect
+                    if (loaded) SecureStorage.saveFollowingCacheFor(pk, following.toList())
                 }
-            }
         }
         // Backfill metadata for discovered friend groups. We aggregate every friend's
         // kind:10009 refs into a deduplicated relayUrl -> {groupId} map (each group once,

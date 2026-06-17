@@ -26,6 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,14 +43,16 @@ import androidx.compose.ui.unit.sp
 import nostrord.composeapp.generated.resources.Res
 import nostrord.composeapp.generated.resources.nostrord_logo
 import org.jetbrains.compose.resources.painterResource
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.ui.components.buttons.AppButton
 import org.nostr.nostrord.ui.components.buttons.AppButtonSize
 import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.forms.AppTextField
 import org.nostr.nostrord.ui.components.forms.FormError
 import org.nostr.nostrord.ui.components.forms.FormHint
+import org.nostr.nostrord.ui.components.onboarding.FollowAllButton
+import org.nostr.nostrord.ui.components.onboarding.FollowSuggestionRow
 import org.nostr.nostrord.ui.components.onboarding.HintRow
-import org.nostr.nostrord.ui.components.onboarding.PackCard
 import org.nostr.nostrord.ui.components.onboarding.StepLabel
 import org.nostr.nostrord.ui.components.onboarding.StepProgress
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -206,6 +210,17 @@ private fun WelcomeStep() {
 
 @Composable
 private fun WhoToFollowStep() {
+    val following by AppModule.nostrRepository.following.collectAsState()
+    val metadata by AppModule.nostrRepository.userMetadata.collectAsState()
+
+    LaunchedEffect(Unit) {
+        // Pull the existing kind:3 so already-followed people show as "Following", and so the
+        // first follow tap skips the contact-list publish's initial fetch wait.
+        AppModule.nostrRepository.requestContactList()
+        val pubkeys = onboardingFollowSuggestions.map { it.pubkey }.filter { it.isNotBlank() }.toSet()
+        if (pubkeys.isNotEmpty()) AppModule.nostrRepository.requestUserMetadata(pubkeys)
+    }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             "Who to follow",
@@ -215,19 +230,23 @@ private fun WhoToFollowStep() {
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            "Open a pack and pick people to follow: that's what unlocks group discovery.",
+            "Pick a few people to follow: that's what unlocks group discovery.",
             color = NostrordColors.TextSecondary,
             fontSize = 15.sp,
         )
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+        FollowAllButton(
+            people = onboardingFollowSuggestions,
+            following = following,
+            modifier = Modifier.align(Alignment.End),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // Layout-only: dummy packs, no avatar fetching or follow actions yet.
-            onboardingFollowPacks.forEach { pack ->
-                PackCard(
-                    emoji = pack.emoji,
-                    name = pack.name,
-                    description = pack.description,
-                    people = pack.people,
+            onboardingFollowSuggestions.forEach { person ->
+                FollowSuggestionRow(
+                    person = person,
+                    pictureUrl = metadata[person.pubkey]?.picture,
+                    isFollowing = person.pubkey in following,
                 )
             }
         }
