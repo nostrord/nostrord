@@ -241,6 +241,8 @@ object AppModule {
             connectionManager = connectionManager,
             outboxManager = outboxManager,
             scope = appScope,
+            cacheStore = cacheStore,
+            accountProvider = { sessionManager.getPublicKey() },
         )
     }
 
