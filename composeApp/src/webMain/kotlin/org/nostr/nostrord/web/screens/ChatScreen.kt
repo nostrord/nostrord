@@ -1032,6 +1032,11 @@ val ChatScreen =
         // state gate below to avoid showing "No messages yet" before the
         // socket has even spoken on this open.
         val groupLoadingState = useStateFlow(vm.groupStates)[group.id]
+        // True while the initial read is waiting on NIP-42 AUTH (private group whose relay
+        // challenges in response to the read, e.g. opened from the homepage). Keeps skeletons
+        // up across the pre-AUTH dance, which briefly bounces the controller through Idle,
+        // so the gate never flashes "No messages yet" before an authenticated read.
+        val awaitingAuthRead = group.id in useStateFlow(vm.groupsAwaitingAuthRead)
         val connState = useStateFlow(vm.connectionState)
         val membersLoading = group.id in useStateFlow(vm.loadingMembers)
         val myPubkey = vm.getPublicKey()
@@ -1366,27 +1371,15 @@ val ChatScreen =
             if (needsForceRefresh) {
                 repo.resetGroupLoadingState(group.id)
             }
-            var attempts = 0
-            while (attempts < 5) {
-                val stateBefore = repo.groupStates.value[group.id]
-                // Same defensive reset between retries: if the prior attempt's
-                // REQ is still in InitialLoading at the start of the next
-                // attempt, it's stuck — reset before re-issuing.
-                if (stateBefore is GroupLoadingState.InitialLoading && attempts > 0) {
-                    repo.resetGroupLoadingState(group.id)
-                }
-                repo.requestGroupMessages(group.id)
-                delay(2_000)
-                val msgsAfter = repo.messages.value[group.id].orEmpty().size
-                val state = repo.groupStates.value[group.id]
-                val settled = msgsAfter > 0 ||
-                    state is GroupLoadingState.HasMore ||
-                    state is GroupLoadingState.Paginating ||
-                    state is GroupLoadingState.Exhausted ||
-                    state is GroupLoadingState.Error
-                if (settled) break
-                attempts++
-            }
+            // Fire the initial read once. requestGroupMessages now waits for NIP-42 AUTH
+            // internally (private groups on a remote signer) while the controller stays in
+            // InitialLoading, so the UI keeps showing skeletons until the authenticated read
+            // lands. The previous delay(2_000) x5 loop reset the controller between ticks,
+            // which kicked it out of InitialLoading and flashed "No messages yet" before AUTH
+            // completed. A REQ that stalls (e.g. a silent no-op on a half-open socket) is now
+            // caught by the controller's load timeout → Error → the Error-recovery effect
+            // below, and a dropped connection by this effect's isConnected dep re-running.
+            repo.requestGroupMessages(group.id)
         }
         // Auto-recover from controller PARTIAL_TIMEOUT / TIMEOUT (state=Error).
         //
@@ -1835,6 +1828,7 @@ val ChatScreen =
                     // returns an empty EOSE but the controller settles into
                     // HasMore-with-zero, or into a state web didn't whitelist).
                     val isLoadingThis = isLoadingMore ||
+                        awaitingAuthRead ||
                         groupLoadingState is GroupLoadingState.InitialLoading ||
                         groupLoadingState is GroupLoadingState.Retrying
                     // Restricted / pending-approval / skeleton / empty panels apply

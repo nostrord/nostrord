@@ -394,6 +394,14 @@ class GroupManager(
     private val _groupStates = MutableStateFlow<Map<String, GroupLoadingState>>(emptyMap())
     val groupStates: StateFlow<Map<String, GroupLoadingState>> = _groupStates.asStateFlow()
 
+    // Groups whose initial read is waiting on NIP-42 AUTH (held by holdInitialLoadForReauth).
+    // The UI treats these as still-loading so it shows skeletons across the whole pre-AUTH
+    // dance (pre-AUTH CLOSE -> AUTH -> resubscribeAfterAuth reset/replay), which briefly
+    // bounces the controller through Idle, instead of flashing "No messages yet". Cleared
+    // the moment the controller reaches a settled state (an authenticated read completed).
+    private val _groupsAwaitingAuthRead = MutableStateFlow<Set<String>>(emptySet())
+    val groupsAwaitingAuthRead: StateFlow<Set<String>> = _groupsAwaitingAuthRead.asStateFlow()
+
     // Legacy API compatibility: derive isLoadingMore from state machine
     private val _isLoadingMore = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val isLoadingMore: StateFlow<Map<String, Boolean>> = _isLoadingMore.asStateFlow()
@@ -559,6 +567,12 @@ class GroupManager(
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
+
+        // Budget for awaiting NIP-42 AUTH before the initial group read. Sized above a
+        // remote (NIP-46) signer's round-trip so a private group on a bunker authenticates
+        // before the first REQ instead of racing it (a pre-AUTH REQ is CLOSED "auth-required"
+        // and the empty result flashes a false "No messages yet"). Public relays skip it.
+        const val INITIAL_READ_AUTH_TIMEOUT_MS = 12_000L
         const val MAX_PERSISTED_MESSAGES = 100 // Limit messages per group for storage
 
         // Most-recently-used groups whose messages stay hydrated in memory. Groups beyond
@@ -1578,6 +1592,7 @@ class GroupManager(
             _isLoadingMore.update { it - idsToRemove }
             _hasMoreMessages.update { it - idsToRemove }
             _groupStates.update { it - idsToRemove }
+            _groupsAwaitingAuthRead.update { it - idsToRemove }
             _groupAdmins.update { it - idsToRemove }
             _groupMembers.update { it - idsToRemove }
             idsToRemove.forEach { loadingRegistry.remove(it) }
@@ -1622,6 +1637,7 @@ class GroupManager(
         _isLoadingMore.update { it - idsToRemove }
         _hasMoreMessages.update { it - idsToRemove }
         _groupStates.update { it - idsToRemove }
+        _groupsAwaitingAuthRead.update { it - idsToRemove }
         _groupAdmins.update { it - idsToRemove }
         _groupMembers.update { it - idsToRemove }
         idsToRemove.forEach { loadingRegistry.remove(it) }
@@ -1955,6 +1971,7 @@ class GroupManager(
             _isLoadingMore.update { it - groupId }
             _hasMoreMessages.update { it - groupId }
             _groupStates.update { it - groupId }
+            _groupsAwaitingAuthRead.update { it - groupId }
             _groupMembers.update { it - groupId }
             _groupAdmins.update { it - groupId }
             _groupRoles.update { it - groupId }
@@ -1996,9 +2013,11 @@ class GroupManager(
     suspend fun requestGroupMessages(groupId: String, channel: String? = null): Boolean {
         val currentClient = clientForGroup(groupId) ?: return false
 
-        // Get controller and attempt to start initial load
+        // Get controller and attempt to start initial load. Enter InitialLoading immediately
+        // (so the UI shows skeletons) but DEFER the load timeout: the AUTH wait below can take
+        // several seconds on a remote signer and must not consume the timeout budget.
         val controller = loadingRegistry.getController(groupId)
-        val subscriptionId = controller.startInitialLoad() ?: return false
+        val subscriptionId = controller.startInitialLoad(armTimeout = false) ?: return false
 
         // Register subscription for O(1) lookup
         loadingRegistry.registerSubscription(subscriptionId, controller)
@@ -2009,8 +2028,19 @@ class GroupManager(
         // Observe state changes to update legacy flags (only once per group)
         observeStateChanges(groupId, controller)
 
-        // If messages have already been delivered by mux, request only events older than
-        // the oldest one we have to avoid deduplication causing messageCount=0 → Exhausted.
+        // Private/closed groups gate reads behind NIP-42 AUTH. Firing the initial REQ before
+        // AUTH lands gets CLOSED "auth-required" and zero events, which the UI mistakes for an
+        // empty group (the "No messages yet" flicker on bunker login). Wait for AUTH first,
+        // with a budget sized for a remote (NIP-46) signer. The controller stays in
+        // InitialLoading during the wait, so the UI keeps showing skeletons. No-op once AUTH
+        // has succeeded; skipped on public relays that never challenge. Mirrors loadMoreMessages.
+        if (currentClient.requiresAuth() && !currentClient.hasAuthSucceeded()) {
+            currentClient.awaitAuthOrTimeout(INITIAL_READ_AUTH_TIMEOUT_MS)
+        }
+
+        // If messages have already been delivered by mux (possibly during the AUTH wait),
+        // request only events older than the oldest one we have to avoid deduplication
+        // causing messageCount=0 → Exhausted.
         val existingMessages = _messages.value[groupId]
         val until = existingMessages?.minOfOrNull { it.createdAt }?.let { oldest ->
             if (oldest < Long.MAX_VALUE) oldest - 1L else null
@@ -2024,6 +2054,8 @@ class GroupManager(
                 limit = PAGE_SIZE,
                 subscriptionId = subscriptionId,
             )
+            // The authenticated REQ is now on the wire — start the load timeout.
+            controller.armInitialTimeout(subscriptionId)
             true
         } catch (e: Throwable) {
             loadingRegistry.unregisterSubscription(subscriptionId)
@@ -2054,6 +2086,15 @@ class GroupManager(
             controller.state.collect { state ->
                 updateLegacyFlags(groupId, state)
                 _groupStates.update { it + (groupId to state) }
+                // A settled state means an authenticated read completed (pre-AUTH reads are
+                // held, not settled), so the group is no longer awaiting AUTH. Idle/InitialLoading
+                // keep the flag so the resubscribeAfterAuth reset window stays "loading".
+                if (state is GroupLoadingState.HasMore ||
+                    state is GroupLoadingState.Exhausted ||
+                    state is GroupLoadingState.Error
+                ) {
+                    _groupsAwaitingAuthRead.update { it - groupId }
+                }
             }
         }
     }
@@ -2147,6 +2188,24 @@ class GroupManager(
 
     suspend fun fetchGroupMessageById(groupId: String, messageId: String) {
         clientForGroup(groupId)?.requestGroupMessageById(groupId, messageId)
+    }
+
+    /**
+     * A msg_ subscription's initial load returned/CLOSED while the relay still needs NIP-42
+     * AUTH. Hold the load in InitialLoading (skeletons) instead of settling it to a false
+     * empty result, because resubscribeAfterAuth replays the read once AUTH completes. This
+     * removes the "open a private group from the homepage" flicker, where the first read
+     * races the relay's auth-required CLOSE. Returns true if the load was held (caller skips
+     * the normal EOSE settle). Unregisters the dead sub so the registry doesn't accumulate.
+     */
+    suspend fun holdInitialLoadForReauth(subscriptionId: String): Boolean {
+        val controller = loadingRegistry.findBySubscription(subscriptionId) ?: return false
+        val held = controller.holdInitialLoadForReauth(subscriptionId)
+        if (held) {
+            _groupsAwaitingAuthRead.update { it + controller.id }
+            loadingRegistry.unregisterSubscription(subscriptionId)
+        }
+        return held
     }
 
     /**

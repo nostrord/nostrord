@@ -78,6 +78,13 @@ interface NostrRepositoryApi {
     val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>>
 
     /**
+     * Groups whose initial history read is waiting on NIP-42 AUTH (private group on a relay
+     * that challenges in response to the read). The UI shows skeletons for these instead of a
+     * premature "No messages yet", until an authenticated read settles.
+     */
+    val groupsAwaitingAuthRead: StateFlow<Set<String>>
+
+    /**
      * Force-reset the loading state of [groupId] to Idle. Used to recover from
      * controllers stuck in InitialLoading because their underlying socket died
      * (account swap, connection reset) but the natural onConnectionLost path

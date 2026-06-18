@@ -155,6 +155,7 @@ fun GroupScreen(
 
     val isLoadingMoreMap by vm.isLoadingMore.collectAsState()
     val hasMoreMessagesMap by vm.hasMoreMessages.collectAsState()
+    val awaitingAuthReadSet by vm.groupsAwaitingAuthRead.collectAsState()
     val isLoadingMore = isLoadingMoreMap[groupId] ?: false
     val hasMoreMessages = hasMoreMessagesMap[groupId] ?: true
 
@@ -367,7 +368,12 @@ fun GroupScreen(
             messages.count { it.createdAt > snapshot && it.pubkey != currentUserPubkey }
         }
 
-    val isInitialLoading = isLoadingMoreMap[groupId] == true && chatItems.isEmpty()
+    // `awaitingAuthReadSet` keeps the skeleton up while a private group's initial read waits on
+    // NIP-42 AUTH (relay challenges in response to the read, e.g. opened from the homepage); the
+    // controller briefly bounces through Idle during resubscribeAfterAuth, so without this the
+    // empty-state would flash before the authenticated read lands.
+    val isInitialLoading =
+        (isLoadingMoreMap[groupId] == true || groupId in awaitingAuthReadSet) && chatItems.isEmpty()
     // Pending/restricted relays never deliver the member list, so the skeleton
     // would spin forever — force-off so the sidebar can render its empty state.
     val isMembersLoading =

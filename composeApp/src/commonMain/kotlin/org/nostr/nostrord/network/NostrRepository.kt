@@ -252,6 +252,7 @@ class NostrRepository(
     override val isLoadingMore: StateFlow<Map<String, Boolean>> = groupManager.isLoadingMore
     override val hasMoreMessages: StateFlow<Map<String, Boolean>> = groupManager.hasMoreMessages
     override val groupStates: StateFlow<Map<String, org.nostr.nostrord.network.managers.GroupLoadingState>> = groupManager.groupStates
+    override val groupsAwaitingAuthRead: StateFlow<Set<String>> = groupManager.groupsAwaitingAuthRead
 
     override suspend fun resetGroupLoadingState(groupId: String) {
         groupManager.resetLoadingForGroups(listOf(groupId))
@@ -3148,7 +3149,16 @@ class NostrRepository(
                 val sourceRelayUrl = client.getRelayUrl()
                 scope.launch {
                     yield()
-                    groupManager.handleEoseSuspend(subId, sourceRelayUrl)
+                    // A msg_ initial load that EOSEs while the relay still needs AUTH (some
+                    // relays empty-EOSE instead of CLOSED auth-required) is not a real empty
+                    // result: hold it in InitialLoading so the UI keeps skeletons until
+                    // resubscribeAfterAuth replays it post-AUTH, instead of flashing empty.
+                    val authBlocked = client.requiresAuth() && !client.hasAuthSucceeded()
+                    val held = authBlocked && subId.startsWith("msg_") &&
+                        groupManager.holdInitialLoadForReauth(subId)
+                    if (!held) {
+                        groupManager.handleEoseSuspend(subId, sourceRelayUrl)
+                    }
                     // Wake any pending batchFetch waiting on EOSE for this metadata sub.
                     metadataManager.notifyMetadataEose(subId, sourceRelayUrl)
                     // After the mux chat subscription delivers its backlog, detect any gaps
@@ -3257,9 +3267,19 @@ class NostrRepository(
                     }
                 }
 
-                // Unblock any pending state-machine load (transitions InitialLoading → Exhausted)
+                // Unblock any pending state-machine load (transitions InitialLoading → Exhausted).
+                // Exception: a pre-AUTH auth-required CLOSE on a msg_ initial load is not a real
+                // "no results" — resubscribeAfterAuth replays the read once AUTH completes. Hold
+                // the load in InitialLoading (skeletons) instead of settling it to a false empty
+                // state, which is the "open a private group from the homepage" flicker.
                 val sourceRelayUrl = client.getRelayUrl()
-                scope.launch { groupManager.handleEoseSuspend(subId, sourceRelayUrl) }
+                scope.launch {
+                    val held = isAuthRequired && subId.startsWith("msg_") &&
+                        groupManager.holdInitialLoadForReauth(subId)
+                    if (!held) {
+                        groupManager.handleEoseSuspend(subId, sourceRelayUrl)
+                    }
+                }
 
                 // Re-open the mux subscription when the relay closes it for non-auth reasons.
                 // pyramid.fiatjaf.com and similar relays drop idle subs without closing the WS.
