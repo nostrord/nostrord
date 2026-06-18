@@ -145,6 +145,40 @@ class HomePageViewModelTest {
     }
 
     @Test
+    fun `switching to an account whose kind3 is still loading keeps the friends skeleton`() = runTest {
+        // On a warm switch requestContactList only runs after the relays reconnect, so
+        // kind:3 often lands well after any fixed wall-clock grace. The friends loading
+        // gate must follow contactListLoaded, not a blind timer, or the sidebar flashes
+        // "You don't follow anyone yet." for an account that does have follows.
+        val fake = FakeNostrRepository()
+        fake._activePubkey.value = "a".repeat(64)
+        fake._following.value = setOf("a1")
+        fake._contactListLoaded.value = true
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.friendsLoading.value)
+
+        // Switch to B with its kind:3 not yet loaded (mirrors resetContactListState).
+        fake._contactListLoaded.value = false
+        fake._following.value = emptySet()
+        fake._activePubkey.value = "b".repeat(64)
+        testDispatcher.scheduler.runCurrent()
+
+        // Well past the old fixed grace: still loading (skeleton), never the empty state.
+        testDispatcher.scheduler.advanceTimeBy(5_000)
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(true, vm.friendsLoading.value)
+        assertEquals(emptyList(), vm.friends.value.map { it.pubkey })
+
+        // B's kind:3 finally resolves with follows: rows appear, skeleton clears.
+        fake._following.value = setOf("b1", "b2")
+        fake._contactListLoaded.value = true
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.friendsLoading.value)
+        assertEquals(setOf("b1", "b2"), vm.friends.value.map { it.pubkey }.toSet())
+    }
+
+    @Test
     fun `switching account re-arms the my-groups loading skeleton`() = runTest {
         // Account A has a joined group, so My groups is resolved (no skeleton).
         val fake = FakeNostrRepository()

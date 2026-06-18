@@ -529,12 +529,17 @@ class HomePageViewModel(
         }
     }
 
-    // Stop showing the friends skeleton once we know who the user follows, or after a
-    // short grace (covers the genuinely-follows-nobody case, where kind:3 never arrives).
-    // With a non-empty cache this resolves immediately.
+    // Stop showing the friends skeleton once the account's kind:3 fetch has actually
+    // resolved (repo.contactListLoaded), not on a blind wall-clock from the switch.
+    // On a warm swap requestContactList() only runs after the relays reconnect, so a
+    // short fixed timeout fired while kind:3 was still in flight and flashed "You don't
+    // follow anyone yet." even for accounts with follows. contactListLoaded is reset
+    // per account and flips true once the REQ resolves, with its own fallback even when
+    // the account genuinely follows nobody, so it never strands the skeleton. The long
+    // outer timeout only covers the offline case where no REQ ever goes out.
     private fun armContactsResolve() {
         viewModelScope.launch {
-            withTimeoutOrNull(3_500) { repo.following.first { it.isNotEmpty() } }
+            withTimeoutOrNull(15_000) { repo.contactListLoaded.first { it } }
             _contactsResolved.value = true
         }
     }
