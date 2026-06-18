@@ -354,7 +354,7 @@ class HomePageViewModelTest {
     }
 
     @Test
-    fun `friendsGroups shows a bare-id placeholder until kind39000 arrives while recommended stays strict`() = runTest {
+    fun `friendsGroups hides groups whose kind39000 has not arrived, like recommended`() = runTest {
         val curator = "b2cdcb37d32533145c00c4f43d5e1e1deb7c67bceea7ef63f526ca4cab891633"
         val fake = FakeNostrRepository()
         fake._following.value = setOf("alice")
@@ -378,14 +378,12 @@ class HomePageViewModelTest {
         val vm = HomePageViewModel(fake)
         testDispatcher.scheduler.advanceUntilIdle()
 
-        // A friend's group with no metadata yet is still listed (bare-id placeholder,
-        // hasMetadata=false) so it shows immediately and upgrades once the relay replies.
-        assertEquals(listOf("known", "unknown"), vm.friendsGroups.value.map { it.meta.id })
-        assertEquals(
-            mapOf("known" to true, "unknown" to false),
-            vm.friendsGroups.value.associate { it.meta.id to it.hasMetadata },
-        )
-        // Recommended is a curated list, so it still requires real metadata.
+        // A friend's group with no metadata (almost always private: relays don't describe a
+        // private group to non-members) is filtered out rather than shown as a bare-id card;
+        // it appears once its kind:39000 lands.
+        assertEquals(listOf("known"), vm.friendsGroups.value.map { it.meta.id })
+        assertEquals(true, vm.friendsGroups.value.single().hasMetadata)
+        // Recommended is a curated list, so it also requires real metadata.
         assertEquals(listOf("rknown"), vm.recommendedGroups.value.map { it.meta.id })
     }
 

@@ -350,10 +350,10 @@ class HomePageViewModel(
             friendsByGroup.entries
                 .mapNotNull { (gid, friendPks) ->
                     val relay = relayByGroup[gid] ?: return@mapNotNull null
-                    // Prefer real kind:39000 metadata; until it streams in, show a
-                    // bare-id placeholder so the friend's group is visible right away
-                    // (it upgrades to the named card once the relay's metadata lands,
-                    // and the access-tag badges are gated on [hasMetadata]).
+                    // Resolve the real kind:39000 metadata. A card with none is dropped by
+                    // the hasMetadata filter below (almost always a private group the relay
+                    // won't describe to non-members); the placeholder only carries the id so
+                    // the people/member preview can still be built for groups that do resolve.
                     val m = byRelay[relay].orEmpty().find { it.id == gid }
                         ?: byRelay.values.flatten().find { it.id == gid }
                     DiscoverGroup(
@@ -386,6 +386,11 @@ class HomePageViewModel(
                 // Hidden groups are not discoverable (NIP-29), so never list them here
                 // even if a friend's list or a relay returns them.
                 .filter { !it.meta.isHidden }
+                // Only show groups whose real kind:39000 has arrived. A friend's group
+                // with no metadata is almost always private (relays don't serve a private
+                // group's kind:39000 to non-members), so it would otherwise sit forever as
+                // a bare-id card; public groups appear as soon as their metadata lands.
+                .filter { it.hasMetadata }
                 .let { all ->
                     // Freeze display order: a group keeps its slot once shown, and
                     // newcomers (ranked by friend overlap, then name, among themselves)
