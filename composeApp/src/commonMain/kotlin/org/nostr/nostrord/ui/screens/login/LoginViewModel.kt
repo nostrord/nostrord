@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -266,7 +267,12 @@ class LoginViewModel(
         qrJob =
             viewModelScope.launch {
                 try {
-                    val (uri, client) = repo.createNostrConnectSession(_nostrConnectRelays.value)
+                    // Retry the relay connect a few times: logging out tears down many
+                    // sockets at once, and the browser keeps the just-closed ones in a
+                    // CLOSING state that still counts against its per-host WebSocket
+                    // limit, so a connect attempted right after a logout can fail until
+                    // they free up. A short backoff recovers without an app restart.
+                    val (uri, client) = createSessionWithRetry()
                     qrClient = client
                     _qrUri.value = uri
                     repo.completeNostrConnectLogin(client)
@@ -286,6 +292,21 @@ class LoginViewModel(
             }
     }
 
+    private suspend fun createSessionWithRetry(): Pair<String, Nip46Client> {
+        var lastError: Exception? = null
+        repeat(QR_CONNECT_ATTEMPTS) { attempt ->
+            try {
+                return repo.createNostrConnectSession(_nostrConnectRelays.value)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                lastError = e
+                if (attempt < QR_CONNECT_ATTEMPTS - 1) delay(QR_CONNECT_RETRY_DELAY_MS)
+            }
+        }
+        throw lastError ?: Exception("Failed to connect to any relay")
+    }
+
     fun cancelQrSession() {
         qrJob?.cancel()
         qrClient?.disconnect()
@@ -302,6 +323,12 @@ class LoginViewModel(
 
     private companion object {
         const val HEX_CHARS = "0123456789abcdefABCDEF"
+
+        // Bounded retry for the nostrconnect relay connect, to ride out the brief
+        // post-logout window where just-closed sockets still hold the browser's
+        // per-host WebSocket slots.
+        const val QR_CONNECT_ATTEMPTS = 3
+        const val QR_CONNECT_RETRY_DELAY_MS = 1_500L
 
         /** Accepts an nsec or a 64-char hex private key; returns the hex, or null if invalid. */
         fun parsePrivateKeyHex(input: String): String? {
