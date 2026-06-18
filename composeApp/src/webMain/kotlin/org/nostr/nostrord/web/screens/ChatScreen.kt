@@ -20,6 +20,7 @@ import org.nostr.nostrord.network.upload.UploadResult
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.nostr.Nip57
 import org.nostr.nostrord.ui.components.emoji.QuickReactions
+import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.MentionableGroup
 import org.nostr.nostrord.utils.ChatSearch
@@ -1061,37 +1062,19 @@ val ChatScreen =
                 .map { it.pubkey }
                 .toSet()
         val isMember = myPubkey != null && myPubkey in members
-        val inMyList = group.id in joinedByRelay[relayUrl].orEmpty()
-        // Pending approval (native parity): the group is in our joined list, the kind:39002
-        // member list has loaded, and we're not in it -> awaiting an admin. The decision keys off
-        // members.isNotEmpty() ONLY (not the loadingMembers flag): once we have a member list, the
-        // verdict is stable. requestGroupMembers re-fires on every resubscribe and flips
-        // loadingMembers true->false each time while the list stays populated, so gating on
-        // !membersLoading made the pending bar blink off and on with each background refresh.
-        // This is authoritative for BOTH the composer and the chat/members panels, so they no
-        // longer disagree (the composer used to allow posting in an open group we hadn't actually
-        // been approved into).
-        val isPendingApproval =
-            inMyList &&
-                myPubkey != null &&
-                members.isNotEmpty() &&
-                myPubkey !in members
-        // Post only as a confirmed kind:39002 member. (The old `|| (isOpen && inMyList)` let us
-        // post optimistically before the member list loaded, which flashed the composer before we
-        // knew we were actually still pending.)
-        val canPost = isMember
-        // We can only tell composer vs pending vs join once the member list is known. On a FRESH
-        // load (no member data yet) render NEITHER (no "Request pending" / pending bar / Join
-        // flash) until the list arrives. Keyed on members.isEmpty() alone, NOT membersLoading: a
-        // background re-fetch keeps the list populated, so it must not drop us back into the
-        // resolving state (that was the other half of the pending-bar flicker).
-        val membersResolving =
-            inMyList && myPubkey != null && !isMember && members.isEmpty()
-        // Pending = in our list, the member list has loaded, and we're not in it (conservative).
+        // Membership standing (None / Resolving / Pending / Member / Admin) is derived once in the
+        // shared GroupViewModel so web and Compose apply identical rules. RESOLVING = joined but the
+        // kind:39002 list hasn't landed yet: render NEITHER composer nor pending bar (no flash on a
+        // background refresh, which re-fires requestGroupMembers). PENDING also fires from our own
+        // outstanding kind:9021 on a closed group, so it shows immediately instead of sitting blank
+        // until the member list arrives. Authoritative for BOTH composer and chat/members panels.
+        val membership = useStateFlow(vm.membershipState)
+        val canPost = membership.status == GroupMembership.MEMBER || membership.status == GroupMembership.ADMIN
+        val isPendingApproval = membership.status == GroupMembership.PENDING
+        val membersResolving = membership.status == GroupMembership.RESOLVING
         val composerPending = isPendingApproval
         // When the request was sent (latest own kind:9021), for the pending bar's "Requested ..." line.
-        val pendingRequestedAt =
-            if (composerPending) messages.filter { it.kind == 9021 && it.pubkey == myPubkey }.maxOfOrNull { it.createdAt } else null
+        val pendingRequestedAt = membership.requestedAtSeconds
         // Restricted: relay returned a CLOSED "restricted" frame for this group.
         // Used to render the "Private group" UI in place of skeletons when the
         // account has no read access (NIP-29 private+closed group).

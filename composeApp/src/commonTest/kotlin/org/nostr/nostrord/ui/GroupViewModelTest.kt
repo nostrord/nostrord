@@ -7,7 +7,9 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.nostr.nostrord.network.FakeNostrRepository
+import org.nostr.nostrord.ui.screens.group.GroupMembership
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
+import org.nostr.nostrord.ui.screens.group.deriveMembershipStatus
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -156,5 +158,56 @@ class GroupViewModelTest {
 
         assertEquals("chat-room", dGroup)
         assertEquals("evt-2", dEvent)
+    }
+
+    // -------------------------------------------------------------------------
+    // Membership derivation (shared by Compose + web; drives join/pending/leave UX)
+    // -------------------------------------------------------------------------
+
+    private val me = "me-pubkey"
+
+    private fun status(
+        joined: Boolean = false,
+        isOpen: Boolean = true,
+        hasOwnJoinRequest: Boolean = false,
+        members: List<String> = emptyList(),
+        admins: List<String> = emptyList(),
+        pubkey: String? = me,
+    ) = deriveMembershipStatus(pubkey, joined, isOpen, hasOwnJoinRequest, members, admins)
+
+    @Test
+    fun `no pubkey is NONE`() {
+        assertEquals(GroupMembership.NONE, status(joined = true, members = listOf(me), pubkey = null))
+    }
+
+    @Test
+    fun `admin wins even before the member list loads`() {
+        assertEquals(GroupMembership.ADMIN, status(joined = true, admins = listOf(me)))
+    }
+
+    @Test
+    fun `not joined with no outstanding request is NONE`() {
+        assertEquals(GroupMembership.NONE, status(joined = false, members = listOf("someone")))
+    }
+
+    @Test
+    fun `in the member list is MEMBER`() {
+        assertEquals(GroupMembership.MEMBER, status(joined = true, members = listOf(me, "other")))
+    }
+
+    @Test
+    fun `joined but absent from a loaded member list is PENDING`() {
+        assertEquals(GroupMembership.PENDING, status(joined = true, members = listOf("other")))
+    }
+
+    @Test
+    fun `closed group with an outstanding request reads PENDING before the member list loads`() {
+        assertEquals(GroupMembership.PENDING, status(joined = true, isOpen = false, hasOwnJoinRequest = true))
+    }
+
+    @Test
+    fun `open group just joined is RESOLVING, not an admin-approval flash`() {
+        // Open groups auto-approve, so "pending admin approval" would be wrong copy; wait for the list.
+        assertEquals(GroupMembership.RESOLVING, status(joined = true, isOpen = true, hasOwnJoinRequest = true))
     }
 }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.GroupMetadata
+import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.network.UserGroupRef
 import org.nostr.nostrord.utils.Result
@@ -19,6 +20,47 @@ data class MentionableGroup(
     val relayUrl: String,
     val meta: GroupMetadata,
 )
+
+/**
+ * The current account's relationship to a group, derived once in commonMain so the Compose
+ * and React UIs can't drift on the rules. The interesting distinction is [PENDING] (joined a
+ * closed group and waiting on an admin) vs [RESOLVING] (joined but the kind:39002 member list
+ * hasn't arrived yet) - rendering "pending" before the list lands flashed the banner on and off.
+ */
+enum class GroupMembership { NONE, RESOLVING, PENDING, MEMBER, ADMIN }
+
+data class GroupMembershipState(
+    val status: GroupMembership = GroupMembership.RESOLVING,
+    /** Latest own kind:9021 createdAt (seconds) - drives the pending bar's "Requested ..." line. */
+    val requestedAtSeconds: Long? = null,
+)
+
+/**
+ * Pure membership verdict, kept testable and free of coroutine/Compose plumbing.
+ *
+ * Two signals decide "pending": the kind:39002 member list (authoritative once it arrives) and the
+ * account's own outstanding kind:9021 join request (known the instant we ask, so a closed group
+ * reads as pending immediately instead of sitting blank until the list loads). When neither is
+ * conclusive we report [RESOLVING] (render neither composer nor pending bar) so an open group we
+ * just joined doesn't flash the composer before approval and a closed one doesn't blink.
+ */
+internal fun deriveMembershipStatus(
+    pubkey: String?,
+    joined: Boolean,
+    isOpen: Boolean,
+    hasOwnJoinRequest: Boolean,
+    members: List<String>,
+    admins: List<String>,
+): GroupMembership = when {
+    pubkey == null -> GroupMembership.NONE
+    pubkey in admins -> GroupMembership.ADMIN
+    pubkey in members -> GroupMembership.MEMBER
+    joined && members.isNotEmpty() -> GroupMembership.PENDING
+    !isOpen && hasOwnJoinRequest -> GroupMembership.PENDING
+    joined -> GroupMembership.RESOLVING
+    hasOwnJoinRequest -> GroupMembership.PENDING
+    else -> GroupMembership.NONE
+}
 
 class GroupViewModel(
     private val repo: NostrRepositoryApi,
@@ -79,6 +121,56 @@ class GroupViewModel(
                 .flatMap { (relay, list) -> list.filter { it.id in wanted }.map { MentionableGroup(relay, it) } }
                 .distinctBy { it.meta.id }
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /**
+     * The active account's standing in this group (None / Resolving / Pending / Member / Admin),
+     * the single source of truth both UIs read to choose between the join button, the pending bar,
+     * and the composer - and to label leaving as "Cancel join request" vs "Leave group".
+     * `accountStore.activeId` is folded in so switching accounts (which leaves groupId unchanged)
+     * re-reads getPublicKey() and re-derives instead of going stale.
+     */
+    @Suppress("UNCHECKED_CAST")
+    val membershipState: StateFlow<GroupMembershipState> =
+        combine(
+            listOf(
+                repo.joinedGroupsByRelay,
+                repo.groupMembers,
+                repo.groupAdmins,
+                repo.messages,
+                repo.groups,
+                AppModule.accountStore.activeId,
+            ),
+        ) { arr ->
+            val joinedByRelay = arr[0] as Map<String, Set<String>>
+            val membersByGroup = arr[1] as Map<String, List<String>>
+            val adminsByGroup = arr[2] as Map<String, List<String>>
+            val messagesByGroup = arr[3] as Map<String, List<NostrGroupClient.NostrMessage>>
+            val allGroups = arr[4] as List<GroupMetadata>
+
+            val pubkey = repo.getPublicKey()
+            val joined = joinedByRelay.values.any { groupId in it }
+            val members = membersByGroup[groupId].orEmpty()
+            val admins = adminsByGroup[groupId].orEmpty()
+            // Absent metadata defaults to open (the permissive NIP-29 default), so we don't
+            // wrongly hold a group as pending before its kind:39000 arrives.
+            val isOpen = allGroups.find { it.id == groupId }?.isOpen ?: true
+            val requestedAt =
+                messagesByGroup[groupId].orEmpty()
+                    .asSequence()
+                    .filter { it.kind == 9021 && it.pubkey == pubkey }
+                    .maxOfOrNull { it.createdAt }
+
+            val status =
+                deriveMembershipStatus(
+                    pubkey = pubkey,
+                    joined = joined,
+                    isOpen = isOpen,
+                    hasOwnJoinRequest = requestedAt != null,
+                    members = members,
+                    admins = admins,
+                )
+            GroupMembershipState(status, requestedAt)
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, GroupMembershipState())
 
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending

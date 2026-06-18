@@ -265,33 +265,12 @@ fun GroupScreen(
         }
     }
 
-    val isPendingApproval by remember(groupId) {
-        derivedStateOf {
-            val joined = joinedGroups.contains(groupId)
-            val pubkey = currentUserPubkey
-            if (!joined || pubkey == null) return@derivedStateOf false
-            val k39002 = allGroupMembers[groupId] ?: emptyList()
-            val isClosed = groups.find { it.id == groupId }?.isOpen == false
-            when {
-                k39002.isNotEmpty() -> pubkey !in k39002
-                isClosed -> true // closed group, no member list yet → assume pending
-                else -> false // open group, no list yet → don't block
-            }
-        }
-    }
-
-    // Timestamp of the user's most recent pending join request (kind:9021),
-    // so the input banner can show "Requested Xh ago" — a quiet signal that
-    // the request has been seen by the relay.
-    val pendingRequestedAtSeconds by remember(groupId, currentUserPubkey) {
-        derivedStateOf {
-            val pubkey = currentUserPubkey ?: return@derivedStateOf null
-            (allMessages[groupId] ?: emptyList())
-                .asSequence()
-                .filter { it.kind == 9021 && it.pubkey == pubkey }
-                .maxOfOrNull { it.createdAt }
-        }
-    }
+    // Membership standing (None / Resolving / Pending / Member / Admin) is derived once in the
+    // shared GroupViewModel so the Compose and web UIs can't drift on the rules. The pending bar
+    // and its "Requested ..." line both read from it.
+    val membership by vm.membershipState.collectAsState()
+    val isPendingApproval = membership.status == GroupMembership.PENDING
+    val pendingRequestedAtSeconds = membership.requestedAtSeconds
 
     // Switching accounts while a group is open leaves groupId unchanged, so the
     // per-session REQ effects must also key on the active account; otherwise the new
