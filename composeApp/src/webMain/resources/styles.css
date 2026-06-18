@@ -5700,7 +5700,7 @@ body {
 .msg-author {
     font-size: 15px;
     font-weight: 600;
-    color: #ffffff;
+    color: var(--color-text-primary);
 }
 
 .msg-admin {
