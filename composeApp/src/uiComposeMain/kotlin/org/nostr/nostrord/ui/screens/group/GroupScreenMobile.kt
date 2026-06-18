@@ -421,7 +421,7 @@ private fun MobileGroupTopBar(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = groupMetadata?.name ?: groupName ?: "Unknown Group",
+                        text = groupMetadata?.name ?: groupName ?: groupId.ifBlank { "Unknown Group" },
                         style = NostrordTypography.ServerHeader,
                         color = Color.White,
                         maxLines = 1,

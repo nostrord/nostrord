@@ -126,7 +126,7 @@ fun GroupHeader(
                     // Prototype single-row title: name · relay dot · inline description.
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = groupMetadata?.name ?: groupName ?: "Unknown Group",
+                            text = groupMetadata?.name ?: groupName ?: groupId.ifBlank { "Unknown Group" },
                             color = NostrordColors.TextPrimary,
                             style = MaterialTheme.typography.titleMedium,
                             fontSize = 15.sp,

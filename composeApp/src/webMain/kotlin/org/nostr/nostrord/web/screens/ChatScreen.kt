@@ -994,7 +994,9 @@ private val ChatComposer =
 val ChatScreen =
     FC<ChatScreenProps> { props ->
         val group = props.group
-        val groupName = group.name?.takeIf { it.isNotBlank() } ?: "Group"
+        // Fall back to the group id while metadata is loading, same as the sidebar
+        // banner (group-side-banner-name), instead of a generic "Group" placeholder.
+        val groupName = group.name?.takeIf { it.isNotBlank() } ?: group.id
         // `vm` owns reads + most actions (shared with Compose). `repo` is kept ONLY for the
         // calls deliberately NOT routed through the VM:
         //   - leaveGroup / deleteGroup: followed immediately by onLeave() (unmount), so they

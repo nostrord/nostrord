@@ -147,7 +147,7 @@ fun GroupInfoModal(
                             .padding(top = Spacing.md, bottom = Spacing.lg),
                     ) {
                         Text(
-                            text = groupMetadata?.name ?: groupName ?: "Unknown Group",
+                            text = groupMetadata?.name ?: groupName ?: groupId.ifBlank { "Unknown Group" },
                             color = NostrordColors.TextPrimary,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
