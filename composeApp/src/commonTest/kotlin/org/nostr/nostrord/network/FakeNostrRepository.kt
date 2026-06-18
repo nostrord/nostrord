@@ -77,6 +77,8 @@ class FakeNostrRepository : NostrRepositoryApi {
 
     override val isInitialized: StateFlow<Boolean> = _isInitialized
     override val isLoggedIn: StateFlow<Boolean> = _isLoggedIn
+    val _activePubkey = MutableStateFlow<String?>(null)
+    override val activePubkey: StateFlow<String?> = _activePubkey
     override val isBunkerVerifying: StateFlow<Boolean> = _isBunkerVerifying
     override val isBunkerConnected: StateFlow<Boolean> = _isBunkerConnected
     override val bunkerState: StateFlow<BunkerState> = MutableStateFlow(BunkerState.Inactive)

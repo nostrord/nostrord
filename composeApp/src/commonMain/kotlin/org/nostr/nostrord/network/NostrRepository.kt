@@ -268,6 +268,13 @@ class NostrRepository(
 
     // Expose auth state
     override val isLoggedIn: StateFlow<Boolean> = sessionManager.isLoggedIn
+
+    // Active account's pubkey, derived from the session swap so it changes on every
+    // account switch. Screens key their per-account loading state off this.
+    override val activePubkey: StateFlow<String?> =
+        ActiveAccountManager.session
+            .map { it?.pubkey }
+            .stateIn(scope, SharingStarted.Eagerly, ActiveAccountManager.currentPubkey)
     override val isBunkerConnected: StateFlow<Boolean> = sessionManager.isBunkerConnected
     override val isBunkerVerifying: StateFlow<Boolean> = sessionManager.isBunkerVerifying
     override val bunkerState: StateFlow<BunkerState> = sessionManager.bunkerState

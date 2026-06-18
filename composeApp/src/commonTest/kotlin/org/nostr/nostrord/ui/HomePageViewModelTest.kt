@@ -112,6 +112,58 @@ class HomePageViewModelTest {
     }
 
     @Test
+    fun `friends is empty for a loaded account that follows nobody`() = runTest {
+        // The friends sidebar must NOT keep the previous account's rows once the
+        // new (loaded) account follows nobody: derive an empty list, not a stale cache.
+        val fake = FakeNostrRepository()
+        fake._following.value = emptySet()
+        fake._contactListLoaded.value = true
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(emptyList(), vm.friends.value.map { it.pubkey })
+    }
+
+    @Test
+    fun `switching account updates friends within a single VM`() = runTest {
+        // The VM outlives account switches; changing the active pubkey + following
+        // must surface the new account's follows (the account-switch collector
+        // re-arms per-account state instead of keeping account A's rows).
+        val fake = FakeNostrRepository()
+        fake._activePubkey.value = "a".repeat(64)
+        fake._following.value = setOf("a1")
+        fake._contactListLoaded.value = true
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(listOf("a1"), vm.friends.value.map { it.pubkey })
+
+        // Switch to account B: repo signals the new active pubkey and its follows.
+        fake._activePubkey.value = "b".repeat(64)
+        fake._following.value = setOf("b1", "b2")
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(setOf("b1", "b2"), vm.friends.value.map { it.pubkey }.toSet())
+    }
+
+    @Test
+    fun `switching account re-arms the my-groups loading skeleton`() = runTest {
+        // Account A has a joined group, so My groups is resolved (no skeleton).
+        val fake = FakeNostrRepository()
+        fake._activePubkey.value = "a".repeat(64)
+        fake._joinedGroupsByRelay.value = mapOf("wss://a" to setOf("g1"))
+        fake._groupsByRelay.value = mapOf("wss://a" to listOf(meta("g1", "Alpha")))
+        val vm = HomePageViewModel(fake)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(false, vm.myGroupsLoading.value)
+
+        // Switch to account B whose groups haven't arrived: the skeleton must come
+        // back (resolved gate reset) rather than flashing the onboarding empty state.
+        fake._joinedGroupsByRelay.value = emptyMap()
+        fake._activePubkey.value = "b".repeat(64)
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(true, vm.myGroupsLoading.value)
+    }
+
+    @Test
     fun `friendsGroups lists friends' groups excluding mine ranked by overlap`() = runTest {
         val fake = FakeNostrRepository()
         fake._following.value = setOf("alice", "bob")

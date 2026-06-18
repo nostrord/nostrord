@@ -120,6 +120,8 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
  */
 @Composable
 fun AppFrame() {
+    // HomePageViewModel re-arms its per-account state when the active account changes
+    // (it observes repo.activePubkey), so a single long-lived instance is correct here.
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository, AppModule.notificationHistoryStore) }
     val groups by vm.myGroups.collectAsState()
     val unreadCounts by vm.unreadCounts.collectAsState()

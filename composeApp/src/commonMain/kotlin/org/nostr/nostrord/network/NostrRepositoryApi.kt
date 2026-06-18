@@ -28,6 +28,13 @@ interface NostrRepositoryApi {
     // --- Auth state ---
     val isInitialized: StateFlow<Boolean>
     val isLoggedIn: StateFlow<Boolean>
+
+    /**
+     * Hex pubkey of the active account, or null when logged out. Changes on every
+     * account switch, so screens can re-arm per-account loading state (skeletons)
+     * instead of flashing the previous account's data or an empty/onboarding state.
+     */
+    val activePubkey: StateFlow<String?>
     val isBunkerVerifying: StateFlow<Boolean>
     val isBunkerConnected: StateFlow<Boolean>
     val bunkerState: StateFlow<BunkerState>

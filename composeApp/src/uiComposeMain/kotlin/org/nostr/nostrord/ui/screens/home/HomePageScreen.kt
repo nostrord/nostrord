@@ -101,6 +101,8 @@ fun HomePageScreen(
     onOpenNotifications: () -> Unit = {},
     onOpenDrawer: (() -> Unit)? = null,
 ) {
+    // HomePageViewModel re-arms its per-account state on account change (it observes
+    // repo.activePubkey), so a single long-lived instance is correct here.
     val vm = viewModel { HomePageViewModel(AppModule.nostrRepository) }
     val myGroups by vm.myGroups.collectAsState()
     val query by vm.query.collectAsState()

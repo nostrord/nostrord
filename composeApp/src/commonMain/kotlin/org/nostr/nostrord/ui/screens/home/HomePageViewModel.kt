@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -221,14 +222,24 @@ class HomePageViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
-     * Last-known followed users, so the sidebar shows its rows instantly on launch instead of
-     * waiting for kind:3 to re-arrive. Only the identities are persisted (see
-     * [saveFollowingCacheFor]); each row's avatar/name comes from the global user-metadata
-     * store (already hydrated from disk by this point), so metadata is not duplicated.
+     * Last-known followed users for the active account, so the sidebar shows its rows
+     * instantly instead of waiting for kind:3 to re-arrive. The live kind:3 fetch is not
+     * guaranteed to land on a warm account switch (the general relays may still be
+     * connecting), and an empty live result must NOT collapse the sidebar to "follows
+     * nobody" when the account does have follows on disk. This is a `var`: the
+     * activePubkey collector in [init] reloads it for the switched-to account, and the
+     * [friends] flow reads it live. Only the identities are persisted (see
+     * [saveFollowingCacheFor]); each row's avatar/name comes from the global
+     * user-metadata store, so metadata is not duplicated.
      */
-    private val cachedFriends: List<Friend> =
-        SecureStorage.loadFollowingCacheFor(repo.getPublicKey().orEmpty())
+    private var cachedFriends: List<Friend> = loadFriendsCache(repo.getPublicKey())
+
+    private fun loadFriendsCache(pubkey: String?): List<Friend> = if (pubkey.isNullOrBlank()) {
+        emptyList()
+    } else {
+        SecureStorage.loadFollowingCacheFor(pubkey)
             .map { pk -> Friend(pk, repo.userMetadata.value[pk]) }
+    }
 
     /** Friends with resolved avatars first, then by display name. */
     private fun sortFriends(list: List<Friend>): List<Friend> = list.sortedWith(
@@ -508,24 +519,54 @@ class HomePageViewModel(
         }
     }
 
-    init {
-        // My groups skeletons until the first joined group resolves or the grace elapses.
+    // "My groups" shows skeletons until the first joined group resolves or the grace
+    // elapses, so a switch never flashes the onboarding empty state before the new
+    // account's groups load.
+    private fun armMyGroupsResolve() {
         viewModelScope.launch {
             withTimeoutOrNull(DISCOVERY_GRACE_MS) { myGroups.first { it.isNotEmpty() } }
             _myGroupsResolved.value = true
         }
+    }
+
+    // Stop showing the friends skeleton once we know who the user follows, or after a
+    // short grace (covers the genuinely-follows-nobody case, where kind:3 never arrives).
+    // With a non-empty cache this resolves immediately.
+    private fun armContactsResolve() {
+        viewModelScope.launch {
+            withTimeoutOrNull(3_500) { repo.following.first { it.isNotEmpty() } }
+            _contactsResolved.value = true
+        }
+    }
+
+    init {
+        armMyGroupsResolve()
         // Load the own contact list and resolve names for each followed user so the
         // Friends list renders display names rather than bare npubs.
         viewModelScope.launch { repo.requestContactList() }
         viewModelScope.launch {
             repo.following.collect { pks -> if (pks.isNotEmpty()) repo.requestUserMetadata(pks) }
         }
-        // Stop showing the skeleton once we know who the user follows, or after a short
-        // grace period (covers the genuinely-follows-nobody case, where kind:3 never
-        // arrives). With a non-empty cache this is already resolved at construction.
+        armContactsResolve()
+        // The VM outlives account switches, so re-arm the per-account loading state when
+        // the active account changes: reload the friends cache for the new pubkey and
+        // reset the resolved gates so groups/friends show skeletons until the new
+        // account's data lands, instead of flashing the previous account's rows or the
+        // "follows nobody" / onboarding empty states. drop(1): the current account is
+        // already handled by the initial arming above.
         viewModelScope.launch {
-            withTimeoutOrNull(3_500) { repo.following.first { it.isNotEmpty() } }
-            _contactsResolved.value = true
+            repo.activePubkey.drop(1).collect { pk ->
+                cachedFriends = loadFriendsCache(pk)
+                _contactsResolved.value = cachedFriends.isNotEmpty()
+                _myGroupsResolved.value = false
+                _friendsGroupsResolved.value = false
+                _recommendedResolved.value = false
+                friendsGraceStarted = false
+                recommendedRequested = false
+                requestedFriendLists.clear()
+                armMyGroupsResolve()
+                armContactsResolve()
+            }
         }
         // Persist the followed pubkey list so the next launch shows the sidebar rows
         // instantly (their avatars/names come from the global metadata store). Only once
