@@ -2170,7 +2170,19 @@ class NostrRepository(
                     enqueueToRelayPipeline(msg, c)
                 } ?: return@forEach
                 connectedPoolRelays.add(relayUrl)
+                // Send immediately: relays that don't gate reads behind NIP-42 serve
+                // this with no added latency (the common case).
                 client.requestGroupsMetadata(missing)
+                // AUTH-gated relays (e.g. chat.wisp.talk, nos.lol) reject the pre-AUTH
+                // REQ above with CLOSED "auth-required", and resubscribeAfterAuth replays
+                // only group/mux subs, never one-shot discovery REQs. Re-send once AUTH is
+                // signed so the discovery card fills in its kind:39000 name/about instead of
+                // staying a bare-id placeholder until the group is opened. awaitAuthOrTimeout
+                // returns true only when a challenge was actually answered, so non-auth
+                // relays don't pay a redundant re-send.
+                scope.launch {
+                    if (client.awaitAuthOrTimeout()) client.requestGroupsMetadata(missing)
+                }
             } catch (_: Exception) {}
         }
     }
