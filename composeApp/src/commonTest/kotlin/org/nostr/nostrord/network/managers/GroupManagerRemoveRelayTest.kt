@@ -107,4 +107,33 @@ class GroupManagerRemoveRelayTest {
 
         scope.cancel()
     }
+
+    @Test
+    fun `updateAllRelayJoinedGroups overwrites a relay to empty so a left group is dropped`() = runTest {
+        // The kind:10009 reconciliation (OutboxManager.handleKind10009Event) passes an empty
+        // set for a relay whose last group was left on another device. This must OVERWRITE
+        // (not union) the relay's set, or the left group lingers and the next publish
+        // resurrects it. Guards the contract that the OutboxManager fix relies on.
+        val scope = TestScope(testScheduler)
+        val manager = makeManager(scope)
+
+        manager.updateAllRelayJoinedGroups(
+            mapOf(RELAY_A to setOf("group-1"), RELAY_B to setOf("group-2")),
+        )
+        assertTrue(manager.joinedGroupsByRelay.value[RELAY_A]?.contains("group-1") == true)
+
+        // Authoritative newest event no longer lists RELAY_A's group: pass it as empty.
+        manager.updateAllRelayJoinedGroups(mapOf(RELAY_A to emptySet()))
+
+        assertTrue(
+            manager.joinedGroupsByRelay.value[RELAY_A].isNullOrEmpty(),
+            "Left group must be dropped, not unioned; got=${manager.joinedGroupsByRelay.value[RELAY_A]}",
+        )
+        assertTrue(
+            manager.joinedGroupsByRelay.value[RELAY_B]?.contains("group-2") == true,
+            "Relays absent from the update stay untouched",
+        )
+
+        scope.cancel()
+    }
 }

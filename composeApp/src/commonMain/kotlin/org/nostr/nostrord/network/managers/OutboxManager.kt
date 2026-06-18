@@ -402,7 +402,15 @@ class OutboxManager(
             return
         }
 
+        // The newest kind:10009 is the complete, authoritative list. A relay we knew
+        // locally that it no longer lists means every group there was left (possibly on
+        // another device) — so its slot must be emptied, not kept. Without this, leaving
+        // the LAST group on a relay (its tag drops out of the event entirely) left the
+        // group lingering in memory + storage, and the next publish (which unions storage
+        // and memory) resurrected it. Capture those relays before swapping the map.
+        val droppedRelays: Set<String>
         groupsMutex.withLock {
+            droppedRelays = allRelayGroups.keys - immutableRelayGroups.keys
             allRelayGroups = immutableRelayGroups
         }
 
@@ -431,8 +439,18 @@ class OutboxManager(
         immutableRelayGroups.forEach { (relayUrl, groups) ->
             SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, groups)
         }
+        // Clear the persisted slots of relays dropped from the authoritative list (and any
+        // stored relay it no longer covers) so a group left on another device can't be
+        // resurrected by the next publish or re-added by the additive storage restore.
+        val staleStoredRelays =
+            (droppedRelays + previouslySaved) - immutableRelayGroups.keys
+        staleStoredRelays.forEach { relayUrl ->
+            SecureStorage.saveJoinedGroupsForRelay(pubKey, relayUrl, emptySet())
+        }
 
-        onRelayGroupsUpdated(immutableRelayGroups)
+        // Include the emptied relays so the in-memory joined map clears them too (the
+        // merge `it + relayGroups` overwrites each key, so an empty set removes the group).
+        onRelayGroupsUpdated(immutableRelayGroups + droppedRelays.associateWith { emptySet() })
 
         val normalizedCurrentRelay = currentRelayUrl.normalizeRelayUrl()
         val currentRelayGroups = immutableRelayGroups[normalizedCurrentRelay]

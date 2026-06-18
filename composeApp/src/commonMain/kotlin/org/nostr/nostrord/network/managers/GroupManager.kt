@@ -1926,7 +1926,11 @@ class GroupManager(
         signEvent: suspend (Event) -> Event,
         publishJoinedGroups: suspend () -> Unit,
     ): Result<Unit> {
-        val groupRelayUrl = getRelayForGroup(groupId) ?: currentRelayUrl
+        // Normalize so the joined-set/storage keys match those written by joinGroup and the
+        // kind:10009 handler. getRelayForGroup already returns a normalized key, but the
+        // currentRelayUrl fallback may not, and a non-normalized key would leave the group
+        // in the canonical (normalized) slot and resurrect it on the next publish.
+        val groupRelayUrl = (getRelayForGroup(groupId) ?: currentRelayUrl).normalizeRelayUrl()
 
         return try {
             // Best-effort 9022 to the group relay. A dead or unreachable relay must NOT
