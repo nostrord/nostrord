@@ -89,7 +89,19 @@ actual class Nip46Client actual constructor(
                     val cleanUrl = relayUrl.trimEnd('/')
                     val client = NostrGroupClient(cleanUrl)
                     client.connect { msg -> handleMessage(msg, client) }
-                    client.waitForConnection()
+                    if (!client.waitForConnection()) {
+                        // WS never opened — drop it (mirrors connectRelaysParallel)
+                        // instead of adding a dead socket and completing firstReady.
+                        // Otherwise the QR displays while no listening sub is live,
+                        // so the signer's connect event never arrives and the user
+                        // has to restart the app. Common right after a logout, which
+                        // tears down many sockets at once and slows the next connect.
+                        client.disconnect()
+                        if (failures.incrementAndGet() == total && !firstReady.isCompleted) {
+                            firstReady.completeExceptionally(Exception("Failed to connect to any relay"))
+                        }
+                        return@launch
+                    }
                     openResponseSubscription(client)
                     synchronized(relayClients) { relayClients.add(client) }
                     firstReady.complete(Unit)
