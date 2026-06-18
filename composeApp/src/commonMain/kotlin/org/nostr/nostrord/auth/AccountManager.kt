@@ -1,7 +1,9 @@
 package org.nostr.nostrord.auth
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.AuthManager
 import org.nostr.nostrord.nostr.KeyPair
@@ -205,8 +207,16 @@ class AccountManager(
         // WebSocket limit so a fresh login/QR connect failed (see
         // docs/ws-connection-leak-plan.md). repo.logout() also runs
         // sessionManager.logout() -> authManager.logout().
-        AppModule.nostrRepository.logout()
-        AppModule.applyActiveAccountChange(null)
+        //
+        // NonCancellable so the teardown finishes even if this coroutine (an
+        // appScope child) is cancelled mid-flight: a half-done logout would
+        // leave _isLoggedIn true, sockets open, and the legacy credential slots
+        // populated, so the app could not leave the last account and a restart
+        // would re-migrate it back in.
+        withContext(NonCancellable) {
+            AppModule.nostrRepository.logout()
+            AppModule.applyActiveAccountChange(null)
+        }
         return null
     }
 

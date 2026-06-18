@@ -4,7 +4,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -970,7 +969,13 @@ class NostrRepository(
     }
 
     override suspend fun logout() {
-        scope.coroutineContext.cancelChildren()
+        // Do NOT cancel appScope's children here: logout runs on a coroutine that
+        // is itself an appScope child (AccountManager.removeAccountAsync), so a
+        // scope-wide cancelChildren() would abort logout midway, leaving
+        // _isLoggedIn true and the sockets/legacy slots uncleared (the app then
+        // could not leave the last account and a restart re-migrated it). Per-
+        // account in-flight work lives on AccountSession.scope and is cancelled by
+        // ActiveAccountManager.clear() via applyActiveAccountChange(null).
 
         // Preserve persisted per-account state (relay list, joined groups,
         // current relay, last viewed group). Re-login with the same pubkey

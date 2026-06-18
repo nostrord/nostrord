@@ -29,6 +29,16 @@ class AccountStore {
     private val _activeId = MutableStateFlow(loadActiveId())
     val activeId: StateFlow<String?> = _activeId.asStateFlow()
 
+    init {
+        // An existing multi-account user (upgraded into this build with accounts
+        // already persisted) must also be marked initialized, so a later full
+        // logout can't let [migrateFromLegacyIfNeeded] resurrect them from a
+        // stale legacy slot. upsert() covers freshly added accounts.
+        if (_accounts.value.isNotEmpty()) {
+            SecureStorage.saveStringPref(KEY_INITIALIZED, "1")
+        }
+    }
+
     val active: Account? get() {
         val id = _activeId.value ?: return null
         return _accounts.value.firstOrNull { it.id == id }
@@ -51,6 +61,12 @@ class AccountStore {
                 }
             }
         persistAccounts(merged)
+        // Once the multi-account store has ever held an account, the legacy
+        // global credential slots are vestigial. Mark initialized so a later
+        // full logout (which empties the list) can't let
+        // [migrateFromLegacyIfNeeded] resurrect an account from a stale legacy
+        // slot on the next launch.
+        SecureStorage.saveStringPref(KEY_INITIALIZED, "1")
         return account
     }
 
@@ -117,6 +133,11 @@ class AccountStore {
      */
     fun migrateFromLegacyIfNeeded() {
         if (_accounts.value.isNotEmpty()) return
+        // The store has held an account before (it was just emptied by a full
+        // logout). The legacy slots are stale leftovers — never rebuild an
+        // account from them, or logging out the last account would silently
+        // sign back in on the next launch.
+        if (SecureStorage.getStringPref(KEY_INITIALIZED, "").isNotBlank()) return
         val now = epochMillis()
 
         // Order matches AuthManager.restoreSession() precedence:
@@ -178,5 +199,6 @@ class AccountStore {
     private companion object {
         const val KEY_ACCOUNTS_LIST = "accounts_list_v1"
         const val KEY_ACTIVE_ID = "active_account_id_v1"
+        const val KEY_INITIALIZED = "multi_account_initialized_v1"
     }
 }
