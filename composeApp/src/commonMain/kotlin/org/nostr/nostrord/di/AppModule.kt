@@ -229,6 +229,7 @@ object AppModule {
             connStats = connStats,
             muxTracker = muxTracker,
             adaptiveConfig = adaptiveConfig,
+            cacheStore = cacheStore,
             onNewMessagesFlushed = { groupId, newMessages ->
                 unreadManager.onMessagesFlushed(groupId, newMessages)
             },

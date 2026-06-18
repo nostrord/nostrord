@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
@@ -32,6 +33,9 @@ import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.addRestrictedGroupForRelay
+import org.nostr.nostrord.storage.cache.CacheStore
+import org.nostr.nostrord.storage.cache.CachedMsg
+import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.storage.clearGroupMembershipFor
 import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
@@ -65,6 +69,7 @@ class GroupManager(
     private val connStats: ConnectionStats? = null,
     private val muxTracker: MuxSubscriptionTracker = MuxSubscriptionTracker(),
     private val adaptiveConfig: AdaptiveConfig? = null,
+    private val cacheStore: CacheStore = InMemoryCacheStore(),
     private val onNewMessagesFlushed: ((groupId: String, newMessages: List<NostrGroupClient.NostrMessage>) -> Unit)? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -557,6 +562,10 @@ class GroupManager(
         // this are evicted whole (list + dedup index + reactions, persisted first) to bound
         // long-session growth across many opened groups. The active group is never evicted.
         const val MAX_GROUPS_IN_MEMORY = 30
+
+        // How many cached messages to render instantly when a group is opened, before the
+        // live subscription refreshes the tail.
+        const val CACHE_HYDRATE_LIMIT = 300
         const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
         const val REQUEST_COOLDOWN_MS = 2_000L // Prevents duplicate REQs within this window
         const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
@@ -685,6 +694,8 @@ class GroupManager(
         if (groupId != null) {
             touchGroupRecency(groupId)
             evictGroupMessagesBeyondCap()
+            // Instant render from the persistent history cache; the live sub refreshes the tail.
+            scope.launch { hydrateMessagesFromCache(groupId) }
         }
         // Fallback to currentRelayUrl when the group isn't tracked yet (e.g. user
         // navigated to a private group URL without being a member).
@@ -2438,6 +2449,7 @@ class GroupManager(
             currentMap + (groupId to (current + message).sortedBy { it.createdAt })
         }
         touchGroupRecency(groupId)
+        cacheMessages(groupId, listOf(message))
     }
 
     /**
@@ -3229,6 +3241,7 @@ class GroupManager(
         }
 
         capturedNew?.let { onNewMessagesFlushed?.invoke(groupId, it) }
+        capturedNew?.let { cacheMessages(groupId, it) }
         touchGroupRecency(groupId)
         evictGroupMessagesBeyondCap()
     }
@@ -3237,6 +3250,71 @@ class GroupManager(
     private fun touchGroupRecency(groupId: String) {
         groupMessageRecency.remove(groupId)
         groupMessageRecency.add(groupId)
+    }
+
+    private val tagsSerializer = ListSerializer(ListSerializer(String.serializer()))
+
+    private fun NostrGroupClient.NostrMessage.toCachedMsg(groupId: String): CachedMsg = CachedMsg(
+        id = id,
+        groupId = groupId,
+        pubkey = pubkey,
+        createdAt = createdAt,
+        kind = kind,
+        content = content,
+        tagsJson = json.encodeToString(tagsSerializer, tags),
+    )
+
+    private fun CachedMsg.toNostrMessage(): NostrGroupClient.NostrMessage = NostrGroupClient.NostrMessage(
+        id = id,
+        pubkey = pubkey,
+        content = content,
+        createdAt = createdAt,
+        kind = kind,
+        tags = try {
+            json.decodeFromString(tagsSerializer, tagsJson)
+        } catch (_: Exception) {
+            emptyList()
+        },
+    )
+
+    /** Write new messages through to the persistent history cache (fire-and-forget). */
+    private fun cacheMessages(
+        groupId: String,
+        messages: List<NostrGroupClient.NostrMessage>,
+    ) {
+        val account = currentPubkey ?: return
+        if (messages.isEmpty()) return
+        scope.launch {
+            try {
+                cacheStore.upsertMessages(account, groupId, messages.map { it.toCachedMsg(groupId) })
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /**
+     * Render a previously-seen group instantly from the persistent cache on open, before any
+     * relay round-trip. Merges the cached page into [_messages] via the same dedup index as the
+     * live path, so the subsequent network refresh (stale-while-revalidate) never double-inserts.
+     */
+    private suspend fun hydrateMessagesFromCache(groupId: String) {
+        val account = currentPubkey ?: return
+        val cached =
+            try {
+                cacheStore.loadLatest(account, groupId, CACHE_HYDRATE_LIMIT)
+            } catch (_: Exception) {
+                return
+            }
+        if (cached.isEmpty()) return
+        val restored = cached.map { it.toNostrMessage() }
+        _messages.update { current ->
+            val existing = current[groupId] ?: emptyList()
+            val index = messageIdIndex.getOrPut(groupId) { existing.mapTo(mutableSetOf()) { it.id } }
+            val fresh = restored.filter { index.add(it.id) }
+            if (fresh.isEmpty()) return@update current
+            current + (groupId to (existing + fresh).sortedBy { it.createdAt })
+        }
+        touchGroupRecency(groupId)
     }
 
     /**
