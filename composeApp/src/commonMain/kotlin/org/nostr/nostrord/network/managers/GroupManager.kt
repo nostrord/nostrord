@@ -566,6 +566,11 @@ class GroupManager(
         // How many cached messages to render instantly when a group is opened, before the
         // live subscription refreshes the tail.
         const val CACHE_HYDRATE_LIMIT = 300
+
+        // Disk budget for the persistent history cache (messages + events), per account.
+        // Evicted oldest-first once exceeded; the eviction is debounced behind writes.
+        const val CACHE_BYTE_BUDGET = 75L * 1024 * 1024
+        const val CACHE_EVICTION_DEBOUNCE_MS = 30_000L
         const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
         const val REQUEST_COOLDOWN_MS = 2_000L // Prevents duplicate REQs within this window
         const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
@@ -3290,6 +3295,23 @@ class GroupManager(
             } catch (_: Exception) {
             }
         }
+        scheduleCacheEviction()
+    }
+
+    private var cacheEvictionJob: Job? = null
+
+    /** Trim the persistent cache to [CACHE_BYTE_BUDGET], debounced so a write burst evicts once. */
+    private fun scheduleCacheEviction() {
+        val account = currentPubkey ?: return
+        cacheEvictionJob?.cancel()
+        cacheEvictionJob =
+            scope.launch {
+                delay(CACHE_EVICTION_DEBOUNCE_MS)
+                try {
+                    cacheStore.evictToByteBudget(account, CACHE_BYTE_BUDGET)
+                } catch (_: Exception) {
+                }
+            }
     }
 
     /**
