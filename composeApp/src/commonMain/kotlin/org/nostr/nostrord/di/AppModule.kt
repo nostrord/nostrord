@@ -45,7 +45,7 @@ import org.nostr.nostrord.settings.MediaSettings
 import org.nostr.nostrord.settings.NotificationSettings
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.cache.CacheStore
-import org.nostr.nostrord.storage.cache.InMemoryCacheStore
+import org.nostr.nostrord.storage.cache.createCacheStore
 import org.nostr.nostrord.utils.epochSeconds
 
 /**
@@ -209,10 +209,10 @@ object AppModule {
         LiveCursorStore()
     }
 
-    // Bulk message/event history cache. In-memory for now (no behavior change); the SQLDelight
-    // (native) and IndexedDB (web) backends replace this impl in later phases, after which
-    // consumers read scroll-back history and cold-start events from disk instead of the relay.
-    val cacheStore: CacheStore by lazy { InMemoryCacheStore() }
+    // Bulk message/event history cache. SQLDelight-backed on native, IndexedDB-backed on web
+    // (web still on the in-memory fallback until that backend lands). No consumer reads it yet,
+    // so wiring the real backend here is inert until the disk-first read paths are added.
+    val cacheStore: CacheStore by lazy { createCacheStore() }
 
     val muxTracker: MuxSubscriptionTracker by lazy { MuxSubscriptionTracker() }
 

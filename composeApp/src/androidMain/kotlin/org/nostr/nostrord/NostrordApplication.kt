@@ -13,6 +13,7 @@ import okio.Path.Companion.toOkioPath
 import org.nostr.nostrord.network.managers.AndroidNetworkMonitorInit
 import org.nostr.nostrord.notifications.AndroidNotificationSoundInit
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.cache.CacheStoreAndroid
 import org.nostr.nostrord.ui.components.media.VideoCache
 
 /**
@@ -37,6 +38,7 @@ class NostrordApplication :
     override fun onCreate() {
         super.onCreate()
         SecureStorage.initialize(applicationContext)
+        CacheStoreAndroid.initialize(applicationContext)
         AndroidNetworkMonitorInit.initialize(applicationContext)
         AndroidNotificationSoundInit.initialize(applicationContext)
         VideoCache.initialize(applicationContext)

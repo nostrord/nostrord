@@ -9,6 +9,19 @@ plugins {
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
     alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.sqldelight)
+}
+
+// Bulk message/event history store. The generated CacheDb interface lands in commonMain
+// (pure Kotlin over the SqlDriver abstraction); only the native targets construct a real
+// driver. The web (js) target compiles the generated code but never instantiates it — it
+// uses the IndexedDB CacheStore actual instead, so DCE keeps SQLite out of the web bundle.
+sqldelight {
+    databases {
+        create("CacheDb") {
+            packageName.set("org.nostr.nostrord.storage.cache.db")
+        }
+    }
 }
 
 kotlin {
@@ -72,6 +85,7 @@ kotlin {
             // Media3 ExoPlayer for video playback (same stack as Amethyst)
             implementation("androidx.media3:media3-exoplayer:1.6.0")
             implementation("androidx.media3:media3-ui:1.6.0")
+            implementation(libs.sqldelight.android.driver)
         }
 
         commonMain.dependencies {
@@ -99,6 +113,9 @@ kotlin {
             implementation("io.ktor:ktor-client-content-negotiation:3.0.0")
             implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.0")
             implementation("org.jetbrains.kotlinx:atomicfu:0.27.0")
+            // SQLDelight runtime: the generated CacheDb interface lives in commonMain. The
+            // platform SQLite drivers live in the native source sets; web never constructs one.
+            implementation(libs.sqldelight.runtime)
         }
 
         // Compose Multiplatform UI deps — shared by android / jvm / ios only (not js).
@@ -123,9 +140,14 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
         }
 
+        iosMain.dependencies {
+            implementation(libs.sqldelight.native.driver)
+        }
+
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
+            implementation(libs.sqldelight.sqlite.driver)
             implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
             implementation("media.kamel:kamel-image:0.9.5")
             implementation("io.ktor:ktor-client-cio:3.0.0")
