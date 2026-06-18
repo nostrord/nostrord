@@ -431,6 +431,11 @@ fun SecureStorage.getNostrConnectRelays(): List<String>? = try {
     } else {
         Json.decodeFromString<List<String>>(raw)
             .filter { it.isNotBlank() }
+            // Drop relay.nsec.app from any previously-saved list: it was unreachable
+            // for some users and made the QR connect fail with "Failed to connect to
+            // any relay". Filtering on read auto-heals lists persisted before it was
+            // removed from the defaults; an emptied list falls back to the defaults.
+            .filterNot { it.trimEnd('/').endsWith("relay.nsec.app") }
             .takeIf { it.isNotEmpty() }
     }
 } catch (_: Exception) {

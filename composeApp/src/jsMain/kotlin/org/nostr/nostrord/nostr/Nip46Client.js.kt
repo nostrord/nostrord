@@ -9,6 +9,15 @@ import org.nostr.nostrord.network.summarizeFailures
 import org.nostr.nostrord.utils.epochMillis
 import kotlin.random.Random
 
+// Per-relay WebSocket connect timeout for the NIP-46 signer relays. Longer than
+// NostrGroupClient's 7s default: the QR flow is interactive and runs while the
+// active account's own relay sockets are already open, so on slower browsers
+// (notably Brave, which adds setup latency under socket load) the first cold
+// handshake to relay.damus.io / nos.lol can take well over 7s. A 7s cap dropped
+// every signer relay and surfaced as "Failed to connect to any relay" even
+// though the relays were reachable (a retry or app restart eventually connected).
+private const val NOSTRCONNECT_CONNECT_TIMEOUT_MS = 20_000L
+
 actual class Nip46Client actual constructor(
     existingPrivateKey: String?,
 ) {
@@ -51,7 +60,7 @@ actual class Nip46Client actual constructor(
                         val cleanUrl = relayUrl.trimEnd('/')
                         val client = NostrGroupClient(cleanUrl)
                         client.connect { msg -> handleMessage(msg, client) }
-                        if (!client.waitForConnection()) {
+                        if (!client.waitForConnection(NOSTRCONNECT_CONNECT_TIMEOUT_MS)) {
                             // WS never opened (timeout) — drop it so callers don't
                             // treat a dead socket as a live relay connection.
                             client.disconnect()
@@ -88,7 +97,7 @@ actual class Nip46Client actual constructor(
                     val cleanUrl = relayUrl.trimEnd('/')
                     val client = NostrGroupClient(cleanUrl)
                     client.connect { msg -> handleMessage(msg, client) }
-                    if (!client.waitForConnection()) {
+                    if (!client.waitForConnection(NOSTRCONNECT_CONNECT_TIMEOUT_MS)) {
                         // WS never opened — drop it (mirrors connectRelaysParallel)
                         // instead of adding a dead socket and completing firstReady.
                         // Otherwise the QR displays while no listening sub is live,
@@ -499,16 +508,22 @@ actual class Nip46Client actual constructor(
     }
 
     actual fun disconnect() {
-        clientScope.coroutineContext.cancelChildren()
+        // Close each relay socket synchronously. cancelAndClose() shuts the Ktor
+        // HttpClient (and its WebSocket) down without suspending, so the browser's
+        // per-page WS slots are released the moment disconnect() returns. The old
+        // `clientScope.launch { client.disconnect() }` was fire-and-forget and ran
+        // AFTER cancelChildren(), so it could be cancelled before closing the
+        // socket — leaking sockets across repeated QR attempts / logins until the
+        // browser refused new connections and the next login failed with
+        // "Failed to connect to any relay".
         relayClients.forEach { client ->
-            clientScope.launch {
-                try {
-                    client.disconnect()
-                } catch (_: Exception) {
-                }
+            try {
+                client.cancelAndClose()
+            } catch (_: Exception) {
             }
         }
         relayClients.clear()
+        clientScope.coroutineContext.cancelChildren()
         // Fail any in-flight RPCs so callers unblock immediately instead of
         // waiting out their wrapping withTimeout.
         pendingRequests.values.forEach { it.completeExceptionally(CancellationException("Nip46Client disconnected")) }

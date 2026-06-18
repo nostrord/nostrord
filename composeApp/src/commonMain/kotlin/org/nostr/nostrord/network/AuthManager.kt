@@ -124,12 +124,13 @@ class AuthManager(
     private val _authUrl = MutableStateFlow<String?>(null)
     val authUrl: StateFlow<String?> = _authUrl.asStateFlow()
 
-    // Default relays for nostrconnect:// QR code flow. relay.nsec.app is a
-    // dedicated NIP-46 relay; damus.io / nos.lol are general-purpose fallbacks.
+    // Default relays for nostrconnect:// QR code flow. damus.io / nos.lol are
+    // general-purpose relays that reliably carry NIP-46 traffic. relay.nsec.app
+    // is intentionally excluded: it was unreachable for some users and made the
+    // whole QR connect fail with "Failed to connect to any relay".
     // Users can override these per-session in the QR login screen.
     val defaultNostrConnectRelays =
         listOf(
-            "wss://relay.nsec.app",
             "wss://relay.damus.io",
             "wss://nos.lol",
         )
