@@ -12,8 +12,9 @@ import kotlin.js.json
  * with the same logical schema as the native SQLite: one store per entity, compound primary
  * key [account, id], and an index for range queries over created_at.
  *
- * NOTE: written and compiled on Linux, but IndexedDB semantics (cursors, key ranges) can only
- * be behavior-verified in a browser. Smoke-test on the dev server before relying on it.
+ * IndexedDB semantics (cursors, key ranges) can only be behavior-verified in a browser. The
+ * `?cachetest` query param on the web entry runs runCacheStoreSelfTest against this real store;
+ * re-run it (e.g. via a headless driver) after changing the cursor/range logic.
  *
  * Kotlin/JS `Long` is a boxed object, not a JS number, so created_at is stored and queried as a
  * JS number (Double) and converted back at the boundary; nostr timestamps are seconds, well
@@ -180,13 +181,13 @@ class IndexedDbCacheStore : CacheStore {
     ): List<CachedMsg> {
         val store = db().transaction(MESSAGE, "readonly").objectStore(MESSAGE)
         val out = ArrayList<CachedMsg>(limit)
-        val cursorReq = store.index(MSG_GROUP_TIME).openCursor(range, "prev")
-        while (out.size < limit) {
-            val cursor = awaitRequest<dynamic>(cursorReq) ?: break
+        // One continuation drives the whole cursor and resumes exactly once. Re-registering the
+        // request's handlers per step (and re-awaiting it) can resume a continuation twice under
+        // real IDB timing, which throws background "already resumed" errors even when the result
+        // is correct — so iterate inside a single handler instead.
+        drainCursor(store.index(MSG_GROUP_TIME).openCursor(range, "prev")) { cursor ->
             out.add(toCachedMsg(cursor.value))
-            cursor.`continue`()
-            // Re-await the same request object: IDB reuses it for each cursor step.
-            if (out.size >= limit) break
+            out.size < limit // keep going until the page is full
         }
         return out
     }
@@ -199,13 +200,11 @@ class IndexedDbCacheStore : CacheStore {
     ): List<SizeRow> {
         val store = db().transaction(storeName, "readonly").objectStore(storeName)
         val out = ArrayList<SizeRow>()
-        val cursorReq = store.openCursor(boundAccount(account), "next")
-        while (true) {
-            val cursor = awaitRequest<dynamic>(cursorReq) ?: break
+        drainCursor(store.openCursor(boundAccount(account), "next")) { cursor ->
             val v = cursor.value
             val bytes = (v.content.unsafeCast<String>().length + v.tags_json.unsafeCast<String>().length + 120).toLong()
             out.add(SizeRow(storeName, v.id.unsafeCast<String>(), (v.created_at.unsafeCast<Double>()).toLong(), bytes))
-            cursor.`continue`()
+            true
         }
         return out
     }
@@ -214,12 +213,32 @@ class IndexedDbCacheStore : CacheStore {
         store: dynamic,
         range: dynamic,
     ) {
-        val cursorReq = store.openCursor(range, "next")
-        while (true) {
-            val cursor = awaitRequest<dynamic>(cursorReq) ?: break
+        drainCursor(store.openCursor(range, "next")) { cursor ->
             cursor.delete()
-            cursor.`continue`()
+            true
         }
+    }
+
+    /**
+     * Drive an IndexedDB cursor to completion with a single continuation. [onRow] handles each
+     * row and returns true to advance, false to stop early. Resumes exactly once (cursor null,
+     * an early stop, or an error), so no step can double-resume the continuation.
+     */
+    private suspend fun drainCursor(
+        cursorReq: dynamic,
+        onRow: (cursor: dynamic) -> Boolean,
+    ): Unit = suspendCancellableCoroutine { cont ->
+        cursorReq.onsuccess = { _: dynamic ->
+            val cursor = cursorReq.result
+            if (cursor == null) {
+                cont.resume(Unit)
+            } else if (onRow(cursor)) {
+                cursor.`continue`()
+            } else {
+                cont.resume(Unit)
+            }
+        }
+        cursorReq.onerror = { _: dynamic -> cont.resumeWithException(RuntimeException("IndexedDB cursor failed")) }
     }
 
     private fun boundGroup(

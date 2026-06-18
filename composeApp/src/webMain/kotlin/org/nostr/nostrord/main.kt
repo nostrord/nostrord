@@ -8,6 +8,8 @@ import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.navigation.toHash
 import org.nostr.nostrord.utils.toRelayUrl
 import org.nostr.nostrord.web.WebApp
+import org.nostr.nostrord.web.bridge.launchApp
+import org.nostr.nostrord.web.runCacheStoreSelfTest
 import org.nostr.nostrord.web.theme.applyDimenTokens
 import org.nostr.nostrord.web.theme.applyTheme
 import react.create
@@ -78,6 +80,18 @@ private fun parseDeepLinkFromUrl() {
  * browser via CSS, so the old tiered Compose font-preloading is gone.
  */
 fun main() {
+    // Dev affordance: `?cachetest` runs the IndexedDB cache store self-test in this real
+    // browser instead of mounting the app, and reports the result via window/title for a
+    // headless driver to read. Inert in normal use.
+    if (window.location.search.contains("cachetest")) {
+        launchApp {
+            val result = runCacheStoreSelfTest()
+            window.asDynamic().__cacheTestResult = result
+            document.title = "cachetest: $result"
+        }
+        return
+    }
+
     // Reconcile the web palette with the shared tokens (commonMain) before render,
     // overriding the cold-start fallback values in styles.css :root. Uses the persisted
     // theme preference so a light-theme user doesn't get a dark first paint.
