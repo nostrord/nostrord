@@ -681,41 +681,48 @@ class GroupManager(
             false
         }
 
-        if (isNew) {
-            scope.launch {
-                val url = relayUrl ?: return@launch
-                // Quick handshake check — 50ms × 20 = 1s max (down from 500ms × 6 = 3s).
-                var client = connectionManager.getClientForRelay(url)
-                if (client != null && !client.isConnected()) {
-                    repeat(20) {
-                        delay(50)
-                        if (client!!.isConnected()) return@repeat
-                    }
+        if (groupId == null) {
+            if (relayUrl != null) scope.launch { refreshMuxSubscriptionsForRelay(relayUrl) }
+            return
+        }
+
+        scope.launch {
+            val url = relayUrl ?: return@launch
+            // Quick handshake check — 50ms × 20 = 1s max (down from 500ms × 6 = 3s).
+            var client = connectionManager.getClientForRelay(url)
+            if (client != null && !client.isConnected()) {
+                repeat(20) {
+                    delay(50)
+                    if (client!!.isConnected()) return@repeat
                 }
-                client = connectionManager.getClientForRelay(url)
-
-                // Fire mux refresh in parallel — covers ongoing delivery for ALL groups.
-                val muxJob = scope.launch { refreshMuxSubscriptionsForRelay(url) }
-
-                if (client != null && client.isConnected()) {
-                    // Wait for NIP-42 AUTH before the direct REQs. Closed/private
-                    // groups answer with CLOSED "auth-required" if these race ahead,
-                    // and the 39002 never arrives, leaving the screen stuck on
-                    // "Awaiting admin approval" for an already-approved member.
-                    client.awaitAuthOrTimeout()
-                    // Direct requests for the ACTIVE group — fast-lane.
-                    // Mux provides breadth; these provide speed for the group the user is looking at.
-                    // Duplicates are handled by the event deduplicator.
-                    client.requestGroupMetadata(groupId!!) // Metadata (essential for private groups)
-                    requestGroupMessages(groupId) // Pagination (mux has no limit)
-                    requestGroupMembers(groupId) // Fast member list
-                    requestGroupAdmins(groupId) // Fast admin list
-                }
-
-                muxJob.join()
             }
-        } else if (relayUrl != null) {
-            scope.launch { refreshMuxSubscriptionsForRelay(relayUrl) }
+            client = connectionManager.getClientForRelay(url)
+
+            // Fire mux refresh in parallel — covers ongoing delivery for ALL groups.
+            val muxJob = scope.launch { refreshMuxSubscriptionsForRelay(url) }
+
+            if (client != null && client.isConnected()) {
+                // Wait for NIP-42 AUTH before the direct REQs. Closed/private
+                // groups answer with CLOSED "auth-required" if these race ahead,
+                // and the 39002 never arrives, leaving the screen stuck on
+                // "Awaiting admin approval" for an already-approved member.
+                client.awaitAuthOrTimeout()
+                // Direct fast-lane REQs for the ACTIVE group. Re-issued on EVERY
+                // switch, not just the first open: a first open that raced AUTH,
+                // timed out an EOSE, or landed before the socket connected would
+                // otherwise never re-pull this group's metadata/members/admins, so
+                // the screen stays partly empty until something else happens to
+                // refresh it. shouldRequest() still debounces rapid re-entry, and
+                // duplicates are handled by the event deduplicator.
+                client.requestGroupMetadata(groupId) // Metadata (essential for private groups)
+                requestGroupMembers(groupId) // Fast member list
+                requestGroupAdmins(groupId) // Fast admin list
+                // Pagination is heavier and only needed once; the mux carries live
+                // messages after the first open.
+                if (isNew) requestGroupMessages(groupId)
+            }
+
+            muxJob.join()
         }
     }
 

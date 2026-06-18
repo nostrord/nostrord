@@ -3213,7 +3213,13 @@ class NostrRepository(
                         val pubkeysNeedingMetadata = memberPubkeys.filter { !metadataManager.hasMetadata(it) }
                         if (pubkeysNeedingMetadata.isNotEmpty()) {
                             scope.launch {
-                                requestUserMetadata(pubkeysNeedingMetadata.toSet())
+                                // forceStale bypasses the 5-minute negative cache: a member
+                                // whose kind:0 we failed to fetch on first open (slow relay,
+                                // EOSE timeout) would otherwise stay blank until the cache
+                                // expires, even when the user switches back to the group. A
+                                // fresh 39002 is the signal to retry those profiles; already
+                                // cached ones stay filtered, so this does not refetch them.
+                                requestUserMetadata(pubkeysNeedingMetadata.toSet(), forceStale = true)
                             }
                         }
                     }
