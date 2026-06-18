@@ -2159,31 +2159,37 @@ class NostrRepository(
             .filter { it.name != null }
             .map { it.id }
             .toSet()
+        // Fan out per relay concurrently. A friend's groups often span many relays, and
+        // connecting to them sequentially (each up to the connect timeout) made discovery
+        // metadata trickle in slowly, worst on the onboarding "Find your group" step.
+        // getOrConnectRelay is a pooled singleflight per URL, so concurrent callers never
+        // open duplicate sockets; launching on [scope] returns from here immediately and
+        // lets every relay's kind:39000 arrive in parallel via the pipeline.
         relayToGroups.forEach { (relayUrl, groupIds) ->
             if (relayUrl.isBlank()) return@forEach
             val missing = groupIds.filter { it !in known }
             if (missing.isEmpty()) return@forEach
-            try {
-                // getOrConnectRelay is a pooled singleflight: one connection per relay
-                // even across concurrent callers, so duplicate relays never stack up.
-                val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
-                    enqueueToRelayPipeline(msg, c)
-                } ?: return@forEach
-                connectedPoolRelays.add(relayUrl)
-                // Send immediately: relays that don't gate reads behind NIP-42 serve
-                // this with no added latency (the common case).
-                client.requestGroupsMetadata(missing)
-                // AUTH-gated relays (e.g. chat.wisp.talk, nos.lol) reject the pre-AUTH
-                // REQ above with CLOSED "auth-required", and resubscribeAfterAuth replays
-                // only group/mux subs, never one-shot discovery REQs. Re-send once AUTH is
-                // signed so the discovery card fills in its kind:39000 name/about instead of
-                // staying a bare-id placeholder until the group is opened. awaitAuthOrTimeout
-                // returns true only when a challenge was actually answered, so non-auth
-                // relays don't pay a redundant re-send.
-                scope.launch {
+            scope.launch {
+                try {
+                    val client = connectionManager.getOrConnectRelay(relayUrl) { msg, c ->
+                        enqueueToRelayPipeline(msg, c)
+                    } ?: return@launch
+                    connectedPoolRelays.add(relayUrl)
+                    // Send immediately: relays that don't gate reads behind NIP-42 serve
+                    // this with no added latency (the common case).
+                    client.requestGroupsMetadata(missing)
+                    // AUTH-gated relays (e.g. chat.wisp.talk, nos.lol) reject the pre-AUTH
+                    // REQ above with CLOSED "auth-required", and resubscribeAfterAuth replays
+                    // only group/mux subs, never one-shot discovery REQs. Re-send once AUTH is
+                    // signed so the discovery card fills in its kind:39000 name/about instead of
+                    // staying a bare-id placeholder until the group is opened. awaitAuthOrTimeout
+                    // returns true only when a challenge was actually answered, so non-auth
+                    // relays don't pay a redundant re-send.
                     if (client.awaitAuthOrTimeout()) client.requestGroupsMetadata(missing)
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
                 }
-            } catch (_: Exception) {}
+            }
         }
     }
 
