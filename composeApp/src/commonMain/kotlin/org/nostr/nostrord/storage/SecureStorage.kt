@@ -557,6 +557,19 @@ fun SecureStorage.clearGroupMembershipFor(pubkey: String) {
     saveStringPref(groupMembershipCacheKey(pubkey), "")
 }
 
+// ── NIP-11 relay-info refresh timestamps ────────────────────────────────────
+// Per-relay last-successful-fetch epoch seconds, one JSON blob (account-independent,
+// like the relay metadata itself). Lets the NIP-11 cache skip the network fetch while
+// the cached document is fresh (soft TTL) and refresh only occasionally, instead of
+// re-fetching every relay on every cold start.
+private const val RELAY_NIP11_FETCHED_AT_KEY = "relay_nip11_fetched_at"
+
+fun SecureStorage.saveRelayMetadataFetchedAt(fetchedAtJson: String) {
+    saveStringPref(RELAY_NIP11_FETCHED_AT_KEY, fetchedAtJson)
+}
+
+fun SecureStorage.getRelayMetadataFetchedAt(): String? = getStringPref(RELAY_NIP11_FETCHED_AT_KEY, "").ifBlank { null }
+
 // ── Per-account "current relay" pointer ─────────────────────────────────────
 // Pubkey-scoped wrappers around the legacy global `saveCurrentRelayUrl`, so a
 // freshly added account doesn't inherit the previous account's last-used relay.
