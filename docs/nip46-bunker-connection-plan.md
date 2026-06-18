@@ -50,11 +50,30 @@ signed, so AUTH wins the signer at cold start.
   by up to the grace at cold start. Acceptable: old DMs are not urgent, and the
   acute case (private NIP-29 relay) returns early.
 
-### P1 — make the signer reachable before group AUTH needs it (TODO)
-- For bunker accounts, await `connectRelaysOnly()` (sockets only, fast) before
-  releasing the group-load path, instead of leaving it in `authScope.launch`.
-- Extend the `isBunkerReady` recovery collector to also cover the interactive
-  add-account path (not just restore), so a first add never depends on a restart.
+### P1 — make the recovery cover the interactive add path (DONE)
+Root of the "add-account needs restart": the bunker-ready recovery collector
+reacts to `_bunkerState` turning Connected, which the **synchronous**
+`loginWithBunker` sets mid-swap, *before* `finishLoginInit` wires up the new
+account's relays. So the collector reconnected the old account's relays and
+raced the swap's own reconnect, leaving the primary unauthenticated; only a
+restart (which goes through `restoreBunkerSession`, where the flags flip *after*
+group setup) recovered.
+
+- Extracted the collector body into `recoverBunkerGroupRelays()` (idempotent:
+  reconnect only when the primary has not AUTH'd; `ensureJoinedRelaysConnected`
+  always safe to re-run).
+- `bunkerLoginInProgress` flag suppresses the collector while `loginWithBunker` /
+  `completeNostrConnectLogin` are wiring up the new account, killing the harmful
+  mid-swap reconnect.
+- After those flows finish, an explicit delayed `recoverBunkerGroupRelays()` runs
+  the recovery at the right time, so a first bunker add loads private groups
+  without a restart.
+
+Dropped the original "await `connectRelaysOnly` before group-load" idea: blocking
+the switch/startup on the signer relay would regress the #85 non-blocking design
+("a hung or offline bunker never blocks startup"). The correctly-timed recovery
+achieves the same outcome (private groups load once the signer is reachable)
+without the block.
 
 ### P2 — AUTH resilience in steady state (TODO)
 - Give AUTH a priority lane in `Nip46Client.sendRequest` (or a small reserved

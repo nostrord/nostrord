@@ -72,6 +72,7 @@ import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochSeconds
 import org.nostr.nostrord.utils.normalizeRelayUrl
 import org.nostr.nostrord.utils.urlDecode
+import kotlin.concurrent.Volatile
 
 /**
  * Curator whose public kind:10009 seeds the Recommended discovery tab. Mirrored here so the
@@ -148,6 +149,11 @@ class NostrRepository(
     // the instant AUTH completes, so this only caps the wait for relays that
     // turn out to need no AUTH (public). See the gift-wrap handler.
     private val DM_INGEST_AUTH_GRACE_MS = 10_000L
+
+    // After an interactive bunker login, let finishLoginInit's own connect settle
+    // before the idempotent signer-ready recovery runs, so the two don't reconnect
+    // the primary at once. The recovery only acts if AUTH did not take.
+    private val BUNKER_LOGIN_RECOVERY_DELAY_MS = 2_500L
 
     /**
      * Relays for which a post-AUTH group-list fetch has already been issued this
@@ -513,27 +519,7 @@ class NostrRepository(
             ) { connected, verifying ->
                 connected && !verifying && sessionManager.isBunkerReady()
             }.collect { ready ->
-                if (ready && !wasReady) {
-                    try {
-                        // Skip the primary reconnect if it already AUTH'd this
-                        // session — a slow bunker can still complete signing
-                        // before the verifying flag flips, in which case the
-                        // socket is healthy and reconnecting throws away ~3.5 s
-                        // of setup + AUTH cost on every cold start. ensureJoined
-                        // is idempotent; pool relays whose AUTH genuinely failed
-                        // still get reconnected via their own onConnectionLost.
-                        val primary = connectionManager.getPrimaryClient()
-                        val primaryHealthy = primary != null &&
-                            primary.isConnected() &&
-                            primary.hasAuthSucceeded()
-                        if (!primaryHealthy) reconnect()
-                        ensureJoinedRelaysConnected(
-                            connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() },
-                        )
-                    } catch (e: Throwable) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                    }
-                }
+                if (ready && !wasReady) recoverBunkerGroupRelays()
                 wasReady = ready
             }
         }
@@ -713,6 +699,40 @@ class NostrRepository(
         } catch (_: Exception) {}
     }
 
+    // True only while finishLoginInit is wiring up a newly logged-in account.
+    // The bunker-ready collector reacts to _bunkerState turning Connected, which
+    // for the synchronous loginWithBunker path happens mid-swap, before the new
+    // account's relays exist; reconnecting then raced the swap's own reconnect
+    // and left the primary unauthenticated (the add-account-needs-restart bug).
+    @Volatile
+    private var bunkerLoginInProgress = false
+
+    /**
+     * Drive the active relay's NIP-42 AUTH once the bunker signer is reachable,
+     * so private groups that came back CLOSED "auth-required" while the signer
+     * was still connecting load without an app restart.
+     *
+     * Idempotent: skips the reconnect when the primary already AUTH'd this
+     * session (a slow bunker can finish signing before the verifying flag flips,
+     * and reconnecting would throw away ~3.5 s of setup + AUTH); ensureJoined is
+     * always safe to re-run. No-ops while a login swap is still in flight.
+     */
+    private suspend fun recoverBunkerGroupRelays() {
+        if (bunkerLoginInProgress) return
+        try {
+            val primary = connectionManager.getPrimaryClient()
+            val primaryHealthy = primary != null &&
+                primary.isConnected() &&
+                primary.hasAuthSucceeded()
+            if (!primaryHealthy) reconnect()
+            ensureJoinedRelaysConnected(
+                connectionManager.currentRelayUrl.value.takeIf { it.isNotBlank() },
+            )
+        } catch (e: Throwable) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+        }
+    }
+
     /**
      * Open a WebSocket + send a mux chat REQ for every relay where the user has
      * joined groups, except [skipPrimary] (already connected). Idempotent; safe
@@ -763,8 +783,24 @@ class NostrRepository(
         if (connectionManager.currentRelayUrl.value.isBlank()) {
             _isDiscoveringRelays.value = true
         }
-        val userPubkey = sessionManager.loginWithBunker(bunkerUrl)
-        finishLoginInit(previousPubkey, userPubkey)
+        // Suppress the reactive bunker-ready recovery while the swap wires up the
+        // new account: loginWithBunker flips _bunkerState to Connected mid-swap,
+        // which would otherwise fire a reconnect against the old account's relays.
+        bunkerLoginInProgress = true
+        val userPubkey = try {
+            val pk = sessionManager.loginWithBunker(bunkerUrl)
+            finishLoginInit(previousPubkey, pk)
+            pk
+        } finally {
+            bunkerLoginInProgress = false
+        }
+        // Now the new account's relays are wired up and the signer is connected,
+        // drive a correctly-timed, idempotent AUTH recovery so a first bunker add
+        // never needs an app restart to load private groups.
+        scope.launch {
+            delay(BUNKER_LOGIN_RECOVERY_DELAY_MS)
+            recoverBunkerGroupRelays()
+        }
         Result.Success(userPubkey)
     } catch (e: Exception) {
         Result.Error(AppError.Auth.BunkerError(e.message ?: "Bunker connection failed", e))
@@ -782,8 +818,18 @@ class NostrRepository(
         if (connectionManager.currentRelayUrl.value.isBlank()) {
             _isDiscoveringRelays.value = true
         }
-        val userPubkey = sessionManager.completeNostrConnectLogin(client, relays)
-        finishLoginInit(previousPubkey, userPubkey)
+        bunkerLoginInProgress = true
+        val userPubkey = try {
+            val pk = sessionManager.completeNostrConnectLogin(client, relays)
+            finishLoginInit(previousPubkey, pk)
+            pk
+        } finally {
+            bunkerLoginInProgress = false
+        }
+        scope.launch {
+            delay(BUNKER_LOGIN_RECOVERY_DELAY_MS)
+            recoverBunkerGroupRelays()
+        }
         return userPubkey
     }
 
