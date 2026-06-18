@@ -83,7 +83,9 @@ class HomePageViewModelTest {
     @Test
     fun `friends lists following enriched with metadata sorted by name`() = runTest {
         val fake = FakeNostrRepository()
+        // kind:3 sets following and contactListLoaded together (see NostrRepository).
         fake._following.value = setOf("pkB", "pkA")
+        fake._contactListLoaded.value = true
         fake._userMetadata.value =
             mapOf(
                 "pkA" to org.nostr.nostrord.network.UserMetadata(
@@ -158,11 +160,13 @@ class HomePageViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(false, vm.friendsLoading.value)
 
-        // Switch to B: the active pubkey changes while the PREVIOUS account's
-        // contactListLoaded still lingers true (the reset runs on a separate coroutine).
-        // The re-arm must not latch onto that stale true and skip the skeleton.
+        // Switch to B: the active pubkey changes while account A's following AND
+        // contactListLoaded still linger (the repo reset runs on a separate coroutine).
+        // The skeleton must show immediately, never the previous account's rows.
         fake._activePubkey.value = "b".repeat(64)
         testDispatcher.scheduler.runCurrent()
+        // Skeleton up immediately, so the lingering a1 row is never shown.
+        assertEquals(true, vm.friendsLoading.value)
 
         // The repo then resets B's contact-list state (loaded -> false, following empty).
         fake._following.value = emptySet()

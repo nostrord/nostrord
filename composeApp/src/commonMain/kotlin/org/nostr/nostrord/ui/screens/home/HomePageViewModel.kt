@@ -256,12 +256,15 @@ class HomePageViewModel(
     val friends: StateFlow<List<Friend>> =
         combine(repo.following, repo.userMetadata, repo.contactListLoaded) { following, meta, loaded ->
             when {
+                // Until THIS account's kind:3 has loaded, show only its on-disk cache, never
+                // the live `following`: on a switch `following` briefly still holds the previous
+                // account's follows, and surfacing it would leak their rows into the new account
+                // (the friends sidebar showing the prior user while the new one loads).
+                !loaded -> sortFriends(cachedFriends)
                 following.isNotEmpty() -> {
                     val cacheByPk = cachedFriends.associateBy { it.pubkey }
                     sortFriends(following.map { pk -> Friend(pk, meta[pk] ?: cacheByPk[pk]?.metadata) })
                 }
-                // kind:3 still loading: show the cache meanwhile so the sidebar isn't empty.
-                !loaded -> sortFriends(cachedFriends)
                 // Loaded and genuinely follows nobody (e.g. just unfollowed everyone):
                 // show empty, never the now-stale cache.
                 else -> emptyList()
@@ -269,13 +272,16 @@ class HomePageViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, sortFriends(cachedFriends))
 
     /**
-     * True while we don't yet know who the user follows AND have nothing to show: the
-     * sidebar renders a skeleton instead of the "You don't follow anyone yet." empty
-     * state, which must appear only once we're sure the list is genuinely empty.
+     * False while this account's follow list is still being resolved: the sidebar renders a
+     * skeleton rather than rows or the "You don't follow anyone yet." empty state. Seeded from
+     * the cache at cold start (a cached account shows its rows immediately, no skeleton) and
+     * forced back to false on every account switch, so switching always shows the skeleton
+     * until the new account's kind:3 resolves instead of flashing the previous user's rows.
      */
     private val _contactsResolved = MutableStateFlow(cachedFriends.isNotEmpty())
     val friendsLoading: StateFlow<Boolean> =
-        combine(_contactsResolved, friends) { resolved, fr -> !resolved && fr.isEmpty() }
+        _contactsResolved
+            .map { resolved -> !resolved }
             .stateIn(viewModelScope, SharingStarted.Eagerly, cachedFriends.isEmpty())
 
     // Frozen first-seen display order for From friends (groupId -> slot), so the grid
@@ -575,7 +581,9 @@ class HomePageViewModel(
         viewModelScope.launch {
             repo.activePubkey.drop(1).collect { pk ->
                 cachedFriends = loadFriendsCache(pk)
-                _contactsResolved.value = cachedFriends.isNotEmpty()
+                // Always skeleton on switch (not cachedFriends.isNotEmpty()): the previous
+                // account's rows must not linger while the new account's kind:3 resolves.
+                _contactsResolved.value = false
                 _myGroupsResolved.value = false
                 _friendsGroupsResolved.value = false
                 _recommendedResolved.value = false
