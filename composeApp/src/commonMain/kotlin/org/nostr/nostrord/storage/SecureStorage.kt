@@ -531,6 +531,32 @@ fun SecureStorage.loadFollowingCacheFor(pubkey: String): List<String> {
     }
 }
 
+// ── Per-account group membership cache ──────────────────────────────────────
+// One JSON blob per account holding every known group's members/admins/roles
+// (NIP-29 kind:39002/39001/39003) plus each list's source-event timestamp, so a
+// previously-seen group renders its member list instantly on cold start
+// (stale-while-revalidate) instead of waiting on a relay REQ. The blob shape is
+// owned by GroupManager; this slot only stores the encoded string.
+private fun groupMembershipCacheKey(pubkey: String) = "group_membership_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.saveGroupMembershipFor(
+    pubkey: String,
+    membershipJson: String,
+) {
+    if (pubkey.isBlank()) return
+    saveStringPref(groupMembershipCacheKey(pubkey), membershipJson)
+}
+
+fun SecureStorage.loadGroupMembershipFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getStringPref(groupMembershipCacheKey(pubkey), "").ifBlank { null }
+}
+
+fun SecureStorage.clearGroupMembershipFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(groupMembershipCacheKey(pubkey), "")
+}
+
 // ── Per-account "current relay" pointer ─────────────────────────────────────
 // Pubkey-scoped wrappers around the legacy global `saveCurrentRelayUrl`, so a
 // freshly added account doesn't inherit the previous account's last-used relay.

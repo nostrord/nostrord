@@ -16,6 +16,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupAdmins
@@ -29,12 +32,15 @@ import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.addRestrictedGroupForRelay
+import org.nostr.nostrord.storage.clearGroupMembershipFor
 import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
+import org.nostr.nostrord.storage.loadGroupMembershipFor
 import org.nostr.nostrord.storage.removeRestrictedGroupForRelay
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
+import org.nostr.nostrord.storage.saveGroupMembershipFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
@@ -2771,6 +2777,89 @@ class GroupManager(
     }
 
     /**
+     * One group's members/admins/roles plus each list's source-event timestamp. The
+     * timestamps are persisted so the in-memory staleness guards survive a restart: a
+     * re-delivered same-or-older event after reconnect stays a no-op, and only a genuinely
+     * newer event replaces the cached list.
+     */
+    @Serializable
+    private data class MembershipSnapshot(
+        val members: List<String> = emptyList(),
+        val admins: List<String> = emptyList(),
+        val roles: List<RoleDefinition> = emptyList(),
+        val memberTs: Long = 0L,
+        val adminTs: Long = 0L,
+        val roleTs: Long = 0L,
+    )
+
+    private val membershipSnapshotSerializer =
+        MapSerializer(String.serializer(), MembershipSnapshot.serializer())
+
+    /**
+     * Persist members/admins/roles for every known group as one per-account blob. Cheap and
+     * infrequent: only the rare kind:39001/39002/39003 handlers call it, and only when a list
+     * actually changed. No-op when [currentPubkey] is unset (unauthenticated state).
+     */
+    private fun persistGroupMembershipSnapshot() {
+        val pubKey = currentPubkey ?: return
+        val groupIds = _groupMembers.value.keys + _groupAdmins.value.keys + _groupRoles.value.keys
+        if (groupIds.isEmpty()) return
+        val snapshot =
+            groupIds.associateWith { id ->
+                MembershipSnapshot(
+                    members = _groupMembers.value[id] ?: emptyList(),
+                    admins = _groupAdmins.value[id] ?: emptyList(),
+                    roles = _groupRoles.value[id] ?: emptyList(),
+                    memberTs = memberEventTimestamps[id] ?: 0L,
+                    adminTs = adminEventTimestamps[id] ?: 0L,
+                    roleTs = roleEventTimestamps[id] ?: 0L,
+                )
+            }
+        try {
+            SecureStorage.saveGroupMembershipFor(pubKey, json.encodeToString(membershipSnapshotSerializer, snapshot))
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Hydrate members/admins/roles from the per-account cache before sockets open, so opening a
+     * previously-seen group shows its member list with no spinner. Live data already in memory
+     * wins over the cache (existing keys are kept), and the seeded timestamps only advance the
+     * staleness guards, never roll them back.
+     */
+    fun restoreGroupMembershipFromStorage(pubkey: String) {
+        val raw = SecureStorage.loadGroupMembershipFor(pubkey) ?: return
+        val snapshot =
+            try {
+                json.decodeFromString(membershipSnapshotSerializer, raw)
+            } catch (_: Exception) {
+                return
+            }
+        if (snapshot.isEmpty()) return
+        val members = mutableMapOf<String, List<String>>()
+        val admins = mutableMapOf<String, List<String>>()
+        val roles = mutableMapOf<String, List<RoleDefinition>>()
+        snapshot.forEach { (id, snap) ->
+            if (snap.members.isNotEmpty()) {
+                members[id] = snap.members
+                memberEventTimestamps[id] = maxOf(memberEventTimestamps[id] ?: 0L, snap.memberTs)
+            }
+            if (snap.admins.isNotEmpty()) {
+                admins[id] = snap.admins
+                adminEventTimestamps[id] = maxOf(adminEventTimestamps[id] ?: 0L, snap.adminTs)
+            }
+            if (snap.roles.isNotEmpty()) {
+                roles[id] = snap.roles
+                roleEventTimestamps[id] = maxOf(roleEventTimestamps[id] ?: 0L, snap.roleTs)
+            }
+        }
+        // `cached + live` so any group already updated this session keeps its live value.
+        if (members.isNotEmpty()) _groupMembers.update { members + it }
+        if (admins.isNotEmpty()) _groupAdmins.update { admins + it }
+        if (roles.isNotEmpty()) _groupRoles.update { roles + it }
+    }
+
+    /**
      * Returns true if we have a non-empty cached group list for the given relay.
      */
     fun hasCachedGroupsForRelay(relayUrl: String): Boolean {
@@ -2803,6 +2892,7 @@ class GroupManager(
         val currentMembers = _groupMembers.value[members.groupId]
         if (currentMembers != members.members) {
             _groupMembers.value = _groupMembers.value + (members.groupId to members.members)
+            persistGroupMembershipSnapshot()
         }
         _loadingMembers.value = _loadingMembers.value - members.groupId
 
@@ -2882,6 +2972,7 @@ class GroupManager(
         val currentAdmins = _groupAdmins.value[admins.groupId]
         if (currentAdmins != admins.admins) {
             _groupAdmins.value = _groupAdmins.value + (admins.groupId to admins.admins)
+            persistGroupMembershipSnapshot()
             // An admin removal can flip an attestation-based `confirmed` relation back
             // to `unverified` (spec: evaluated against current kind:39001).
             recomputeSubgroupTopology()
@@ -2924,6 +3015,7 @@ class GroupManager(
         val currentRoles = _groupRoles.value[roles.groupId]
         if (currentRoles != roles.roles) {
             _groupRoles.value = _groupRoles.value + (roles.groupId to roles.roles)
+            persistGroupMembershipSnapshot()
         }
     }
 
@@ -3464,6 +3556,7 @@ class GroupManager(
     fun clearJoinedGroupsForAccount(pubKey: String) {
         SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
         SecureStorage.clearAllJoinedGroupMetadataForAccount(pubKey)
+        SecureStorage.clearGroupMembershipFor(pubKey)
         _joinedGroupsByRelay.value = emptyMap()
         currentPubkey = null
     }

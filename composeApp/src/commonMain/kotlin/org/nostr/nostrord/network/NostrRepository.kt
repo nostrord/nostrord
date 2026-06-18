@@ -602,6 +602,7 @@ class NostrRepository(
                             groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
                             groupManager.loadAllJoinedGroupsFromStorage(pubkey, restoredRelays)
                             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, restoredRelays)
+                            groupManager.restoreGroupMembershipFromStorage(pubkey)
                             connect(primaryRelay)
                             scope.launch { ensureJoinedRelaysConnected(primaryRelay) }
                         }
@@ -636,6 +637,7 @@ class NostrRepository(
                 groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
                 groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
                 groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
+                groupManager.restoreGroupMembershipFromStorage(pubkey)
                 unreadManager.initialize(pubkey)
                 notificationSettings?.initialize(pubkey)
                 notificationHistoryStore?.initialize(pubkey)
@@ -940,6 +942,7 @@ class NostrRepository(
                 groupManager.loadJoinedGroupsFromStorage(newPubkey, primaryRelay)
                 groupManager.loadAllJoinedGroupsFromStorage(newPubkey, allRelays)
                 groupManager.restoreJoinedGroupMetadataFromStorage(newPubkey, allRelays)
+                groupManager.restoreGroupMembershipFromStorage(newPubkey)
             }
             unreadManager.initialize(newPubkey)
             notificationSettings?.initialize(newPubkey)
@@ -1307,6 +1310,7 @@ class NostrRepository(
             groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
             groupManager.loadAllJoinedGroupsFromStorage(pubkey, allRelays)
             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, allRelays)
+            groupManager.restoreGroupMembershipFromStorage(pubkey)
             groupManager.loadRestrictedGroupsFromStorage(pubkey, allRelays)
             // Point GroupManager's current-relay flow at the new primary so the
             // derived joinedGroups (My Groups — sidebar AND homescreen) reflects
@@ -1657,6 +1661,7 @@ class NostrRepository(
             groupManager.loadJoinedGroupsFromStorage(pubkey, primaryRelay)
             groupManager.loadAllJoinedGroupsFromStorage(pubkey, relays)
             groupManager.restoreJoinedGroupMetadataFromStorage(pubkey, relays)
+            groupManager.restoreGroupMembershipFromStorage(pubkey)
             groupManager.loadRestrictedGroupsFromStorage(pubkey, relays)
         }
         connect(primaryRelay)
