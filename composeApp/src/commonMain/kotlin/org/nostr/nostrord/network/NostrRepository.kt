@@ -143,6 +143,12 @@ class NostrRepository(
     // signer free to answer AUTH promptly while DMs decrypt steadily in the background.
     private val dmDecryptSemaphore = Semaphore(3)
 
+    // Upper bound on how long a bunker account holds its DM gift-wrap backlog
+    // while the active relay signs its NIP-42 AUTH. awaitAuthOrTimeout returns
+    // the instant AUTH completes, so this only caps the wait for relays that
+    // turn out to need no AUTH (public). See the gift-wrap handler.
+    private val DM_INGEST_AUTH_GRACE_MS = 10_000L
+
     /**
      * Relays for which a post-AUTH group-list fetch has already been issued this
      * session. resubscribeAfterAuth invalidates the (possibly pre-AUTH, empty-EOSE)
@@ -2986,7 +2992,19 @@ class NostrRepository(
                 val giftWrap = runCatching { parseSignedEventJson(event.toString()) }.getOrNull() ?: return
                 val myPub = sessionManager.getPublicKey() ?: return
                 val signer = ActiveAccountManager.session.value?.signer ?: return
-                scope.launch { dmDecryptSemaphore.withPermit { dmManager.ingestGiftWrap(giftWrap, myPub, signer) } }
+                scope.launch {
+                    // A bunker signer pays a remote round-trip per NIP-44 decrypt, and a gift
+                    // wrap needs two (wrap then seal). A cold start with a large DM backlog
+                    // would flood the single signer connection and starve the kind:22242 AUTH
+                    // sign that private NIP-29 relays need, leaving private groups stuck on
+                    // "auth-required". Hold the backlog until the active relay's AUTH is signed
+                    // (awaitAuthOrTimeout returns the moment AUTH completes, or after the grace
+                    // when the relay needs no AUTH). Local/NIP-07 decrypt in-process and skip it.
+                    if (signer is NostrSigner.Bunker) {
+                        connectionManager.getPrimaryClient()?.awaitAuthOrTimeout(DM_INGEST_AUTH_GRACE_MS)
+                    }
+                    dmDecryptSemaphore.withPermit { dmManager.ingestGiftWrap(giftWrap, myPub, signer) }
+                }
                 return
             }
             // A user's NIP-17 DM relay list (kind:10050).
