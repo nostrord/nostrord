@@ -6233,12 +6233,12 @@ body {
     gap: 8px;
     margin-bottom: 4px;
     padding: 4px 8px 4px 4px;
-    background: rgba(47, 49, 54, 0.5);
+    background: var(--color-floating);
     border-radius: 4px;
     cursor: pointer;
 }
 .msg-reply:hover {
-    background: linear-gradient(rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.08)), rgba(47, 49, 54, 0.5);
+    background: var(--color-hover);
 }
 
 .msg-reply-bar {
