@@ -2072,6 +2072,11 @@ class GroupManager(
      * Uses the state machine with per-group locks - doesn't block other groups.
      */
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
+        // Disk-first: serve an older page from the persistent cache before any relay round-trip
+        // (and without touching the pagination state machine). Only when local history is
+        // exhausted do we fall through to the relay. Works offline too — no client required.
+        if (loadOlderFromCache(groupId)) return true
+
         val currentClient = clientForGroup(groupId) ?: return false
 
         // Get controller and attempt to start pagination
@@ -2894,6 +2899,36 @@ class GroupManager(
         if (members.isNotEmpty()) _groupMembers.update { members + it }
         if (admins.isNotEmpty()) _groupAdmins.update { admins + it }
         if (roles.isNotEmpty()) _groupRoles.update { roles + it }
+    }
+
+    /**
+     * Prepend one page of older messages from the persistent cache, ahead of the current oldest
+     * in-memory message. Returns true when it added something (the relay is then skipped for this
+     * scroll), false when local history is exhausted so the caller paginates the relay. Reads
+     * through the same dedup index as the live path; the relay's `until` cursor naturally
+     * continues from the new, older in-memory boundary once the disk runs dry.
+     */
+    private suspend fun loadOlderFromCache(groupId: String): Boolean {
+        val account = currentPubkey ?: return false
+        val oldestInMemory = _messages.value[groupId]?.minOfOrNull { it.createdAt } ?: return false
+        val olderPage =
+            try {
+                cacheStore.loadBefore(account, groupId, oldestInMemory, PAGE_SIZE)
+            } catch (_: Exception) {
+                return false
+            }
+        if (olderPage.isEmpty()) return false
+        val restored = olderPage.map { it.toNostrMessage() }
+        var added = false
+        _messages.update { current ->
+            val existing = current[groupId] ?: emptyList()
+            val index = messageIdIndex.getOrPut(groupId) { existing.mapTo(mutableSetOf()) { it.id } }
+            val fresh = restored.filter { index.add(it.id) }
+            if (fresh.isEmpty()) return@update current
+            added = true
+            current + (groupId to (existing + fresh).sortedBy { it.createdAt })
+        }
+        return added
     }
 
     /**
