@@ -158,10 +158,15 @@ class HomePageViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(false, vm.friendsLoading.value)
 
-        // Switch to B with its kind:3 not yet loaded (mirrors resetContactListState).
-        fake._contactListLoaded.value = false
-        fake._following.value = emptySet()
+        // Switch to B: the active pubkey changes while the PREVIOUS account's
+        // contactListLoaded still lingers true (the reset runs on a separate coroutine).
+        // The re-arm must not latch onto that stale true and skip the skeleton.
         fake._activePubkey.value = "b".repeat(64)
+        testDispatcher.scheduler.runCurrent()
+
+        // The repo then resets B's contact-list state (loaded -> false, following empty).
+        fake._following.value = emptySet()
+        fake._contactListLoaded.value = false
         testDispatcher.scheduler.runCurrent()
 
         // Well past the old fixed grace: still loading (skeleton), never the empty state.

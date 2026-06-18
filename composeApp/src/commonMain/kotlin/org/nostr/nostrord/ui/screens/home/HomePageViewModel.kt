@@ -2,6 +2,7 @@ package org.nostr.nostrord.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -529,19 +530,31 @@ class HomePageViewModel(
         }
     }
 
+    private var contactsResolveJob: Job? = null
+
     // Stop showing the friends skeleton once the account's kind:3 fetch has actually
     // resolved (repo.contactListLoaded), not on a blind wall-clock from the switch.
     // On a warm swap requestContactList() only runs after the relays reconnect, so a
     // short fixed timeout fired while kind:3 was still in flight and flashed "You don't
-    // follow anyone yet." even for accounts with follows. contactListLoaded is reset
-    // per account and flips true once the REQ resolves, with its own fallback even when
-    // the account genuinely follows nobody, so it never strands the skeleton. The long
-    // outer timeout only covers the offline case where no REQ ever goes out.
+    // follow anyone yet." even for accounts with follows.
+    //
+    // The reset of contactListLoaded (resetContactListState) and this re-arm run on
+    // separate coroutines on a switch, so on entry contactListLoaded may still be the
+    // PREVIOUS account's lingering `true`. Latching on that would resolve instantly and
+    // skip the skeleton. So wait for the reset boundary (it goes false) before accepting
+    // the new account's load (it goes true). On cold start it is already false, so the
+    // first wait returns immediately. The outer timeout only covers the offline case
+    // where no REQ ever goes out; a stale arm from a prior switch is cancelled first.
     private fun armContactsResolve() {
-        viewModelScope.launch {
-            withTimeoutOrNull(15_000) { repo.contactListLoaded.first { it } }
-            _contactsResolved.value = true
-        }
+        contactsResolveJob?.cancel()
+        contactsResolveJob =
+            viewModelScope.launch {
+                withTimeoutOrNull(15_000) {
+                    repo.contactListLoaded.first { !it }
+                    repo.contactListLoaded.first { it }
+                }
+                _contactsResolved.value = true
+            }
     }
 
     init {
