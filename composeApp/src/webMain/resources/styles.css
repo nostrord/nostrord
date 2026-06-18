@@ -2055,6 +2055,7 @@ body {
     margin-top: var(--space-md);
     padding: var(--space-sm) var(--space-md);
     background: var(--color-floating);
+    border: 1px solid var(--color-divider);
     border-radius: var(--radius-md);
 }
 
@@ -2064,7 +2065,7 @@ body {
     overflow: hidden;
     font-family: ui-monospace, monospace;
     font-size: 12px;
-    color: var(--color-text-muted);
+    color: var(--color-text-secondary);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
