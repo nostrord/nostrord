@@ -41,6 +41,7 @@ import org.nostr.nostrord.web.navigation.currentHashRoute
 import org.nostr.nostrord.web.navigation.pushHashRoute
 import org.nostr.nostrord.web.navigation.pushHome
 import org.nostr.nostrord.web.navigation.pushRoute
+import org.nostr.nostrord.web.navigation.replaceHashRoute
 import org.nostr.nostrord.web.screens.ChatScreen
 import org.nostr.nostrord.web.screens.DmPage
 import org.nostr.nostrord.web.screens.HomePage
@@ -514,7 +515,9 @@ val AppFrame =
                         NotificationsPage {
                             this.vm = notifVm
                             onOpenDrawer = { setDrawerOpen(true) }
-                            onOpen = { relay, gid, _ -> pushRoute(GroupRoute(relay, gid)) }
+                            onOpen = { relay, gid, mid ->
+                                pushRoute(GroupRoute(relay, gid, messageId = mid))
+                            }
                         }
                     r is UserRoute ->
                         ProfilePage {
@@ -541,8 +544,15 @@ val AppFrame =
                             key = "${r.relayUrl}/${r.groupId}"
                             group = selectedGroup
                             onLeave = { pushHome() }
-                            scrollToMessageId = null
-                            onScrolledToMessage = {}
+                            // Jump to + flash the message a notification (or shared link)
+                            // pointed at; clear ?e= afterward so new messages or a back/
+                            // forward replay don't re-trigger the highlight.
+                            scrollToMessageId = r.messageId
+                            onScrolledToMessage = {
+                                val cleared = r.copy(messageId = null)
+                                replaceHashRoute(cleared)
+                                setRoute(cleared)
+                            }
                             onNavigateGroup = { gid, relay ->
                                 pushRoute(GroupRoute(relay ?: r.relayUrl, gid))
                             }

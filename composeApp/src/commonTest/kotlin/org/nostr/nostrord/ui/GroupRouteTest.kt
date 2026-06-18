@@ -29,6 +29,21 @@ class GroupRouteTest {
     }
 
     @Test
+    fun `round-trips a deep-link message id`() {
+        val eventId = "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d"
+        val route = GroupRoute("wss://relay.example.com", "g1", messageId = eventId)
+        assertEquals("#/g/relay.example.com/g1?e=$eventId", route.toHash())
+        assertEquals(route, parseGroupHash(route.toHash()))
+    }
+
+    @Test
+    fun `round-trips an invite code and a message id together`() {
+        val route =
+            GroupRoute("wss://relay.example.com", "g1", inviteCode = "AB+C/12", messageId = "abc123")
+        assertEquals(route, parseGroupHash(route.toHash()))
+    }
+
+    @Test
     fun `round-trips a local ws relay as a scheme-less segment`() {
         val route = GroupRoute("ws://127.0.0.1:9888", "g1")
         // The scheme is stripped in the hash and restored (ws for loopback) on parse.

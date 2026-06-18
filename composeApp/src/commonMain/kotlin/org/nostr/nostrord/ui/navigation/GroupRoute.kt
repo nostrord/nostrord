@@ -28,6 +28,10 @@ data class GroupRoute(
     val relayUrl: String,
     val groupId: String,
     val inviteCode: String? = null,
+    // Deep-link target (?e=<event id>): scroll to and flash this message once the chat
+    // loads. Set when opening from a notification or a shared message link; cleared from
+    // the hash after the scroll so a refresh/back-forward replay doesn't re-jump.
+    val messageId: String? = null,
 ) : HashRoute
 
 /**
@@ -181,8 +185,13 @@ fun GroupRoute.toHash(): String {
     // ws:// relay doesn't leak its scheme into the segment.
     val relay = encodeSegment(relayUrl.removePrefix("wss://").removePrefix("ws://"))
     val id = encodeSegment(groupId)
-    val invite = inviteCode?.let { "?invite=${encodeSegment(it)}" } ?: ""
-    return "$GROUP_HASH_PREFIX$relay/$id$invite"
+    val params =
+        buildList {
+            inviteCode?.let { add("invite=${encodeSegment(it)}") }
+            messageId?.let { add("e=${encodeSegment(it)}") }
+        }
+    val query = if (params.isEmpty()) "" else "?" + params.joinToString("&")
+    return "$GROUP_HASH_PREFIX$relay/$id$query"
 }
 
 /** Parses a `#/g/<relay>/<groupId>[?invite=…]` hash; null for any other hash. */
@@ -193,20 +202,20 @@ fun parseGroupHash(hash: String): GroupRoute? {
     val query = rest.substringAfter('?', "")
     val parts = path.split('/')
     if (parts.size != 2 || parts.any { it.isEmpty() }) return null
-    val invite =
-        query
-            .split('&')
-            .firstOrNull { it.startsWith("invite=") }
-            ?.removePrefix("invite=")
-            ?.takeIf { it.isNotEmpty() }
-            ?.let(::decodeSegment)
+    val params = query.split('&')
+    fun param(key: String) = params
+        .firstOrNull { it.startsWith("$key=") }
+        ?.removePrefix("$key=")
+        ?.takeIf { it.isNotEmpty() }
+        ?.let(::decodeSegment)
     return GroupRoute(
         // toRelayUrl restores the scheme: wss:// for normal hosts, ws:// for loopback,
         // and it also tolerates a segment that already carries a scheme (older links
         // like #/g/ws%3A%2F%2F127.0.0.1%3A9888/… that encoded the full ws:// URL).
         relayUrl = decodeSegment(parts[0]).toRelayUrl(),
         groupId = decodeSegment(parts[1]),
-        inviteCode = invite,
+        inviteCode = param("invite"),
+        messageId = param("e"),
     )
 }
 
