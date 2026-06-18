@@ -44,6 +44,8 @@ import org.nostr.nostrord.settings.FeatureFlags
 import org.nostr.nostrord.settings.MediaSettings
 import org.nostr.nostrord.settings.NotificationSettings
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.cache.CacheStore
+import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.utils.epochSeconds
 
 /**
@@ -206,6 +208,11 @@ object AppModule {
     val liveCursorStore: LiveCursorStore by lazy {
         LiveCursorStore()
     }
+
+    // Bulk message/event history cache. In-memory for now (no behavior change); the SQLDelight
+    // (native) and IndexedDB (web) backends replace this impl in later phases, after which
+    // consumers read scroll-back history and cold-start events from disk instead of the relay.
+    val cacheStore: CacheStore by lazy { InMemoryCacheStore() }
 
     val muxTracker: MuxSubscriptionTracker by lazy { MuxSubscriptionTracker() }
 
