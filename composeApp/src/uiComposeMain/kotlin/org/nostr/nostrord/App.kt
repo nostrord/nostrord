@@ -54,12 +54,18 @@ fun App() {
     val isLoggedIn by vm.isLoggedIn.collectAsState()
     val isBunkerVerifying by vm.isBunkerVerifying.collectAsState()
 
-    // Phase 2: Compute startup state synchronously from current values
-    // isBunkerVerifying keeps the app in Initializing (loading) while the signer
-    // confirms the restored session — avoids showing main UI before auth is confirmed.
+    // Phase 2: Compute startup state synchronously from current values.
+    // The bunker-verifying gate only blocks the UI on cold-start restore, when
+    // the user is not yet logged in: it holds the loading screen until the
+    // restored signer is confirmed instead of flashing the login screen. Once
+    // logged in (e.g. switching to a bunker account), the signer reconnect runs
+    // in the background and its status shows through the bunker banner, so the
+    // app renders immediately rather than freezing on "Reconnecting to signer..."
+    // (mirrors the web shell, where loggedIn -> AppShell is checked before the
+    // verifying gate).
     val startupState: AppStartState =
         remember(isInitialized, isLoggedIn, isBunkerVerifying) {
-            if (isBunkerVerifying) {
+            if (isBunkerVerifying && !isLoggedIn) {
                 AppStartState.Initializing
             } else {
                 StartupResolver.resolve(isInitialized, isLoggedIn)
