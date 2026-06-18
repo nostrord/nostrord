@@ -515,6 +515,9 @@ object AppModule {
      * has not loaded credentials yet, the existing session is left unchanged.
      */
     suspend fun activateSessionForActiveAccount() {
+        // Re-allow pool connections that a prior logout gated off (no-op if still
+        // logged in). Runs before any login-time relay/outbox/DM work.
+        connectionManager.resumeConnections()
         val account = accountStore.active ?: return
         if (ActiveAccountManager.session.value?.accountId?.value == account.id) return
         val session = accountSessionFactory.build(account, authManager) ?: return

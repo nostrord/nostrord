@@ -19,6 +19,7 @@ import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.getCurrentRelayUrlFor
 import org.nostr.nostrord.storage.saveCurrentRelayUrlFor
 import org.nostr.nostrord.utils.normalizeRelayUrl
+import kotlin.concurrent.Volatile
 import kotlin.random.Random
 
 /**
@@ -52,6 +53,18 @@ class ConnectionManager(
     // Shared relay pool for all auxiliary connections (outbox, metadata, NIP-65)
     private val poolMutex = Mutex()
     private val relayPool = mutableMapOf<String, NostrGroupClient>()
+
+    // Gate for opening NEW pool sockets. clearAll() (logout) flips it off so
+    // background jobs can't reconnect relays during/after teardown and leak them;
+    // resumeConnections() (a session activating) flips it back on. Default on so
+    // the normal logged-in path is unaffected.
+    @Volatile
+    private var acceptingConnections = true
+
+    /** Re-allow pool connections after a logout gated them off. Idempotent. */
+    fun resumeConnections() {
+        acceptingConnections = true
+    }
 
     // Per-relay (normalized URL) outcome of the most recent WebSocket connect:
     // true = opened, false = failed. Drives reachability filtering on discovery
@@ -537,6 +550,13 @@ class ConnectionManager(
             relayPool[normalized]?.let { return it }
         }
 
+        // Logged-out gate: clearAll() flips this off at the start of a logout, so
+        // background discovery / DM / metadata jobs on app-lifetime scopes that
+        // keep calling here for a beat after the pool is drained cannot reconnect
+        // (and leak) every relay. resumeConnections() turns it back on when a
+        // session activates. Existing pooled clients are still returned above.
+        if (!acceptingConnections) return null
+
         // Singleflight gate: at most one in-flight connect per URL. Concurrent
         // callers attach to the same CompletableDeferred and share its result
         // instead of each opening their own socket.
@@ -673,6 +693,10 @@ class ConnectionManager(
      * Clear all connections, disconnecting pool clients in parallel.
      */
     suspend fun clearAll() {
+        // Stop accepting NEW pool connects for the rest of the teardown so a
+        // discovery/DM/metadata job on a surviving scope can't reconnect a relay
+        // right after we drain the pool. resumeConnections() re-opens on login.
+        acceptingConnections = false
         scope.coroutineContext.cancelChildren()
         disconnectPrimary()
 
