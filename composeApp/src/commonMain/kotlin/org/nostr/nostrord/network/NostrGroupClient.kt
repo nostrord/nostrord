@@ -100,6 +100,7 @@ data class GroupRoles(
     val roles: List<RoleDefinition>,
 )
 
+@Serializable
 @Immutable
 data class RoleDefinition(
     val name: String,

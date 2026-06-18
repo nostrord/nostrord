@@ -1,0 +1,93 @@
+package org.nostr.nostrord.storage.cache
+
+/**
+ * Bulk, queryable, bounded cache for chat messages and generic events — the persistence
+ * seam for "never wait on the relay for something you've seen". Separate from [SecureStorage]
+ * (which stays for small KV slots and credentials): message/event history is large and needs
+ * range queries and byte-bounded eviction that a flat KV blob can't provide.
+ *
+ * Everything is `suspend` because the web backend (IndexedDB) is async and the native backend
+ * (SQLite) runs off the main thread. Every row is scoped by [account] (pubkey hex) so logout
+ * clears one account without touching another. The shape here is engine-agnostic on purpose:
+ * native binds it to SQLDelight, web to IndexedDB, sharing this interface and the logical schema,
+ * never the engine.
+ */
+interface CacheStore {
+    /** Open the backing store and run any schema migration. Safe to call more than once. */
+    suspend fun init()
+
+    // ── Messages (chat history per group) ───────────────────────────────────
+    suspend fun upsertMessages(
+        account: String,
+        groupId: String,
+        messages: List<CachedMsg>,
+    )
+
+    /** The most recent [limit] messages for the group, oldest-first (ready to append in the UI). */
+    suspend fun loadLatest(
+        account: String,
+        groupId: String,
+        limit: Int,
+    ): List<CachedMsg>
+
+    /** The [limit] messages just older than [beforeCreatedAt], oldest-first (scroll-back page). */
+    suspend fun loadBefore(
+        account: String,
+        groupId: String,
+        beforeCreatedAt: Long,
+        limit: Int,
+    ): List<CachedMsg>
+
+    /** Oldest cached `created_at` for the group, or null when nothing is cached. */
+    suspend fun oldestCreatedAt(
+        account: String,
+        groupId: String,
+    ): Long?
+
+    // ── Generic events (kind:1/7/9/30023), keyed by id, immutable ────────────
+    suspend fun upsertEvents(
+        account: String,
+        events: List<CachedEventRow>,
+    )
+
+    suspend fun getEvent(
+        account: String,
+        id: String,
+    ): CachedEventRow?
+
+    suspend fun getEvents(
+        account: String,
+        ids: List<String>,
+    ): List<CachedEventRow>
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+    /** Drop the oldest rows (by `created_at`) for [account] until under [maxBytes]. */
+    suspend fun evictToByteBudget(
+        account: String,
+        maxBytes: Long,
+    )
+
+    /** Remove every row for [account] (logout / account removal). */
+    suspend fun clearAccount(account: String)
+}
+
+/** A chat message row. [tagsJson] is the event tags serialized as a JSON array-of-arrays. */
+data class CachedMsg(
+    val id: String,
+    val groupId: String,
+    val pubkey: String,
+    val createdAt: Long,
+    val kind: Int,
+    val content: String,
+    val tagsJson: String,
+)
+
+/** A generic event row (quote/reaction/reply targets), keyed by [id]. */
+data class CachedEventRow(
+    val id: String,
+    val pubkey: String,
+    val createdAt: Long,
+    val kind: Int,
+    val content: String,
+    val tagsJson: String,
+)

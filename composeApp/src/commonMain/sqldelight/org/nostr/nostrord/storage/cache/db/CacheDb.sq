@@ -1,0 +1,99 @@
+-- Bulk message/event history. Both tables are account-scoped (pubkey hex) and keyed by
+-- event id so upserts are idempotent. Byte sizing for eviction is computed with length()
+-- and SUM() only (no window functions), so it runs on the old SQLite shipped with Android
+-- minSdk 24 as well as the modern engines on JVM/iOS.
+
+CREATE TABLE message (
+    account    TEXT    NOT NULL,
+    id         TEXT    NOT NULL,
+    group_id   TEXT    NOT NULL,
+    pubkey     TEXT    NOT NULL,
+    created_at INTEGER NOT NULL,
+    kind       INTEGER NOT NULL,
+    content    TEXT    NOT NULL,
+    tags_json  TEXT    NOT NULL,
+    PRIMARY KEY (account, id)
+);
+
+CREATE INDEX message_group_time ON message(account, group_id, created_at);
+
+CREATE TABLE event (
+    account    TEXT    NOT NULL,
+    id         TEXT    NOT NULL,
+    pubkey     TEXT    NOT NULL,
+    created_at INTEGER NOT NULL,
+    kind       INTEGER NOT NULL,
+    content    TEXT    NOT NULL,
+    tags_json  TEXT    NOT NULL,
+    PRIMARY KEY (account, id)
+);
+
+CREATE INDEX event_time ON event(account, created_at);
+
+-- ── Messages ────────────────────────────────────────────────────────────────
+upsertMessage:
+INSERT OR REPLACE INTO message(account, id, group_id, pubkey, created_at, kind, content, tags_json)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Most recent first; the caller reverses to oldest-first for the UI.
+loadLatest:
+SELECT account, id, group_id, pubkey, created_at, kind, content, tags_json
+FROM message
+WHERE account = ? AND group_id = ?
+ORDER BY created_at DESC
+LIMIT ?;
+
+loadBefore:
+SELECT account, id, group_id, pubkey, created_at, kind, content, tags_json
+FROM message
+WHERE account = ? AND group_id = ? AND created_at < ?
+ORDER BY created_at DESC
+LIMIT ?;
+
+oldestMessageCreatedAt:
+SELECT MIN(created_at) FROM message WHERE account = ? AND group_id = ?;
+
+totalMessageBytes:
+SELECT COALESCE(SUM(length(content) + length(tags_json) + 120), 0) FROM message WHERE account = ?;
+
+messageSizesOldestFirst:
+SELECT id, created_at, CAST(length(content) + length(tags_json) + 120 AS INTEGER) AS bytes
+FROM message
+WHERE account = ?
+ORDER BY created_at ASC;
+
+deleteMessageById:
+DELETE FROM message WHERE account = ? AND id = ?;
+
+clearMessagesForAccount:
+DELETE FROM message WHERE account = ?;
+
+-- ── Generic events ──────────────────────────────────────────────────────────
+upsertEvent:
+INSERT OR REPLACE INTO event(account, id, pubkey, created_at, kind, content, tags_json)
+VALUES (?, ?, ?, ?, ?, ?, ?);
+
+getEvent:
+SELECT account, id, pubkey, created_at, kind, content, tags_json
+FROM event
+WHERE account = ? AND id = ?;
+
+getEvents:
+SELECT account, id, pubkey, created_at, kind, content, tags_json
+FROM event
+WHERE account = ? AND id IN ?;
+
+totalEventBytes:
+SELECT COALESCE(SUM(length(content) + length(tags_json) + 120), 0) FROM event WHERE account = ?;
+
+eventSizesOldestFirst:
+SELECT id, created_at, CAST(length(content) + length(tags_json) + 120 AS INTEGER) AS bytes
+FROM event
+WHERE account = ?
+ORDER BY created_at ASC;
+
+deleteEventById:
+DELETE FROM event WHERE account = ? AND id = ?;
+
+clearEventsForAccount:
+DELETE FROM event WHERE account = ?;

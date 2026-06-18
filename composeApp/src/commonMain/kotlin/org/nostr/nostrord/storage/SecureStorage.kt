@@ -531,6 +531,59 @@ fun SecureStorage.loadFollowingCacheFor(pubkey: String): List<String> {
     }
 }
 
+// ── Per-account group membership cache ──────────────────────────────────────
+// One JSON blob per account holding every known group's members/admins/roles
+// (NIP-29 kind:39002/39001/39003) plus each list's source-event timestamp, so a
+// previously-seen group renders its member list instantly on cold start
+// (stale-while-revalidate) instead of waiting on a relay REQ. The blob shape is
+// owned by GroupManager; this slot only stores the encoded string.
+private fun groupMembershipCacheKey(pubkey: String) = "group_membership_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.saveGroupMembershipFor(
+    pubkey: String,
+    membershipJson: String,
+) {
+    if (pubkey.isBlank()) return
+    saveStringPref(groupMembershipCacheKey(pubkey), membershipJson)
+}
+
+fun SecureStorage.loadGroupMembershipFor(pubkey: String): String? {
+    if (pubkey.isBlank()) return null
+    return getStringPref(groupMembershipCacheKey(pubkey), "").ifBlank { null }
+}
+
+fun SecureStorage.clearGroupMembershipFor(pubkey: String) {
+    if (pubkey.isBlank()) return
+    saveStringPref(groupMembershipCacheKey(pubkey), "")
+}
+
+// One-shot guard: true once the legacy per-group message blobs have been seeded into the
+// bulk history cache (CacheStore), so the migration runs at most once per account.
+private fun messageBlobMigratedKey(pubkey: String) = "message_blob_migrated_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.isMessageBlobMigratedFor(pubkey: String): Boolean = getBooleanPref(messageBlobMigratedKey(pubkey), false)
+
+fun SecureStorage.setMessageBlobMigratedFor(pubkey: String) {
+    saveBooleanPref(messageBlobMigratedKey(pubkey), true)
+}
+
+fun SecureStorage.clearMessageBlobMigratedFor(pubkey: String) {
+    saveBooleanPref(messageBlobMigratedKey(pubkey), false)
+}
+
+// ── NIP-11 relay-info refresh timestamps ────────────────────────────────────
+// Per-relay last-successful-fetch epoch seconds, one JSON blob (account-independent,
+// like the relay metadata itself). Lets the NIP-11 cache skip the network fetch while
+// the cached document is fresh (soft TTL) and refresh only occasionally, instead of
+// re-fetching every relay on every cold start.
+private const val RELAY_NIP11_FETCHED_AT_KEY = "relay_nip11_fetched_at"
+
+fun SecureStorage.saveRelayMetadataFetchedAt(fetchedAtJson: String) {
+    saveStringPref(RELAY_NIP11_FETCHED_AT_KEY, fetchedAtJson)
+}
+
+fun SecureStorage.getRelayMetadataFetchedAt(): String? = getStringPref(RELAY_NIP11_FETCHED_AT_KEY, "").ifBlank { null }
+
 // ── Per-account "current relay" pointer ─────────────────────────────────────
 // Pubkey-scoped wrappers around the legacy global `saveCurrentRelayUrl`, so a
 // freshly added account doesn't inherit the previous account's last-used relay.

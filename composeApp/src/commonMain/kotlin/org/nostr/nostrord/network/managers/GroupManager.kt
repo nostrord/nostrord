@@ -16,6 +16,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.DeclaredChild
 import org.nostr.nostrord.network.GroupAdmins
@@ -29,12 +33,21 @@ import org.nostr.nostrord.network.outbox.EventDeduplicator
 import org.nostr.nostrord.nostr.Event
 import org.nostr.nostrord.storage.SecureStorage
 import org.nostr.nostrord.storage.addRestrictedGroupForRelay
+import org.nostr.nostrord.storage.cache.CacheStore
+import org.nostr.nostrord.storage.cache.CachedMsg
+import org.nostr.nostrord.storage.cache.InMemoryCacheStore
+import org.nostr.nostrord.storage.clearGroupMembershipFor
+import org.nostr.nostrord.storage.clearMessageBlobMigratedFor
 import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
+import org.nostr.nostrord.storage.isMessageBlobMigratedFor
+import org.nostr.nostrord.storage.loadGroupMembershipFor
 import org.nostr.nostrord.storage.removeRestrictedGroupForRelay
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
+import org.nostr.nostrord.storage.saveGroupMembershipFor
+import org.nostr.nostrord.storage.setMessageBlobMigratedFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
@@ -59,6 +72,7 @@ class GroupManager(
     private val connStats: ConnectionStats? = null,
     private val muxTracker: MuxSubscriptionTracker = MuxSubscriptionTracker(),
     private val adaptiveConfig: AdaptiveConfig? = null,
+    private val cacheStore: CacheStore = InMemoryCacheStore(),
     private val onNewMessagesFlushed: ((groupId: String, newMessages: List<NostrGroupClient.NostrMessage>) -> Unit)? = null,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
@@ -90,6 +104,13 @@ class GroupManager(
     // Updated incrementally in flushBatchToState and loadMessagesFromStorage.
     // Cleared on relay switch / logout.
     private val messageIdIndex = mutableMapOf<String, MutableSet<String>>()
+
+    // Group-message recency, least-recent first (re-inserted on touch). Drives whole-group
+    // eviction past [MAX_GROUPS_IN_MEMORY] so in-memory history stays bounded over a long
+    // multi-group session. Per-group message-count capping is deferred to the disk-backed
+    // history store (plan phase 4): trimming a live list here would desync messageIdIndex
+    // and stop a re-fetched older message from re-rendering.
+    private val groupMessageRecency = LinkedHashSet<String>()
 
     private val _groups = MutableStateFlow<List<GroupMetadata>>(emptyList())
     val groups: StateFlow<List<GroupMetadata>> = _groups.asStateFlow()
@@ -539,6 +560,20 @@ class GroupManager(
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
         const val MAX_PERSISTED_MESSAGES = 100 // Limit messages per group for storage
+
+        // Most-recently-used groups whose messages stay hydrated in memory. Groups beyond
+        // this are evicted whole (list + dedup index + reactions, persisted first) to bound
+        // long-session growth across many opened groups. The active group is never evicted.
+        const val MAX_GROUPS_IN_MEMORY = 30
+
+        // How many cached messages to render instantly when a group is opened, before the
+        // live subscription refreshes the tail.
+        const val CACHE_HYDRATE_LIMIT = 300
+
+        // Disk budget for the persistent history cache (messages + events), per account.
+        // Evicted oldest-first once exceeded; the eviction is debounced behind writes.
+        const val CACHE_BYTE_BUDGET = 75L * 1024 * 1024
+        const val CACHE_EVICTION_DEBOUNCE_MS = 30_000L
         const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
         const val REQUEST_COOLDOWN_MS = 2_000L // Prevents duplicate REQs within this window
         const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
@@ -664,6 +699,12 @@ class GroupManager(
      */
     fun setActiveGroupId(groupId: String?) {
         _activeGroupId = groupId
+        if (groupId != null) {
+            touchGroupRecency(groupId)
+            evictGroupMessagesBeyondCap()
+            // Instant render from the persistent history cache; the live sub refreshes the tail.
+            scope.launch { hydrateMessagesFromCache(groupId) }
+        }
         // Fallback to currentRelayUrl when the group isn't tracked yet (e.g. user
         // navigated to a private group URL without being a member).
         val relayUrl = if (groupId != null) (getRelayForGroup(groupId) ?: currentRelayUrl) else currentRelayUrl
@@ -2031,6 +2072,11 @@ class GroupManager(
      * Uses the state machine with per-group locks - doesn't block other groups.
      */
     suspend fun loadMoreMessages(groupId: String, channel: String? = null): Boolean {
+        // Disk-first: serve an older page from the persistent cache before any relay round-trip
+        // (and without touching the pagination state machine). Only when local history is
+        // exhausted do we fall through to the relay. Works offline too — no client required.
+        if (loadOlderFromCache(groupId)) return true
+
         val currentClient = clientForGroup(groupId) ?: return false
 
         // Get controller and attempt to start pagination
@@ -2415,6 +2461,8 @@ class GroupManager(
             if (!index.add(message.id)) return@update currentMap
             currentMap + (groupId to (current + message).sortedBy { it.createdAt })
         }
+        touchGroupRecency(groupId)
+        cacheMessages(groupId, listOf(message))
     }
 
     /**
@@ -2771,6 +2819,119 @@ class GroupManager(
     }
 
     /**
+     * One group's members/admins/roles plus each list's source-event timestamp. The
+     * timestamps are persisted so the in-memory staleness guards survive a restart: a
+     * re-delivered same-or-older event after reconnect stays a no-op, and only a genuinely
+     * newer event replaces the cached list.
+     */
+    @Serializable
+    private data class MembershipSnapshot(
+        val members: List<String> = emptyList(),
+        val admins: List<String> = emptyList(),
+        val roles: List<RoleDefinition> = emptyList(),
+        val memberTs: Long = 0L,
+        val adminTs: Long = 0L,
+        val roleTs: Long = 0L,
+    )
+
+    private val membershipSnapshotSerializer =
+        MapSerializer(String.serializer(), MembershipSnapshot.serializer())
+
+    /**
+     * Persist members/admins/roles for every known group as one per-account blob. Cheap and
+     * infrequent: only the rare kind:39001/39002/39003 handlers call it, and only when a list
+     * actually changed. No-op when [currentPubkey] is unset (unauthenticated state).
+     */
+    private fun persistGroupMembershipSnapshot() {
+        val pubKey = currentPubkey ?: return
+        val groupIds = _groupMembers.value.keys + _groupAdmins.value.keys + _groupRoles.value.keys
+        if (groupIds.isEmpty()) return
+        val snapshot =
+            groupIds.associateWith { id ->
+                MembershipSnapshot(
+                    members = _groupMembers.value[id] ?: emptyList(),
+                    admins = _groupAdmins.value[id] ?: emptyList(),
+                    roles = _groupRoles.value[id] ?: emptyList(),
+                    memberTs = memberEventTimestamps[id] ?: 0L,
+                    adminTs = adminEventTimestamps[id] ?: 0L,
+                    roleTs = roleEventTimestamps[id] ?: 0L,
+                )
+            }
+        try {
+            SecureStorage.saveGroupMembershipFor(pubKey, json.encodeToString(membershipSnapshotSerializer, snapshot))
+        } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Hydrate members/admins/roles from the per-account cache before sockets open, so opening a
+     * previously-seen group shows its member list with no spinner. Live data already in memory
+     * wins over the cache (existing keys are kept), and the seeded timestamps only advance the
+     * staleness guards, never roll them back.
+     */
+    fun restoreGroupMembershipFromStorage(pubkey: String) {
+        val raw = SecureStorage.loadGroupMembershipFor(pubkey) ?: return
+        val snapshot =
+            try {
+                json.decodeFromString(membershipSnapshotSerializer, raw)
+            } catch (_: Exception) {
+                return
+            }
+        if (snapshot.isEmpty()) return
+        val members = mutableMapOf<String, List<String>>()
+        val admins = mutableMapOf<String, List<String>>()
+        val roles = mutableMapOf<String, List<RoleDefinition>>()
+        snapshot.forEach { (id, snap) ->
+            if (snap.members.isNotEmpty()) {
+                members[id] = snap.members
+                memberEventTimestamps[id] = maxOf(memberEventTimestamps[id] ?: 0L, snap.memberTs)
+            }
+            if (snap.admins.isNotEmpty()) {
+                admins[id] = snap.admins
+                adminEventTimestamps[id] = maxOf(adminEventTimestamps[id] ?: 0L, snap.adminTs)
+            }
+            if (snap.roles.isNotEmpty()) {
+                roles[id] = snap.roles
+                roleEventTimestamps[id] = maxOf(roleEventTimestamps[id] ?: 0L, snap.roleTs)
+            }
+        }
+        // `cached + live` so any group already updated this session keeps its live value.
+        if (members.isNotEmpty()) _groupMembers.update { members + it }
+        if (admins.isNotEmpty()) _groupAdmins.update { admins + it }
+        if (roles.isNotEmpty()) _groupRoles.update { roles + it }
+    }
+
+    /**
+     * Prepend one page of older messages from the persistent cache, ahead of the current oldest
+     * in-memory message. Returns true when it added something (the relay is then skipped for this
+     * scroll), false when local history is exhausted so the caller paginates the relay. Reads
+     * through the same dedup index as the live path; the relay's `until` cursor naturally
+     * continues from the new, older in-memory boundary once the disk runs dry.
+     */
+    private suspend fun loadOlderFromCache(groupId: String): Boolean {
+        val account = currentPubkey ?: return false
+        val oldestInMemory = _messages.value[groupId]?.minOfOrNull { it.createdAt } ?: return false
+        val olderPage =
+            try {
+                cacheStore.loadBefore(account, groupId, oldestInMemory, PAGE_SIZE)
+            } catch (_: Exception) {
+                return false
+            }
+        if (olderPage.isEmpty()) return false
+        val restored = olderPage.map { it.toNostrMessage() }
+        var added = false
+        _messages.update { current ->
+            val existing = current[groupId] ?: emptyList()
+            val index = messageIdIndex.getOrPut(groupId) { existing.mapTo(mutableSetOf()) { it.id } }
+            val fresh = restored.filter { index.add(it.id) }
+            if (fresh.isEmpty()) return@update current
+            added = true
+            current + (groupId to (existing + fresh).sortedBy { it.createdAt })
+        }
+        return added
+    }
+
+    /**
      * Returns true if we have a non-empty cached group list for the given relay.
      */
     fun hasCachedGroupsForRelay(relayUrl: String): Boolean {
@@ -2803,6 +2964,7 @@ class GroupManager(
         val currentMembers = _groupMembers.value[members.groupId]
         if (currentMembers != members.members) {
             _groupMembers.value = _groupMembers.value + (members.groupId to members.members)
+            persistGroupMembershipSnapshot()
         }
         _loadingMembers.value = _loadingMembers.value - members.groupId
 
@@ -2882,6 +3044,7 @@ class GroupManager(
         val currentAdmins = _groupAdmins.value[admins.groupId]
         if (currentAdmins != admins.admins) {
             _groupAdmins.value = _groupAdmins.value + (admins.groupId to admins.admins)
+            persistGroupMembershipSnapshot()
             // An admin removal can flip an attestation-based `confirmed` relation back
             // to `unverified` (spec: evaluated against current kind:39001).
             recomputeSubgroupTopology()
@@ -2924,6 +3087,7 @@ class GroupManager(
         val currentRoles = _groupRoles.value[roles.groupId]
         if (currentRoles != roles.roles) {
             _groupRoles.value = _groupRoles.value + (roles.groupId to roles.roles)
+            persistGroupMembershipSnapshot()
         }
     }
 
@@ -3120,6 +3284,154 @@ class GroupManager(
         }
 
         capturedNew?.let { onNewMessagesFlushed?.invoke(groupId, it) }
+        capturedNew?.let { cacheMessages(groupId, it) }
+        touchGroupRecency(groupId)
+        evictGroupMessagesBeyondCap()
+    }
+
+    /** Mark [groupId] most-recently-used for whole-group eviction ordering. */
+    private fun touchGroupRecency(groupId: String) {
+        groupMessageRecency.remove(groupId)
+        groupMessageRecency.add(groupId)
+    }
+
+    private val tagsSerializer = ListSerializer(ListSerializer(String.serializer()))
+
+    private fun NostrGroupClient.NostrMessage.toCachedMsg(groupId: String): CachedMsg = CachedMsg(
+        id = id,
+        groupId = groupId,
+        pubkey = pubkey,
+        createdAt = createdAt,
+        kind = kind,
+        content = content,
+        tagsJson = json.encodeToString(tagsSerializer, tags),
+    )
+
+    private fun CachedMsg.toNostrMessage(): NostrGroupClient.NostrMessage = NostrGroupClient.NostrMessage(
+        id = id,
+        pubkey = pubkey,
+        content = content,
+        createdAt = createdAt,
+        kind = kind,
+        tags = try {
+            json.decodeFromString(tagsSerializer, tagsJson)
+        } catch (_: Exception) {
+            emptyList()
+        },
+    )
+
+    /** Write new messages through to the persistent history cache (fire-and-forget). */
+    private fun cacheMessages(
+        groupId: String,
+        messages: List<NostrGroupClient.NostrMessage>,
+    ) {
+        val account = currentPubkey ?: return
+        if (messages.isEmpty()) return
+        scope.launch {
+            try {
+                cacheStore.upsertMessages(account, groupId, messages.map { it.toCachedMsg(groupId) })
+            } catch (_: Exception) {
+            }
+        }
+        scheduleCacheEviction()
+    }
+
+    /**
+     * One-time seeding of the persistent cache from the legacy per-group message blobs
+     * (the last-100 snapshot in [SecureStorage]). Without this, a previously-seen group would
+     * hydrate empty right after upgrade until the write-through repopulates it; with it, the
+     * already-saved history shows on the first open. Idempotent (guarded by a per-account flag)
+     * and scoped to the joined groups (already restored at cold start), since the KV blobs
+     * aren't enumerable.
+     */
+    fun migrateMessageBlobsToCache(pubkey: String) {
+        if (pubkey.isBlank()) return
+        scope.launch {
+            if (SecureStorage.isMessageBlobMigratedFor(pubkey)) return@launch
+            val groupIds = _joinedGroupsByRelay.value.values.flatten().toSet()
+            if (groupIds.isEmpty()) return@launch
+            for (groupId in groupIds) {
+                val blob = SecureStorage.getMessagesForGroup(pubkey, groupId) ?: continue
+                val messages = parseMessagesBlob(blob)
+                if (messages.isEmpty()) continue
+                try {
+                    cacheStore.upsertMessages(pubkey, groupId, messages.map { it.toCachedMsg(groupId) })
+                } catch (_: Exception) {
+                }
+            }
+            SecureStorage.setMessageBlobMigratedFor(pubkey)
+        }
+    }
+
+    private var cacheEvictionJob: Job? = null
+
+    /** Trim the persistent cache to [CACHE_BYTE_BUDGET], debounced so a write burst evicts once. */
+    private fun scheduleCacheEviction() {
+        val account = currentPubkey ?: return
+        cacheEvictionJob?.cancel()
+        cacheEvictionJob =
+            scope.launch {
+                delay(CACHE_EVICTION_DEBOUNCE_MS)
+                try {
+                    cacheStore.evictToByteBudget(account, CACHE_BYTE_BUDGET)
+                } catch (_: Exception) {
+                }
+            }
+    }
+
+    /**
+     * Render a previously-seen group instantly from the persistent cache on open, before any
+     * relay round-trip. Merges the cached page into [_messages] via the same dedup index as the
+     * live path, so the subsequent network refresh (stale-while-revalidate) never double-inserts.
+     */
+    private suspend fun hydrateMessagesFromCache(groupId: String) {
+        val account = currentPubkey ?: return
+        val cached =
+            try {
+                cacheStore.loadLatest(account, groupId, CACHE_HYDRATE_LIMIT)
+            } catch (_: Exception) {
+                return
+            }
+        if (cached.isEmpty()) return
+        val restored = cached.map { it.toNostrMessage() }
+        _messages.update { current ->
+            val existing = current[groupId] ?: emptyList()
+            val index = messageIdIndex.getOrPut(groupId) { existing.mapTo(mutableSetOf()) { it.id } }
+            val fresh = restored.filter { index.add(it.id) }
+            if (fresh.isEmpty()) return@update current
+            current + (groupId to (existing + fresh).sortedBy { it.createdAt })
+        }
+        touchGroupRecency(groupId)
+    }
+
+    /**
+     * Evict the least-recently-used groups' in-memory messages once more than
+     * [MAX_GROUPS_IN_MEMORY] groups are loaded, never the active one. Each evicted group is
+     * persisted first so reopening hydrates instantly from disk, then its list, dedup index
+     * and reactions are dropped together (keeping list and index consistent — a partial trim
+     * would not). The live subscription refills the tail on reopen.
+     */
+    private fun evictGroupMessagesBeyondCap() {
+        val present = _messages.value
+        val overflow = present.size - MAX_GROUPS_IN_MEMORY
+        if (overflow <= 0) return
+        val active = _activeGroupId
+        val toEvict =
+            groupMessageRecency
+                .asSequence()
+                .filter { it != active && present.containsKey(it) }
+                .take(overflow)
+                .toSet()
+        if (toEvict.isEmpty()) return
+        toEvict.forEach { saveMessagesToStorage(it) }
+        _messages.update { it - toEvict }
+        toEvict.forEach { groupId ->
+            val droppedIds = messageIdIndex.remove(groupId)
+            if (!droppedIds.isNullOrEmpty()) {
+                _reactions.update { it - droppedIds }
+            }
+            groupMessageRecency.remove(groupId)
+        }
     }
 
     /**
@@ -3408,6 +3720,7 @@ class GroupManager(
         // (not in clearForRelaySwitch) because relay switch must preserve the
         // user's message history for the active account.
         _messages.value = emptyMap()
+        groupMessageRecency.clear()
         _messageStatus.value = emptyMap()
         _latestMessageRelayByGroup.value = emptyMap()
         // Joined-group sets and restricted-group markers are pubkey-scoped.
@@ -3464,6 +3777,15 @@ class GroupManager(
     fun clearJoinedGroupsForAccount(pubKey: String) {
         SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
         SecureStorage.clearAllJoinedGroupMetadataForAccount(pubKey)
+        SecureStorage.clearGroupMembershipFor(pubKey)
+        // Wipe the persistent history cache and let a re-added account re-seed from its blobs.
+        SecureStorage.clearMessageBlobMigratedFor(pubKey)
+        scope.launch {
+            try {
+                cacheStore.clearAccount(pubKey)
+            } catch (_: Exception) {
+            }
+        }
         _joinedGroupsByRelay.value = emptyMap()
         currentPubkey = null
     }
@@ -3476,29 +3798,35 @@ class GroupManager(
      * Load persisted messages for a group from storage.
      * Called when entering a group to show cached messages while fetching new ones.
      */
+    /** Parse a persisted message blob (JSON array) into messages; empty on any parse error. */
+    private fun parseMessagesBlob(messagesJson: String): List<NostrGroupClient.NostrMessage> = try {
+        json.parseToJsonElement(messagesJson).jsonArray.mapNotNull { element ->
+            try {
+                val obj = element.jsonObject
+                NostrGroupClient.NostrMessage(
+                    id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                    pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                    content = obj["content"]?.jsonPrimitive?.content ?: "",
+                    createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: return@mapNotNull null,
+                    kind = obj["kind"]?.jsonPrimitive?.int ?: 9,
+                    tags = obj["tags"]?.jsonArray?.map { tagArray ->
+                        tagArray.jsonArray.map { it.jsonPrimitive.content }
+                    } ?: emptyList(),
+                )
+            } catch (e: Throwable) {
+                null
+            }
+        }
+    } catch (e: Throwable) {
+        emptyList()
+    }
+
     fun loadMessagesFromStorage(groupId: String) {
         val pubkey = currentPubkey ?: return
         val messagesJson = SecureStorage.getMessagesForGroup(pubkey, groupId) ?: return
 
         try {
-            val messagesArray = json.parseToJsonElement(messagesJson).jsonArray
-            val messages = messagesArray.mapNotNull { element ->
-                try {
-                    val obj = element.jsonObject
-                    NostrGroupClient.NostrMessage(
-                        id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        content = obj["content"]?.jsonPrimitive?.content ?: "",
-                        createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: return@mapNotNull null,
-                        kind = obj["kind"]?.jsonPrimitive?.int ?: 9,
-                        tags = obj["tags"]?.jsonArray?.map { tagArray ->
-                            tagArray.jsonArray.map { it.jsonPrimitive.content }
-                        } ?: emptyList(),
-                    )
-                } catch (e: Throwable) {
-                    null
-                }
-            }
+            val messages = parseMessagesBlob(messagesJson)
 
             if (messages.isNotEmpty()) {
                 // Add to deduplicator and persistent message index
@@ -3513,6 +3841,7 @@ class GroupManager(
                     val merged = (existing + newMsgs).sortedBy { it.createdAt }
                     current + (groupId to merged)
                 }
+                touchGroupRecency(groupId)
             }
         } catch (e: Throwable) {
             // Ignore parsing errors - storage may be corrupted

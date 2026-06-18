@@ -16,11 +16,15 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.*
 import org.nostr.nostrord.network.CachedEvent
 import org.nostr.nostrord.network.NostrGroupClient
 import org.nostr.nostrord.network.UserMetadata
 import org.nostr.nostrord.storage.SecureStorage
+import org.nostr.nostrord.storage.cache.CacheStore
+import org.nostr.nostrord.storage.cache.CachedEventRow
+import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.utils.LruCache
 import org.nostr.nostrord.utils.epochMillis
 import org.nostr.nostrord.utils.normalizeRelayUrl
@@ -29,6 +33,9 @@ class MetadataManager(
     private val connectionManager: ConnectionManager,
     private val outboxManager: OutboxManager,
     private val scope: CoroutineScope,
+    private val cacheStore: CacheStore = InMemoryCacheStore(),
+    // Active account (pubkey hex) for scoping the event cache; null/blank skips persistence.
+    private val accountProvider: () -> String? = { null },
 ) {
     /** Set by NostrRepository so batchFetch can reconnect bootstrap relays when all are offline. */
     var messageHandler: ((String, NostrGroupClient) -> Unit)? = null
@@ -380,6 +387,23 @@ class MetadataManager(
     ) {
         // Skip if already cached or already in-flight
         if (_cachedEvents.value.containsKey(eventId)) return
+        // Disk fallback: resolve a previously-seen event from the persistent cache before any
+        // network REQ (cold-start quotes/reactions/replies, and a cheap re-fetch avoidance when
+        // the in-memory LRU has evicted it).
+        val account = accountProvider()?.takeIf { it.isNotBlank() }
+        if (account != null) {
+            val persisted =
+                try {
+                    cacheStore.getEvent(account, eventId)
+                } catch (_: Exception) {
+                    null
+                }
+            if (persisted != null) {
+                eventsCache.put(eventId, persisted.toCachedEvent())
+                _cachedEvents.value = eventsCache.toMap()
+                return
+            }
+        }
         val shouldFetch =
             inFlightEventsMutex.withLock {
                 if (inFlightEvents.contains(eventId)) {
@@ -611,7 +635,46 @@ class MetadataManager(
     fun handleCachedEvent(event: CachedEvent) {
         eventsCache.put(event.id, event)
         _cachedEvents.value = eventsCache.toMap()
+        persistEvent(event)
     }
+
+    private val eventTagsSerializer = ListSerializer(ListSerializer(String.serializer()))
+
+    /** Write a generic event through to the persistent cache so it resolves on cold start. */
+    private fun persistEvent(event: CachedEvent) {
+        val account = accountProvider()?.takeIf { it.isNotBlank() } ?: return
+        scope.launch {
+            try {
+                cacheStore.upsertEvents(
+                    account,
+                    listOf(
+                        CachedEventRow(
+                            id = event.id,
+                            pubkey = event.pubkey,
+                            createdAt = event.createdAt,
+                            kind = event.kind,
+                            content = event.content,
+                            tagsJson = json.encodeToString(eventTagsSerializer, event.tags),
+                        ),
+                    ),
+                )
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun CachedEventRow.toCachedEvent(): CachedEvent = CachedEvent(
+        id = id,
+        pubkey = pubkey,
+        kind = kind,
+        content = content,
+        createdAt = createdAt,
+        tags = try {
+            json.decodeFromString(eventTagsSerializer, tagsJson)
+        } catch (_: Exception) {
+            emptyList()
+        },
+    )
 
     fun parseAndCacheEvent(eventJson: JsonObject): CachedEvent? {
         return try {
@@ -640,6 +703,7 @@ class MetadataManager(
 
             eventsCache.put(eventId, cachedEvent)
             _cachedEvents.value = eventsCache.toMap()
+            persistEvent(cachedEvent)
             cachedEvent
         } catch (e: Exception) {
             null
@@ -675,6 +739,7 @@ class MetadataManager(
             eventsCache.put(eventId, cachedEvent)
             eventsCache.put(addressKey, cachedEvent)
             _cachedEvents.value = eventsCache.toMap()
+            persistEvent(cachedEvent)
             cachedEvent
         } catch (_: Exception) {
             null
