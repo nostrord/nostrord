@@ -97,6 +97,13 @@ class GroupManager(
     // Cleared on relay switch / logout.
     private val messageIdIndex = mutableMapOf<String, MutableSet<String>>()
 
+    // Group-message recency, least-recent first (re-inserted on touch). Drives whole-group
+    // eviction past [MAX_GROUPS_IN_MEMORY] so in-memory history stays bounded over a long
+    // multi-group session. Per-group message-count capping is deferred to the disk-backed
+    // history store (plan phase 4): trimming a live list here would desync messageIdIndex
+    // and stop a re-fetched older message from re-rendering.
+    private val groupMessageRecency = LinkedHashSet<String>()
+
     private val _groups = MutableStateFlow<List<GroupMetadata>>(emptyList())
     val groups: StateFlow<List<GroupMetadata>> = _groups.asStateFlow()
 
@@ -545,6 +552,11 @@ class GroupManager(
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
         const val MAX_PERSISTED_MESSAGES = 100 // Limit messages per group for storage
+
+        // Most-recently-used groups whose messages stay hydrated in memory. Groups beyond
+        // this are evicted whole (list + dedup index + reactions, persisted first) to bound
+        // long-session growth across many opened groups. The active group is never evicted.
+        const val MAX_GROUPS_IN_MEMORY = 30
         const val MEMBER_LOAD_TIMEOUT_MS = 8_000L // Safety timeout for member loading state
         const val REQUEST_COOLDOWN_MS = 2_000L // Prevents duplicate REQs within this window
         const val REACTION_DEBOUNCE_MS = 50L // Coalesces burst reaction arrivals
@@ -670,6 +682,10 @@ class GroupManager(
      */
     fun setActiveGroupId(groupId: String?) {
         _activeGroupId = groupId
+        if (groupId != null) {
+            touchGroupRecency(groupId)
+            evictGroupMessagesBeyondCap()
+        }
         // Fallback to currentRelayUrl when the group isn't tracked yet (e.g. user
         // navigated to a private group URL without being a member).
         val relayUrl = if (groupId != null) (getRelayForGroup(groupId) ?: currentRelayUrl) else currentRelayUrl
@@ -2421,6 +2437,7 @@ class GroupManager(
             if (!index.add(message.id)) return@update currentMap
             currentMap + (groupId to (current + message).sortedBy { it.createdAt })
         }
+        touchGroupRecency(groupId)
     }
 
     /**
@@ -3212,6 +3229,44 @@ class GroupManager(
         }
 
         capturedNew?.let { onNewMessagesFlushed?.invoke(groupId, it) }
+        touchGroupRecency(groupId)
+        evictGroupMessagesBeyondCap()
+    }
+
+    /** Mark [groupId] most-recently-used for whole-group eviction ordering. */
+    private fun touchGroupRecency(groupId: String) {
+        groupMessageRecency.remove(groupId)
+        groupMessageRecency.add(groupId)
+    }
+
+    /**
+     * Evict the least-recently-used groups' in-memory messages once more than
+     * [MAX_GROUPS_IN_MEMORY] groups are loaded, never the active one. Each evicted group is
+     * persisted first so reopening hydrates instantly from disk, then its list, dedup index
+     * and reactions are dropped together (keeping list and index consistent — a partial trim
+     * would not). The live subscription refills the tail on reopen.
+     */
+    private fun evictGroupMessagesBeyondCap() {
+        val present = _messages.value
+        val overflow = present.size - MAX_GROUPS_IN_MEMORY
+        if (overflow <= 0) return
+        val active = _activeGroupId
+        val toEvict =
+            groupMessageRecency
+                .asSequence()
+                .filter { it != active && present.containsKey(it) }
+                .take(overflow)
+                .toSet()
+        if (toEvict.isEmpty()) return
+        toEvict.forEach { saveMessagesToStorage(it) }
+        _messages.update { it - toEvict }
+        toEvict.forEach { groupId ->
+            val droppedIds = messageIdIndex.remove(groupId)
+            if (!droppedIds.isNullOrEmpty()) {
+                _reactions.update { it - droppedIds }
+            }
+            groupMessageRecency.remove(groupId)
+        }
     }
 
     /**
@@ -3500,6 +3555,7 @@ class GroupManager(
         // (not in clearForRelaySwitch) because relay switch must preserve the
         // user's message history for the active account.
         _messages.value = emptyMap()
+        groupMessageRecency.clear()
         _messageStatus.value = emptyMap()
         _latestMessageRelayByGroup.value = emptyMap()
         // Joined-group sets and restricted-group markers are pubkey-scoped.
@@ -3606,6 +3662,7 @@ class GroupManager(
                     val merged = (existing + newMsgs).sortedBy { it.createdAt }
                     current + (groupId to merged)
                 }
+                touchGroupRecency(groupId)
             }
         } catch (e: Throwable) {
             // Ignore parsing errors - storage may be corrupted
