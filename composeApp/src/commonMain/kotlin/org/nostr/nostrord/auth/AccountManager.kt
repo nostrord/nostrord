@@ -198,7 +198,14 @@ class AccountManager(
             }
         if (winner != null) return winner
 
-        authManager.logout()
+        // No fallback account: this is a full logout. Route through the
+        // repository logout so the relay connections (primary + pool + DM relays)
+        // are actually closed. Calling only authManager.logout() left every
+        // socket open until a page reload, eventually exhausting the browser's
+        // WebSocket limit so a fresh login/QR connect failed (see
+        // docs/ws-connection-leak-plan.md). repo.logout() also runs
+        // sessionManager.logout() -> authManager.logout().
+        AppModule.nostrRepository.logout()
         AppModule.applyActiveAccountChange(null)
         return null
     }
