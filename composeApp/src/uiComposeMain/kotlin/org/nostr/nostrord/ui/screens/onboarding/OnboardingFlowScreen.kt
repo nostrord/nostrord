@@ -320,51 +320,14 @@ private fun GroupsStep(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            "Public groups the people you follow are in. Tap one to join, or paste an invite below.",
+            "Have an invite? Paste it below. Or join a public group the people you follow are in.",
             color = NostrordColors.TextSecondary,
             fontSize = 15.sp,
         )
         Spacer(modifier = Modifier.height(20.dp))
 
-        // One public group per line; relay row hidden in onboarding. Joining marks the
-        // card "Joined" in place rather than removing it (see [shown] accumulation above).
-        if (shown.isEmpty() && friendsGroupsLoading) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                repeat(3) { GroupCardSkeleton() }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        } else if (shown.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                shown.forEach { fg ->
-                    val joined = fg.meta.id in joinedGroupIds
-                    GroupCard(
-                        name = fg.meta.name ?: fg.meta.id,
-                        description = fg.meta.about,
-                        picture = fg.meta.picture,
-                        groupId = fg.meta.id,
-                        memberCount = fg.memberCount,
-                        restricted = fg.meta.isRestricted,
-                        cta = if (joined) "Joined" else "Join",
-                        ctaPrimary = !joined,
-                        ctaInline = true,
-                        people = fg.people,
-                        peopleLoading = fg.peopleLoading,
-                        isPublic = fg.meta.isPublic,
-                        isOpen = fg.meta.isOpen,
-                        hasMetadata = fg.hasMetadata,
-                        relayUrl = "",
-                        isJoined = joined,
-                        onRelayClick = null,
-                        // Fire-and-forget like the follow buttons: the join outlives this
-                        // screen, keeps the wizard up, and the card flips to "Joined".
-                        onClick = { if (!joined) onJoinGroup(fg.relayUrl, fg.meta.id) },
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        // Join-by-link card (prototype's bottom card on the Groups step)
+        // Join-by-link card pinned above the discovery list so an invite (a deterministic
+        // action) is always reachable without scrolling past a long list of suggestions.
         Column(
             modifier =
             Modifier
@@ -414,6 +377,44 @@ private fun GroupsStep(
                 )
             }
             FormHint("Accepts an invite link, a NIP-19 naddr address, or relay'groupId.")
+        }
+
+        // One public group per line; relay row hidden in onboarding. Joining marks the
+        // card "Joined" in place rather than removing it (see [shown] accumulation above).
+        if (shown.isEmpty() && friendsGroupsLoading) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                repeat(3) { GroupCardSkeleton() }
+            }
+        } else if (shown.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                shown.forEach { fg ->
+                    val joined = fg.meta.id in joinedGroupIds
+                    GroupCard(
+                        name = fg.meta.name ?: fg.meta.id,
+                        description = fg.meta.about,
+                        picture = fg.meta.picture,
+                        groupId = fg.meta.id,
+                        memberCount = fg.memberCount,
+                        restricted = fg.meta.isRestricted,
+                        cta = if (joined) "Joined" else "Join",
+                        ctaPrimary = !joined,
+                        ctaInline = true,
+                        people = fg.people,
+                        peopleLoading = fg.peopleLoading,
+                        isPublic = fg.meta.isPublic,
+                        isOpen = fg.meta.isOpen,
+                        hasMetadata = fg.hasMetadata,
+                        relayUrl = "",
+                        isJoined = joined,
+                        onRelayClick = null,
+                        // Fire-and-forget like the follow buttons: the join outlives this
+                        // screen, keeps the wizard up, and the card flips to "Joined".
+                        onClick = { if (!joined) onJoinGroup(fg.relayUrl, fg.meta.id) },
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

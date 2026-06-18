@@ -269,34 +269,11 @@ private val GroupsStep =
         }
         p {
             className = ClassName("onb-section-sub")
-            +"Public groups the people you follow are in. Join the ones you like, or paste an invite below."
+            +"Have an invite? Paste it below. Or join a public group the people you follow are in."
         }
 
-        when {
-            discovered.isEmpty() && friendsGroupsLoading ->
-                div {
-                    className = ClassName("onb-pack-list onb-groups")
-                    repeat(3) { groupCardSkeleton() }
-                }
-            discovered.isNotEmpty() ->
-                div {
-                    className = ClassName("onb-pack-list onb-groups")
-                    discovered.forEach { fg ->
-                        discoverGroupCard(
-                            fg,
-                            relayMeta[fg.relayUrl]?.icon,
-                            fg.meta.id in joinedIds,
-                            enableRelayLink = false,
-                            showJoinCta = true,
-                            interactive = false,
-                            showRelay = false,
-                        ) {
-                            props.onJoinGroup(fg.relayUrl, fg.meta.id)
-                        }
-                    }
-                }
-        }
-
+        // Join-by-link stays pinned above the discovery list so an invite (a deterministic
+        // action) is always reachable without scrolling past a long list of suggestions.
         div {
             className = ClassName("join-card")
             div {
@@ -330,6 +307,32 @@ private val GroupsStep =
             }
             formHint("Accepts an invite link, a NIP-19 naddr address, or relay'groupId.")
         }
+
+        when {
+            discovered.isEmpty() && friendsGroupsLoading ->
+                div {
+                    className = ClassName("onb-pack-list onb-groups")
+                    repeat(3) { groupCardSkeleton() }
+                }
+            discovered.isNotEmpty() ->
+                div {
+                    className = ClassName("onb-pack-list onb-groups")
+                    discovered.forEach { fg ->
+                        discoverGroupCard(
+                            fg,
+                            relayMeta[fg.relayUrl]?.icon,
+                            fg.meta.id in joinedIds,
+                            enableRelayLink = false,
+                            showJoinCta = true,
+                            interactive = false,
+                            showRelay = false,
+                        ) {
+                            props.onJoinGroup(fg.relayUrl, fg.meta.id)
+                        }
+                    }
+                }
+        }
+
         p {
             className = ClassName("onb-skip-note")
             +"No invite yet? Skip for now and create your own group from Home."
