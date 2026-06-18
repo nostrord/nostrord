@@ -39,14 +39,18 @@ fun TagBadge(
 }
 
 /**
- * The two NIP-29 access pills (kind:39000) with canonical tones, matching the web
- * `groupTypeBadges`: Public green / Private yellow, Open purple / Closed orange.
- * Place inside a Row; the pills are separated by a 6.dp internal gap.
+ * The NIP-29 access pills (kind:39000) with canonical tones, matching the web
+ * `groupTypeBadges` and the group info modal: Public green / Private yellow,
+ * Open purple / Closed orange, plus the secondary Restricted (danger) and Hidden
+ * (info) attributes shown only when set. Place inside a Row; the pills are
+ * separated by a 6.dp internal gap.
  */
 @Composable
 fun GroupTypeBadges(
     isPublic: Boolean,
     isOpen: Boolean,
+    isRestricted: Boolean = false,
+    isHidden: Boolean = false,
 ) {
     TagBadge(
         text = if (isPublic) "Public" else "Private",
@@ -57,4 +61,14 @@ fun GroupTypeBadges(
         text = if (isOpen) "Open" else "Closed",
         color = if (isOpen) NostrordColors.Primary else NostrordColors.WarningOrange,
     )
+    // Secondary attributes: Restricted = only members can post, Hidden = relay hides
+    // metadata from non-members. Shown only when present so common groups stay uncluttered.
+    if (isRestricted) {
+        Spacer(modifier = Modifier.width(6.dp))
+        TagBadge(text = "Restricted", color = NostrordColors.Error)
+    }
+    if (isHidden) {
+        Spacer(modifier = Modifier.width(6.dp))
+        TagBadge(text = "Hidden", color = NostrordColors.TextLink)
+    }
 }

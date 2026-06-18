@@ -365,7 +365,12 @@ private fun ProfileGroupRow(
                         }
                     }
                     Spacer(modifier = Modifier.width(Spacing.sm))
-                    GroupTypeBadges(isPublic = group.meta.isPublic, isOpen = group.meta.isOpen)
+                    GroupTypeBadges(
+                        isPublic = group.meta.isPublic,
+                        isOpen = group.meta.isOpen,
+                        isRestricted = group.meta.isRestricted,
+                        isHidden = group.meta.isHidden,
+                    )
                 }
                 if (group.memberCount > 0) {
                     Text(
