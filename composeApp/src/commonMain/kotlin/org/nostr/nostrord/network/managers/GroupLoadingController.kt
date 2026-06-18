@@ -163,14 +163,22 @@ class GroupLoadingController(
     private val _state = MutableStateFlow<GroupLoadingState>(GroupLoadingState.Idle)
     val state: StateFlow<GroupLoadingState> = _state.asStateFlow()
 
+    /** The group this controller manages. */
+    val id: String get() = groupId
+
     private var currentTracker: SubscriptionTracker? = null
     private var timeoutJob: Job? = null
 
     /**
      * Attempt to start initial message loading.
      * Returns subscription ID if started, null if already loading.
+     *
+     * Pass [armTimeout] = false when the caller defers the REQ behind a NIP-42 AUTH wait
+     * (private groups on a remote signer): the state enters InitialLoading immediately so
+     * the UI shows skeletons, but the load timeout is armed later via [armInitialTimeout]
+     * once the REQ is actually on the wire, so a multi-second AUTH wait does not expire it.
      */
-    suspend fun startInitialLoad(): String? = mutex.withLock {
+    suspend fun startInitialLoad(armTimeout: Boolean = true): String? = mutex.withLock {
         val currentState = _state.value
 
         // Only start from Idle or Error states
@@ -187,12 +195,42 @@ class GroupLoadingController(
                 currentTracker = tracker
 
                 _state.value = GroupLoadingState.InitialLoading(subId)
-                startTimeout(subId, isInitial = true)
+                if (armTimeout) startTimeout(subId, isInitial = true)
 
                 subId
             }
             else -> null // Already loading or has messages
         }
+    }
+
+    /**
+     * Arm the initial-load timeout once the REQ has actually been sent. Pairs with
+     * [startInitialLoad] (armTimeout = false): starting the timeout at start-of-load time
+     * would let it expire during a NIP-42 AUTH wait and fail a load that is merely waiting
+     * to authenticate. No-op if [subscriptionId] is no longer the in-flight initial load.
+     */
+    suspend fun armInitialTimeout(subscriptionId: String) = mutex.withLock {
+        val tracker = currentTracker ?: return@withLock
+        if (tracker.subscriptionId != subscriptionId) return@withLock
+        if (_state.value is GroupLoadingState.InitialLoading) {
+            startTimeout(subscriptionId, isInitial = true)
+        }
+    }
+
+    /**
+     * The relay returned/CLOSED an in-flight INITIAL load while it still needs NIP-42 AUTH
+     * (e.g. opening a private group from the homepage, where the first read races the AUTH
+     * challenge the relay issues in response to it). Returns true to signal the caller it
+     * must NOT settle this load: resubscribeAfterAuth replays the read once AUTH completes,
+     * and keeping the state in InitialLoading lets the UI hold skeletons instead of flashing
+     * a false "No messages yet". The load timeout stays armed, so a signer that never AUTHs
+     * still terminates to Error. No-op (false) for pagination or once the load has settled.
+     */
+    suspend fun holdInitialLoadForReauth(subscriptionId: String): Boolean = mutex.withLock {
+        val tracker = currentTracker ?: return@withLock false
+        if (tracker.subscriptionId != subscriptionId) return@withLock false
+        if (!tracker.isInitialLoad) return@withLock false
+        _state.value is GroupLoadingState.InitialLoading
     }
 
     /**

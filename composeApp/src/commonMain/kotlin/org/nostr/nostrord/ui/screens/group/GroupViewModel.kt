@@ -86,6 +86,7 @@ class GroupViewModel(
     val relayMetadata = repo.relayMetadata
     val childrenByParent = repo.childrenByParent
     val groupStates = repo.groupStates
+    val groupsAwaitingAuthRead = repo.groupsAwaitingAuthRead
     val zaps = repo.zaps
     val cachedEvents = repo.cachedEvents
 
