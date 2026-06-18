@@ -557,6 +557,20 @@ fun SecureStorage.clearGroupMembershipFor(pubkey: String) {
     saveStringPref(groupMembershipCacheKey(pubkey), "")
 }
 
+// One-shot guard: true once the legacy per-group message blobs have been seeded into the
+// bulk history cache (CacheStore), so the migration runs at most once per account.
+private fun messageBlobMigratedKey(pubkey: String) = "message_blob_migrated_${pubkeyDigest(pubkey)}"
+
+fun SecureStorage.isMessageBlobMigratedFor(pubkey: String): Boolean = getBooleanPref(messageBlobMigratedKey(pubkey), false)
+
+fun SecureStorage.setMessageBlobMigratedFor(pubkey: String) {
+    saveBooleanPref(messageBlobMigratedKey(pubkey), true)
+}
+
+fun SecureStorage.clearMessageBlobMigratedFor(pubkey: String) {
+    saveBooleanPref(messageBlobMigratedKey(pubkey), false)
+}
+
 // ── NIP-11 relay-info refresh timestamps ────────────────────────────────────
 // Per-relay last-successful-fetch epoch seconds, one JSON blob (account-independent,
 // like the relay metadata itself). Lets the NIP-11 cache skip the network fetch while

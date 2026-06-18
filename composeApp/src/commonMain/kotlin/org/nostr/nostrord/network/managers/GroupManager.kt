@@ -37,14 +37,17 @@ import org.nostr.nostrord.storage.cache.CacheStore
 import org.nostr.nostrord.storage.cache.CachedMsg
 import org.nostr.nostrord.storage.cache.InMemoryCacheStore
 import org.nostr.nostrord.storage.clearGroupMembershipFor
+import org.nostr.nostrord.storage.clearMessageBlobMigratedFor
 import org.nostr.nostrord.storage.getRestrictedGroupsForRelay
 import org.nostr.nostrord.storage.isFullGroupListCacheFresh
 import org.nostr.nostrord.storage.isGroupListCacheFresh
+import org.nostr.nostrord.storage.isMessageBlobMigratedFor
 import org.nostr.nostrord.storage.loadGroupMembershipFor
 import org.nostr.nostrord.storage.removeRestrictedGroupForRelay
 import org.nostr.nostrord.storage.saveFullGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupListEoseTimestamp
 import org.nostr.nostrord.storage.saveGroupMembershipFor
+import org.nostr.nostrord.storage.setMessageBlobMigratedFor
 import org.nostr.nostrord.utils.AppError
 import org.nostr.nostrord.utils.Result
 import org.nostr.nostrord.utils.epochMillis
@@ -3298,6 +3301,33 @@ class GroupManager(
         scheduleCacheEviction()
     }
 
+    /**
+     * One-time seeding of the persistent cache from the legacy per-group message blobs
+     * (the last-100 snapshot in [SecureStorage]). Without this, a previously-seen group would
+     * hydrate empty right after upgrade until the write-through repopulates it; with it, the
+     * already-saved history shows on the first open. Idempotent (guarded by a per-account flag)
+     * and scoped to the joined groups (already restored at cold start), since the KV blobs
+     * aren't enumerable.
+     */
+    fun migrateMessageBlobsToCache(pubkey: String) {
+        if (pubkey.isBlank()) return
+        scope.launch {
+            if (SecureStorage.isMessageBlobMigratedFor(pubkey)) return@launch
+            val groupIds = _joinedGroupsByRelay.value.values.flatten().toSet()
+            if (groupIds.isEmpty()) return@launch
+            for (groupId in groupIds) {
+                val blob = SecureStorage.getMessagesForGroup(pubkey, groupId) ?: continue
+                val messages = parseMessagesBlob(blob)
+                if (messages.isEmpty()) continue
+                try {
+                    cacheStore.upsertMessages(pubkey, groupId, messages.map { it.toCachedMsg(groupId) })
+                } catch (_: Exception) {
+                }
+            }
+            SecureStorage.setMessageBlobMigratedFor(pubkey)
+        }
+    }
+
     private var cacheEvictionJob: Job? = null
 
     /** Trim the persistent cache to [CACHE_BYTE_BUDGET], debounced so a write burst evicts once. */
@@ -3713,6 +3743,14 @@ class GroupManager(
         SecureStorage.clearAllJoinedGroupsForAccount(pubKey)
         SecureStorage.clearAllJoinedGroupMetadataForAccount(pubKey)
         SecureStorage.clearGroupMembershipFor(pubKey)
+        // Wipe the persistent history cache and let a re-added account re-seed from its blobs.
+        SecureStorage.clearMessageBlobMigratedFor(pubKey)
+        scope.launch {
+            try {
+                cacheStore.clearAccount(pubKey)
+            } catch (_: Exception) {
+            }
+        }
         _joinedGroupsByRelay.value = emptyMap()
         currentPubkey = null
     }
@@ -3725,29 +3763,35 @@ class GroupManager(
      * Load persisted messages for a group from storage.
      * Called when entering a group to show cached messages while fetching new ones.
      */
+    /** Parse a persisted message blob (JSON array) into messages; empty on any parse error. */
+    private fun parseMessagesBlob(messagesJson: String): List<NostrGroupClient.NostrMessage> = try {
+        json.parseToJsonElement(messagesJson).jsonArray.mapNotNull { element ->
+            try {
+                val obj = element.jsonObject
+                NostrGroupClient.NostrMessage(
+                    id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                    pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: return@mapNotNull null,
+                    content = obj["content"]?.jsonPrimitive?.content ?: "",
+                    createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: return@mapNotNull null,
+                    kind = obj["kind"]?.jsonPrimitive?.int ?: 9,
+                    tags = obj["tags"]?.jsonArray?.map { tagArray ->
+                        tagArray.jsonArray.map { it.jsonPrimitive.content }
+                    } ?: emptyList(),
+                )
+            } catch (e: Throwable) {
+                null
+            }
+        }
+    } catch (e: Throwable) {
+        emptyList()
+    }
+
     fun loadMessagesFromStorage(groupId: String) {
         val pubkey = currentPubkey ?: return
         val messagesJson = SecureStorage.getMessagesForGroup(pubkey, groupId) ?: return
 
         try {
-            val messagesArray = json.parseToJsonElement(messagesJson).jsonArray
-            val messages = messagesArray.mapNotNull { element ->
-                try {
-                    val obj = element.jsonObject
-                    NostrGroupClient.NostrMessage(
-                        id = obj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        pubkey = obj["pubkey"]?.jsonPrimitive?.content ?: return@mapNotNull null,
-                        content = obj["content"]?.jsonPrimitive?.content ?: "",
-                        createdAt = obj["createdAt"]?.jsonPrimitive?.long ?: return@mapNotNull null,
-                        kind = obj["kind"]?.jsonPrimitive?.int ?: 9,
-                        tags = obj["tags"]?.jsonArray?.map { tagArray ->
-                            tagArray.jsonArray.map { it.jsonPrimitive.content }
-                        } ?: emptyList(),
-                    )
-                } catch (e: Throwable) {
-                    null
-                }
-            }
+            val messages = parseMessagesBlob(messagesJson)
 
             if (messages.isNotEmpty()) {
                 // Add to deduplicator and persistent message index
