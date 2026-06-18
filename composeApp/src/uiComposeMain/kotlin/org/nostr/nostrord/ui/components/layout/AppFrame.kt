@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Mail
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
@@ -76,6 +77,9 @@ import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.nostr.Nip19
 import org.nostr.nostrord.ui.components.accounts.AddAccountSheet
 import org.nostr.nostrord.ui.components.avatars.OptimizedSmallAvatar
+import org.nostr.nostrord.ui.components.buttons.AppButton
+import org.nostr.nostrord.ui.components.buttons.AppButtonSize
+import org.nostr.nostrord.ui.components.buttons.AppButtonVariant
 import org.nostr.nostrord.ui.components.forms.AppSegmentedTabs
 import org.nostr.nostrord.ui.components.forms.SegmentedTab
 import org.nostr.nostrord.ui.components.loading.SkeletonCircle
@@ -627,12 +631,21 @@ private fun HomeHub(
                     repeat(6) { FriendRowSkeleton() }
                 }
             friends.isEmpty() ->
-                Text(
-                    "You don't follow anyone yet.",
-                    color = NostrordColors.TextMuted,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
-                )
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
+                    Text(
+                        "You don't follow anyone yet.",
+                        color = NostrordColors.TextMuted,
+                        fontSize = 13.sp,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    AppButton(
+                        text = "Follow people",
+                        onClick = { AppModule.requestOnboarding() },
+                        variant = AppButtonVariant.Secondary,
+                        size = AppButtonSize.Small,
+                        icon = Icons.Default.PersonAdd,
+                    )
+                }
             else ->
                 Column(modifier = Modifier.fillMaxWidth()) {
                     friends.forEach { friend -> FriendRow(friend = friend, onClick = { onOpenUser(friend.pubkey) }) }

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.nostr.nostrord.di.AppModule
 import org.nostr.nostrord.network.NostrRepositoryApi
 import org.nostr.nostrord.utils.parseGroupJoinInput
 import org.nostr.nostrord.utils.toKotlinResult
@@ -45,6 +46,11 @@ class AppViewModel(
     private val _stayInOnboarding = MutableStateFlow(false)
     val stayInOnboarding: StateFlow<Boolean> = _stayInOnboarding.asStateFlow()
 
+    // Re-open request from the friends sidebar's "Follow people" action. Folded into the
+    // onboarding gate by both UIs so it re-opens the wizard even for an account that has
+    // groups (needsOnboarding == false) or already skipped (onboardingSkipped == true).
+    val onboardingRequested: StateFlow<Boolean> = AppModule.onboardingRequested
+
     fun keepOnboarding() {
         _stayInOnboarding.value = true
     }
@@ -52,6 +58,7 @@ class AppViewModel(
     fun skipOnboarding() {
         _stayInOnboarding.value = false
         _onboardingSkipped.value = true
+        AppModule.clearOnboardingRequest()
     }
 
     /**

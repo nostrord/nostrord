@@ -81,7 +81,9 @@ fun OnboardingFlowScreen(
     onJoinGroup: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
-    var step by remember { mutableStateOf(0) }
+    // Re-opened from the sidebar's "Follow people" action: jump straight to the
+    // Who-to-follow step rather than the Welcome step.
+    var step by remember { mutableStateOf(if (AppModule.onboardingRequested.value) 1 else 0) }
 
     Column(
         modifier =

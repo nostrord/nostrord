@@ -105,7 +105,11 @@ val WebApp =
         // [stayInOnboarding] keeps the wizard up after a group join (which flips
         // needsOnboarding) so the user can join several before leaving via Skip/Done.
         val stayInOnboarding = useStateFlow(vm.stayInOnboarding)
-        val showingOnboarding = loggedIn && (needsOnboarding || stayInOnboarding) && !onboardingSkipped
+        // The sidebar's "Follow people" action re-opens the wizard even for an account
+        // with groups or one that already skipped, so it overrides those gates.
+        val onboardingRequested = useStateFlow(vm.onboardingRequested)
+        val showingOnboarding =
+            loggedIn && (onboardingRequested || ((needsOnboarding || stayInOnboarding) && !onboardingSkipped))
 
         // Hash-route mirror: #/login, #/onboarding, Home at the root. A page hash
         // (#/g/…, #/u/…) is AppFrame's territory: entering logged-in with one (deep

@@ -2531,6 +2531,36 @@ body {
     color: var(--color-text-muted);
 }
 
+.sidebar-follow-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+}
+
+.sidebar-follow-empty .sidebar-note {
+    padding-bottom: 0;
+}
+
+.sidebar-follow-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0 8px;
+    padding: 6px 12px;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: var(--color-primary);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.sidebar-follow-cta:hover {
+    background: var(--color-primary-variant);
+}
+
 .sidebar-friends {
     display: flex;
     flex-direction: column;
@@ -3231,7 +3261,7 @@ body {
 
 /* Discovery list sits above the join-by-link card; keep them apart. */
 .onb-groups {
-    margin-bottom: 16px;
+    margin-top: 16px;
 }
 
 .group-card-name {

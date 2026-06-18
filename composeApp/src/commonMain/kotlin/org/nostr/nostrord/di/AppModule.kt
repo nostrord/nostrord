@@ -96,6 +96,25 @@ object AppModule {
         _systemMessages.tryEmit(message)
     }
 
+    // Set by the friends sidebar's "Follow people" empty-state action to re-open the
+    // onboarding wizard for an account that already finished it but follows nobody.
+    // AppViewModel folds this into its onboarding gate (overriding a prior Skip) and
+    // clears it when the user leaves the wizard. It lives here, not on AppViewModel,
+    // because the sidebar is too deep to reach the top-level AppViewModel (and on web
+    // each useViewModel call site builds its own instance).
+    private val _onboardingRequested = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val onboardingRequested: kotlinx.coroutines.flow.StateFlow<Boolean> = _onboardingRequested
+
+    /** Re-open the onboarding wizard from inside the app (friends sidebar). */
+    fun requestOnboarding() {
+        _onboardingRequested.value = true
+    }
+
+    /** Clear the re-open request once the user leaves the wizard. */
+    fun clearOnboardingRequest() {
+        _onboardingRequested.value = false
+    }
+
     val authManager: AuthManager by lazy {
         AuthManager(accountStore).also { am ->
             am.onSessionInvalidated = { invalidatedPubkey ->

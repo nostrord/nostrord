@@ -51,7 +51,9 @@ external interface OnboardingFlowProps : Props {
  */
 val OnboardingFlow =
     FC<OnboardingFlowProps> { props ->
-        val (step, setStep) = useState { 0 }
+        // Re-opened from the sidebar's "Follow people" action: jump straight to the
+        // Who-to-follow step rather than the Welcome step.
+        val (step, setStep) = useState { if (AppModule.onboardingRequested.value) 1 else 0 }
         val (joinInput, setJoinInput) = useState { "" }
         val (joining, setJoining) = useState { false }
         val (error, setError) = useState<String?> { null }

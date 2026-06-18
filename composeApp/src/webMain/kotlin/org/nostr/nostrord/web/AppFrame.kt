@@ -344,8 +344,17 @@ val AppFrame =
                                     }
                                 friends.isEmpty() ->
                                     div {
-                                        className = ClassName("sidebar-note")
-                                        +"You don't follow anyone yet."
+                                        className = ClassName("sidebar-follow-empty")
+                                        div {
+                                            className = ClassName("sidebar-note")
+                                            +"You don't follow anyone yet."
+                                        }
+                                        button {
+                                            className = ClassName("sidebar-follow-cta")
+                                            onClick = { AppModule.requestOnboarding() }
+                                            icon(Ic.PersonAdd)
+                                            +"Follow people"
+                                        }
                                     }
                                 else ->
                                     div {

@@ -138,8 +138,11 @@ fun App() {
                     val onboardingSkipped by vm.onboardingSkipped.collectAsState()
                     // Keeps the wizard up after a group join so several can be joined.
                     val stayInOnboarding by vm.stayInOnboarding.collectAsState()
+                    // The sidebar's "Follow people" action re-opens the wizard even for an
+                    // account with groups or one that already skipped, so it overrides those.
+                    val onboardingRequested by vm.onboardingRequested.collectAsState()
                     val content: @Composable (Modifier) -> Unit =
-                        if ((needsOnboarding || stayInOnboarding) && !onboardingSkipped) {
+                        if (onboardingRequested || ((needsOnboarding || stayInOnboarding) && !onboardingSkipped)) {
                             { m ->
                                 OnboardingFlowScreen(
                                     onSkip = vm::skipOnboarding,
