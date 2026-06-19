@@ -2959,32 +2959,6 @@ body {
     border-bottom: 1px solid var(--color-divider);
 }
 
-.relay-back {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    color: var(--color-text-secondary);
-    background: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-}
-
-.relay-back:hover {
-    color: var(--color-text-primary);
-    background: var(--color-hover);
-}
-
-/* Desktop keeps the persistent sidebar for navigation, so the back button is mobile-only
-   (mirrors .chat-drawer-btn and native's forceDesktop gate). */
-@media (min-width: 768px) {
-    .relay-back {
-        display: none;
-    }
-}
-
 .relay-header-name {
     font-size: 16px;
     font-weight: 700;

@@ -26,6 +26,7 @@ external interface DmPageProps : Props {
     /** Peer of the open conversation; null shows the section's empty hero. */
     var pubkey: String?
     var onOpenProfile: (UserRoute) -> Unit
+    var onOpenDrawer: () -> Unit
 }
 
 /**
@@ -42,6 +43,12 @@ val DmPage =
                 className = ClassName("dm-page")
                 div {
                     className = ClassName("page-header")
+                    button {
+                        className = ClassName("icon-btn frame-menu-btn")
+                        onClick = { props.onOpenDrawer() }
+                        icon(Ic.Menu)
+                    }
+                    icon(Ic.Mail)
                     span {
                         className = ClassName("page-header-title")
                         +"Direct messages"
@@ -84,6 +91,11 @@ val DmPage =
             className = ClassName("dm-page")
             div {
                 className = ClassName("page-header")
+                button {
+                    className = ClassName("icon-btn frame-menu-btn")
+                    onClick = { props.onOpenDrawer() }
+                    icon(Ic.Menu)
+                }
                 button {
                     className = ClassName("dm-peer")
                     onClick = { props.onOpenProfile(UserRoute(pubkey)) }

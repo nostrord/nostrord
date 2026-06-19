@@ -533,16 +533,17 @@ val AppFrame =
                             pubkey = r.pubkey
                             onOpenGroup = { pushRoute(it) }
                             onEditProfile = { pushRoute(SettingsRoute) }
+                            onOpenDrawer = { setDrawerOpen(true) }
                         }
                     r is DmRoute ->
                         DmPage {
                             pubkey = r.pubkey
                             onOpenProfile = { pushRoute(it) }
+                            onOpenDrawer = { setDrawerOpen(true) }
                         }
                     r is RelayRoute ->
                         RelayScreen {
                             relayUrl = r.relayUrl
-                            onBack = { pushHome() }
                             onOpenGroup = { g -> pushRoute(GroupRoute(g.relayUrl, g.meta.id)) }
                             onOpenDrawer = { setDrawerOpen(true) }
                         }
