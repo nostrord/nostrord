@@ -957,19 +957,31 @@ class GroupManager(
      * from the general kind 39000 listing, but returns them on targeted #d requests
      * once the client has authenticated via NIP-42.
      */
+    // Per-group cooldown so the several post-AUTH callers (connect, switchRelay,
+    // ensureJoinedRelaysConnected, resubscribeAfterAuth) do not each re-fire the same
+    // private group's #d REQs in the window before its kind:39000 lands. Without it a
+    // cold boot fanned out duplicate per-group REQs that could exhaust a relay's
+    // subscription budget and get the chat/pagination REQs CLOSED "too many subscriptions".
+    private val privateGroupFetchAt = mutableMapOf<String, Long>()
+    private val PRIVATE_GROUP_FETCH_COOLDOWN_MS = 10_000L
+
     suspend fun requestPrivateGroupData(relayUrl: String) {
         val uncached = getUncachedJoinedGroups(relayUrl)
         if (uncached.isEmpty()) return
         val client = connectionManager.getClientForRelay(relayUrl) ?: return
         if (!client.isConnected()) return
-        for (groupId in uncached) {
+        val now = epochMillis()
+        val toFetch = uncached.filter { now - (privateGroupFetchAt[it] ?: 0L) > PRIVATE_GROUP_FETCH_COOLDOWN_MS }
+        if (toFetch.isEmpty()) return
+        toFetch.forEach { privateGroupFetchAt[it] = now }
+        try {
+            // One batched #d REQ for ALL missing metadata, not one per group.
+            client.requestGroupsMetadata(toFetch)
+        } catch (_: Exception) {}
+        for (groupId in toFetch) {
             try {
-                // Metadata is always missing here (that is the "uncached" criterion),
-                // but members/admins may have already arrived from the eager
-                // pre-AUTH fetch on public groups. Re-requesting them just because
-                // metadata is absent doubled the kind:39002/39001 REQs on cold
-                // start; only ask for what we still lack.
-                client.requestGroupMetadata(groupId)
+                // Members/admins may already be live (mux_meta or an earlier fetch); only
+                // ask for what we still lack so we don't double the kind:39002/39001 REQs.
                 if (groupId !in _groupMembers.value) client.requestGroupMembers(groupId)
                 if (groupId !in _groupAdmins.value) client.requestGroupAdmins(groupId)
             } catch (_: Exception) {}

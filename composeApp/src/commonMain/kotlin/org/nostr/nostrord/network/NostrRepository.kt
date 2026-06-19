@@ -163,6 +163,11 @@ class NostrRepository(
     private val LOCAL_SIGNER_AUTH_BUDGET_MS = 2_000L
     private val REMOTE_SIGNER_AUTH_BUDGET_MS = 12_000L
 
+    // Grace before auto-forgetting an orphan pin. Must exceed the remote AUTH budget plus a
+    // little, so a private group whose kind:39000 only arrives post-AUTH (after the public
+    // group-list EOSE flagged it as an orphan) has time to resolve and is not wrongly dropped.
+    private val ORPHAN_FORGET_SETTLE_MS = 15_000L
+
     private fun signerAuthBudgetMs(): Long = if (ActiveAccountManager.session.value?.signer?.isRemote == true) {
         REMOTE_SIGNER_AUTH_BUDGET_MS
     } else {
@@ -530,6 +535,12 @@ class NostrRepository(
         // forgetJoinedPin updates joined, which re-runs this collector until it converges.
         scope.launch {
             groupManager.orphanedJoinedByRelay.collect {
+                if (groupManager.autoForgettableOrphans().isEmpty()) return@collect
+                // Settle before acting: a private group's kind:39000 arrives via
+                // requestPrivateGroupData only AFTER AUTH, which can land after the public
+                // group-list EOSE that flags it as an orphan. Wait, then RE-CHECK, so a
+                // group that resolved during the window is never forgotten.
+                delay(ORPHAN_FORGET_SETTLE_MS)
                 val pubKey = sessionManager.getPublicKey() ?: return@collect
                 val toForget = groupManager.autoForgettableOrphans()
                 if (toForget.isEmpty()) return@collect
