@@ -607,6 +607,7 @@ class GroupManager(
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
+
         // Cap the disk-first cache read so a hung IndexedDB cursor on web can never dead-lock
         // pagination — fall through to the relay if the cache does not answer in time.
         const val CACHE_PAGE_TIMEOUT_MS = 2_000L

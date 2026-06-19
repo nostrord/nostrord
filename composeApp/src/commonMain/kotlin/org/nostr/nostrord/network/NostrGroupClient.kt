@@ -396,7 +396,10 @@ class NostrGroupClient(
      */
     suspend fun awaitAuthSigned(signBudgetMs: Long, challengeGraceMs: Long = 2_000): Boolean {
         val gated = authChallengeSeen ||
-            withTimeoutOrNull(challengeGraceMs) { authChallengeArrived.await(); true } == true
+            withTimeoutOrNull(challengeGraceMs) {
+                authChallengeArrived.await()
+                true
+            } == true
         if (!gated) return false
         return withTimeoutOrNull(signBudgetMs) {
             authCompleted.await()

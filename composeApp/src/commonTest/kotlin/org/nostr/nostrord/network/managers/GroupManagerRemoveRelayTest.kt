@@ -110,8 +110,7 @@ class GroupManagerRemoveRelayTest {
         scope.cancel()
     }
 
-    private fun gm(id: String, name: String) =
-        GroupMetadata(id = id, name = name, about = null, picture = null, isPublic = true, isOpen = true)
+    private fun gm(id: String, name: String) = GroupMetadata(id = id, name = name, about = null, picture = null, isPublic = true, isOpen = true)
 
     @Test
     fun `autoForgettableOrphans returns an orphan among real groups on a relay`() = runTest {
