@@ -1,5 +1,10 @@
 package org.nostr.nostrord.ui.components.sidebars
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -616,5 +621,39 @@ private fun MemberSearchField(
                 }
             }
         }
+    }
+}
+
+/**
+ * Right slide-over hosting the members panel (member sheet on compact / medium widths).
+ * Native counterpart of the web `.member-sidebar` drawer (`transform: translateX` from the
+ * right with a backdrop). Must be called inside a fill-size [BoxScope]; [content] is usually a
+ * [MemberSidebar] left at its default 240dp width.
+ */
+@Composable
+fun BoxScope.MemberDrawerOverlay(
+    visible: Boolean,
+    onDismiss: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
+        Box(
+            modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                ) { onDismiss() },
+        )
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = slideInHorizontally(initialOffsetX = { it }),
+        exit = slideOutHorizontally(targetOffsetX = { it }),
+        modifier = Modifier.align(Alignment.CenterEnd),
+    ) {
+        content()
     }
 }
