@@ -2977,6 +2977,14 @@ body {
     background: var(--color-hover);
 }
 
+/* Desktop keeps the persistent sidebar for navigation, so the back button is mobile-only
+   (mirrors .chat-drawer-btn and native's forceDesktop gate). */
+@media (min-width: 768px) {
+    .relay-back {
+        display: none;
+    }
+}
+
 .relay-header-name {
     font-size: 16px;
     font-weight: 700;
@@ -2997,6 +3005,20 @@ body {
     flex-shrink: 0;
     align-self: flex-start;
     white-space: nowrap;
+}
+
+/* Narrow content column: the add-to-list button drops to its own full-width row so it
+   stops squeezing the relay name/url. Keys off the content width (container), so it also
+   triggers when the sidebar narrows the column, matching native's compact gate. */
+@container home-content (max-width: 559px) {
+    .relay-info-card {
+        flex-wrap: wrap;
+    }
+
+    .relay-info-card > .btn-primary,
+    .relay-info-card > .btn-secondary {
+        width: 100%;
+    }
 }
 
 .relay-info-avatar {
@@ -3061,7 +3083,9 @@ body {
     font-family: monospace;
     font-size: 13px;
     color: var(--color-text-muted);
-    word-break: break-all;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 .relay-info-desc {
@@ -3085,6 +3109,7 @@ body {
     background: rgba(87, 242, 135, 0.15);
     padding: 2px 8px;
     border-radius: var(--radius-sm);
+    white-space: nowrap;
 }
 
 /* "In your list" badge: neutral/muted, matches the prototype's "na sua lista". */
@@ -3095,6 +3120,7 @@ body {
     background: var(--color-surface-variant);
     padding: 2px 8px;
     border-radius: var(--radius-sm);
+    white-space: nowrap;
 }
 
 .relay-meta-grid {
@@ -3104,7 +3130,9 @@ body {
     margin-top: 16px;
 }
 
-@media (min-width: 720px) {
+/* Three cells once the content column is wide enough (container, not viewport, so it
+   accounts for the sidebars; matches native's metaColumns gate). */
+@container home-content (min-width: 720px) {
     .relay-meta-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }

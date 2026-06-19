@@ -490,6 +490,8 @@ private fun FrameContent(
                     relayUrl = route.relayUrl,
                     onBack = onCloseGroup,
                     onOpenGroup = { relay, gid -> onNavigate(GroupRoute(relay, gid)) },
+                    forceDesktop = forceDesktop,
+                    onOpenDrawer = onOpenDrawer,
                 )
             is GroupRoute -> {
                 val groupsByRelay by AppModule.nostrRepository.groupsByRelay.collectAsState()
