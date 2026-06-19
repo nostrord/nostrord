@@ -3792,14 +3792,18 @@ class NostrRepository(
         val joinedOnRelay = groupManager.getGroupIdsForMux(relayUrl)
 
         val groupIds = (openedOnRelay + closedOnRelay + joinedOnRelay).distinct()
-        if (groupIds.isNotEmpty()) {
-            // PRESERVE pagination cursors: a periodic AUTH re-challenge (0xchat does this)
-            // must not reset an actively-scrolled group to Idle. Doing so re-fired the
-            // initial load below with `until = oldest - 1`, which jumps to the floor,
-            // injects ancient events at the top (visible scroll shift) and marks the group
-            // Exhausted, dropping all un-paginated middle history. Groups that never
-            // paginated (page 0) still fall back to Idle and re-init via the loop below.
-            groupManager.resetLoadingForGroupsPreservingCursor(groupIds)
+        // Re-load history ONLY for groups that have NO messages yet (their initial read was
+        // CLOSED auth-required / never landed). Re-loading a group that already has its
+        // messages on a periodic AUTH re-challenge (0xchat issues one every ~75s) reset the
+        // active group's loading controller — wiping its HasMore state so scroll-up could no
+        // longer paginate, showing only the first page — and fired an all-joined-groups msg
+        // storm that hammered the relay. The live mux (refreshed below) keeps already-loaded
+        // groups current; their in-memory history and pagination cursor stay untouched.
+        val needHistory = groupIds.filter { groupManager.messages.value[it].isNullOrEmpty() }
+        if (needHistory.isNotEmpty()) {
+            // Cursor-preserving, though these are empty groups (page 0) so they reset to Idle
+            // and the loop below re-inits them; a group that somehow has a live cursor is kept.
+            groupManager.resetLoadingForGroupsPreservingCursor(needHistory)
         }
 
         // Force-clear the mux tracker so the refresh always re-sends subscriptions.
@@ -3819,12 +3823,17 @@ class NostrRepository(
         // Re-request historical messages for groups that were CLOSED with
         // auth-required. The mux only delivers live messages (since cursor),
         // so without this the chat stays empty after AUTH completes.
+        // AUTH just succeeded: clear any "restricted" marker (from a pre-AUTH CLOSED or a
+        // persisted one) on every group so the chat unblocks instead of staying stuck on the
+        // "Private group" placeholder. If the relay still denies a group post-AUTH, the fresh
+        // CLOSED re-marks it.
         for (groupId in groupIds) {
-            // AUTH just succeeded: clear any "restricted" set by a pre-AUTH CLOSED (or a
-            // persisted one from a prior session) so the chat unblocks instead of staying
-            // stuck on the "Private group" placeholder. If the relay still denies this group
-            // post-AUTH, the fresh CLOSED re-marks it.
             groupManager.clearGroupRestricted(groupId)
+        }
+        // Re-request history ONLY for the empty groups (see needHistory above). An already
+        // -loaded group keeps its messages + pagination state; requesting it here would reset
+        // its controller and break scroll-back on every periodic AUTH re-challenge.
+        for (groupId in needHistory) {
             groupManager.requestGroupMessages(groupId)
         }
     }
