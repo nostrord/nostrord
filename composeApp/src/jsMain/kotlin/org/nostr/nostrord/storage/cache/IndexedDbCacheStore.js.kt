@@ -229,13 +229,20 @@ class IndexedDbCacheStore : CacheStore {
         onRow: (cursor: dynamic) -> Boolean,
     ): Unit = suspendCancellableCoroutine { cont ->
         cursorReq.onsuccess = { _: dynamic ->
-            val cursor = cursorReq.result
-            if (cursor == null) {
-                cont.resume(Unit)
-            } else if (onRow(cursor)) {
-                cursor.`continue`()
-            } else {
-                cont.resume(Unit)
+            // try/catch is essential: an exception in onRow/toCachedMsg (a malformed cached
+            // row) thrown inside this IDB callback would otherwise leave the continuation
+            // unresumed forever — hanging loadBefore and dead-locking scroll-back pagination.
+            try {
+                val cursor = cursorReq.result
+                if (cursor == null) {
+                    cont.resume(Unit)
+                } else if (onRow(cursor)) {
+                    cursor.`continue`()
+                } else {
+                    cont.resume(Unit)
+                }
+            } catch (e: Throwable) {
+                if (cont.isActive) cont.resumeWithException(e)
             }
         }
         cursorReq.onerror = { _: dynamic -> cont.resumeWithException(RuntimeException("IndexedDB cursor failed")) }

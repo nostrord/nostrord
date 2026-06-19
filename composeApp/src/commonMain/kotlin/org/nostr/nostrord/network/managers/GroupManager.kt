@@ -607,6 +607,9 @@ class GroupManager(
     companion object {
         const val PAGE_SIZE = 50
         const val LOADING_TIMEOUT_MS = 10_000L // 10 seconds timeout for loading
+        // Cap the disk-first cache read so a hung IndexedDB cursor on web can never dead-lock
+        // pagination — fall through to the relay if the cache does not answer in time.
+        const val CACHE_PAGE_TIMEOUT_MS = 2_000L
 
         // Budget for awaiting NIP-42 AUTH before the initial group read. Sized above a
         // remote (NIP-46) signer's round-trip so a private group on a bunker authenticates
@@ -2174,7 +2177,11 @@ class GroupManager(
         // Disk-first: serve an older page from the persistent cache before any relay round-trip
         // (and without touching the pagination state machine). Only when local history is
         // exhausted do we fall through to the relay. Works offline too — no client required.
-        if (loadOlderFromCache(groupId)) return true
+        // Guarded by a timeout: a hung IndexedDB read on web must NEVER dead-lock pagination —
+        // the web load latch only releases once this returns, so a hang froze scroll-back
+        // entirely (the group settled on HasMore but the latch stayed stuck after one page).
+        val servedFromCache = withTimeoutOrNull(CACHE_PAGE_TIMEOUT_MS) { loadOlderFromCache(groupId) } ?: false
+        if (servedFromCache) return true
 
         val currentClient = clientForGroup(groupId) ?: return false
 
