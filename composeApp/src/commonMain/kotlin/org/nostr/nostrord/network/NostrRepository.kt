@@ -804,7 +804,14 @@ class NostrRepository(
                 continue
             }
             try {
-                if (client.isConnected()) client.awaitAuthSigned(signerAuthBudgetMs())
+                if (client.isConnected()) {
+                    client.awaitAuthSigned(signerAuthBudgetMs())
+                    // Eagerly pull this relay's joined private-group metadata/members right
+                    // after AUTH. resubscribeAfterAuth also does this, but only when a fresh
+                    // challenge was actually signed; this covers the cache-hit / already-authed
+                    // reconnect paths so private groups on non-primary relays load on connect.
+                    groupManager.requestPrivateGroupData(relayUrl)
+                }
             } catch (_: Throwable) {}
             groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
             delay(100)
@@ -1670,15 +1677,20 @@ class NostrRepository(
                     groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
                 }
                 drainFullFetchRequest(client, relayUrl)
-                // After AUTH (or if no AUTH needed), request metadata for private
-                // groups that are in the joined list (kind 10009) but not in the
-                // group cache. The general kind 39000 listing omits private groups.
-                // Also request metadata for the active group if the user navigated
-                // directly via URL (e.g. invite link) and the group isn't known yet.
+                // Private-group-first: fire the joined groups' targeted #d metadata/members
+                // immediately after AUTH, NOT gated on the public group-list EOSE. Private
+                // groups are omitted from the public listing and are the slow ones, so they
+                // must not wait for it; the joined set is already known from the cache
+                // restore above, and getUncachedJoinedGroups only targets groups genuinely
+                // missing metadata (the private ones).
                 scope.launch {
-                    // Wait for the group-list EOSE so we only request kind:39000 for
-                    // groups genuinely missing from the public listing. Bounded fallback
-                    // keeps slow relays from blocking the targeted fetches indefinitely.
+                    groupManager.requestPrivateGroupData(relayUrl)
+                    groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
+                }
+                // Second pass after the public list EOSE: catches any joined group that
+                // only became known once the relay finished its list. Cheap — by now the
+                // private groups are cached, so the uncached filter makes this a near no-op.
+                scope.launch {
                     groupManager.awaitGroupListEose(relayUrl)
                     groupManager.requestPrivateGroupData(relayUrl)
                     groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
