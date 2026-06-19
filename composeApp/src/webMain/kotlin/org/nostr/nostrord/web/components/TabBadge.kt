@@ -17,11 +17,12 @@ private var cachedIcon: dynamic = null
 /**
  * Telegram-style browser-tab unread badge (web only; native uses OS notifications).
  *
- * Overlays [count] on the favicon and prefixes `document.title` with "(N) " whenever
- * there are unread messages, and restores the plain icon/title at zero (and on unmount).
- * The badge persists until the count itself drops to zero, which happens through the
- * normal read path (focus + reaching the bottom), so it naturally clears once the user
- * has caught up. Count is capped at "99+".
+ * Marks the favicon with a red unread DOT (no number: a digit is illegible at favicon
+ * size) and prefixes `document.title` with the exact count "(N) " whenever there are
+ * unread messages, and restores the plain icon/title at zero (and on unmount). The badge
+ * persists until the count itself drops to zero, which happens through the normal read
+ * path (focus + reaching the bottom), so it naturally clears once the user has caught up.
+ * The title count is capped at "99+".
  */
 fun useTabBadge(count: Int) {
     useEffect(count) {
@@ -33,12 +34,12 @@ fun useTabBadge(count: Int) {
         }
         val cached = cachedIcon
         if (cached != null) {
-            setFavicon(drawBadge(cached, label))
+            setFavicon(drawDot(cached))
         } else {
             val img = js("new Image()")
             img.onload = {
                 cachedIcon = img
-                setFavicon(drawBadge(img, label))
+                setFavicon(drawDot(img))
             }
             img.src = BASE_ICON
         }
@@ -56,8 +57,13 @@ fun useTabBadge(count: Int) {
     }
 }
 
-/** Draw [label] in a red pill over [baseImg] and return a PNG data URL. */
-private fun drawBadge(baseImg: dynamic, label: String): String {
+/**
+ * Draw a plain red unread dot over [baseImg] and return a PNG data URL. No number: at
+ * favicon size a digit is illegible, so the dot just signals "unread" and the exact
+ * count rides in the tab title. A thin background-coloured ring lifts the dot off the
+ * icon so it reads at 16px.
+ */
+private fun drawDot(baseImg: dynamic): String {
     val size = 64
     val canvas = document.createElement("canvas")
     canvas.asDynamic().width = size
@@ -66,37 +72,19 @@ private fun drawBadge(baseImg: dynamic, label: String): String {
     ctx.clearRect(0, 0, size, size)
     ctx.drawImage(baseImg, 0, 0, size, size)
 
-    // Bottom-right badge. A wider pill for 2-3 glyphs ("12", "99+"), a circle for one.
-    val r = 22.0
-    val cy = size - r
-    val cx = size - r
-    ctx.fillStyle = "#ef4444"
-    if (label.length > 1) {
-        val halfW = 6.0 * label.length
-        roundedPill(ctx, cx - halfW, cy - r, halfW * 2 + r, r * 2, r)
-    } else {
-        ctx.beginPath()
-        ctx.arc(cx, cy, r, 0.0, 2 * PI)
-        ctx.fill()
-    }
-    ctx.fillStyle = "#ffffff"
-    val fontPx = if (label.length > 2) 22 else if (label.length > 1) 28 else 34
-    ctx.font = "bold ${fontPx}px sans-serif"
-    ctx.textAlign = "center"
-    ctx.textBaseline = "middle"
-    ctx.fillText(label, cx, cy + 2.0)
-    return canvas.asDynamic().toDataURL("image/png") as String
-}
-
-private fun roundedPill(ctx: dynamic, x: Double, y: Double, w: Double, h: Double, radius: Double) {
+    // Top-right dot, the corner that stays visible when the OS clips the favicon.
+    val r = 16.0
+    val cx = size - r - 2.0
+    val cy = r + 2.0
     ctx.beginPath()
-    ctx.moveTo(x + radius, y)
-    ctx.arcTo(x + w, y, x + w, y + h, radius)
-    ctx.arcTo(x + w, y + h, x, y + h, radius)
-    ctx.arcTo(x, y + h, x, y, radius)
-    ctx.arcTo(x, y, x + w, y, radius)
-    ctx.closePath()
+    ctx.arc(cx, cy, r + 3.0, 0.0, 2 * PI)
+    ctx.fillStyle = "#ffffff"
     ctx.fill()
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0.0, 2 * PI)
+    ctx.fillStyle = "#ef4444"
+    ctx.fill()
+    return canvas.asDynamic().toDataURL("image/png") as String
 }
 
 private fun setFavicon(href: String) {
