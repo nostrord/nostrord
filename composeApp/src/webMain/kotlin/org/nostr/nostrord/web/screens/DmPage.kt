@@ -1,9 +1,11 @@
 package org.nostr.nostrord.web.screens
 
 import org.nostr.nostrord.di.AppModule
+import org.nostr.nostrord.ui.navigation.DmRoute
 import org.nostr.nostrord.ui.navigation.UserRoute
 import org.nostr.nostrord.ui.screens.dm.DmViewModel
 import org.nostr.nostrord.ui.screens.profile.ProfilePageViewModel
+import org.nostr.nostrord.web.DmConversationList
 import org.nostr.nostrord.web.bridge.useStateFlow
 import org.nostr.nostrord.web.bridge.useViewModel
 import org.nostr.nostrord.web.components.Ic
@@ -26,6 +28,7 @@ external interface DmPageProps : Props {
     /** Peer of the open conversation; null shows the section's empty hero. */
     var pubkey: String?
     var onOpenProfile: (UserRoute) -> Unit
+    var onOpenConversation: (DmRoute) -> Unit
     var onOpenDrawer: () -> Unit
 }
 
@@ -54,6 +57,9 @@ val DmPage =
                         +"Direct messages"
                     }
                 }
+                // Desktop: the conversation list lives in the sidebar, so the main area is an
+                // empty hero. Mobile has no visible sidebar, so it shows the list here instead
+                // (the two are toggled by CSS).
                 div {
                     className = ClassName("dm-hero")
                     div {
@@ -62,6 +68,14 @@ val DmPage =
                     }
                     h2 { +"Your direct messages" }
                     p { +"Pick a conversation on the side or start a new one with someone you follow." }
+                }
+                div {
+                    className = ClassName("dm-page-convos")
+                    DmConversationList {
+                        activePubkey = null
+                        onOpenConversation = { props.onOpenConversation(it) }
+                        onStartConversation = null
+                    }
                 }
             }
             return@FC

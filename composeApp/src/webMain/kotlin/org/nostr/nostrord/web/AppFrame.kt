@@ -539,6 +539,7 @@ val AppFrame =
                         DmPage {
                             pubkey = r.pubkey
                             onOpenProfile = { pushRoute(it) }
+                            onOpenConversation = { pushRoute(it) }
                             onOpenDrawer = { setDrawerOpen(true) }
                         }
                     r is RelayRoute ->
