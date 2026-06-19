@@ -501,6 +501,7 @@ private fun FrameContent(
                     groupName = name,
                     onNavigateHome = onCloseGroup,
                     onNavigateToGroup = { gid, _, relay -> onNavigate(GroupRoute(relay ?: route.relayUrl, gid)) },
+                    onOpenRelay = { onNavigate(RelayRoute(it)) },
                     showServerRail = false,
                     forceDesktop = forceDesktop,
                     onOpenDrawer = onOpenDrawer ?: {},

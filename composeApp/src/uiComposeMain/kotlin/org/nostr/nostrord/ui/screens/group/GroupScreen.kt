@@ -54,6 +54,7 @@ fun GroupScreen(
     onNavigateHome: () -> Unit = {},
     onNavigateHomeManageRelay: () -> Unit = onNavigateHome,
     onNavigateToGroup: (groupId: String, groupName: String?, relayUrl: String?) -> Unit = { _, _, _ -> },
+    onOpenRelay: (relayUrl: String) -> Unit = {},
     showServerRail: Boolean = true, // When false, server rail is handled by parent shell
     onOpenDrawer: () -> Unit = {},
     forceDesktop: Boolean = false,
@@ -427,6 +428,7 @@ fun GroupScreen(
             groupName = groupName,
             groupMetadata = currentGroupMetadata,
             relayUrl = currentRelayUrl,
+            onOpenRelay = onOpenRelay,
             isMember = isJoined,
             memberCount = groupMembers.size,
             userMetadata = userMetadata,

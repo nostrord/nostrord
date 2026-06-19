@@ -8088,6 +8088,40 @@ body {
     white-space: pre-wrap;
 }
 
+/* RELAY section row: relay icon + host, tappable to open the relay page. */
+.info-relay-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    text-align: left;
+}
+
+.info-relay-row:hover {
+    background: var(--color-hover);
+}
+
+.info-relay-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+}
+
+.info-relay-host {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 14px;
+    color: var(--color-text-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 
 
 
