@@ -1245,6 +1245,11 @@ val ChatScreen =
         // Two-stage jump: false until the first tap focuses the "New messages" divider,
         // then the next tap drops to the bottom. Reset per group on entry.
         val dividerSeen = useRef(false)
+        // One-shot guard for the entry alignment to the "New messages" divider. Once the
+        // divider first appears for a group we scroll to it (parity with native, which
+        // opens at the divider rather than the bottom), then latch so streaming chunks
+        // and pagination don't re-anchor. Reset per group on entry.
+        val dividerAligned = useRef(false)
 
         // Entering reply mode grows the composer with the reply banner, which can
         // cover the message being replied to. Once the banner has grown (.chat-messages
@@ -1261,11 +1266,13 @@ val ChatScreen =
             Unit
         }
 
-        // "New messages" divider snapshot. Captured once on group entry, then
-        // cleared the first time the user scrolls up and back down to the bottom
-        // (issue #83 — divider sticks around after the user has clearly read them).
-        // Tracked together with `wasNotAtBottom` so the initial auto-pin-to-bottom
-        // doesn't clear it immediately on entry.
+        // "New messages" divider snapshot. Captured once on group entry, then cleared
+        // once the user reaches the bottom (the new messages are on screen, so they have
+        // been seen — issue #83). The group opens aligned to the divider, so that entry
+        // alignment is itself the "scrolled up" half: reaching the bottom afterwards
+        // clears it, no separate manual round-trip needed. wasNotAtBottom records that
+        // the user has been away from the bottom (set by the entry alignment and by real
+        // scroll-aways) so the very first at-bottom pin can't wipe the divider unseen.
         val (lastReadSnapshot, setLastReadSnapshot) = useState<Long?> { null }
         val wasNotAtBottom = useRef(false)
         // Mirror of atBottom for re-renders the FAB needs. The ref stays as the
@@ -1337,6 +1344,7 @@ val ChatScreen =
             setLastReadSnapshot(vm.getLastReadTimestamp())
             wasNotAtBottom.current = false
             dividerSeen.current = false
+            dividerAligned.current = false
             // Reset atBottom to true on group entry. Without this, the ref
             // carries the PREVIOUS group's value across the ChatScreen re-
             // render: if the user was reading mid-feed in group A (atBottom
@@ -1473,15 +1481,28 @@ val ChatScreen =
         // the "new messages" divider) — fed to ChatMessageList as its data. Scroll,
         // pagination latch and stall detection all live inside that component now.
         val chatItems = if (messages.isEmpty()) emptyList() else buildWebChatItems(messages, lastReadSnapshot, myPubkey)
-        // Open at the bottom (newest) and let Virtuoso's followOutput keep it there
-        // as the initial pages stream in. We deliberately do NOT auto-scroll to the
-        // "New messages" divider on entry: during the connect/initial-load churn
-        // (the controller cycles Idle -> InitialLoading several times) that
-        // scrollToIndex fought followOutput and made the feed lurch up and down. The
-        // divider row still renders in place so the user sees where unread begins;
-        // it's just not auto-jumped to. (followOutput + per-item resize compensation
-        // are handled by Virtuoso, so the old DOM scroll / ResizeObserver effects
-        // that lived here are gone.)
+        // Entry alignment to the "New messages" divider (parity with native, which opens
+        // at the divider rather than the bottom). The first time the divider appears for a
+        // group, scroll to it and mark the user as above the bottom, then latch
+        // dividerAligned so streaming chunks and pagination never re-anchor. The latch is
+        // what keeps this safe: it fires at most once per entry, so it cannot loop and
+        // lurch the feed the way an un-latched scroll-to-index would during the
+        // connect/initial-load churn. ChatMessageList holds the position with
+        // overflow-anchor afterwards. A pending deep-link seek owns scrolling, so defer.
+        useEffect(chatItems.size, lastReadSnapshot) {
+            if (dividerAligned.current == true) return@useEffect
+            if (lastReadSnapshot == null || props.scrollToMessageId != null) return@useEffect
+            val hasDivider = chatItems.any { it is WebChatItem.NewMessagesDivider }
+            if (!hasDivider) return@useEffect
+            dividerAligned.current = true
+            // The entry alignment is the "scrolled up" half of the divider-clear
+            // round-trip: reaching the bottom afterwards clears the divider with no
+            // separate manual round-trip (issue #83).
+            wasNotAtBottom.current = true
+            atBottom.current = false
+            setAtBottomState(false)
+            setScrollKey("new-msg-divider")
+        }
         // Deep-link target (?e=<id>): fetch the exact event by id once. This is the fast path —
         // a single targeted REQ that lands the message even when it's far older than the loaded
         // window, instead of paginating the whole history (mirrors native's fetchMessageById).

@@ -333,15 +333,13 @@ fun GroupScreen(
     // anchors on this value and stays in place even after markAsRead updates storage,
     // so the user keeps visual context for the session.
     //
-    // Mutable so we can clear it once the user has clearly read the new messages —
-    // see `wasNotAtBottom` below and the onReachedBottom hooks at the call sites.
+    // Mutable so we can clear it once the user has actually seen the new messages:
+    // reaching the bottom (the divider's messages are on screen) clears it, no
+    // scroll round-trip required — see the onReachedBottom hooks at the call sites.
+    // The group opens aligned to the divider (not pinned to the bottom) when there
+    // are unread messages, so reaching the bottom is a genuine "saw them" signal.
     // (issue #83)
     var lastReadSnapshot by remember(groupId) { mutableStateOf<Long?>(vm.getLastReadTimestamp()) }
-    // True once the user has scrolled up away from the bottom in this session. The
-    // round-trip check is what distinguishes "user actually read the new messages"
-    // from "screen auto-pinned to bottom on entry" — only the former should clear
-    // the divider.
-    var wasNotAtBottom by remember(groupId) { mutableStateOf(false) }
 
     val chatItems =
         remember(messages, lastReadSnapshot) {
@@ -950,15 +948,13 @@ fun GroupScreen(
                     initialInviteCode = effectiveInviteCode,
                     onReachedBottom = {
                         vm.markAsRead()
-                        // Round-trip dismissal: only clear the divider if the user
-                        // had scrolled up first. Otherwise the entry auto-pin would
-                        // wipe it before the user ever saw it. (issue #83)
-                        if (wasNotAtBottom) {
-                            lastReadSnapshot = null
-                            wasNotAtBottom = false
-                        }
+                        // Clear the "New messages" divider once the user reaches the
+                        // bottom: its messages are now on screen, so they have been
+                        // seen. No scroll round-trip required (the group opens at the
+                        // divider, not pinned to the bottom). (issue #83)
+                        lastReadSnapshot = null
                     },
-                    onLeftBottom = { wasNotAtBottom = true },
+                    onLeftBottom = {},
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
@@ -1104,15 +1100,13 @@ fun GroupScreen(
                     initialInviteCode = effectiveInviteCode,
                     onReachedBottom = {
                         vm.markAsRead()
-                        // Round-trip dismissal: only clear the divider if the user
-                        // had scrolled up first. Otherwise the entry auto-pin would
-                        // wipe it before the user ever saw it. (issue #83)
-                        if (wasNotAtBottom) {
-                            lastReadSnapshot = null
-                            wasNotAtBottom = false
-                        }
+                        // Clear the "New messages" divider once the user reaches the
+                        // bottom: its messages are now on screen, so they have been
+                        // seen. No scroll round-trip required (the group opens at the
+                        // divider, not pinned to the bottom). (issue #83)
+                        lastReadSnapshot = null
                     },
-                    onLeftBottom = { wasNotAtBottom = true },
+                    onLeftBottom = {},
                     onSeenUpTo = { ts -> vm.markAsReadUpTo(ts) },
                     unreadFromOthersCount = unreadFromOthersCount,
                     targetMessageId = targetMessageId,
