@@ -364,8 +364,14 @@ class NostrGroupClient(
     // it must await re-AUTH before firing a REQ. Public relays never set this.
     private var authChallengeSeen = false
 
+    // Completes the first time this socket sees an AUTH challenge. Lets awaitAuthSigned wait
+    // for "the relay asked for auth" separately from "the (possibly remote/slow) sign
+    // finished", so a long sign budget is only spent on relays that actually gate reads.
+    private val authChallengeArrived = CompletableDeferred<Unit>()
+
     fun markAuthChallengeSeen() {
         authChallengeSeen = true
+        authChallengeArrived.complete(Unit)
     }
 
     fun requiresAuth(): Boolean = authChallengeSeen
@@ -379,6 +385,24 @@ class NostrGroupClient(
         authCompleted.await()
         true
     } ?: false
+
+    /**
+     * Two-phase AUTH wait tuned for slow remote (bunker) signers. First wait
+     * [challengeGraceMs] for the relay to issue a challenge — if none arrives the relay
+     * does not gate reads, so return false fast (no stall on public relays). Once a
+     * challenge is (or was already) seen, give the signer up to [signBudgetMs] to finish
+     * signing + sending the AUTH response. This stops a 2s budget from racing a bunker
+     * round-trip and firing the first private-group REQ before AUTH lands.
+     */
+    suspend fun awaitAuthSigned(signBudgetMs: Long, challengeGraceMs: Long = 2_000): Boolean {
+        val gated = authChallengeSeen ||
+            withTimeoutOrNull(challengeGraceMs) { authChallengeArrived.await(); true } == true
+        if (!gated) return false
+        return withTimeoutOrNull(signBudgetMs) {
+            authCompleted.await()
+            true
+        } ?: false
+    }
 
     /** Called after the AUTH response has been sent to the relay. */
     fun notifyAuthCompleted() {

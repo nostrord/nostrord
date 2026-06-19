@@ -154,6 +154,21 @@ class NostrRepository(
     // the primary at once. The recovery only acts if AUTH did not take.
     private val BUNKER_LOGIN_RECOVERY_DELAY_MS = 2_500L
 
+    // NIP-42 AUTH sign budget. A local key signs instantly; a remote (bunker / NIP-07)
+    // signer is a round-trip that can take several seconds, so the gate that holds the
+    // first group/private-group REQ until AUTH lands must wait long enough or it races
+    // the sign and the REQ comes back CLOSED "auth-required". The challenge-grace inside
+    // awaitAuthSigned keeps public (no-AUTH) relays fast regardless of this budget.
+    private val LOCAL_SIGNER_AUTH_BUDGET_MS = 2_000L
+    private val REMOTE_SIGNER_AUTH_BUDGET_MS = 12_000L
+
+    private fun signerAuthBudgetMs(): Long =
+        if (ActiveAccountManager.session.value?.signer?.isRemote == true) {
+            REMOTE_SIGNER_AUTH_BUDGET_MS
+        } else {
+            LOCAL_SIGNER_AUTH_BUDGET_MS
+        }
+
     /**
      * Relays for which a post-AUTH group-list fetch has already been issued this
      * session. resubscribeAfterAuth invalidates the (possibly pre-AUTH, empty-EOSE)
@@ -778,7 +793,7 @@ class NostrRepository(
                 continue
             }
             try {
-                if (client.isConnected()) client.awaitAuthOrTimeout()
+                if (client.isConnected()) client.awaitAuthSigned(signerAuthBudgetMs())
             } catch (_: Throwable) {}
             groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
             delay(100)
@@ -1607,7 +1622,7 @@ class NostrRepository(
                 // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
                 // Relays like meta.spaces.coracle.social require auth first; sending
                 // REQ before AUTH results in CLOSED "auth-required".
-                val authHandled = client.awaitAuthOrTimeout()
+                val authHandled = client.awaitAuthSigned(signerAuthBudgetMs())
                 groupManager.restoreGroupsForRelay(relayUrl)
                 if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
                     // If auth was handled, resubscribeAfterAuth already called
@@ -1750,7 +1765,7 @@ class NostrRepository(
         val client = connectionManager.getPrimaryClient()
         if (client != null) {
             // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
-            val authHandled = client.awaitAuthOrTimeout()
+            val authHandled = client.awaitAuthSigned(signerAuthBudgetMs())
             if (_targetSwitchRelayUrl.value != newRelayUrl) return
             // Skip re-fetch if cached; re-fetching races against restored state.
             if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
@@ -2186,7 +2201,7 @@ class NostrRepository(
                     // staying a bare-id placeholder until the group is opened. awaitAuthOrTimeout
                     // returns true only when a challenge was actually answered, so non-auth
                     // relays don't pay a redundant re-send.
-                    if (client.awaitAuthOrTimeout()) client.requestGroupsMetadata(missing)
+                    if (client.awaitAuthSigned(signerAuthBudgetMs())) client.requestGroupsMetadata(missing)
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) throw e
                 }
@@ -3627,7 +3642,7 @@ class NostrRepository(
         // CLOSED. Then always re-fetch (mirroring switchRelay) — resubscribeAfterAuth's
         // 10s guard would otherwise suppress this call when the previous identity's
         // timestamp on this relay is still fresh (warm-swap between accounts).
-        client.awaitAuthOrTimeout()
+        client.awaitAuthSigned(signerAuthBudgetMs())
         // Always re-fetch on reconnect. restoreGroupsForRelay already populated the UI;
         // the fresh EOSE will prune any stale groups the relay no longer serves
         // (e.g. an ephemeral relay that was restarted and lost its group list).

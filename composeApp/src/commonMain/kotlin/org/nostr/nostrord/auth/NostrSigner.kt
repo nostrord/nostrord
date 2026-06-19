@@ -28,6 +28,14 @@ interface NostrSigner {
     val pubkey: String
 
     /**
+     * True when signing is a remote round-trip (bunker / NIP-07) rather than a local,
+     * effectively-instant secp256k1 sign. Callers use it to budget NIP-42 AUTH waits: a
+     * remote signer needs a much longer window for the AUTH event to be signed, otherwise
+     * the first private-group REQ races the sign and comes back CLOSED "auth-required".
+     */
+    val isRemote: Boolean get() = false
+
+    /**
      * Sign [event] with this account's key material.
      *
      * Throws [SigningException] on permission denial, signer disconnection,
@@ -100,6 +108,8 @@ interface NostrSigner {
         val nip46Client: Nip46Client,
         override val pubkey: String,
     ) : NostrSigner {
+        override val isRemote: Boolean = true
+
         @Volatile private var disposed = false
 
         override suspend fun signEvent(event: Event): Event {
@@ -149,6 +159,8 @@ interface NostrSigner {
     class Nip07Extension(
         override val pubkey: String,
     ) : NostrSigner {
+        override val isRemote: Boolean = true
+
         @Volatile private var disposed = false
 
         override suspend fun signEvent(event: Event): Event {
