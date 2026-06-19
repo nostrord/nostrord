@@ -31,6 +31,7 @@ import org.nostr.nostrord.web.components.ZapModalHost
 import org.nostr.nostrord.web.components.icon
 import org.nostr.nostrord.web.components.memberSkeleton
 import org.nostr.nostrord.web.components.tabItem
+import org.nostr.nostrord.web.components.useTabBadge
 import org.nostr.nostrord.web.modals.AddAccountModal
 import org.nostr.nostrord.web.modals.AddGroupModal
 import org.nostr.nostrord.web.modals.CreateGroupModal
@@ -79,6 +80,9 @@ val AppFrame =
         val unreadCounts = useStateFlow(vm.unreadCounts)
         val notificationUnread = useStateFlow(vm.notificationUnread)
         val dmUnread = useStateFlow(repo.totalDmUnread)
+        // Telegram-style browser-tab badge: total unread messages (groups + DMs) drawn on
+        // the favicon and prefixed onto the title. Web only; native uses OS notifications.
+        useTabBadge(unreadCounts.values.sum() + dmUnread)
         val accounts = useStateFlow(AppModule.accountStore.accounts)
         val activeId = useStateFlow(AppModule.accountStore.activeId)
         val userMetadata = useStateFlow(AppModule.nostrRepository.userMetadata)
