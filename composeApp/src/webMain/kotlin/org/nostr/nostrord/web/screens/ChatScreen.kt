@@ -1320,7 +1320,15 @@ val ChatScreen =
         // effect with isMember as a dep + the force-refresh block below
         // catches that moment and replays the fetch so messages stream in
         // without the user having to leave / re-enter the group.
-        useEffect(group.id, activeAccountId, isConnected, relayUrl, isMember) {
+        // Keyed on identity + isConnected ONLY. relayUrl and isMember were also deps, but they
+        // oscillate during a normal open-with-relay-switch (relayUrl: blank -> url, isMember:
+        // false -> true), and re-running this body re-issued the WHOLE subscription cluster
+        // (msg/meta/members/admins) and tore down the in-flight load. That web-only duplicate
+        // -REQ churn made loading slow and starved pagination of a settled HasMore state. Native
+        // (GroupScreen) keeps the loader split the same way. The reset below is guarded to run
+        // once per group entry; post-approval (isMember) re-fetch is its own effect below.
+        val resetForGroup = useRef<String>(null)
+        useEffect(group.id, activeAccountId, isConnected) {
             if (!isConnected) return@useEffect
             if (relayUrl.isBlank()) return@useEffect
             // Snapshot the previous read point BEFORE markGroupAsRead persists "now",
@@ -1358,18 +1366,26 @@ val ChatScreen =
             // (Exhausted with 0 msgs is still settled — we just trigger one
             // extra fetch on relay reconnect of an empty group, which is
             // fine).
-            val entryState = repo.groupStates.value[group.id]
-            val haveMsgsAtEntry = repo.messages.value[group.id].orEmpty().isNotEmpty()
-            val needsForceRefresh = entryState is GroupLoadingState.InitialLoading ||
-                (
-                    !haveMsgsAtEntry &&
-                        (
-                            entryState is GroupLoadingState.Exhausted ||
-                                entryState is GroupLoadingState.Error
-                            )
-                    )
-            if (needsForceRefresh) {
-                repo.resetGroupLoadingState(group.id)
+            // Force-reset a stale InitialLoading (the REQ resubscribePoolRelay fired on the
+            // dying socket) or an empty Exhausted/Error ONCE per group entry, so the first load
+            // actually re-issues. Guarded by resetForGroup so a later reconnect / relay tick
+            // can't reset + re-issue and churn the relay; a genuinely stuck load is caught by
+            // the controller timeout -> Error -> the recovery effect below.
+            if (resetForGroup.current != group.id) {
+                resetForGroup.current = group.id
+                val entryState = repo.groupStates.value[group.id]
+                val haveMsgsAtEntry = repo.messages.value[group.id].orEmpty().isNotEmpty()
+                val needsForceRefresh = entryState is GroupLoadingState.InitialLoading ||
+                    (
+                        !haveMsgsAtEntry &&
+                            (
+                                entryState is GroupLoadingState.Exhausted ||
+                                    entryState is GroupLoadingState.Error
+                                )
+                        )
+                if (needsForceRefresh) {
+                    repo.resetGroupLoadingState(group.id)
+                }
             }
             // Fire the initial read once. requestGroupMessages now waits for NIP-42 AUTH
             // internally (private groups on a remote signer) while the controller stays in
@@ -1419,6 +1435,19 @@ val ChatScreen =
             if (!stillError) return@useEffect
             repo.resetGroupLoadingState(group.id)
             repo.requestGroupMessages(group.id)
+        }
+        // Post-approval: an admin approving a pending join flips kind:39002 to make us a member.
+        // The prior non-member REQ left the controller Exhausted/Error with 0 msgs; re-fetch so
+        // the chat streams in. Its own effect keyed on isMember alone (isMember was dropped from
+        // the loader keys above to stop the churn), so it fires only on that transition.
+        useEffect(isMember) {
+            if (!isMember) return@useEffect
+            val s = repo.groupStates.value[group.id]
+            val haveMsgs = repo.messages.value[group.id].orEmpty().isNotEmpty()
+            if (!haveMsgs && (s is GroupLoadingState.Exhausted || s is GroupLoadingState.Error)) {
+                repo.resetGroupLoadingState(group.id)
+                repo.requestGroupMessages(group.id)
+            }
         }
         // Admin in a closed group: pull pending join requests explicitly + poll.
         // The standard chat REQ caps at 50 events and buries old 9021s under recent
