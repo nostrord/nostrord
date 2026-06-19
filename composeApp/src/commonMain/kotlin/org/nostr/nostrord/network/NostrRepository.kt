@@ -154,11 +154,12 @@ class NostrRepository(
     // the primary at once. The recovery only acts if AUTH did not take.
     private val BUNKER_LOGIN_RECOVERY_DELAY_MS = 2_500L
 
-    // NIP-42 AUTH sign budget. A local key signs instantly; a remote (bunker / NIP-07)
-    // signer is a round-trip that can take several seconds, so the gate that holds the
-    // first group/private-group REQ until AUTH lands must wait long enough or it races
-    // the sign and the REQ comes back CLOSED "auth-required". The challenge-grace inside
-    // awaitAuthSigned keeps public (no-AUTH) relays fast regardless of this budget.
+    // NIP-42 AUTH sign budget for the PRIVATE-group data fetch only. A local key signs
+    // instantly; a remote (bunker / NIP-07) signer is a round-trip that can take several
+    // seconds, so the gate that holds the private-group #d REQ until AUTH lands must wait
+    // long enough or it races the sign and comes back CLOSED "auth-required". The PUBLIC
+    // group list is NOT gated on this — it uses the short awaitAuthOrTimeout so public
+    // groups load fast even while a slow bunker AUTH is still signing.
     private val LOCAL_SIGNER_AUTH_BUDGET_MS = 2_000L
     private val REMOTE_SIGNER_AUTH_BUDGET_MS = 12_000L
 
@@ -826,16 +827,18 @@ class NostrRepository(
                 continue
             }
             try {
-                if (client.isConnected()) {
-                    client.awaitAuthSigned(signerAuthBudgetMs())
-                    // Eagerly pull this relay's joined private-group metadata/members right
-                    // after AUTH. resubscribeAfterAuth also does this, but only when a fresh
-                    // challenge was actually signed; this covers the cache-hit / already-authed
-                    // reconnect paths so private groups on non-primary relays load on connect.
-                    groupManager.requestPrivateGroupData(relayUrl)
-                }
+                // Short grace only: a slow bunker sign must NOT block this sequential loop
+                // (it would stall every later relay's public groups by up to the full budget).
+                if (client.isConnected()) client.awaitAuthOrTimeout()
             } catch (_: Throwable) {}
             groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
+            // Eagerly pull this relay's joined private-group data once AUTH lands, async so
+            // the loop isn't blocked. resubscribeAfterAuth also does this on a fresh
+            // challenge; this covers the cache-hit / already-authed reconnect paths.
+            scope.launch {
+                if (client.isConnected()) client.awaitAuthSigned(signerAuthBudgetMs())
+                groupManager.requestPrivateGroupData(relayUrl)
+            }
             delay(100)
         }
     }
@@ -1659,10 +1662,12 @@ class NostrRepository(
         if (connected) {
             val client = connectionManager.getPrimaryClient()
             if (client != null) {
-                // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
-                // Relays like meta.spaces.coracle.social require auth first; sending
-                // REQ before AUTH results in CLOSED "auth-required".
-                val authHandled = client.awaitAuthSigned(signerAuthBudgetMs())
+                // Public group list: only a short AUTH grace, so public groups load fast.
+                // Most NIP-29 relays serve public kind:39000 without AUTH; firing the list
+                // here (pre-AUTH on a slow bunker) loads them immediately, and the few groups
+                // gated behind AUTH recover via resubscribeAfterAuth + the private fetch below.
+                // Waiting the full bunker sign budget here would stall PUBLIC groups too.
+                val authHandled = client.awaitAuthOrTimeout()
                 groupManager.restoreGroupsForRelay(relayUrl)
                 if (!groupManager.hasCachedGroupsForRelay(relayUrl)) {
                     // If auth was handled, resubscribeAfterAuth already called
@@ -1699,23 +1704,21 @@ class NostrRepository(
                     groupManager.refreshMuxSubscriptionsForRelay(relayUrl)
                 }
                 drainFullFetchRequest(client, relayUrl)
-                // Private-group-first: fire the joined groups' targeted #d metadata/members
-                // immediately after AUTH, NOT gated on the public group-list EOSE. Private
-                // groups are omitted from the public listing and are the slow ones, so they
-                // must not wait for it; the joined set is already known from the cache
-                // restore above, and getUncachedJoinedGroups only targets groups genuinely
-                // missing metadata (the private ones).
+                // Deep-link priority: if the user opened a specific group, fetch THAT group's
+                // metadata/members first (a short AUTH grace, since most are public), so the
+                // open page resolves before the rest of the account's data.
                 scope.launch {
-                    groupManager.requestPrivateGroupData(relayUrl)
+                    client.awaitAuthOrTimeout()
                     groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
                 }
-                // Second pass after the public list EOSE: catches any joined group that
-                // only became known once the relay finished its list. Cheap — by now the
-                // private groups are cached, so the uncached filter makes this a near no-op.
+                // Private groups are omitted from the public listing and need AUTH. Once the
+                // (possibly slow bunker) sign lands, fetch their targeted #d data — not gated
+                // on the public-list EOSE, so they don't wait behind public discovery. The
+                // cache restore above means getUncachedJoinedGroups only targets the groups
+                // genuinely still missing metadata (the private ones).
                 scope.launch {
-                    groupManager.awaitGroupListEose(relayUrl)
+                    client.awaitAuthSigned(signerAuthBudgetMs())
                     groupManager.requestPrivateGroupData(relayUrl)
-                    groupManager.requestActiveGroupMetadataIfMissing(relayUrl)
                 }
             }
         }
@@ -1809,9 +1812,14 @@ class NostrRepository(
 
         val client = connectionManager.getPrimaryClient()
         if (client != null) {
-            // Wait for a potential NIP-42 AUTH challenge before sending any REQ.
-            val authHandled = client.awaitAuthSigned(signerAuthBudgetMs())
+            // Short AUTH grace so the public group list (and public groups) load fast; the
+            // bunker sign budget is spent only on the private fetch below.
+            val authHandled = client.awaitAuthOrTimeout()
             if (_targetSwitchRelayUrl.value != newRelayUrl) return
+            // Deep-link priority: fetch the opened group's own metadata/members first, ahead
+            // of the relay's broad group list, so the page the user is looking at resolves
+            // first. Retried post-AUTH below in case it is a private group.
+            scope.launch { groupManager.requestActiveGroupMetadataIfMissing(newRelayUrl) }
             // Skip re-fetch if cached; re-fetching races against restored state.
             if (!groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
                 // Always request groups here. Even if AUTH was already handled
@@ -1845,13 +1853,11 @@ class NostrRepository(
                 groupManager.refreshMuxSubscriptionsForRelay(newRelayUrl)
             }
             drainFullFetchRequest(client, newRelayUrl)
-            // Request metadata for private groups not in the cache (kind 10009 joined
-            // but not returned by the general kind 39000 listing), and for the active
-            // group if navigated via URL before the relay was connected.
+            // Private groups need AUTH and are not in the public listing. Fetch their
+            // targeted #d data once the (possibly slow bunker) sign lands, not gated on the
+            // public-list EOSE. Also retry the active group here in case it is private.
             scope.launch {
-                // Wait for the group-list EOSE before requesting per-group metadata —
-                // see the equivalent block in connect() for rationale.
-                groupManager.awaitGroupListEose(newRelayUrl)
+                client.awaitAuthSigned(signerAuthBudgetMs())
                 groupManager.requestPrivateGroupData(newRelayUrl)
                 groupManager.requestActiveGroupMetadataIfMissing(newRelayUrl)
             }
@@ -3684,12 +3690,10 @@ class NostrRepository(
         val relayUrl = connectionManager.currentRelayUrl.value
         // Restore cache so the UI shows groups immediately while the re-fetch is in flight.
         groupManager.restoreGroupsForRelay(relayUrl)
-        // Wait for the relay's NIP-42 AUTH challenge to complete before sending REQs;
-        // otherwise the group-list races ahead and is rejected with auth-required
-        // CLOSED. Then always re-fetch (mirroring switchRelay) — resubscribeAfterAuth's
-        // 10s guard would otherwise suppress this call when the previous identity's
-        // timestamp on this relay is still fresh (warm-swap between accounts).
-        client.awaitAuthSigned(signerAuthBudgetMs())
+        // Short AUTH grace before the re-fetch: public groups load fast, and the few groups
+        // gated behind AUTH recover via resubscribeAfterAuth + requestPrivateGroupData. The
+        // full bunker sign budget is not spent here, so it doesn't stall the public list.
+        client.awaitAuthOrTimeout()
         // Always re-fetch on reconnect. restoreGroupsForRelay already populated the UI;
         // the fresh EOSE will prune any stale groups the relay no longer serves
         // (e.g. an ephemeral relay that was restarted and lost its group list).
