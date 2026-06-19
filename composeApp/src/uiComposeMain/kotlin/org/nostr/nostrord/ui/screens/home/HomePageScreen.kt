@@ -183,6 +183,8 @@ fun HomePageScreen(
                     maxWidth > 640.dp -> 2
                     else -> 1
                 }
+            // Compact (mobile) width: header stacks vertically and filter tabs show icons only.
+            val isCompact = maxWidth < 640.dp
             Column(
                 modifier =
                 Modifier
@@ -197,12 +199,10 @@ fun HomePageScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp, vertical = 24.dp),
                 ) {
-                    // Title (left) + actions (right) on one row, matching the web layout.
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.Top,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
+                    // Title + actions: side by side on wide screens, stacked on compact
+                    // (mobile), matching the web `.home-title-row` breakpoint.
+                    val titleBlock: @Composable () -> Unit = {
+                        Column {
                             Text(
                                 "Groups",
                                 color = NostrordColors.TextPrimary,
@@ -215,7 +215,8 @@ fun HomePageScreen(
                                 fontSize = 14.sp,
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                    }
+                    val actionButtons: @Composable () -> Unit = {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppButton(
                                 text = "Join group",
@@ -230,6 +231,21 @@ fun HomePageScreen(
                             )
                         }
                     }
+                    if (isCompact) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            titleBlock()
+                            actionButtons()
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Box(modifier = Modifier.weight(1f)) { titleBlock() }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            actionButtons()
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(20.dp))
 
@@ -238,6 +254,8 @@ fun HomePageScreen(
                         tabs = FILTERS.mapIndexed { i, label -> SegmentedTab(label, FILTER_ICONS[i]) },
                         selectedIndex = filter,
                         onSelect = { setFilter(it) },
+                        // Compact (mobile) width: show icons only, labels would crowd the row.
+                        iconOnly = isCompact,
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     HomeFilterField(

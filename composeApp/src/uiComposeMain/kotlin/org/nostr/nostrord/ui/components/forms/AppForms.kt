@@ -216,6 +216,7 @@ fun AppSegmentedTabs(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    iconOnly: Boolean = false,
 ) {
     // Tighter label padding when three or more tabs share the row.
     val horizontalPadding = if (tabs.size >= 3) 8.dp else 12.dp
@@ -265,19 +266,22 @@ fun AppSegmentedTabs(
                         tab.icon?.let {
                             Icon(
                                 imageVector = it,
-                                contentDescription = null,
+                                // Icon-only mode drops the label, so the icon carries the name.
+                                contentDescription = if (iconOnly) tab.label else null,
                                 modifier = Modifier.size(18.dp),
                                 tint = contentColor,
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            if (!iconOnly) Spacer(modifier = Modifier.width(6.dp))
                         }
-                        Text(
-                            text = tab.label,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = contentColor,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 1,
-                        )
+                        if (!iconOnly) {
+                            Text(
+                                text = tab.label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = contentColor,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
             }

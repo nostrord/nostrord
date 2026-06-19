@@ -2878,6 +2878,10 @@ body {
     max-width: 1024px;
     margin: 0 auto;
     padding: 24px;
+    /* Responsive breakpoints below key off the content width (not the viewport), so the
+       header and tabs collapse when the sidebar narrows the column, matching Compose. */
+    container-type: inline-size;
+    container-name: home-content;
 }
 
 .home-title-row {
@@ -2887,7 +2891,7 @@ body {
     margin-bottom: 24px;
 }
 
-@media (min-width: 640px) {
+@container home-content (min-width: 640px) {
     .home-title-row {
         flex-direction: row;
         align-items: center;
@@ -2918,6 +2922,18 @@ body {
     flex-direction: column;
     gap: 12px;
     margin-bottom: 20px;
+}
+
+/* Compact content width: home filter tabs collapse to icons only (labels would otherwise
+   overflow the strip when the sidebar narrows the column). */
+@container home-content (max-width: 639px) {
+    .home-toolbar .tab span {
+        display: none;
+    }
+
+    .home-toolbar .tab {
+        gap: 0;
+    }
 }
 
 .home-search {
