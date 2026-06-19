@@ -227,14 +227,15 @@ fun MessagesList(
     var dividerSeen by remember(groupId) { mutableStateOf(false) }
 
     // One-shot entry alignment to the "New messages" divider (Telegram pattern).
-    // Fires once when a divider first appears after entering the group, then
-    // latches openedAtDivider so streaming chunks / pagination don't re-anchor.
-    // Setting atBottom = false here is what suppresses the bottom-pin from yanking
-    // the view down on later chunks — the single authority the whole scroll system
-    // now reads. No divider (everything already read) leaves the latch at its
-    // default atBottom = true, so the group simply opens at the bottom.
+    // Decided exactly once per entry and latched via entryResolved, so streaming
+    // chunks / pagination don't re-anchor. Aligning to a divider sets atBottom = false
+    // to suppress the bottom-pin from yanking the view down on later chunks. Entering
+    // with no divider (everything already read) still latches (atBottom stays true, so
+    // the group opens at the bottom) — this is what stops a divider that appears LATER,
+    // when a message arrives while the user is reading history, from re-anchoring and
+    // jerking the view to the divider.
     LaunchedEffect(groupId, chatItems) {
-        if (scrollStateHolder.openedAtDivider || chatItems.isEmpty()) return@LaunchedEffect
+        if (scrollStateHolder.entryResolved || chatItems.isEmpty()) return@LaunchedEffect
         val idx = chatItems.indexOfFirst { it is ChatItem.NewMessagesDivider }
         val target = scrollStateHolder.applyEntryChange(hasDivider = idx >= 0, isSeeking = isSeekingTarget)
         if (target == ScrollEntryTarget.Divider && idx >= 0) {

@@ -89,18 +89,36 @@ class ChatScrollPolicyTest {
     }
 
     @Test
-    fun dividerEntryNotSpuriouslyRepinnedWithoutScrollAway() {
-        // Enter at divider (atBottom=false), restored, but no genuine scroll-away yet.
+    fun dividerEntryWithinBottomToleranceHidesFab() {
+        // Enter at divider (atBottom=false), restored, no genuine scroll-away yet.
         var s = ChatScrollPolicy.onItemsChanged(
             ChatScrollPolicy.onEnterGroup(),
             hasDivider = true,
             isSeeking = false,
         ).state
         s = ChatScrollPolicy.onItemsReady(s)
-        // A spurious "reachedBottom=true" (divider within bottom tolerance) must NOT
-        // promote back to bottom, because sawNotBottom is still false.
+        // The divider sits within the bottom tolerance, so the newest message is on
+        // screen. The pin latch stays false (no spurious re-pin without a round-trip),
+        // but the FAB hides because there is nothing to jump to (#129).
         s = ChatScrollPolicy.onBottomReadingChanged(s, reachedBottom = true)
         assertFalse(s.atBottom)
-        assertTrue(ChatScrollPolicy.isScrolledAway(s))
+        assertFalse(ChatScrollPolicy.isScrolledAway(s))
+    }
+
+    @Test
+    fun lateDividerDoesNotRealignAfterBottomEntry() {
+        // Open the group with everything read: no divider, latched at the bottom.
+        var s = ChatScrollPolicy.onItemsChanged(
+            ChatScrollPolicy.onEnterGroup(),
+            hasDivider = false,
+            isSeeking = false,
+        ).state
+        assertTrue(s.entryResolved)
+        assertTrue(s.atBottom)
+        // A divider that materialises later (a message arrives while reading history)
+        // must NOT re-trigger the entry alignment and yank the view to the divider.
+        val later = ChatScrollPolicy.onItemsChanged(s, hasDivider = true, isSeeking = false)
+        assertNull(later.target)
+        assertEquals(s, later.state)
     }
 }

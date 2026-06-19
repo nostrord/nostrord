@@ -81,6 +81,9 @@ class ScrollStateHolder(
     /** Latched once the entry alignment to the "New messages" divider has run. */
     val openedAtDivider: Boolean get() = scroll.openedAtDivider
 
+    /** Latched once the one-shot entry alignment has been decided (divider OR bottom). */
+    val entryResolved: Boolean get() = scroll.entryResolved
+
     /** Jump-to-bottom FAB visibility. */
     val isScrolledAway: Boolean get() = ChatScrollPolicy.isScrolledAway(scroll)
 
@@ -224,7 +227,15 @@ fun <T> ScrollPositionEffect(
             val layoutInfo = listState.layoutInfo
             val lastVisible = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             val total = layoutInfo.totalItemsCount
-            val reachedBottom = lastVisible >= 0 && total > 0 && lastVisible >= total - 2
+            // At the bottom when the last item is in view OR the list simply cannot scroll down
+            // any further. The index heuristic alone missed the case where the final message is
+            // tall and only partly visible (its index is the last, but a strict reading failed),
+            // leaving the jump-to-bottom FAB showing while the user is already at the last
+            // message (#129). Only ever makes "reached bottom" more true, so a freshly-arrived
+            // message at the end never spuriously demotes the latch.
+            val reachedBottom =
+                (lastVisible >= 0 && total > 0 && lastVisible >= total - 2) ||
+                    (total > 0 && !listState.canScrollForward)
             // Pair with isRestored so the latch re-evaluates the CURRENT position the
             // moment restoration completes. Without it, a user who scrolls up during
             // the initial load (before isRestored) has that reading dropped by the
