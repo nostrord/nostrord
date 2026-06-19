@@ -129,7 +129,7 @@ fun HomePageScreen(
     Column(modifier = modifier.fillMaxSize().background(NostrordColors.Background)) {
         // Header bar
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             onOpenDrawer?.let { open ->
