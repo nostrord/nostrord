@@ -18,14 +18,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,7 +54,8 @@ import org.nostr.nostrord.ui.navigation.GroupRoute
 import org.nostr.nostrord.ui.screens.group.GroupViewModel
 import org.nostr.nostrord.ui.screens.group.components.CreateGroupModal
 import org.nostr.nostrord.ui.screens.group.components.EditGroupModal
-import org.nostr.nostrord.ui.screens.group.components.GroupInfoModal
+import org.nostr.nostrord.ui.screens.group.components.MembersModal
+import org.nostr.nostrord.ui.screens.home.RelayHeaderIcon
 import org.nostr.nostrord.ui.theme.AvatarGradients
 import org.nostr.nostrord.ui.theme.Hsl
 import org.nostr.nostrord.ui.theme.NostrordColors
@@ -71,6 +74,7 @@ import org.nostr.nostrord.utils.normalizeRelayUrl
 fun GroupSidebar(
     route: GroupRoute,
     onNavigateGroup: (GroupRoute) -> Unit,
+    onNavigateRelay: (String) -> Unit = {},
     onNavigateHome: () -> Unit = {},
 ) {
     val vm = viewModel(key = route.groupId) { GroupViewModel(AppModule.nostrRepository, route.groupId) }
@@ -78,7 +82,6 @@ fun GroupSidebar(
     val childrenByParent by vm.childrenByParent.collectAsState()
     val groupMembers by vm.groupMembers.collectAsState()
     val groupAdmins by vm.groupAdmins.collectAsState()
-    val userMetadata by vm.userMetadata.collectAsState()
     val unreadCounts by AppModule.nostrRepository.unreadCounts.collectAsState()
     val currentRelayUrl by vm.currentRelayUrl.collectAsState()
     val kind10009Relays by AppModule.nostrRepository.kind10009Relays.collectAsState()
@@ -97,16 +100,23 @@ fun GroupSidebar(
             ?.supportsSubgroups == true
     val parent = meta?.parent?.let { pid -> relayGroups.firstOrNull { it.id == pid } }
 
-    var showInfo by remember { mutableStateOf(false) }
+    var showMembers by remember { mutableStateOf(false) }
     var showCreateSubgroup by remember { mutableStateOf(false) }
     var showManage by remember { mutableStateOf(false) }
+
+    val relayHost = route.relayUrl.removePrefix("wss://").removePrefix("ws://").trimEnd('/')
+    val relayIconUrl =
+        (relayMetadata[route.relayUrl] ?: relayMetadata[route.relayUrl.normalizeRelayUrl()])?.icon
 
     Column(modifier = Modifier.fillMaxSize()) {
         GroupBanner(
             seed = route.groupId,
             name = name,
             picture = meta?.picture,
-            onClick = { showInfo = true },
+            relayUrl = route.relayUrl,
+            relayHost = relayHost,
+            relayIconUrl = relayIconUrl,
+            onRelayClick = { onNavigateRelay(route.relayUrl) },
         )
         Column(
             modifier =
@@ -125,7 +135,7 @@ fun GroupSidebar(
             SidebarRow(
                 icon = Icons.Default.People,
                 label = if (memberCount > 0) "Members · $memberCount" else "Members",
-            ) { showInfo = true }
+            ) { showMembers = true }
             if (isAdmin) {
                 SidebarRow(icon = Icons.Default.Settings, label = "Manage group") {
                     showManage = true
@@ -182,13 +192,10 @@ fun GroupSidebar(
         }
     }
 
-    if (showInfo) {
-        GroupInfoModal(
+    if (showMembers) {
+        MembersModal(
             groupId = route.groupId,
-            groupName = meta?.name,
-            groupMetadata = meta,
-            userMetadata = userMetadata,
-            onDismiss = { showInfo = false },
+            onDismiss = { showMembers = false },
         )
     }
     if (showManage) {
@@ -218,21 +225,30 @@ fun GroupSidebar(
     }
 }
 
-/** Gradient identity banner (prototype GroupBanner): same hue pair as the avatar, darkened. */
+/**
+ * Gradient identity banner (prototype GroupBanner): same hue pair as the avatar, darkened.
+ * Mirrors the web `.group-side-banner`: group avatar + name, with a tappable relay line
+ * (icon + host) below the name that opens the relay page. Only the relay line is clickable;
+ * the banner itself is not (parity with web).
+ */
 @Composable
 private fun GroupBanner(
     seed: String,
     name: String,
     picture: String?,
-    onClick: () -> Unit,
+    relayUrl: String,
+    relayHost: String,
+    relayIconUrl: String?,
+    onRelayClick: () -> Unit,
 ) {
     val banner = remember(seed) { AvatarGradients.banner(seed) }
+    // White text over a colored gradient needs the same drop shadow the web banner uses.
+    val textShadow = Shadow(color = Color.Black.copy(alpha = 0.4f), offset = Offset(0f, 1f), blurRadius = 2f)
     Box(
         modifier =
         Modifier
             .fillMaxWidth()
             .height(84.dp)
-            .clickable(onClick = onClick)
             .drawBehind {
                 // 135deg diagonal, top-left to bottom-right (CSS linear-gradient(135deg, …)).
                 drawRect(
@@ -257,7 +273,10 @@ private fun GroupBanner(
         contentAlignment = Alignment.BottomStart,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.sm + Spacing.xxs),
+            modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(start = Spacing.lg, end = Spacing.lg, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
@@ -266,24 +285,54 @@ private fun GroupBanner(
                 identifier = seed,
                 displayName = name,
                 size = 24.dp,
-                shape = NostrordShapes.shapeSmall,
+                // Web group avatars are rounded squares at 25% radius (.avatar-stack.group).
+                shape = RoundedCornerShape(percent = 25),
                 isGroup = true,
             )
-            Text(
-                name,
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            Column(
                 modifier = Modifier.weight(1f),
-            )
-            Icon(
-                imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.8f),
-                modifier = Modifier.size(16.dp),
-            )
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    name,
+                    color = Color.White,
+                    fontSize = 15.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = LocalTextStyle.current.copy(shadow = textShadow),
+                )
+                if (relayHost.isNotBlank()) {
+                    Row(
+                        modifier =
+                        Modifier
+                            .clip(NostrordShapes.shapeSmall)
+                            .clickable(onClick = onRelayClick)
+                            .padding(end = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    ) {
+                        RelayHeaderIcon(
+                            relayUrl = relayUrl,
+                            iconUrl = relayIconUrl,
+                            label = relayHost,
+                            size = 13.dp,
+                            // Web .group-side-banner-relay-icon: small rounded square, not a circle.
+                            cornerRadius = 3.dp,
+                        )
+                        Text(
+                            relayHost,
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 11.sp,
+                            lineHeight = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = LocalTextStyle.current.copy(shadow = textShadow),
+                        )
+                    }
+                }
+            }
         }
     }
 }

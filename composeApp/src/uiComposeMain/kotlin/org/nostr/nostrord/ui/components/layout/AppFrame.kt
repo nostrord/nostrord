@@ -263,6 +263,10 @@ fun AppFrame() {
                             route = it
                             closeDrawer()
                         },
+                        onNavigateRelay = {
+                            route = RelayRoute(it)
+                            closeDrawer()
+                        },
                         onNavigateHome = {
                             route = null
                             closeDrawer()

@@ -39,6 +39,7 @@ internal fun RelayHeaderIcon(
     iconUrl: String?,
     label: String,
     size: Dp,
+    cornerRadius: Dp = 14.dp,
 ) {
     val context = LocalPlatformContext.current
     val fallbackPainter = if (iconUrl.isNullOrBlank()) relayFallbackPainter(relayUrl) else null
@@ -59,7 +60,7 @@ internal fun RelayHeaderIcon(
         modifier =
         Modifier
             .size(size)
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(cornerRadius))
             .background(NostrordColors.BackgroundDark),
         contentAlignment = Alignment.Center,
     ) {
@@ -68,7 +69,7 @@ internal fun RelayHeaderIcon(
             androidx.compose.foundation.Image(
                 painter = fallbackPainter,
                 contentDescription = label,
-                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(cornerRadius)),
                 contentScale = ContentScale.Crop,
             )
         } else if (!imageLoaded) {
@@ -80,7 +81,7 @@ internal fun RelayHeaderIcon(
                 AsyncImage(
                     model = buildRelayIconRequest(iconUrl!!, context),
                     contentDescription = label,
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
+                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(cornerRadius)),
                     contentScale = ContentScale.Crop,
                     onState = { state ->
                         when (state) {
