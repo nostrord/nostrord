@@ -69,12 +69,14 @@ val ChatMessageList =
         val openedFor = useRef<String>(null)
         val wasLoading = useRef(false)
         val markDebounce = useRef<Int>(null)
+        val prevScrollHeight = useRef(0.0)
 
         // Following the feed: pin to bottom, scroll-anchoring OFF. Reading history:
         // anchoring ON and never touch scrollTop, so the browser holds position across
         // prepends and late image/avatar layout (a manual scrollTop delta could not).
         useLayoutEffect(items.size, props.resetKey) {
             val node = el.current ?: return@useLayoutEffect
+            val newHeight = node.scrollHeight.toDouble()
 
             if (openedFor.current != props.resetKey) {
                 // First render of this group: open at the bottom, anchoring off.
@@ -86,6 +88,7 @@ val ChatMessageList =
                     atBottom.current = true
                     props.onAtBottomChange(true)
                 }
+                prevScrollHeight.current = node.scrollHeight.toDouble()
                 return@useLayoutEffect
             }
 
@@ -103,9 +106,19 @@ val ChatMessageList =
                 // fire-time count) so continued scrolling loads the next page without
                 // waiting out the settle timer. isLoadingMore still guards a double fire.
                 if (loadingOlder.current == true && items.size > (firedSize.current ?: 0)) {
+                    // overflow-anchor holds the position only when scrollTop > 0. At the very top
+                    // (scrollTop ~0) the browser does NOT shift the viewport on a prepend, so the
+                    // user stays pinned to the new top and pagination auto-fires page after page.
+                    // Nudge scrollTop down by the height that was just prepended so the rows being
+                    // read stay put and the user must scroll up again to load the next page.
+                    val delta = newHeight - (prevScrollHeight.current ?: newHeight)
+                    if (node.scrollTop.toDouble() < 4.0 && delta > 0.0) {
+                        node.scrollTop = node.scrollTop + delta
+                    }
                     loadingOlder.current = false
                 }
             }
+            prevScrollHeight.current = node.scrollHeight.toDouble()
         }
 
         // Fallback latch release: the layout effect frees the latch as soon as the page
