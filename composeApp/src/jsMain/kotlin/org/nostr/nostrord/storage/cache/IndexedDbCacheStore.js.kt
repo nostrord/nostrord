@@ -53,7 +53,8 @@ class IndexedDbCacheStore : CacheStore {
         messages: List<CachedMsg>,
     ) {
         if (messages.isEmpty()) return
-        val tx = db().transaction(MESSAGE, "readwrite")
+        val database = db()
+        val tx = database.transaction(MESSAGE, "readwrite")
         val store = tx.objectStore(MESSAGE)
         messages.forEach { m ->
             store.put(
@@ -97,7 +98,8 @@ class IndexedDbCacheStore : CacheStore {
         groupId: String,
     ): Long? {
         val range = boundGroup(account, groupId, upperCreatedAt = null, upperExclusive = false)
-        val store = db().transaction(MESSAGE, "readonly").objectStore(MESSAGE)
+        val database = db()
+        val store = database.transaction(MESSAGE, "readonly").objectStore(MESSAGE)
         val cursorReq = store.index(MSG_GROUP_TIME).openCursor(range, "next")
         val first = awaitRequest<dynamic>(cursorReq) ?: return null
         return (first.value.created_at.unsafeCast<Double>()).toLong()
@@ -108,7 +110,8 @@ class IndexedDbCacheStore : CacheStore {
         events: List<CachedEventRow>,
     ) {
         if (events.isEmpty()) return
-        val tx = db().transaction(EVENT, "readwrite")
+        val database = db()
+        val tx = database.transaction(EVENT, "readwrite")
         val store = tx.objectStore(EVENT)
         events.forEach { e ->
             store.put(
@@ -130,7 +133,8 @@ class IndexedDbCacheStore : CacheStore {
         account: String,
         id: String,
     ): CachedEventRow? {
-        val store = db().transaction(EVENT, "readonly").objectStore(EVENT)
+        val database = db()
+        val store = database.transaction(EVENT, "readonly").objectStore(EVENT)
         val row = awaitRequest<dynamic>(store.get(arrayOf(account, id))) ?: return null
         return toEventRow(row)
     }
@@ -140,7 +144,8 @@ class IndexedDbCacheStore : CacheStore {
         ids: List<String>,
     ): List<CachedEventRow> {
         if (ids.isEmpty()) return emptyList()
-        val store = db().transaction(EVENT, "readonly").objectStore(EVENT)
+        val database = db()
+        val store = database.transaction(EVENT, "readonly").objectStore(EVENT)
         return ids.mapNotNull { id ->
             val row = awaitRequest<dynamic>(store.get(arrayOf(account, id)))
             if (row == null) null else toEventRow(row)
@@ -155,7 +160,8 @@ class IndexedDbCacheStore : CacheStore {
         val rows = (sizeRows(MESSAGE, account) + sizeRows(EVENT, account)).sortedBy { it.createdAt }
         var total = rows.sumOf { it.bytes }
         if (total <= maxBytes) return
-        val tx = db().transaction(arrayOf(MESSAGE, EVENT), "readwrite")
+        val database = db()
+        val tx = database.transaction(arrayOf(MESSAGE, EVENT), "readwrite")
         for (row in rows) {
             if (total <= maxBytes) break
             tx.objectStore(row.store).delete(arrayOf(account, row.id))
@@ -165,7 +171,8 @@ class IndexedDbCacheStore : CacheStore {
     }
 
     override suspend fun clearAccount(account: String) {
-        val tx = db().transaction(arrayOf(MESSAGE, EVENT), "readwrite")
+        val database = db()
+        val tx = database.transaction(arrayOf(MESSAGE, EVENT), "readwrite")
         // Delete every row whose compound key starts with [account].
         val range = boundAccount(account)
         deleteByRange(tx.objectStore(MESSAGE), range)
@@ -179,7 +186,8 @@ class IndexedDbCacheStore : CacheStore {
         range: dynamic,
         limit: Int,
     ): List<CachedMsg> {
-        val store = db().transaction(MESSAGE, "readonly").objectStore(MESSAGE)
+        val database = db()
+        val store = database.transaction(MESSAGE, "readonly").objectStore(MESSAGE)
         val out = ArrayList<CachedMsg>(limit)
         // One continuation drives the whole cursor and resumes exactly once. Re-registering the
         // request's handlers per step (and re-awaiting it) can resume a continuation twice under
@@ -198,7 +206,8 @@ class IndexedDbCacheStore : CacheStore {
         storeName: String,
         account: String,
     ): List<SizeRow> {
-        val store = db().transaction(storeName, "readonly").objectStore(storeName)
+        val database = db()
+        val store = database.transaction(storeName, "readonly").objectStore(storeName)
         val out = ArrayList<SizeRow>()
         drainCursor(store.openCursor(boundAccount(account), "next")) { cursor ->
             val v = cursor.value
