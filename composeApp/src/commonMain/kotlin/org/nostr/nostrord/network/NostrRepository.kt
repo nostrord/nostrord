@@ -1853,6 +1853,9 @@ class NostrRepository(
                 groupManager.awaitGroupListEose(newRelayUrl)
                 groupManager.requestPrivateGroupData(newRelayUrl)
                 groupManager.requestActiveGroupMetadataIfMissing(newRelayUrl)
+                // The active group's controller was reset to Idle by clearForRelaySwitch and the
+                // bulk re-subscribe skips it; reload it here so it can paginate (race fix).
+                groupManager.requestActiveGroupMessagesIfNeeded(newRelayUrl)
             }
         } else if (groupManager.hasCachedGroupsForRelay(newRelayUrl)) {
             // No connection yet but cache was restored — unmark loading.

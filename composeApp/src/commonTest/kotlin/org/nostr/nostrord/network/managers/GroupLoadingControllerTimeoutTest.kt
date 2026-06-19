@@ -13,12 +13,16 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Tests for NOSTR-008: timeout never produces HasMore.
+ * Tests for NOSTR-008 timeout handling.
  *
- * Pre-change behavior: handleTimeout transitioned to HasMore when at least one
- * message had arrived, which made the UI auto-paginate against a flaky relay.
- * Post-change: timeout always yields Error(TIMEOUT) or Error(PARTIAL_TIMEOUT)
- * with the cursor preserved when messages were received.
+ * Initial-load timeouts yield Error(TIMEOUT) or Error(PARTIAL_TIMEOUT) with the cursor
+ * preserved when messages were received — never HasMore, so the load screen does not
+ * auto-paginate against a flaky relay.
+ *
+ * Pagination timeouts (a scroll-back REQ that never got its EOSE, e.g. the relay dropped
+ * the sub during rapid group switching) revert to HasMore, keeping the cursor frontier, so
+ * the user's next scroll retries instead of the group being stranded (hasMore=false) until
+ * an app restart.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class GroupLoadingControllerTimeoutTest {
@@ -59,6 +63,67 @@ class GroupLoadingControllerTimeoutTest {
         )
         assertNotNull(state.cursor, "cursor must be preserved so retry can resume")
         assertEquals(1, state.cursor!!.totalReceived)
+        scope.cancel()
+    }
+
+    @Test
+    fun `pagination timeout reverts to HasMore so the group is not stranded`() = runTest {
+        val scope = TestScope(testScheduler)
+        val c = GroupLoadingController(groupId = "g".repeat(64), scope = scope, timeoutMs = 50L)
+        // Reach HasMore via an initial load that completes with EOSE.
+        val initSub = c.startInitialLoad()!!
+        c.trackMessage(initSub, timestamp = 1_700_000_100L, eventId = "a".repeat(64))
+        c.handleEose(initSub, relayUrl = "wss://relay.example.com")
+        assertTrue(c.state.value is GroupLoadingState.HasMore)
+
+        // Start a scroll-back page, then let it time out with no EOSE (relay dropped the sub).
+        val pageSub = c.startPagination()!!.first
+        assertNotNull(pageSub)
+        advanceTimeBy(200)
+        runCurrent()
+
+        val state = c.state.value
+        assertTrue(
+            state is GroupLoadingState.HasMore,
+            "a pagination timeout must revert to HasMore, not strand the group on Error, got $state",
+        )
+        scope.cancel()
+    }
+
+    @Test
+    fun `disconnect keeps a loaded group HasMore so pagination is not stranded`() = runTest {
+        val scope = TestScope(testScheduler)
+        val c = GroupLoadingController(groupId = "g".repeat(64), scope = scope, timeoutMs = 50L)
+        val subId = c.startInitialLoad()!!
+        c.trackMessage(subId, timestamp = 1_700_000_000L, eventId = "a".repeat(64))
+        c.handleEose(subId, relayUrl = "wss://relay.example.com")
+        assertTrue(c.state.value is GroupLoadingState.HasMore)
+
+        // A disconnect/reconnect must not zap a loaded group to Idle: the cursor is a timestamp
+        // bookmark, not tied to the socket, so the next scroll resumes from the same frontier.
+        c.handleDisconnect()
+        assertTrue(
+            c.state.value is GroupLoadingState.HasMore,
+            "disconnect must keep a loaded group HasMore, got ${c.state.value}",
+        )
+        c.handleReconnect()
+        assertTrue(
+            c.state.value is GroupLoadingState.HasMore,
+            "reconnect must keep a loaded group HasMore, got ${c.state.value}",
+        )
+        scope.cancel()
+    }
+
+    @Test
+    fun `disconnect resets a never-loaded group to Idle`() = runTest {
+        val scope = TestScope(testScheduler)
+        val c = GroupLoadingController(groupId = "g".repeat(64), scope = scope, timeoutMs = 50L)
+        c.startInitialLoad() // InitialLoading, no EOSE yet -> no cursor to preserve
+        c.handleDisconnect()
+        assertTrue(
+            c.state.value is GroupLoadingState.Idle,
+            "a group still on its initial load must reset to Idle so reconnect re-loads, got ${c.state.value}",
+        )
         scope.cancel()
     }
 

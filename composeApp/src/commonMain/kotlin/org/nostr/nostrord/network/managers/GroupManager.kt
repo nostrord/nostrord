@@ -816,9 +816,17 @@ class GroupManager(
                 client.requestGroupMetadata(groupId) // Metadata (essential for private groups)
                 requestGroupMembers(groupId) // Fast member list
                 requestGroupAdmins(groupId) // Fast admin list
-                // Pagination is heavier and only needed once; the mux carries live
-                // messages after the first open.
-                if (isNew) requestGroupMessages(groupId)
+                // Load message history on first open AND whenever the loader is sitting in a
+                // non-loaded state. A cross-relay switch runs clearForRelaySwitch (resets every
+                // controller to Idle); the bulk re-subscribe reloads the other groups but skips
+                // the active one, so without this the active group stays Idle (hasMore=false) and
+                // can never paginate until restart. startInitialLoad is a no-op when the group is
+                // already HasMore/Paginating, so a normal re-entry still costs nothing.
+                val loadState = loadingRegistry.getController(groupId).state.value
+                val needsLoad = isNew ||
+                    loadState is GroupLoadingState.Idle ||
+                    loadState is GroupLoadingState.Error
+                if (needsLoad) requestGroupMessages(groupId)
             }
 
             muxJob.join()
@@ -1011,6 +1019,23 @@ class GroupManager(
             client.requestGroupMembers(groupId)
             client.requestGroupAdmins(groupId)
         } catch (_: Exception) {}
+    }
+
+    /**
+     * Load the active group's message history after a relay switch.
+     *
+     * [clearForRelaySwitch] resets every controller to Idle; the bulk re-subscribe reloads the
+     * other groups but not the active one, and setActiveGroupId's own load races the clear and
+     * gets wiped (it runs before clearForRelaySwitch). Re-firing here, after the new relay's
+     * group-list EOSE (so after the clear), guarantees the active group leaves Idle and can
+     * paginate. No-op if the group already loaded — requestGroupMessages only acts from Idle/Error.
+     */
+    suspend fun requestActiveGroupMessagesIfNeeded(relayUrl: String) {
+        val groupId = _activeGroupId ?: return
+        if (getRelayForGroup(groupId)?.normalizeRelayUrl() != relayUrl.normalizeRelayUrl()) return
+        val state = loadingRegistry.getController(groupId).state.value
+        if (state !is GroupLoadingState.Idle && state !is GroupLoadingState.Error) return
+        requestGroupMessages(groupId)
     }
 
     /**
@@ -2211,15 +2236,18 @@ class GroupManager(
         // Update legacy flags
         updateLegacyFlags(groupId, controller.state.value)
 
-        // When cursor.untilTimestamp == Long.MAX_VALUE the tracker counted 0 messages
-        // (all were deduplicated because mux delivered them before the pagination sub).
-        // Fall back to the actual oldest message in the store so page 2 doesn't repeat
-        // the same window as the initial load and return nothing.
-        val effectiveUntil = if (cursor.untilTimestamp == Long.MAX_VALUE) {
-            val minCreatedAt = _messages.value[groupId]
-                ?.filter { it.createdAt > 1_000_000_000L } // guard against epoch-0 outliers
-                ?.minOfOrNull { it.createdAt }
-            if (minCreatedAt != null) minCreatedAt - 1L else cursor.untilTimestamp
+        // Continue the relay scan from the oldest message actually in memory, never from a
+        // cursor that lags behind it. Two ways the cursor falls behind the in-memory boundary:
+        // disk-first pagination prepends older cached pages without advancing the controller,
+        // and a mux delivery before the pagination sub leaves the tracker at Long.MAX_VALUE.
+        // In both cases firing the REQ at the stale cursor re-requests an already-covered window
+        // (every event dedups away), so the loader reads it as "no more" and stops paginating
+        // early. Clamping to oldest-in-memory minus one makes page 2 pick up below what we hold.
+        val oldestInMemory = _messages.value[groupId]
+            ?.filter { it.createdAt > 1_000_000_000L } // guard against epoch-0 outliers
+            ?.minOfOrNull { it.createdAt }
+        val effectiveUntil = if (oldestInMemory != null) {
+            minOf(cursor.untilTimestamp, oldestInMemory - 1L)
         } else {
             cursor.untilTimestamp
         }
@@ -3039,7 +3067,13 @@ class GroupManager(
         val olderPage =
             try {
                 cacheStore.loadBefore(account, groupId, oldestInMemory, PAGE_SIZE)
-            } catch (_: Exception) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // The web IndexedDB store can fail with a raw JS error (a TypeError), which is NOT
+                // a Kotlin Exception. Catching only Exception let it escape loadMoreMessages and
+                // kill the pagination coroutine, freezing scroll-back. Treat any cache failure as
+                // "nothing cached" and fall through to the relay.
                 return false
             }
         if (olderPage.isEmpty()) return false
