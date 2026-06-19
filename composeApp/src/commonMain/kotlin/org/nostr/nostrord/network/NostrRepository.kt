@@ -162,12 +162,11 @@ class NostrRepository(
     private val LOCAL_SIGNER_AUTH_BUDGET_MS = 2_000L
     private val REMOTE_SIGNER_AUTH_BUDGET_MS = 12_000L
 
-    private fun signerAuthBudgetMs(): Long =
-        if (ActiveAccountManager.session.value?.signer?.isRemote == true) {
-            REMOTE_SIGNER_AUTH_BUDGET_MS
-        } else {
-            LOCAL_SIGNER_AUTH_BUDGET_MS
-        }
+    private fun signerAuthBudgetMs(): Long = if (ActiveAccountManager.session.value?.signer?.isRemote == true) {
+        REMOTE_SIGNER_AUTH_BUDGET_MS
+    } else {
+        LOCAL_SIGNER_AUTH_BUDGET_MS
+    }
 
     /**
      * Relays for which a post-AUTH group-list fetch has already been issued this
@@ -773,10 +772,22 @@ class NostrRepository(
         val restrictedNormalized = _restrictedRelays.value.keys
             .map { it.normalizeRelayUrl() }
             .toSet()
+        // Connect relays that host auth-gated (private / unknown-metadata) joined groups
+        // first. AUTH is one serialized round-trip per relay on a NIP-46 bunker, and those
+        // relays are the only ones that need it to reveal their kind:39000/39002 — spending
+        // the scarce signer on them before public relays makes private groups load first.
+        val joinedByRelay = groupManager.joinedGroupsByRelay.value
+        val metaByRelay = groupManager.groupsByRelay.value
+        fun authPendingCount(relay: String): Int {
+            val joined = joinedByRelay[relay].orEmpty()
+            val publicIds = metaByRelay[relay].orEmpty().filter { it.isPublic }.map { it.id }.toSet()
+            return joined.count { it !in publicIds }
+        }
         val targets = joinedRelays
             .map { it.normalizeRelayUrl() }
             .distinct()
             .filter { it.isNotBlank() && it != skipNormalized && it !in restrictedNormalized }
+            .sortedByDescending { authPendingCount(it) }
 
         for (relayUrl in targets) {
             // Skip if already connected — connectToRelayBackground is idempotent
@@ -3169,7 +3180,8 @@ class NostrRepository(
                     // result: hold it in InitialLoading so the UI keeps skeletons until
                     // resubscribeAfterAuth replays it post-AUTH, instead of flashing empty.
                     val authBlocked = client.requiresAuth() && !client.hasAuthSucceeded()
-                    val held = authBlocked && subId.startsWith("msg_") &&
+                    val held = authBlocked &&
+                        subId.startsWith("msg_") &&
                         groupManager.holdInitialLoadForReauth(subId)
                     if (!held) {
                         groupManager.handleEoseSuspend(subId, sourceRelayUrl)
@@ -3289,7 +3301,8 @@ class NostrRepository(
                 // state, which is the "open a private group from the homepage" flicker.
                 val sourceRelayUrl = client.getRelayUrl()
                 scope.launch {
-                    val held = isAuthRequired && subId.startsWith("msg_") &&
+                    val held = isAuthRequired &&
+                        subId.startsWith("msg_") &&
                         groupManager.holdInitialLoadForReauth(subId)
                     if (!held) {
                         groupManager.handleEoseSuspend(subId, sourceRelayUrl)
