@@ -520,6 +520,28 @@ class NostrRepository(
             }
         }
 
+        // Auto-forget confirmed orphan pins. A joined group still missing its kind:39000
+        // after the hosting relay finished its group list (EOSE) was deleted, or was filed
+        // under the wrong relay — it can never resolve, shows as a broken "No description"
+        // card, and (being in storage) gets re-published into kind:10009 every time. Drop it
+        // from the joined list + storage and republish so it stays gone. The guards
+        // (recently-joined grace, relay-glitch protection) live in autoForgettableOrphans;
+        // forgetJoinedPin updates joined, which re-runs this collector until it converges.
+        scope.launch {
+            groupManager.orphanedJoinedByRelay.collect {
+                val pubKey = sessionManager.getPublicKey() ?: return@collect
+                val toForget = groupManager.autoForgettableOrphans()
+                if (toForget.isEmpty()) return@collect
+                var changed = false
+                toForget.forEach { (relay, ids) ->
+                    ids.forEach { id ->
+                        if (groupManager.forgetJoinedPin(id, relay, pubKey)) changed = true
+                    }
+                }
+                if (changed) publishJoinedGroupsList()
+            }
+        }
+
         // Bunker (NIP-46) signer-ready recovery. On session restore / account-add
         // the account is marked logged-in optimistically while the remote signer
         // connects asynchronously (issue #85). connect() + NIP-42 AUTH for the

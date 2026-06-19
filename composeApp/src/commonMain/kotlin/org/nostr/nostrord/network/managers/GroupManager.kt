@@ -503,6 +503,46 @@ class GroupManager(
         return false
     }
 
+    // When a group was joined this session. Auto-forget skips groups joined within
+    // RECENT_JOIN_GRACE_MS so a just-joined group whose kind:39000 is still in flight is
+    // never mistaken for a deleted orphan.
+    private val recentlyJoinedAt = mutableMapOf<String, Long>()
+    private val RECENT_JOIN_GRACE_MS = 60_000L
+
+    fun markRecentlyJoined(groupId: String) {
+        recentlyJoinedAt[groupId] = epochMillis()
+    }
+
+    /**
+     * Orphaned joined pins safe to auto-forget: groups still missing kind:39000 after their
+     * relay finished serving its group list (so the relay was asked and does not have them —
+     * deleted, or filed under the wrong relay). Two guards keep this from removing real
+     * groups: skip any group joined within [RECENT_JOIN_GRACE_MS] (metadata may still be
+     * arriving), and skip any relay where EVERY joined group is an orphan — a relay glitch or
+     * transient data loss must never wipe the user's groups; those stay as manual-forget
+     * orphans. Returns relay -> forgettable group ids.
+     */
+    fun autoForgettableOrphans(): Map<String, Set<String>> {
+        val orphans = _orphanedJoinedByRelay.value
+        if (orphans.isEmpty()) return emptyMap()
+        val now = epochMillis()
+        val joined = _joinedGroupsByRelay.value
+        return orphans
+            .mapNotNull { (relay, orphanIds) ->
+                val joinedOnRelay = joined[relay].orEmpty()
+                // Glitch guard: a healthy relay served metadata for at least one joined group.
+                if (joinedOnRelay.isEmpty() || orphanIds.size >= joinedOnRelay.size) {
+                    return@mapNotNull null
+                }
+                val safe =
+                    orphanIds.filterTo(mutableSetOf()) { id ->
+                        val at = recentlyJoinedAt[id]
+                        at == null || now - at > RECENT_JOIN_GRACE_MS
+                    }
+                if (safe.isEmpty()) null else relay to (safe as Set<String>)
+            }.toMap()
+    }
+
     /**
      * Mark a group as restricted (relay denied access).
      * Called when a CLOSED "restricted" message arrives for a group subscription.
@@ -1075,6 +1115,7 @@ class GroupManager(
             val updated = relayGroups + groupId
             SecureStorage.saveJoinedGroupsForRelay(pubKey, normalizedGroupRelay, updated)
             _joinedGroupsByRelay.update { it + (normalizedGroupRelay to updated) }
+            markRecentlyJoined(groupId)
 
             publishJoinedGroups()
 
@@ -1111,6 +1152,7 @@ class GroupManager(
         _joinedGroupsByRelay.update { current ->
             current + (key to ((current[key] ?: emptySet()) + groupId))
         }
+        markRecentlyJoined(groupId)
         return true
     }
 
