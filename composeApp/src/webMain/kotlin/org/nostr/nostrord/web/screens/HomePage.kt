@@ -77,7 +77,11 @@ val HomePage =
         val actorMeta = useStateFlow(AppModule.nostrRepository.userMetadata)
         // Tab index derived from the router-owned tab; selecting a tab routes (mirror).
         val filter = props.tab.ordinal
-        val setFilter = { index: Int -> props.onSelectTab(HomeTab.entries[index]) }
+        // Each tab is its own screen; carrying the filter text across tabs is confusing, so reset it.
+        val setFilter = { index: Int ->
+            vm.setQuery("")
+            props.onSelectTab(HomeTab.entries[index])
+        }
 
         // Fetch the discovery lists lazily, only when their tab is shown.
         useEffect(filter) {
