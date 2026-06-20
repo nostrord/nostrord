@@ -2146,16 +2146,6 @@ body {
     min-width: 0;
 }
 
-.dm-search input {
-    flex: 1;
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    font-size: 13px;
-    color: var(--color-text-secondary);
-    outline: none;
-}
-
 .dm-section-label {
     margin: var(--space-md) 0 var(--space-xs);
     padding: 0 var(--space-md);

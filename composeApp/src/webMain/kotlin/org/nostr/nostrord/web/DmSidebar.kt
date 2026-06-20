@@ -62,17 +62,13 @@ val DmSidebar =
                         placeholder = "Search by name, nip-05, npub or hex",
                         value = query,
                         onChange = { setQuery(it) },
+                        compact = true,
                         autoFocus = true,
-                    )
-                    button {
-                        className = ClassName("icon-btn")
-                        title = "Close"
-                        onClick = {
+                        onClose = {
                             setSearchOpen(false)
                             setQuery("")
-                        }
-                        icon(Ic.Close)
-                    }
+                        },
+                    )
                 }
                 // A pasted npub/hex starts that conversation right away.
                 if (parsed != null) {
