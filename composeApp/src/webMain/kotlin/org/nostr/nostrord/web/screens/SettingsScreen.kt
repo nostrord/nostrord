@@ -23,6 +23,7 @@ import org.nostr.nostrord.web.components.UploadButton
 import org.nostr.nostrord.web.components.WebAvatar
 import org.nostr.nostrord.web.components.copyToClipboard
 import org.nostr.nostrord.web.components.icon
+import org.nostr.nostrord.web.components.useEscClose
 import react.FC
 import react.Props
 import react.dom.html.ReactHTML.button
@@ -71,6 +72,9 @@ val SettingsScreen =
             accounts.firstOrNull { it.id == activeAccountId }?.authMethod ?: AuthMethod.LOCAL
         // Mobile: false = section list, true = selected panel (with a back button). Ignored on desktop.
         val (mobilePanel, setMobilePanel) = useState { false }
+        // Esc closes the settings overlay (parity with native's Escape handler). While the
+        // Log Out confirm dialog is open it owns Esc, so closing it doesn't also drop settings.
+        useEscClose { if (logoutConfirmOpen) setLogoutConfirmOpen(false) else props.onClose() }
 
         div {
             className = ClassName(if (mobilePanel) "settings-overlay show-panel" else "settings-overlay")

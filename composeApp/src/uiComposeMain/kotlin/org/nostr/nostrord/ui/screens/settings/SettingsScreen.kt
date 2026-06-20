@@ -486,7 +486,7 @@ private fun MobileSettings(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Settings", color = NostrordColors.TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                SettingsCloseButton(onClick = onClose, showEscHint = false)
+                SettingsCloseButton(onClick = onClose)
             }
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 SettingsSidebar(
@@ -669,7 +669,7 @@ private fun SettingsNavDivider(compact: Boolean = false) {
 // ── Close button ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun SettingsCloseButton(onClick: () -> Unit, showEscHint: Boolean = true) {
+private fun SettingsCloseButton(onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val isHovered by interactionSource.collectIsHoveredAsState()
 
@@ -687,9 +687,6 @@ private fun SettingsCloseButton(onClick: () -> Unit, showEscHint: Boolean = true
             tint = NostrordColors.TextSecondary,
             modifier = Modifier.size(16.dp),
         )
-        if (showEscHint) {
-            Text("ESC", color = NostrordColors.TextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-        }
     }
 }
 
